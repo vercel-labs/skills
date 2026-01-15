@@ -96,6 +96,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(process.cwd(), '.github')) || existsSync(join(home, '.copilot'));
     },
   },
+  clawdbot: {
+    name: 'clawdbot',
+    displayName: 'Clawdbot',
+    skillsDir: 'skills',
+    globalSkillsDir: join(home, '.clawdbot/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.clawdbot'));
+    },
+  },
 };
 
 export async function detectInstalledAgents(): Promise<AgentType[]> {
