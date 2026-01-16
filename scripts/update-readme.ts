@@ -10,7 +10,7 @@ const README_PATH = join(ROOT, 'README.md');
 function generateAgentList(): string {
   const agentList = Object.values(agents);
   const count = agentList.length;
-  return `Supports **Claude Code**, **Codex**, **Cursor**, and [${count - 3} more](#available-agents).`;
+  return `Supports **Opencode**, **Claude Code**, **Codex**, **Cursor**, and [${count - 4} more](#available-agents).`;
 }
 
 function generateAgentNames(): string {
@@ -19,7 +19,7 @@ function generateAgentNames(): string {
 
 function generateAvailableAgentsTable(): string {
   const rows = Object.values(agents).map((a) => {
-    const globalPath = a.globalSkillsDir.replace(/^.*\/home\/[^/]+/, '~');
+    const globalPath = a.globalSkillsDir.replace(process.env.HOME || '', '~');
     return `| ${a.displayName} | \`${a.skillsDir}/\` | \`${globalPath}/\` |`;
   });
   return [

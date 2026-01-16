@@ -91,6 +91,7 @@ Skills can be installed to any of these supported agents. Use `-g, --global` to 
 | Roo Code | `.roo/skills/` | `~/.roo/skills/` |
 | Goose | `.goose/skills/` | `~/.config/goose/skills/` |
 | Antigravity | `.agent/skills/` | `~/.gemini/antigravity/skills/` |
+| GitHub Copilot | `.github/skills/` | `~/.copilot/skills/` |
 <!-- available-agents:end -->
 
 ## Agent Detection
@@ -145,6 +146,7 @@ The CLI searches for skills in these locations within a repository:
 - `.roo/skills/`
 - `.goose/skills/`
 - `.agent/skills/`
+- `.github/skills/`
 <!-- skill-discovery:end -->
 
 If no skills are found in standard locations, a recursive search is performed.
