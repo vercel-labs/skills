@@ -87,9 +87,9 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(process.cwd(), '.agent')) || existsSync(join(home, '.gemini/antigravity'));
     },
   },
-  'vscode-copilot': {
-    name: 'vscode-copilot',
-    displayName: 'VS Code Copilot',
+  'github-copilot': {
+    name: 'github-copilot',
+    displayName: 'GitHub Copilot',
     skillsDir: '.github/skills',
     globalSkillsDir: join(home, '.copilot/skills'),
     detectInstalled: async () => {
