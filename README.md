@@ -3,7 +3,7 @@
 Install agent skills onto your coding agents from any git repository.
 
 <!-- agent-list:start -->
-Supports **Claude Code**, **Codex**, **Cursor**, and [6 more](#available-agents).
+Supports **Opencode**, **Claude Code**, **Codex**, **Cursor**, and [6 more](#available-agents).
 <!-- agent-list:end -->
 
 ## Quick Start
@@ -153,12 +153,12 @@ If no skills are found in standard locations, a recursive search is performed.
 
 Skills are generally compatible across agents since they follow a shared [Agent Skills specification](https://agentskills.io). However, some features may be agent-specific:
 
-| Feature | OpenCode | Claude Code | Codex | Cursor | Antigravity |
-|---------|----------|-------------|-------|--------|-------------|
-| Basic skills | Yes | Yes | Yes | Yes | Yes |
-| `allowed-tools` | Yes | Yes | Yes | Yes | Yes |
-| `context: fork` | No | Yes | No | No | No |
-| Hooks | No | Yes | No | No | No |
+| Feature | OpenCode | Claude Code | Codex | Cursor | Antigravity | Roo Code | Github Copilot | Amp |
+|---------|----------|-------------|-------|--------|-------------|----------|----------------|-----|
+| Basic skills | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `allowed-tools` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `context: fork` | No | Yes | No | No | No | No | No | No |
+| Hooks | No | Yes | No | No | No | No | No | No |
 
 ## Troubleshooting
 
@@ -184,7 +184,10 @@ Ensure you have write access to the target directory.
 - [Claude Code Skills Documentation](https://code.claude.com/docs/en/skills)
 - [Codex Skills Documentation](https://developers.openai.com/codex/skills)
 - [Cursor Skills Documentation](https://cursor.com/docs/context/skills)
+- [Amp Skills Documentation](https://ampcode.com/manual#agent-skills)
 - [Antigravity Skills Documentation](https://antigravity.google/docs/skills)
+- [GitHub Copilot Agent Skills](https://docs.github.com/en/copilot/concepts/agents/about-agent-skills)
+- [Roo Code Skills Documentation](https://docs.roocode.com/features/skills)
 
 ## License
 

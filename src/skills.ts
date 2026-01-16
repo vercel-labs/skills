@@ -90,6 +90,7 @@ export async function discoverSkills(basePath: string, subpath?: string): Promis
     join(searchPath, '.roo/skills'),
     join(searchPath, '.goose/skills'),
     join(searchPath, ".agent/skills"),
+    join(searchPath, ".github/skills")
   ];
 
   for (const dir of prioritySearchDirs) {
