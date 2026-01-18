@@ -3,7 +3,7 @@
 Install agent skills onto your coding agents from any git repository.
 
 <!-- agent-list:start -->
-Supports **Opencode**, **Claude Code**, **Codex**, **Cursor**, and [11 more](#available-agents).
+Supports **Opencode**, **Claude Code**, **Codex**, **Cursor**, and [12 more](#available-agents).
 <!-- agent-list:end -->
 
 ## Quick Start
@@ -97,6 +97,7 @@ Skills can be installed to any of these supported agents. Use `-g, --global` to 
 | Droid | `.factory/skills/` | `~/.factory/skills/` |
 | Gemini CLI | `.gemini/skills/` | `~/.gemini/skills/` |
 | Windsurf | `.windsurf/skills/` | `~/.codeium/windsurf/skills/` |
+| Pi | `.pi/skills/` | `~/.pi/agent/skills/` |
 <!-- available-agents:end -->
 
 ## Agent Detection
@@ -156,6 +157,7 @@ The CLI searches for skills in these locations within a repository:
 - `./skills/`
 - `.factory/skills/`
 - `.windsurf/skills/`
+- `.pi/skills/`
 <!-- skill-discovery:end -->
 
 If no skills are found in standard locations, a recursive search is performed.
@@ -201,6 +203,7 @@ Ensure you have write access to the target directory.
 - [GitHub Copilot Agent Skills](https://docs.github.com/en/copilot/concepts/agents/about-agent-skills)
 - [Roo Code Skills Documentation](https://docs.roocode.com/features/skills)
 - [Clawdbot Skills Documentation](https://docs.clawd.bot/tools/skills)
+- [Pi Skills Documentation](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/skills.md)
 
 ## License
 
