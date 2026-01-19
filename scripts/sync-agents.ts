@@ -20,13 +20,13 @@ function generateAgentNames(): string {
 }
 
 function generateAvailableAgentsTable(): string {
-  const rows = Object.values(agents).map((a) => {
+  const rows = Object.entries(agents).map(([key, a]) => {
     const globalPath = a.globalSkillsDir.replace(homedir(), '~');
-    return `| ${a.displayName} | \`${a.skillsDir}/\` | \`${globalPath}/\` |`;
+    return `| ${a.displayName} | \`${key}\` | \`${a.skillsDir}/\` | \`${globalPath}/\` |`;
   });
   return [
-    '| Agent | Project Path | Global Path |',
-    '|-------|--------------|-------------|',
+    '| Agent | `--agent` | Project Path | Global Path |',
+    '|-------|-----------|--------------|-------------|',
     ...rows,
   ].join('\n');
 }

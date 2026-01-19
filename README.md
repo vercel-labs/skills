@@ -80,22 +80,22 @@ npx add-skill vercel-labs/agent-skills -y -g
 Skills can be installed to any of these supported agents. Use `-g, --global` to install to the global path instead of project-level.
 
 <!-- available-agents:start -->
-| Agent | Project Path | Global Path |
-|-------|--------------|-------------|
-| OpenCode | `.opencode/skills/` | `~/.config/opencode/skills/` |
-| Claude Code | `.claude/skills/` | `~/.claude/skills/` |
-| Codex | `.codex/skills/` | `~/.codex/skills/` |
-| Cursor | `.cursor/skills/` | `~/.cursor/skills/` |
-| Amp | `.agents/skills/` | `~/.config/agents/skills/` |
-| Kilo Code | `.kilocode/skills/` | `~/.kilocode/skills/` |
-| Roo Code | `.roo/skills/` | `~/.roo/skills/` |
-| Goose | `.goose/skills/` | `~/.config/goose/skills/` |
-| Gemini CLI | `.gemini/skills/` | `~/.gemini/skills/` |
-| Antigravity | `.agent/skills/` | `~/.gemini/antigravity/skills/` |
-| GitHub Copilot | `.github/skills/` | `~/.copilot/skills/` |
-| Clawdbot | `skills/` | `~/.clawdbot/skills/` |
-| Droid | `.factory/skills/` | `~/.factory/skills/` |
-| Windsurf | `.windsurf/skills/` | `~/.codeium/windsurf/skills/` |
+| Agent | `--agent` | Project Path | Global Path |
+|-------|-----------|--------------|-------------|
+| OpenCode | `opencode` | `.opencode/skills/` | `~/.config/opencode/skills/` |
+| Claude Code | `claude-code` | `.claude/skills/` | `~/.claude/skills/` |
+| Codex | `codex` | `.codex/skills/` | `~/.codex/skills/` |
+| Cursor | `cursor` | `.cursor/skills/` | `~/.cursor/skills/` |
+| Amp | `amp` | `.agents/skills/` | `~/.config/agents/skills/` |
+| Kilo Code | `kilo` | `.kilocode/skills/` | `~/.kilocode/skills/` |
+| Roo Code | `roo` | `.roo/skills/` | `~/.roo/skills/` |
+| Goose | `goose` | `.goose/skills/` | `~/.config/goose/skills/` |
+| Gemini CLI | `gemini-cli` | `.gemini/skills/` | `~/.gemini/skills/` |
+| Antigravity | `antigravity` | `.agent/skills/` | `~/.gemini/antigravity/skills/` |
+| GitHub Copilot | `github-copilot` | `.github/skills/` | `~/.copilot/skills/` |
+| Clawdbot | `clawdbot` | `skills/` | `~/.clawdbot/skills/` |
+| Droid | `droid` | `.factory/skills/` | `~/.factory/skills/` |
+| Windsurf | `windsurf` | `.windsurf/skills/` | `~/.codeium/windsurf/skills/` |
 <!-- available-agents:end -->
 
 ## Agent Detection

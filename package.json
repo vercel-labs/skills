@@ -17,6 +17,7 @@
   },
   "keywords": [
     "cli",
+    "agent-skills",
     "skills",
     "ai-agents",
     "opencode",
@@ -32,7 +33,6 @@
     "github-copilot",
     "clawdbot",
     "droid",
-    "gemini",
     "windsurf"
   ],
   "repository": {
