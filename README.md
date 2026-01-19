@@ -96,7 +96,6 @@ Skills can be installed to any of these supported agents. Use `-g, --global` to 
 | GitHub Copilot | `.github/skills/` | `~/.copilot/skills/` |
 | Clawdbot | `skills/` | `~/.clawdbot/skills/` |
 | Droid | `.factory/skills/` | `~/.factory/skills/` |
-| Gemini CLI | `.gemini/skills/` | `~/.gemini/skills/` |
 | Windsurf | `.windsurf/skills/` | `~/.codeium/windsurf/skills/` |
 <!-- available-agents:end -->
 

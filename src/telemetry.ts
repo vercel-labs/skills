@@ -6,6 +6,7 @@ interface TelemetryData {
   skills: string;
   agents: string;
   global?: '1';
+  skillFiles?: string; // JSON stringified { skillName: relativePath }
 }
 
 let cliVersion: string | null = null;

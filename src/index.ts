@@ -3,7 +3,8 @@
 import { program } from 'commander';
 import * as p from '@clack/prompts';
 import chalk from 'chalk';
-import { parseSource, cloneRepo, cleanupTempDir } from './git.js';
+import { parseSource } from './source-parser.js';
+import { cloneRepo, cleanupTempDir } from './git.js';
 import { discoverSkills, getSkillDisplayName } from './skills.js';
 import { installSkillForAgent, isSkillInstalled, getInstallPath } from './installer.js';
 import { detectInstalledAgents, agents } from './agents.js';
@@ -26,7 +27,7 @@ program
   .name('add-skill')
   .description('Install skills onto coding agents (OpenCode, Claude Code, Codex, Kiro CLI, Cursor, Antigravity, Github Copilot, Roo Code)')
   .version(version)
-  .argument('<source>', 'Git repo URL, GitHub shorthand (owner/repo), or direct path to skill')
+  .argument('<source>', 'Git repo URL, GitHub shorthand (owner/repo), local path (./path), or direct path to skill')
   .option('-g, --global', 'Install skill globally (user-level) instead of project-level')
   .option('-a, --agent <agents...>', 'Specify agents to install to (opencode, claude-code, codex, kiro-cli, cursor, antigravity, github-copilot, roo)')
   .option('-s, --skill <skills...>', 'Specify skill names to install (skip selection prompt)')
@@ -59,23 +60,40 @@ program.parse();
 
 async function main(source: string, options: Options) {
   console.log();
-  p.intro(chalk.bgCyan.black(' add-skill '));
+  p.intro(chalk.bgCyan.black(' skills '));
 
-let tempDir: string | null = null;
+  let tempDir: string | null = null;
 
   try {
     const spinner = p.spinner();
 
     spinner.start('Parsing source...');
     const parsed = parseSource(source);
-    spinner.stop(`Source: ${chalk.cyan(parsed.url)}${parsed.subpath ? ` (${parsed.subpath})` : ''}`);
+    spinner.stop(`Source: ${chalk.cyan(parsed.type === 'local' ? parsed.localPath! : parsed.url)}${parsed.subpath ? ` (${parsed.subpath})` : ''}`);
 
-    spinner.start('Cloning repository...');
-    tempDir = await cloneRepo(parsed.url);
-    spinner.stop('Repository cloned');
+    let skillsDir: string;
+
+    if (parsed.type === 'local') {
+      // Use local path directly, no cloning needed
+      spinner.start('Validating local path...');
+      const { existsSync } = await import('fs');
+      if (!existsSync(parsed.localPath!)) {
+        spinner.stop(chalk.red('Path not found'));
+        p.outro(chalk.red(`Local path does not exist: ${parsed.localPath}`));
+        process.exit(1);
+      }
+      skillsDir = parsed.localPath!;
+      spinner.stop('Local path validated');
+    } else {
+      // Clone repository for remote sources
+      spinner.start('Cloning repository...');
+      tempDir = await cloneRepo(parsed.url);
+      skillsDir = tempDir;
+      spinner.stop('Repository cloned');
+    }
 
     spinner.start('Discovering skills...');
-    const skills = await discoverSkills(tempDir, parsed.subpath);
+    const skills = await discoverSkills(skillsDir, parsed.subpath);
 
     if (skills.length === 0) {
       spinner.stop(chalk.red('No skills found'));
@@ -185,6 +203,7 @@ let tempDir: string | null = null;
             message: 'Select agents to install skills to',
             options: allAgentChoices,
             required: true,
+            initialValues: Object.keys(agents) as AgentType[],
           });
 
           if (p.isCancel(selected)) {
@@ -247,19 +266,41 @@ let tempDir: string | null = null;
       installGlobally = scope as boolean;
     }
 
-    console.log();
-    p.log.step(chalk.bold('Installation Summary'));
-
+    // Build installation summary table
+    const summaryLines: string[] = [];
+    
+    // Find the longest agent name for padding
+    const maxAgentLen = Math.max(...targetAgents.map(a => agents[a].displayName.length));
+    
+    // Check if any skill will be overwritten
+    const overwriteStatus = new Map<string, Map<string, boolean>>();
     for (const skill of selectedSkills) {
-      p.log.message(`  ${chalk.cyan(getSkillDisplayName(skill))}`);
+      const agentStatus = new Map<string, boolean>();
       for (const agent of targetAgents) {
-        const path = getInstallPath(skill.name, agent, { global: installGlobally });
-        const installed = await isSkillInstalled(skill.name, agent, { global: installGlobally });
-        const status = installed ? chalk.yellow(' (will overwrite)') : '';
-        p.log.message(`    ${chalk.dim('→')} ${agents[agent].displayName}: ${chalk.dim(path)}${status}`);
+        agentStatus.set(agent, await isSkillInstalled(skill.name, agent, { global: installGlobally }));
+      }
+      overwriteStatus.set(skill.name, agentStatus);
+    }
+    
+    for (const skill of selectedSkills) {
+      if (summaryLines.length > 0) summaryLines.push(''); // separator between skills
+      summaryLines.push(chalk.bold.cyan(getSkillDisplayName(skill)));
+      summaryLines.push('');
+      summaryLines.push(`  ${chalk.bold('Agent'.padEnd(maxAgentLen + 2))}${chalk.bold('Directory')}`);
+      
+      for (const agent of targetAgents) {
+        const fullPath = getInstallPath(skill.name, agent, { global: installGlobally });
+        // Strip the skill name from the end to show just the base directory
+        const basePath = fullPath.replace(/\/[^/]+$/, '/');
+        const installed = overwriteStatus.get(skill.name)?.get(agent) ?? false;
+        const status = installed ? chalk.yellow(' (overwrite)') : '';
+        const agentName = agents[agent].displayName.padEnd(maxAgentLen + 2);
+        summaryLines.push(`  ${agentName}${chalk.dim(basePath)}${status}`);
       }
     }
+    
     console.log();
+    p.note(summaryLines.join('\n'), 'Installation Summary');
 
     if (!options.yes) {
       const confirmed = await p.confirm({ message: 'Proceed with installation?' });
@@ -293,28 +334,60 @@ let tempDir: string | null = null;
     const failed = results.filter(r => !r.success);
 
     // Track installation result
+    // Build skillFiles map: { skillName: relative path to SKILL.md }
+    const skillFiles: Record<string, string> = {};
+    for (const skill of selectedSkills) {
+      // skill.path is absolute, compute relative from tempDir
+      const relativePath = skill.path.replace(tempDir + '/', '');
+      skillFiles[skill.name] = relativePath + '/SKILL.md';
+    }
+
     track({
       event: 'install',
       source,
       skills: selectedSkills.map(s => s.name).join(','),
       agents: targetAgents.join(','),
       ...(installGlobally && { global: '1' }),
+      skillFiles: JSON.stringify(skillFiles),
     });
 
     if (successful.length > 0) {
-      p.log.success(chalk.green(`Successfully installed ${successful.length} skill${successful.length !== 1 ? 's' : ''}`));
+      // Group by skill name for cleaner output
+      const bySkill = new Map<string, string[]>();
       for (const r of successful) {
-        p.log.message(`  ${chalk.green('✓')} ${r.skill} → ${r.agent}`);
-        p.log.message(`    ${chalk.dim(r.path)}`);
+        const skillAgents = bySkill.get(r.skill) || [];
+        skillAgents.push(r.agent);
+        bySkill.set(r.skill, skillAgents);
       }
+      
+      const skillCount = bySkill.size;
+      const agentCount = new Set(successful.map(r => r.agent)).size;
+      
+      // Build results list
+      const resultLines: string[] = [];
+      
+      for (const [skill, skillAgents] of bySkill) {
+        resultLines.push(`${chalk.green('✓')} ${chalk.bold(skill)}`);
+        for (const agent of skillAgents) {
+          resultLines.push(`  ${chalk.dim(agent)}`);
+        }
+        resultLines.push(''); // blank line between skills
+      }
+      
+      // Remove trailing blank line
+      if (resultLines.length > 0 && resultLines[resultLines.length - 1] === '') {
+        resultLines.pop();
+      }
+      
+      const title = chalk.green(`Installed ${skillCount} skill${skillCount !== 1 ? 's' : ''} to ${agentCount} agent${agentCount !== 1 ? 's' : ''}`);
+      p.note(resultLines.join('\n'), title);
     }
 
     if (failed.length > 0) {
       console.log();
-      p.log.error(chalk.red(`Failed to install ${failed.length} skill${failed.length !== 1 ? 's' : ''}`));
+      p.log.error(chalk.red(`Failed to install ${failed.length}`));
       for (const r of failed) {
-        p.log.message(`  ${chalk.red('✗')} ${r.skill} → ${r.agent}`);
-        p.log.message(`    ${chalk.dim(r.error)}`);
+        p.log.message(`  ${chalk.red('✗')} ${r.skill} → ${r.agent}: ${chalk.dim(r.error)}`);
       }
     }
 
