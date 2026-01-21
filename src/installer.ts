@@ -1,7 +1,7 @@
-import { mkdir, cp, access, readdir, writeFile } from 'fs/promises';
-import { join, basename, normalize, resolve, sep } from 'path';
-import type { Skill, AgentType, MintlifySkill } from './types.js';
-import { agents } from './agents.js';
+import { mkdir, cp, access, readdir, writeFile } from "fs/promises";
+import { join, basename, normalize, resolve, sep } from "path";
+import type { Skill, AgentType, MintlifySkill } from "./types.js";
+import { agents } from "./agents.js";
 
 const AGENTS_DIR = '.agents';
 const SKILLS_SUBDIR = 'skills';
@@ -23,18 +23,25 @@ interface InstallResult {
  * @returns Sanitized name safe for use in file paths
  */
 function sanitizeName(name: string): string {
-  let sanitized = name.replace(/[\/\\:\0]/g, '');
-  sanitized = sanitized.replace(/^[.\s]+|[.\s]+$/g, '');
-  sanitized = sanitized.replace(/^\.+/, '');
-  
+  // Remove any path separators and null bytes
+  let sanitized = name.replace(/[\/\\:\0]/g, "");
+
+  // Remove leading/trailing dots and spaces
+  sanitized = sanitized.replace(/^[.\s]+|[.\s]+$/g, "");
+
+  // Replace any remaining dots at the start (to prevent ..)
+  sanitized = sanitized.replace(/^\.+/, "");
+
+  // If the name becomes empty after sanitization, use a default
   if (!sanitized || sanitized.length === 0) {
-    sanitized = 'unnamed-skill';
+    sanitized = "unnamed-skill";
   }
-  
+
+  // Limit length to prevent issues
   if (sanitized.length > 255) {
     sanitized = sanitized.substring(0, 255);
   }
-  
+
   return sanitized;
 }
 
@@ -47,9 +54,11 @@ function sanitizeName(name: string): string {
 function isPathSafe(basePath: string, targetPath: string): boolean {
   const normalizedBase = normalize(resolve(basePath));
   const normalizedTarget = normalize(resolve(targetPath));
-  
-  return normalizedTarget.startsWith(normalizedBase + sep) || 
-         normalizedTarget === normalizedBase;
+
+  return (
+    normalizedTarget.startsWith(normalizedBase + sep) ||
+    normalizedTarget === normalizedBase
+  );
 }
 
 /**
@@ -108,44 +117,26 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
 export async function installSkillForAgent(
   skill: Skill,
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
+  options: { global?: boolean; cwd?: string } = {},
 ): Promise<InstallResult> {
   const agent = agents[agentType];
-  const isGlobal = options.global ?? false;
-  const cwd = options.cwd || process.cwd();
-  
+
   // Sanitize skill name to prevent directory traversal
   const rawSkillName = skill.name || basename(skill.path);
   const skillName = sanitizeName(rawSkillName);
-  
-  // Canonical location: .agents/skills/<skill-name>
-  const canonicalBase = getCanonicalSkillsDir(isGlobal, cwd);
-  const canonicalDir = join(canonicalBase, skillName);
-  
-  // Agent-specific location (for symlink)
-  const agentBase = isGlobal
+
+  const targetBase = options.global
     ? agent.globalSkillsDir
-    : join(cwd, agent.skillsDir);
-  const agentDir = join(agentBase, skillName);
-  
-  const installMode = options.mode ?? 'symlink';
-  
-  // Validate paths
-  if (!isPathSafe(canonicalBase, canonicalDir)) {
+    : join(options.cwd || process.cwd(), agent.skillsDir);
+
+  const targetDir = join(targetBase, skillName);
+
+  // Validate that the target directory is within the expected base
+  if (!isPathSafe(targetBase, targetDir)) {
     return {
       success: false,
-      path: agentDir,
-      mode: installMode,
-      error: 'Invalid skill name: potential path traversal detected',
-    };
-  }
-  
-  if (!isPathSafe(agentBase, agentDir)) {
-    return {
-      success: false,
-      path: agentDir,
-      mode: installMode,
-      error: 'Invalid skill name: potential path traversal detected',
+      path: targetDir,
+      error: "Invalid skill name: potential path traversal detected",
     };
   }
 
@@ -196,21 +187,17 @@ export async function installSkillForAgent(
   } catch (error) {
     return {
       success: false,
-      path: agentDir,
-      mode: installMode,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      path: targetDir,
+      error: error instanceof Error ? error.message : "Unknown error",
     };
   }
 }
 
-const EXCLUDE_FILES = new Set([
-  'README.md',
-  'metadata.json',
-]);
+const EXCLUDE_FILES = new Set(["README.md", "metadata.json"]);
 
 const isExcluded = (name: string): boolean => {
   if (EXCLUDE_FILES.has(name)) return true;
-  if (name.startsWith('_')) return true;
+  if (name.startsWith("_")) return true; // Templates, section definitions
   return false;
 };
 
@@ -238,17 +225,20 @@ async function copyDirectory(src: string, dest: string): Promise<void> {
 export async function isSkillInstalled(
   skillName: string,
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string } = {}
+  options: { global?: boolean; cwd?: string } = {},
 ): Promise<boolean> {
   const agent = agents[agentType];
+
+  // Sanitize skill name
   const sanitized = sanitizeName(skillName);
-  
+
   const targetBase = options.global
     ? agent.globalSkillsDir
     : join(options.cwd || process.cwd(), agent.skillsDir);
-  
+
   const skillDir = join(targetBase, sanitized);
-  
+
+  // Validate path safety
   if (!isPathSafe(targetBase, skillDir)) {
     return false;
   }
@@ -264,67 +254,69 @@ export async function isSkillInstalled(
 export function getInstallPath(
   skillName: string,
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string } = {}
+  options: { global?: boolean; cwd?: string } = {},
 ): string {
   const agent = agents[agentType];
-  const cwd = options.cwd || process.cwd();
+
+  // Sanitize skill name
   const sanitized = sanitizeName(skillName);
-  
+
   const targetBase = options.global
     ? agent.globalSkillsDir
-    : join(cwd, agent.skillsDir);
-  
+    : join(options.cwd || process.cwd(), agent.skillsDir);
+
   const installPath = join(targetBase, sanitized);
-  
+
+  // Validate path safety
   if (!isPathSafe(targetBase, installPath)) {
-    throw new Error('Invalid skill name: potential path traversal detected');
+    throw new Error("Invalid skill name: potential path traversal detected");
   }
-  
+
   return installPath;
 }
 
 /**
  * Install a Mintlify skill from a direct URL
- * The skill name is derived from the mintlify-site frontmatter
+ * The skill name is derived from the mintlify-proj frontmatter
  */
 export async function installMintlifySkillForAgent(
   skill: MintlifySkill,
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string } = {}
+  options: { global?: boolean; cwd?: string } = {},
 ): Promise<InstallResult> {
   const agent = agents[agentType];
-  
-  // Use mintlify-site as the skill directory name (e.g., "bun.com")
+
+  // Use mintlify-proj as the skill directory name (e.g., "bun.com")
   const skillName = sanitizeName(skill.mintlifySite);
-  
+
   const targetBase = options.global
     ? agent.globalSkillsDir
     : join(options.cwd || process.cwd(), agent.skillsDir);
 
   const targetDir = join(targetBase, skillName);
-  
+
   // Validate that the target directory is within the expected base
   if (!isPathSafe(targetBase, targetDir)) {
     return {
       success: false,
       path: targetDir,
-      error: 'Invalid skill name: potential path traversal detected',
+      error: "Invalid skill name: potential path traversal detected",
     };
   }
 
   try {
     await mkdir(targetDir, { recursive: true });
-    
+
     // Write the SKILL.md content directly
-    const skillMdPath = join(targetDir, 'SKILL.md');
-    await writeFile(skillMdPath, skill.content, 'utf-8');
+    const skillMdPath = join(targetDir, "SKILL.md");
+    await writeFile(skillMdPath, skill.content, "utf-8");
 
     return { success: true, path: targetDir };
   } catch (error) {
     return {
       success: false,
       path: targetDir,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: error instanceof Error ? error.message : "Unknown error",
     };
   }
 }
