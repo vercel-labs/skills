@@ -12,6 +12,7 @@ import {
   getInstallPath,
   installMintlifySkillForAgent,
   installRemoteSkillForAgent,
+  type InstallMode,
 } from "./installer.js";
 import { detectInstalledAgents, agents } from "./agents.js";
 import { track, setVersion } from "./telemetry.js";
