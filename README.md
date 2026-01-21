@@ -179,12 +179,12 @@ If no skills are found in standard locations, a recursive search is performed.
 
 Skills are generally compatible across agents since they follow a shared [Agent Skills specification](https://agentskills.io). However, some features may be agent-specific:
 
-| Feature | OpenCode | Claude Code | Codex | Kiro CLI | Cursor | Antigravity | Roo Code | Github Copilot | Amp | Clawdbot |
-|---------|----------|-------------|-------|----------|--------|-------------|----------|----------------|-----|----------|
-| Basic skills | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `allowed-tools` | Yes | Yes | Yes | No | Yes | Yes | Yes | Yes | Yes | Yes |
-| `context: fork` | No | Yes | No | No | No | No | No | No | No | No |
-| Hooks | No | Yes | No | No | No | No | No | No | No | No |
+| Feature | OpenCode | Claude Code | Codex | Kiro CLI | Cursor | Antigravity | Roo Code | Github Copilot | Amp | Clawdbot | Qoder |
+|---------|----------|-------------|-------|----------|--------|-------------|----------|----------------|-----|----------|-------|
+| Basic skills | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `allowed-tools` | Yes | Yes | Yes | No | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `context: fork` | No | Yes | No | No | No | No | No | No | No | No | No |
+| Hooks | No | Yes | No | No | No | No | No | No | No | No | No |
 
 ## Troubleshooting
 
@@ -232,6 +232,7 @@ Telemetry is also automatically disabled in CI environments.
 - [Roo Code Skills Documentation](https://docs.roocode.com/features/skills)
 - [Trae Skills Documentation](https://docs.trae.ai/ide/skills)
 - [Vercel Agent Skills Repository](https://github.com/vercel-labs/agent-skills)
+- [Qoder Skills Documentation](https://docs.qoder.com/cli/Skills)
 
 ## License
 
