@@ -3,7 +3,7 @@
 Install agent skills onto your coding agents from any git repository.
 
 <!-- agent-list:start -->
-Supports **Opencode**, **Claude Code**, **Codex**, **Cursor**, and [12 more](#available-agents).
+Supports **Opencode**, **OpenHands**, **Claude Code**, **Codex**, **Cursor**, and [12 more](#available-agents).
 <!-- agent-list:end -->
 
 ## Quick Start
@@ -95,6 +95,7 @@ Skills can be installed to any of these supported agents. Use `-g, --global` to 
 | Kilo Code | `kilo` | `.kilocode/skills/` | `~/.kilocode/skills/` |
 | Kiro CLI | `kiro-cli` | `.kiro/skills/` | `~/.kiro/skills/` |
 | OpenCode | `opencode` | `.opencode/skills/` | `~/.config/opencode/skills/` |
+| OpenHands | `openhands` | `.openhands/skills/` | `~/.openhands/skills/` |
 | Roo Code | `roo` | `.roo/skills/` | `~/.roo/skills/` |
 | Trae | `trae` | `.trae/skills/` | `~/.trae/skills/` |
 | Windsurf | `windsurf` | `.windsurf/skills/` | `~/.codeium/windsurf/skills/` |
@@ -166,6 +167,7 @@ The CLI searches for skills in these locations within a repository:
 - `.kilocode/skills/`
 - `.kiro/skills/`
 - `.opencode/skills/`
+- `.openhands/skills/`
 - `.roo/skills/`
 - `.trae/skills/`
 - `.windsurf/skills/`
@@ -177,12 +179,12 @@ If no skills are found in standard locations, a recursive search is performed.
 
 Skills are generally compatible across agents since they follow a shared [Agent Skills specification](https://agentskills.io). However, some features may be agent-specific:
 
-| Feature | OpenCode | Claude Code | Codex | Kiro CLI | Cursor | Antigravity | Roo Code | Github Copilot | Amp | Clawdbot |
-|---------|----------|-------------|-------|----------|--------|-------------|----------|----------------|-----|----------|
-| Basic skills | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `allowed-tools` | Yes | Yes | Yes | No | Yes | Yes | Yes | Yes | Yes | Yes |
-| `context: fork` | No | Yes | No | No | No | No | No | No | No | No |
-| Hooks | No | Yes | No | No | No | No | No | No | No | No |
+| Feature | OpenCode | OpenHands | Claude Code | Codex | Kiro CLI | Cursor | Antigravity | Roo Code | Github Copilot | Amp | Clawdbot |
+|---------|----------|-----------|-------------|-------|----------|--------|-------------|----------|----------------|-----|----------|
+| Basic skills | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `allowed-tools` | Yes | Yes | Yes | Yes | No | Yes | Yes | Yes | Yes | Yes | Yes |
+| `context: fork` | No | No | Yes | No | No | No | No | No | No | No | No |
+| Hooks | No | No | Yes | No | No | No | No | No | No | No | No |
 
 ## Troubleshooting
 
@@ -227,6 +229,7 @@ Telemetry is also automatically disabled in CI environments.
 - [GitHub Copilot Agent Skills](https://docs.github.com/en/copilot/concepts/agents/about-agent-skills)
 - [Kiro CLI Skills Documentation](https://kiro.dev/docs/cli/custom-agents/configuration-reference/#skill-resources)
 - [OpenCode Skills Documentation](https://opencode.ai/docs/skills)
+- [OpenHands Skills Documentation](https://docs.openhands.ai/modules/usage/how-to/using-skills)
 - [Roo Code Skills Documentation](https://docs.roocode.com/features/skills)
 - [Trae Skills Documentation](https://docs.trae.ai/ide/skills)
 - [Vercel Agent Skills Repository](https://github.com/vercel-labs/agent-skills)

@@ -123,6 +123,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.config/opencode')) || existsSync(join(home, '.claude/skills'));
     },
   },
+  openhands: {
+    name: 'openhands',
+    displayName: 'OpenHands',
+    skillsDir: '.openhands/skills',
+    globalSkillsDir: join(home, '.openhands/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.openhands'));
+    },
+  },
   roo: {
     name: 'roo',
     displayName: 'Roo Code',
