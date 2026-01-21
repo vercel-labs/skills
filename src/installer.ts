@@ -392,6 +392,15 @@ export interface PluginInstallResult {
 }
 
 /**
+ * Checks if a path ends with 'skills' directory (handles both Unix and Windows separators)
+ */
+function endsWithSkills(p: string): boolean {
+  return p.endsWith('/skills') || p.endsWith('/skills/') ||
+         p.endsWith('\\skills') || p.endsWith('\\skills\\') ||
+         p.endsWith(`${sep}skills`) || p.endsWith(`${sep}skills${sep}`);
+}
+
+/**
  * Gets the base directory for an agent (without skills subdirectory)
  */
 function getAgentBaseDir(agentType: AgentType, global: boolean, cwd: string): string {
@@ -399,14 +408,14 @@ function getAgentBaseDir(agentType: AgentType, global: boolean, cwd: string): st
   if (global) {
     // Global path: e.g., ~/.claude/ (remove /skills suffix if present)
     const globalDir = agent.globalSkillsDir;
-    if (globalDir.endsWith('/skills') || globalDir.endsWith('/skills/')) {
+    if (endsWithSkills(globalDir)) {
       return dirname(globalDir);
     }
     return globalDir;
   } else {
     // Project path: e.g., .claude/ (remove /skills suffix if present)
     const skillsDir = agent.skillsDir;
-    if (skillsDir.endsWith('/skills') || skillsDir.endsWith('/skills/')) {
+    if (endsWithSkills(skillsDir)) {
       return join(cwd, dirname(skillsDir));
     }
     return join(cwd, skillsDir);
