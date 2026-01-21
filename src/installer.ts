@@ -503,3 +503,87 @@ export function getPluginInstallPath(
 
   return join(agentBase, sanitized);
 }
+
+// ============================================================================
+// Include Directory Installation
+// ============================================================================
+
+export interface IncludeDirResult {
+  success: boolean;
+  dirName: string;
+  path: string;
+  error?: string;
+}
+
+/**
+ * Copies an additional directory to the agent's base directory
+ * e.g., copies 'agents/' from source to ~/.claude/agents/
+ */
+export async function installIncludedDir(
+  sourceBase: string,
+  dirName: string,
+  agentType: AgentType,
+  options: { global?: boolean; cwd?: string } = {}
+): Promise<IncludeDirResult> {
+  const isGlobal = options.global ?? false;
+  const cwd = options.cwd || process.cwd();
+
+  const sanitizedDir = sanitizeName(dirName);
+  const sourceDir = join(sourceBase, dirName);
+  const agentBase = getAgentBaseDir(agentType, isGlobal, cwd);
+  const targetDir = join(agentBase, sanitizedDir);
+
+  // Validate paths
+  if (!isPathSafe(agentBase, targetDir)) {
+    return {
+      success: false,
+      dirName: sanitizedDir,
+      path: targetDir,
+      error: 'Invalid directory name: potential path traversal detected',
+    };
+  }
+
+  try {
+    // Check if source directory exists
+    await access(sourceDir);
+
+    // Remove existing directory if it exists
+    try {
+      await rm(targetDir, { recursive: true });
+    } catch {
+      // Doesn't exist, that's fine
+    }
+
+    await copyPluginDirectory(sourceDir, targetDir);
+
+    return {
+      success: true,
+      dirName: sanitizedDir,
+      path: targetDir,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      dirName: sanitizedDir,
+      path: targetDir,
+      error: error instanceof Error ? error.message : 'Directory not found or inaccessible',
+    };
+  }
+}
+
+/**
+ * Gets the path where an included directory would be installed
+ */
+export function getIncludedDirPath(
+  dirName: string,
+  agentType: AgentType,
+  options: { global?: boolean; cwd?: string } = {}
+): string {
+  const isGlobal = options.global ?? false;
+  const cwd = options.cwd || process.cwd();
+
+  const sanitized = sanitizeName(dirName);
+  const agentBase = getAgentBaseDir(agentType, isGlobal, cwd);
+
+  return join(agentBase, sanitized);
+}

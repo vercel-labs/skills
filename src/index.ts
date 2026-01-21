@@ -15,7 +15,10 @@ import {
   installPluginForAgent,
   isPluginInstalled,
   getPluginInstallPath,
+  installIncludedDir,
+  getIncludedDirPath,
   type PluginInfo,
+  type IncludeDirResult,
 } from './installer.js';
 import { homedir } from 'os';
 
@@ -61,6 +64,7 @@ interface Options {
   all?: boolean;
   symlink?: boolean;
   plugin?: boolean;
+  includeDir?: string[];
 }
 
 program
@@ -76,6 +80,7 @@ program
   .option('--all', 'Install all skills to all agents without any prompts (implies -y -g)')
   .option('--no-symlink', 'Copy files instead of creating symlinks (better for hot-reload support)')
   .option('--plugin', 'Install as a plugin (copies entire repository structure, preserving agents/, commands/, etc.)')
+  .option('--include-dir <dirs...>', 'Include additional directories alongside skills (e.g., --include-dir agents commands)')
   .configureOutput({
     outputError: (str, write) => {
       if (str.includes('missing required argument')) {
@@ -389,6 +394,29 @@ async function main(source: string, options: Options) {
 
     spinner.stop('Installation complete');
 
+    // Install included directories if specified
+    const includeDirResults: { dir: string; agent: string; success: boolean; path: string; error?: string }[] = [];
+    if (options.includeDir && options.includeDir.length > 0) {
+      spinner.start('Installing additional directories...');
+
+      for (const dir of options.includeDir) {
+        for (const agent of targetAgents) {
+          const result = await installIncludedDir(skillsDir, dir, agent, {
+            global: installGlobally,
+          });
+          includeDirResults.push({
+            dir: result.dirName,
+            agent: agents[agent].displayName,
+            success: result.success,
+            path: result.path,
+            error: result.error,
+          });
+        }
+      }
+
+      spinner.stop('Additional directories installed');
+    }
+
     console.log();
     const successful = results.filter(r => r.success);
     const failed = results.filter(r => !r.success);
@@ -464,6 +492,39 @@ async function main(source: string, options: Options) {
       p.log.error(chalk.red(`Failed to install ${failed.length}`));
       for (const r of failed) {
         p.log.message(`  ${chalk.red('✗')} ${r.skill} → ${r.agent}: ${chalk.dim(r.error)}`);
+      }
+    }
+
+    // Show included directories results
+    if (includeDirResults.length > 0) {
+      const successfulDirs = includeDirResults.filter(r => r.success);
+      const failedDirs = includeDirResults.filter(r => !r.success);
+
+      if (successfulDirs.length > 0) {
+        const dirLines: string[] = [];
+        const byDir = new Map<string, typeof includeDirResults>();
+        for (const r of successfulDirs) {
+          const dirResults = byDir.get(r.dir) || [];
+          dirResults.push(r);
+          byDir.set(r.dir, dirResults);
+        }
+
+        for (const [, dirResults] of byDir) {
+          const firstResult = dirResults[0]!;
+          const shortPath = shortenPath(firstResult.path, cwd);
+          dirLines.push(`${chalk.green('✓')} ${shortPath}`);
+          dirLines.push(`  ${chalk.dim('→')} ${dirResults.map(r => r.agent).join(', ')}`);
+        }
+
+        p.note(dirLines.join('\n'), chalk.green(`Included ${byDir.size} director${byDir.size !== 1 ? 'ies' : 'y'}`));
+      }
+
+      if (failedDirs.length > 0) {
+        console.log();
+        p.log.error(chalk.red(`Failed to include ${failedDirs.length} director${failedDirs.length !== 1 ? 'ies' : 'y'}`));
+        for (const r of failedDirs) {
+          p.log.message(`  ${chalk.red('✗')} ${r.dir} → ${r.agent}: ${chalk.dim(r.error)}`);
+        }
       }
     }
 

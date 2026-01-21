@@ -55,6 +55,7 @@ npx add-skill git@github.com:vercel-labs/agent-skills.git
 | `-y, --yes` | Skip all confirmation prompts |
 | `--no-symlink` | Copy files instead of creating symlinks (better for hot-reload support) |
 | `--plugin` | Install as a plugin (copies entire repository, preserving structure) |
+| `--include-dir <dirs...>` | Include additional directories alongside skills (e.g., `agents`, `commands`) |
 | `-V, --version` | Show version number |
 | `-h, --help` | Show help |
 
@@ -78,6 +79,22 @@ npx add-skill vercel-labs/agent-skills -y -g
 
 # Install as a plugin (preserves entire repository structure)
 npx add-skill ZhangHanDong/rust-skills --plugin -a claude-code -g
+
+# Install skills with additional directories (agents, commands, etc.)
+npx add-skill ZhangHanDong/rust-skills --skill rust-learner --include-dir agents -a claude-code -g
+```
+
+### Include Directories
+
+Use `--include-dir` to copy additional directories alongside skills. This is useful when skills reference other components via relative paths.
+
+```bash
+# Install rust-learner skill with agents directory
+npx add-skill ZhangHanDong/rust-skills --skill rust-learner --include-dir agents -a claude-code
+
+# Result:
+#   ~/.claude/skills/rust-learner/   (the skill)
+#   ~/.claude/agents/                (additional directory)
 ```
 
 ### Plugin Mode
