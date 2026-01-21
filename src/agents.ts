@@ -21,7 +21,9 @@ export const agents: Record<AgentType, AgentConfig> = {
     skillsDir: '.agent/skills',
     globalSkillsDir: join(home, '.gemini/antigravity/skills'),
     detectInstalled: async () => {
-      return existsSync(join(process.cwd(), '.agent')) || existsSync(join(home, '.gemini/antigravity'));
+      return (
+        existsSync(join(process.cwd(), '.agent')) || existsSync(join(home, '.gemini/antigravity'))
+      );
     },
   },
   'claude-code': {
