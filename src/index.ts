@@ -8,6 +8,7 @@ import { cloneRepo, cleanupTempDir } from './git.js';
 import { discoverSkills, getSkillDisplayName } from './skills.js';
 import { installSkillForAgent, isSkillInstalled, getCanonicalPath, getInstallPath } from './installer.js';
 import { homedir } from 'os';
+import { join } from 'path';
 
 /**
  * Shortens a path for display: replaces homedir with ~ and cwd with .
@@ -325,14 +326,18 @@ async function main(source: string, options: Options) {
       summaryLines.push(`${chalk.cyan(shortCanonical)}`);
       
       const skillOverwrites = overwriteStatus.get(skill.name);
-      const overwriteAgents = targetAgents
-        .filter(a => skillOverwrites?.get(a))
-        .map(a => agents[a].displayName);
       
-      summaryLines.push(`  ${chalk.dim('→')} ${formatList(agentNames)}`);
-      
-      if (overwriteAgents.length > 0) {
-        summaryLines.push(`  ${chalk.yellow('overwrites:')} ${formatList(overwriteAgents)}`);
+      for (const agent of targetAgents) {
+        const agentConfig = agents[agent];
+        const agentPath = installGlobally
+          ? agentConfig.globalSkillsDir
+          : join(cwd, agentConfig.skillsDir);
+        const skillAgentPath = join(agentPath, skill.name);
+        const shortAgentPath = shortenPath(skillAgentPath, cwd);
+        const isOverwrite = skillOverwrites?.get(agent);
+        
+        const overwriteHint = isOverwrite ? chalk.yellow(' (overwrite)') : '';
+        summaryLines.push(`  ${chalk.dim('↳')} ${shortAgentPath} ${chalk.dim('(symlink)')}${overwriteHint}`);
       }
     }
     
@@ -415,14 +420,16 @@ async function main(source: string, options: Options) {
           const shortPath = shortenPath(firstResult.canonicalPath, cwd);
           resultLines.push(`${chalk.green('✓')} ${shortPath}`);
         }
-        const symlinked = skillResults.filter(r => !r.symlinkFailed).map(r => r.agent);
-        const copied = skillResults.filter(r => r.symlinkFailed).map(r => r.agent);
+        const symlinked = skillResults.filter(r => !r.symlinkFailed);
+        const copied = skillResults.filter(r => r.symlinkFailed);
         
-        if (symlinked.length > 0) {
-          resultLines.push(`  ${chalk.dim('→')} ${formatList(symlinked)}`);
+        for (const r of symlinked) {
+          const shortAgentPath = shortenPath(r.path, cwd);
+          resultLines.push(`  ${chalk.dim('↳')} ${shortAgentPath} ${chalk.dim('(symlink)')}`);
         }
-        if (copied.length > 0) {
-          resultLines.push(`  ${chalk.yellow('copied →')} ${formatList(copied)}`);
+        for (const r of copied) {
+          const shortAgentPath = shortenPath(r.path, cwd);
+          resultLines.push(`  ${chalk.yellow('↳')} ${shortAgentPath} ${chalk.yellow('(copied)')}`);
         }
       }
       
