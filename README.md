@@ -99,6 +99,7 @@ Skills can be installed to any of these supported agents. Use `-g, --global` to 
 | Trae | `trae` | `.trae/skills/` | `~/.trae/skills/` |
 | Windsurf | `windsurf` | `.windsurf/skills/` | `~/.codeium/windsurf/skills/` |
 | Zencoder | `zencoder` | `.zencoder/skills/` | `~/.zencoder/skills/` |
+| Neovate | `neovate` | `.neovate/skills/` | `~/.neovate/skills/` |
 <!-- available-agents:end -->
 
 > [!NOTE]
@@ -171,6 +172,7 @@ The CLI searches for skills in these locations within a repository:
 - `.trae/skills/`
 - `.windsurf/skills/`
 - `.zencoder/skills/`
+- `.neovate/skills/`
 <!-- skill-discovery:end -->
 
 If no skills are found in standard locations, a recursive search is performed.
@@ -179,12 +181,12 @@ If no skills are found in standard locations, a recursive search is performed.
 
 Skills are generally compatible across agents since they follow a shared [Agent Skills specification](https://agentskills.io). However, some features may be agent-specific:
 
-| Feature | OpenCode | Claude Code | Codex | Kiro CLI | Cursor | Antigravity | Roo Code | Github Copilot | Amp | Clawdbot | Zencoder |
-|---------|----------|-------------|-------|----------|--------|-------------|----------|----------------|-----|----------|----------|
-| Basic skills | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| `allowed-tools` | Yes | Yes | Yes | No | Yes | Yes | Yes | Yes | Yes | Yes | No |
-| `context: fork` | No | Yes | No | No | No | No | No | No | No | No | No |
-| Hooks | No | Yes | No | No | No | No | No | No | No | No | No |
+| Feature | OpenCode | Claude Code | Codex | Kiro CLI | Cursor | Antigravity | Roo Code | Github Copilot | Amp | Clawdbot | Neovate | Zencoder |
+|---------|----------|-------------|-------|----------|--------|-------------|----------|----------------|-----|----------|---------|----------|
+| Basic skills | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| `allowed-tools` | Yes | Yes | Yes | No | Yes | Yes | Yes | Yes | Yes | Yes | Yes | No |
+| `context: fork` | No | Yes | No | No | No | No | No | No | No | No | No | No |
+| Hooks | No | Yes | No | No | No | No | No | No | No | No | No | No |
 
 ## Troubleshooting
 
