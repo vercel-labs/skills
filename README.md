@@ -6,10 +6,6 @@ The CLI for the open agent skills ecosystem.
 Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [29 more](#available-agents).
 <!-- agent-list:end -->
 
-<!-- agent-list:end -->
-
-<!-- agent-list:end -->
-
 ## Install a Skill
 
 ```bash
