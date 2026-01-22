@@ -7,7 +7,7 @@
  * or clone repositories. They ensure that given a URL string, the parser
  * correctly extracts type, url, ref (branch), and subpath.
  *
- * Run with: npx tsx tests/source-parser.test.ts
+ * Run with: pnpx tsx tests/source-parser.test.ts
  */
 
 import assert from 'node:assert';

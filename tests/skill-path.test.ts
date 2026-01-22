@@ -6,7 +6,7 @@
  * These tests verify that the relativePath calculation for skillFiles
  * correctly produces paths relative to the repo root, not the search path.
  *
- * Run with: npx tsx tests/skill-path.test.ts
+ * Run with: pnpx tsx tests/skill-path.test.ts
  */
 
 import assert from 'node:assert';
