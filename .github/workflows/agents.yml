@@ -31,7 +31,7 @@ jobs:
           run_install: true
 
       - name: Validate agents
-        run: pnpm exec tsx scripts/validate-agents.ts
+        run: pnpx tsx scripts/validate-agents.ts
 
   sync-agents:
     needs: validate-agents
@@ -52,7 +52,7 @@ jobs:
           run_install: true
 
       - name: Sync agents
-        run: pnpm exec tsx scripts/sync-agents.ts
+        run: pnpx tsx scripts/sync-agents.ts
 
       - name: Commit changes
         run: |
