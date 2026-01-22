@@ -13,14 +13,16 @@
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean",
     "dev": "tsx src/index.ts",
+    "test": "tsx scripts/execute-tests.ts",
     "prepublishOnly": "npm run build",
-    "format": "prettier --write 'src/**/*.ts' 'scripts/**/*.ts'",
-    "format:check": "prettier --check 'src/**/*.ts' 'scripts/**/*.ts'",
+    "format": "prettier --write 'src/**/*.ts' 'scripts/**/*.ts' 'tests/**/*.ts'",
+    "format:check": "prettier --check 'src/**/*.ts' 'scripts/**/*.ts' 'tests/**/*.ts'",
     "prepare": "husky"
   },
   "lint-staged": {
     "src/**/*.ts": "prettier --write",
-    "scripts/**/*.ts": "prettier --write"
+    "scripts/**/*.ts": "prettier --write",
+    "tests/**/*.ts": "prettier --write"
   },
   "keywords": [
     "cli",
