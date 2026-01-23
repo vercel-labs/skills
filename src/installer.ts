@@ -33,23 +33,17 @@ interface InstallResult {
 
 /**
  * Sanitizes a filename/directory name to prevent path traversal attacks
+ * and ensures it follows kebab-case convention
  * @param name - The name to sanitize
  * @returns Sanitized name safe for use in file paths
  */
 function sanitizeName(name: string): string {
-  let sanitized = name.replace(/[\/\\:\0]/g, '');
-  sanitized = sanitized.replace(/^[.\s]+|[.\s]+$/g, '');
-  sanitized = sanitized.replace(/^\.+/, '');
+  const sanitized = name
+    .toLowerCase()
+    .replace(/[^a-z0-9._]+/g, '-')
+    .replace(/^[.\-]+|[.\-]+$/g, '');
 
-  if (!sanitized || sanitized.length === 0) {
-    sanitized = 'unnamed-skill';
-  }
-
-  if (sanitized.length > 255) {
-    sanitized = sanitized.substring(0, 255);
-  }
-
-  return sanitized;
+  return sanitized.substring(0, 255) || 'unnamed-skill';
 }
 
 /**

@@ -4,7 +4,7 @@ import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { parseSource, getOwnerRepo } from './source-parser.ts';
 import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
-import { discoverSkills, getSkillDisplayName } from './skills.ts';
+import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
 import {
   installSkillForAgent,
   isSkillInstalled,
@@ -1437,13 +1437,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     let selectedSkills: Skill[];
 
     if (options.skill && options.skill.length > 0) {
-      selectedSkills = skills.filter((s) =>
-        options.skill!.some(
-          (name) =>
-            s.name.toLowerCase() === name.toLowerCase() ||
-            getSkillDisplayName(s).toLowerCase() === name.toLowerCase()
-        )
-      );
+      selectedSkills = filterSkills(skills, options.skill);
 
       if (selectedSkills.length === 0) {
         p.log.error(`No matching skills found for: ${options.skill.join(', ')}`);
