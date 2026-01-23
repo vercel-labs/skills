@@ -1,10 +1,10 @@
 # AGENTS.md
 
-This file provides guidance to AI coding agents working on the `add-skill` codebase.
+This file provides guidance to AI coding agents working on the `skills` CLI codebase.
 
 ## Project Overview
 
-`add-skill` is the CLI for the open agent skills ecosystem. It provides both `npx add-skill` and `npx skills` as user-facing entry points (both point to the same CLI).
+`skills` is the CLI for the open agent skills ecosystem.
 
 ## Commands
 

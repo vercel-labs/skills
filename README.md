@@ -1,4 +1,4 @@
-# add-skill
+# skills
 
 The open agent skills ecosystem.
 
@@ -12,7 +12,6 @@ Supports **Opencode**, **Claude Code**, **Codex**, **Cursor**, and [23 more](#av
 npx skills add vercel-labs/agent-skills
 ```
 
-> **Note:** Both `npx skills` and `npx add-skill` work - they're the same CLI.
 
 ## Commands
 
@@ -278,9 +277,9 @@ This CLI collects anonymous usage data to help improve the tool. No personal inf
 To disable telemetry, set either of these environment variables:
 
 ```bash
-DISABLE_TELEMETRY=1 npx add-skill vercel-labs/agent-skills
+DISABLE_TELEMETRY=1 npx skills add vercel-labs/agent-skills
 # or
-DO_NOT_TRACK=1 npx add-skill vercel-labs/agent-skills
+DO_NOT_TRACK=1 npx skills add vercel-labs/agent-skills
 ```
 
 Telemetry is also automatically disabled in CI environments.
