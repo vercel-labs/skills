@@ -9,9 +9,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
     // Allow stdio inherit so SSH passphrase prompts work correctly
     spawnOptions: { stdio: 'inherit' },
   });
-  const cloneOptions = ref
-    ? ['--depth', '1', '--branch', ref]
-    : ['--depth', '1'];
+  const cloneOptions = ref ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
   await git.clone(url, tempDir, cloneOptions);
   return tempDir;
 }

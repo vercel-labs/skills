@@ -1,9 +1,34 @@
-export type AgentType = 'amp' | 'antigravity' | 'claude-code' | 'clawdbot' | 'codex' | 'cursor' | 'droid' | 'gemini-cli' | 'github-copilot' | 'goose' | 'kilo' | 'kiro-cli' | 'opencode' | 'roo' | 'trae' | 'windsurf' | 'neovate';
+export type AgentType =
+  | 'amp'
+  | 'antigravity'
+  | 'claude-code'
+  | 'clawdbot'
+  | 'cline'
+  | 'codex'
+  | 'command-code'
+  | 'cursor'
+  | 'droid'
+  | 'gemini-cli'
+  | 'github-copilot'
+  | 'goose'
+  | 'kilo'
+  | 'kiro-cli'
+  | 'neovate'
+  | 'opencode'
+  | 'openhands'
+  | 'pi'
+  | 'qoder'
+  | 'roo'
+  | 'trae'
+  | 'windsurf'
+  | 'zencoder';
 
 export interface Skill {
   name: string;
   description: string;
   path: string;
+  /** Raw SKILL.md content for hashing */
+  rawContent?: string;
   metadata?: Record<string, string>;
 }
 

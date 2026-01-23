@@ -1,6 +1,6 @@
 {
   "name": "add-skill",
-  "version": "1.0.23",
+  "version": "1.0.26",
   "description": "Install agent skills onto coding agents (OpenCode, Claude Code, Codex, Cursor)",
   "type": "module",
   "bin": {
@@ -13,7 +13,15 @@
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean",
     "dev": "tsx src/index.ts",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "format": "prettier --write 'src/**/*.ts' 'scripts/**/*.ts'",
+    "format:check": "prettier --check 'src/**/*.ts' 'scripts/**/*.ts'",
+    "prepare": "husky",
+    "test": "echo 'No tests yet'"
+  },
+  "lint-staged": {
+    "src/**/*.ts": "prettier --write",
+    "scripts/**/*.ts": "prettier --write"
   },
   "keywords": [
     "cli",
@@ -24,7 +32,9 @@
     "antigravity",
     "claude-code",
     "clawdbot",
+    "cline",
     "codex",
+    "command-code",
     "cursor",
     "droid",
     "gemini-cli",
@@ -33,9 +43,13 @@
     "kilo",
     "kiro-cli",
     "opencode",
+    "openhands",
+    "pi",
+    "qoder",
     "roo",
     "trae",
     "windsurf",
+    "zencoder",
     "neovate"
   ],
   "repository": {
@@ -57,11 +71,15 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7",
+    "prettier": "^3.8.1",
     "tsup": "^8.3.5",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   },
   "engines": {
     "node": ">=18"
-  }
+  },
+  "packageManager": "pnpm@10.17.1"
 }
