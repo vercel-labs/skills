@@ -3,7 +3,7 @@
 Install agent skills onto your coding agents from any git repository.
 
 <!-- agent-list:start -->
-Supports **Opencode**, **Claude Code**, **Codex**, **Cursor**, and [19 more](#available-agents).
+Supports **Opencode**, **Claude Code**, **Codex**, **Cursor**, and [20 more](#available-agents).
 <!-- agent-list:end -->
 
 ## Quick Start
@@ -97,6 +97,7 @@ Skills can be installed to any of these supported agents. Use `-g, --global` to 
 | Goose | `goose` | `.goose/skills/` | `~/.config/goose/skills/` |
 | Kilo Code | `kilo` | `.kilocode/skills/` | `~/.kilocode/skills/` |
 | Kiro CLI | `kiro-cli` | `.kiro/skills/` | `~/.kiro/skills/` |
+| Kode | `kode` | `.kode/skills/` | `~/.kode/skills/` |
 | OpenCode | `opencode` | `.opencode/skills/` | `~/.config/opencode/skills/` |
 | OpenHands | `openhands` | `.openhands/skills/` | `~/.openhands/skills/` |
 | Pi | `pi` | `.pi/skills/` | `~/.pi/agent/skills/` |
@@ -174,6 +175,7 @@ The CLI searches for skills in these locations within a repository:
 - `.goose/skills/`
 - `.kilocode/skills/`
 - `.kiro/skills/`
+- `.kode/skills/`
 - `.opencode/skills/`
 - `.openhands/skills/`
 - `.pi/skills/`
@@ -242,6 +244,7 @@ Telemetry is also automatically disabled in CI environments.
 - [Gemini CLI Skills Documentation](https://geminicli.com/docs/cli/skills/)
 - [GitHub Copilot Agent Skills](https://docs.github.com/en/copilot/concepts/agents/about-agent-skills)
 - [Kiro CLI Skills Documentation](https://kiro.dev/docs/cli/custom-agents/configuration-reference/#skill-resources)
+- [Kode Skills Documentation](https://github.com/shareAI-lab/kode/blob/main/docs/skills.md)
 - [OpenCode Skills Documentation](https://opencode.ai/docs/skills)
 - [OpenHands Skills Documentation](https://docs.openhands.ai/modules/usage/how-to/using-skills)
 - [Pi Skills Documentation](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/skills.md)

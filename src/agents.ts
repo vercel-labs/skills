@@ -134,6 +134,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.kiro'));
     },
   },
+  kode: {
+    name: 'kode',
+    displayName: 'Kode',
+    skillsDir: '.kode/skills',
+    globalSkillsDir: join(home, '.kode/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.kode')) || existsSync(join(home, '.kode.json'));
+    },
+  },
   opencode: {
     name: 'opencode',
     displayName: 'OpenCode',
