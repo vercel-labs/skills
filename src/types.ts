@@ -13,6 +13,7 @@ export type AgentType =
   | 'goose'
   | 'kilo'
   | 'kiro-cli'
+  | 'mcpjam'
   | 'neovate'
   | 'opencode'
   | 'openhands'

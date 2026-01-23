@@ -134,6 +134,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.kiro'));
     },
   },
+  mcpjam: {
+    name: 'mcpjam',
+    displayName: 'MCPJam',
+    skillsDir: '.mcpjam/skills',
+    globalSkillsDir: join(home, '.mcpjam/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.mcpjam'));
+    },
+  },
   opencode: {
     name: 'opencode',
     displayName: 'OpenCode',
