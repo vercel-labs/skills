@@ -97,6 +97,7 @@ Skills can be installed to any of these supported agents. Use `-g, --global` to 
 | Goose | `goose` | `.goose/skills/` | `~/.config/goose/skills/` |
 | Kilo Code | `kilo` | `.kilocode/skills/` | `~/.kilocode/skills/` |
 | Kiro CLI | `kiro-cli` | `.kiro/skills/` | `~/.kiro/skills/` |
+| MCPJam | `mcpjam` | `.mcpjam/skills/` | `~/.mcpjam/skills/` |
 | OpenCode | `opencode` | `.opencode/skills/` | `~/.config/opencode/skills/` |
 | OpenHands | `openhands` | `.openhands/skills/` | `~/.openhands/skills/` |
 | Pi | `pi` | `.pi/skills/` | `~/.pi/agent/skills/` |
@@ -174,6 +175,7 @@ The CLI searches for skills in these locations within a repository:
 - `.goose/skills/`
 - `.kilocode/skills/`
 - `.kiro/skills/`
+- `.mcpjam/skills/`
 - `.opencode/skills/`
 - `.openhands/skills/`
 - `.pi/skills/`
