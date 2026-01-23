@@ -1,11 +1,11 @@
 {
-  "name": "add-skill",
+  "name": "skills",
   "version": "1.0.30",
   "description": "The open agent skills ecosystem",
   "type": "module",
   "bin": {
-    "add-skill": "./dist/cli.js",
-    "skills": "./dist/cli.js"
+    "skills": "./dist/cli.js",
+    "add-skill": "./dist/cli.js"
   },
   "files": [
     "dist",
@@ -58,11 +58,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vercel-labs/add-skill.git"
+    "url": "git+https://github.com/vercel-labs/skills.git"
   },
-  "homepage": "https://github.com/vercel-labs/add-skill#readme",
+  "homepage": "https://github.com/vercel-labs/skills#readme",
   "bugs": {
-    "url": "https://github.com/vercel-labs/add-skill/issues"
+    "url": "https://github.com/vercel-labs/skills/issues"
   },
   "author": "",
   "license": "MIT",

@@ -628,10 +628,10 @@ async function runUpdate(): Promise<void> {
 
     console.log(`${TEXT}Updating ${update.name}...${RESET}`);
 
-    // Use add-skill to reinstall with -g -y flags
+    // Use skills CLI to reinstall with -g -y flags
     const result = spawnSync(
       'npx',
-      ['-y', 'add-skill', entry.sourceUrl, '--skill', update.name, '-g', '-y'],
+      ['-y', 'skills', entry.sourceUrl, '--skill', update.name, '-g', '-y'],
       {
         stdio: ['inherit', 'pipe', 'pipe'],
       }
