@@ -222,16 +222,14 @@ async function handleRemoteSkill(
 
         targetAgents = selected as AgentType[];
       }
-    } else if (installedAgents.length === 1 || options.yes) {
+    } else if (installedAgents.length === 1 && !options.yes) {
       targetAgents = installedAgents;
-      if (installedAgents.length === 1) {
-        const firstAgent = installedAgents[0]!;
-        p.log.info(`Installing to: ${chalk.cyan(agents[firstAgent].displayName)}`);
-      } else {
-        p.log.info(
-          `Installing to: ${installedAgents.map((a) => chalk.cyan(agents[a].displayName)).join(', ')}`
-        );
-      }
+      const firstAgent = installedAgents[0]!;
+      p.log.info(`Installing to: ${chalk.cyan(agents[firstAgent].displayName)}`);
+    } else if (options.yes) {
+      // When --yes is used, install to all valid agents
+      targetAgents = validAgents as AgentType[];
+      p.log.info(`Installing to all ${targetAgents.length} agents`);
     } else {
       const agentChoices = installedAgents.map((a) => ({
         value: a,
@@ -255,7 +253,8 @@ async function handleRemoteSkill(
     }
   }
 
-  let installGlobally = options.global ?? false;
+  // When --yes is used and global is not explicitly set, default to global installation
+  let installGlobally = options.global ?? (options.yes ? true : false);
 
   if (options.global === undefined && !options.yes) {
     const scope = await p.select({
@@ -282,7 +281,7 @@ async function handleRemoteSkill(
     installGlobally = scope as boolean;
   }
 
-  // Prompt for install mode (symlink vs copy)
+  // When --yes is used, default to symlink installation method
   let installMode: InstallMode = 'symlink';
 
   if (!options.yes) {
@@ -564,16 +563,14 @@ async function handleDirectUrlSkillLegacy(
 
         targetAgents = selected as AgentType[];
       }
-    } else if (installedAgents.length === 1 || options.yes) {
+    } else if (installedAgents.length === 1 && !options.yes) {
       targetAgents = installedAgents;
-      if (installedAgents.length === 1) {
-        const firstAgent = installedAgents[0]!;
-        p.log.info(`Installing to: ${chalk.cyan(agents[firstAgent].displayName)}`);
-      } else {
-        p.log.info(
-          `Installing to: ${installedAgents.map((a) => chalk.cyan(agents[a].displayName)).join(', ')}`
-        );
-      }
+      const firstAgent = installedAgents[0]!;
+      p.log.info(`Installing to: ${chalk.cyan(agents[firstAgent].displayName)}`);
+    } else if (options.yes) {
+      // When --yes is used, install to all valid agents
+      targetAgents = validAgents as AgentType[];
+      p.log.info(`Installing to all ${targetAgents.length} agents`);
     } else {
       const agentChoices = installedAgents.map((a) => ({
         value: a,
@@ -597,7 +594,8 @@ async function handleDirectUrlSkillLegacy(
     }
   }
 
-  let installGlobally = options.global ?? false;
+  // When --yes is used and global is not explicitly set, default to global installation
+  let installGlobally = options.global ?? (options.yes ? true : false);
 
   if (options.global === undefined && !options.yes) {
     const scope = await p.select({
@@ -624,7 +622,7 @@ async function handleDirectUrlSkillLegacy(
     installGlobally = scope as boolean;
   }
 
-  // Prompt for install mode (symlink vs copy)
+  // When --yes is used, default to symlink installation method
   let installMode: InstallMode = 'symlink';
 
   if (!options.yes) {
@@ -995,16 +993,14 @@ async function main(source: string, options: Options) {
 
           targetAgents = selected as AgentType[];
         }
-      } else if (installedAgents.length === 1 || options.yes) {
+      } else if (installedAgents.length === 1 && !options.yes) {
         targetAgents = installedAgents;
-        if (installedAgents.length === 1) {
-          const firstAgent = installedAgents[0]!;
-          p.log.info(`Installing to: ${chalk.cyan(agents[firstAgent].displayName)}`);
-        } else {
-          p.log.info(
-            `Installing to: ${installedAgents.map((a) => chalk.cyan(agents[a].displayName)).join(', ')}`
-          );
-        }
+        const firstAgent = installedAgents[0]!;
+        p.log.info(`Installing to: ${chalk.cyan(agents[firstAgent].displayName)}`);
+      } else if (options.yes) {
+        // When --yes is used, install to all valid agents
+        targetAgents = validAgents as AgentType[];
+        p.log.info(`Installing to all ${targetAgents.length} agents`);
       } else {
         const agentChoices = installedAgents.map((a) => ({
           value: a,
@@ -1029,7 +1025,8 @@ async function main(source: string, options: Options) {
       }
     }
 
-    let installGlobally = options.global ?? false;
+    // When --yes is used and global is not explicitly set, default to global installation
+    let installGlobally = options.global ?? (options.yes ? true : false);
 
     if (options.global === undefined && !options.yes) {
       const scope = await p.select({
@@ -1057,7 +1054,7 @@ async function main(source: string, options: Options) {
       installGlobally = scope as boolean;
     }
 
-    // Prompt for install mode (symlink vs copy)
+    // When --yes is used, default to symlink installation method
     let installMode: InstallMode = 'symlink';
 
     if (!options.yes) {
