@@ -19,7 +19,7 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'antigravity',
     displayName: 'Antigravity',
     skillsDir: '.agent/skills',
-    globalSkillsDir: join(home, '.gemini/antigravity/skills'),
+    globalSkillsDir: join(home, '.gemini/antigravity/global_skills'),
     detectInstalled: async () => {
       return (
         existsSync(join(process.cwd(), '.agent')) || existsSync(join(home, '.gemini/antigravity'))
