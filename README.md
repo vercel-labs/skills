@@ -101,6 +101,7 @@ Skills can be installed to any of these supported agents. Use `-g, --global` to 
 | OpenHands | `openhands` | `.openhands/skills/` | `~/.openhands/skills/` |
 | Pi | `pi` | `.pi/skills/` | `~/.pi/agent/skills/` |
 | Qoder | `qoder` | `.qoder/skills/` | `~/.qoder/skills/` |
+| Qwen Code | `qwen-code` | `.qwen/skills/` | `~/.qwen/skills/` |
 | Roo Code | `roo` | `.roo/skills/` | `~/.roo/skills/` |
 | Trae | `trae` | `.trae/skills/` | `~/.trae/skills/` |
 | Windsurf | `windsurf` | `.windsurf/skills/` | `~/.codeium/windsurf/skills/` |
@@ -178,6 +179,7 @@ The CLI searches for skills in these locations within a repository:
 - `.openhands/skills/`
 - `.pi/skills/`
 - `.qoder/skills/`
+- `.qwen/skills/`
 - `.roo/skills/`
 - `.trae/skills/`
 - `.windsurf/skills/`
@@ -243,6 +245,7 @@ Telemetry is also automatically disabled in CI environments.
 - [GitHub Copilot Agent Skills](https://docs.github.com/en/copilot/concepts/agents/about-agent-skills)
 - [Kiro CLI Skills Documentation](https://kiro.dev/docs/cli/custom-agents/configuration-reference/#skill-resources)
 - [OpenCode Skills Documentation](https://opencode.ai/docs/skills)
+- [Qwen Code Skills Documentation](https://qwenlm.github.io/qwen-code-docs/en/users/features/skills/)
 - [OpenHands Skills Documentation](https://docs.openhands.ai/modules/usage/how-to/using-skills)
 - [Pi Skills Documentation](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/skills.md)
 - [Qoder Skills Documentation](https://docs.qoder.com/cli/Skills)

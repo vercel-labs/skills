@@ -18,6 +18,7 @@ export type AgentType =
   | 'openhands'
   | 'pi'
   | 'qoder'
+  | 'qwen-code'
   | 'roo'
   | 'trae'
   | 'windsurf'
