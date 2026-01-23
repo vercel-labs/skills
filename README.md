@@ -1,6 +1,6 @@
 # add-skill
 
-Install agent skills onto your coding agents from any git repository.
+The open agent skills ecosystem.
 
 <!-- agent-list:start -->
 Supports **Opencode**, **Claude Code**, **Codex**, **Cursor**, and [23 more](#available-agents).
@@ -9,8 +9,21 @@ Supports **Opencode**, **Claude Code**, **Codex**, **Cursor**, and [23 more](#av
 ## Quick Start
 
 ```bash
-npx add-skill vercel-labs/agent-skills
+npx skills add vercel-labs/agent-skills
 ```
+
+> **Note:** Both `npx skills` and `npx add-skill` work - they're the same CLI.
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `skills` | Show banner with available commands |
+| `skills init [name]` | Create a new SKILL.md template |
+| `skills add <package>` | Install skills from git repos, URLs, or local paths |
+| `skills check` | Check for available skill updates |
+| `skills update` | Update all skills to latest versions |
+| `skills generate-lock` | Match installed skills to sources via API |
 
 ## What are Agent Skills?
 
@@ -24,28 +37,41 @@ Skills let agents perform specialized tasks like:
 
 ## Usage
 
-### Source Formats
+### Initialize a New Skill
+
+```bash
+# Create SKILL.md in current directory
+npx skills init
+
+# Create a new skill in a subdirectory
+npx skills init my-skill
+```
+
+### Add Skills
 
 The `<source>` argument accepts multiple formats:
 
 ```bash
 # GitHub shorthand
-npx add-skill vercel-labs/agent-skills
+npx skills add vercel-labs/agent-skills
 
 # Full GitHub URL
-npx add-skill https://github.com/vercel-labs/agent-skills
+npx skills add https://github.com/vercel-labs/agent-skills
 
 # Direct path to a skill in a repo
-npx add-skill https://github.com/vercel-labs/agent-skills/tree/main/skills/frontend-design
+npx skills add https://github.com/vercel-labs/agent-skills/tree/main/skills/frontend-design
 
 # GitLab URL
-npx add-skill https://gitlab.com/org/repo
+npx skills add https://gitlab.com/org/repo
 
 # Any git URL
-npx add-skill git@github.com:vercel-labs/agent-skills.git
+npx skills add git@github.com:vercel-labs/agent-skills.git
+
+# Local path
+npx skills add ./my-local-skills
 ```
 
-### Options
+### Add Options
 
 | Option                    | Description                                                                                                                                        |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -54,26 +80,49 @@ npx add-skill git@github.com:vercel-labs/agent-skills.git
 | `-s, --skill <skills...>` | Install specific skills by name                                                                                                                    |
 | `-l, --list`              | List available skills without installing                                                                                                           |
 | `-y, --yes`               | Skip all confirmation prompts                                                                                                                      |
-| `-V, --version`           | Show version number                                                                                                                                |
-| `-h, --help`              | Show help                                                                                                                                          |
+| `--all`                   | Install all skills to all agents without any prompts                                                                                               |
+
+### Check for Updates
+
+```bash
+# Check if any installed skills have updates available
+npx skills check
+```
+
+### Update Skills
+
+```bash
+# Update all skills to their latest versions
+npx skills update
+```
+
+### Generate Lock File
+
+```bash
+# Match installed skills to their sources (for tracking updates)
+npx skills generate-lock
+
+# Preview without writing
+npx skills generate-lock --dry-run
+```
 
 ### Examples
 
 ```bash
 # List skills in a repository
-npx add-skill vercel-labs/agent-skills --list
+npx skills add vercel-labs/agent-skills --list
 
 # Install multiple specific skills
-npx add-skill vercel-labs/agent-skills --skill frontend-design --skill skill-creator
+npx skills add vercel-labs/agent-skills --skill frontend-design --skill skill-creator
 
 # Install to specific agents
-npx add-skill vercel-labs/agent-skills -a claude-code -a opencode
+npx skills add vercel-labs/agent-skills -a claude-code -a opencode
 
 # Non-interactive installation (CI/CD friendly)
-npx add-skill vercel-labs/agent-skills --skill frontend-design -g -a claude-code -y
+npx skills add vercel-labs/agent-skills --skill frontend-design -g -a claude-code -y
 
-# Install all skills from a repo
-npx add-skill vercel-labs/agent-skills -y -g
+# Install all skills from a repo to all agents
+npx skills add vercel-labs/agent-skills --all
 ```
 
 ## Available Agents

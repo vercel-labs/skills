@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 
 export async function cloneRepo(url: string, ref?: string): Promise<string> {
-  const tempDir = await mkdtemp(join(tmpdir(), 'add-skill-'));
+  const tempDir = await mkdtemp(join(tmpdir(), 'skills-'));
   const git = simpleGit();
   const cloneOptions = ref ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
   await git.clone(url, tempDir, cloneOptions);
