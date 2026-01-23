@@ -14,6 +14,7 @@ export type AgentType =
   | 'github-copilot'
   | 'goose'
   | 'kilo'
+  | 'kimi-cli'
   | 'kiro-cli'
   | 'mcpjam'
   | 'neovate'
