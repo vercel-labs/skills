@@ -125,3 +125,7 @@ npm publish
 1. Add the agent definition to `src/agents.ts`
 2. Run `pnpm run -C scripts validate-agents.ts` to validate
 3. Run `pnpm run -C scripts sync-agents.ts` to update README.md
+
+## Skills CLI Skill
+
+**IMPORTANT:** The `skills/skills-cli/SKILL.md` skill teaches AI agents how to use this CLI. When modifying commands, options, flags, or supported agents, you MUST update this skill to keep it in sync. An outdated skill will teach agents incorrect information.
