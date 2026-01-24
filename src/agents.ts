@@ -71,6 +71,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.commandcode'));
     },
   },
+  crush: {
+    name: 'crush',
+    displayName: 'Crush',
+    skillsDir: '.crush/skills',
+    globalSkillsDir: join(home, '.config/crush/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.config/crush'));
+    },
+  },
   cursor: {
     name: 'cursor',
     displayName: 'Cursor',

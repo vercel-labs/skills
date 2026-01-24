@@ -6,6 +6,7 @@ export type AgentType =
   | 'cline'
   | 'codex'
   | 'command-code'
+  | 'crush'
   | 'cursor'
   | 'droid'
   | 'gemini-cli'

@@ -90,6 +90,7 @@ Skills can be installed to any of these supported agents. Use `-g, --global` to 
 | Cline | `cline` | `.cline/skills/` | `~/.cline/skills/` |
 | Codex | `codex` | `.codex/skills/` | `~/.codex/skills/` |
 | Command Code | `command-code` | `.commandcode/skills/` | `~/.commandcode/skills/` |
+| Crush | `crush` | `.crush/skills/` | `~/.config/crush/skills/` |
 | Cursor | `cursor` | `.cursor/skills/` | `~/.cursor/skills/` |
 | Droid | `droid` | `.factory/skills/` | `~/.factory/skills/` |
 | Gemini CLI | `gemini-cli` | `.gemini/skills/` | `~/.gemini/skills/` |
@@ -168,6 +169,7 @@ The CLI searches for skills in these locations within a repository:
 - `.cline/skills/`
 - `.codex/skills/`
 - `.commandcode/skills/`
+- `.crush/skills/`
 - `.cursor/skills/`
 - `.factory/skills/`
 - `.gemini/skills/`
@@ -240,6 +242,7 @@ Telemetry is also automatically disabled in CI environments.
 - [Cline Skills Documentation](https://docs.cline.bot/features/skills)
 - [Codex Skills Documentation](https://developers.openai.com/codex/skills)
 - [Command Code Skills Documentation](https://commandcode.ai/docs/skills)
+- [Crush Skills Documentation](https://github.com/charmbracelet/crush?tab=readme-ov-file#agent-skills)
 - [Cursor Skills Documentation](https://cursor.com/docs/context/skills)
 - [Gemini CLI Skills Documentation](https://geminicli.com/docs/cli/skills/)
 - [GitHub Copilot Agent Skills](https://docs.github.com/en/copilot/concepts/agents/about-agent-skills)
