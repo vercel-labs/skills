@@ -789,7 +789,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     spinner.start('Parsing source...');
     const parsed = parseSource(source);
     spinner.stop(
-      `Source: ${chalk.cyan(parsed.type === 'local' ? parsed.localPath! : parsed.url)}${parsed.ref ? ` @ ${chalk.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}`
+      `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${chalk.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}`
     );
 
     // Handle direct URL skills (Mintlify, HuggingFace, etc.) via provider system
