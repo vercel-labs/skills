@@ -7,6 +7,7 @@ export type AgentType =
   | 'codex'
   | 'command-code'
   | 'continue'
+  | 'crush'
   | 'cursor'
   | 'droid'
   | 'gemini-cli'
