@@ -77,7 +77,7 @@ export const agents: Record<AgentType, AgentConfig> = {
     skillsDir: '.continue/skills',
     globalSkillsDir: join(home, '.continue/skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.continue'));
+      return existsSync(join(process.cwd(), '.continue')) || existsSync(join(home, '.continue'));
     },
   },
   cursor: {
