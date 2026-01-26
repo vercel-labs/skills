@@ -1,31 +1,12 @@
-#!/usr/bin/env tsx
-
 /**
  * Regression tests for symlink installs when canonical and agent paths match.
- *
- * Run with: npx tsx tests/installer-symlink.test.ts
  */
 
-import assert from 'node:assert';
+import { describe, it, expect } from 'vitest';
 import { mkdtemp, mkdir, rm, writeFile, lstat, readFile, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { installSkillForAgent } from '../src/installer.ts';
-
-let passed = 0;
-let failed = 0;
-
-async function test(name: string, fn: () => Promise<void>) {
-  try {
-    await fn();
-    console.log(`✓ ${name}`);
-    passed++;
-  } catch (err) {
-    console.log(`✗ ${name}`);
-    console.error(`  ${(err as Error).message}`);
-    failed++;
-  }
-}
 
 async function makeSkillSource(root: string, name: string): Promise<string> {
   const dir = join(root, 'source-skill');
@@ -35,8 +16,8 @@ async function makeSkillSource(root: string, name: string): Promise<string> {
   return dir;
 }
 
-async function main() {
-  await test('symlink install does not create self-loop when paths match', async () => {
+describe('installer symlink regression', () => {
+  it('does not create self-loop when canonical and agent paths match', async () => {
     const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
     const projectDir = join(root, 'project');
     await mkdir(projectDir, { recursive: true });
@@ -48,25 +29,25 @@ async function main() {
       const result = await installSkillForAgent(
         { name: skillName, description: 'test', path: skillDir },
         'amp',
-        { cwd: projectDir, mode: 'symlink', global: false },
+        { cwd: projectDir, mode: 'symlink', global: false }
       );
 
-      assert.strictEqual(result.success, true);
-      assert.strictEqual(result.symlinkFailed, undefined);
+      expect(result.success).toBe(true);
+      expect(result.symlinkFailed).toBeUndefined();
 
       const installedPath = join(projectDir, '.agents/skills', skillName);
       const stats = await lstat(installedPath);
-      assert.strictEqual(stats.isSymbolicLink(), false);
-      assert.strictEqual(stats.isDirectory(), true);
+      expect(stats.isSymbolicLink()).toBe(false);
+      expect(stats.isDirectory()).toBe(true);
 
       const contents = await readFile(join(installedPath, 'SKILL.md'), 'utf-8');
-      assert.ok(contents.includes(`name: ${skillName}`));
+      expect(contents).toContain(`name: ${skillName}`);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  await test('install cleans pre-existing self-loop symlink in canonical dir', async () => {
+  it('cleans pre-existing self-loop symlink in canonical dir', async () => {
     const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
     const projectDir = join(root, 'project');
     await mkdir(projectDir, { recursive: true });
@@ -79,29 +60,21 @@ async function main() {
       await mkdir(join(projectDir, '.agents/skills'), { recursive: true });
       await symlink(skillName, canonicalDir);
       const preStats = await lstat(canonicalDir);
-      assert.strictEqual(preStats.isSymbolicLink(), true);
+      expect(preStats.isSymbolicLink()).toBe(true);
 
       const result = await installSkillForAgent(
         { name: skillName, description: 'test', path: skillDir },
         'amp',
-        { cwd: projectDir, mode: 'symlink', global: false },
+        { cwd: projectDir, mode: 'symlink', global: false }
       );
 
-      assert.strictEqual(result.success, true);
+      expect(result.success).toBe(true);
 
       const postStats = await lstat(canonicalDir);
-      assert.strictEqual(postStats.isSymbolicLink(), false);
-      assert.strictEqual(postStats.isDirectory(), true);
+      expect(postStats.isSymbolicLink()).toBe(false);
+      expect(postStats.isDirectory()).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
-
-  console.log(`\n${passed} passed, ${failed} failed`);
-  process.exit(failed > 0 ? 1 : 0);
-}
-
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
 });
