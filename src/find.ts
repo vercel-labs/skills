@@ -1,5 +1,6 @@
 import * as readline from 'readline';
 import { runAdd, parseAddOptions } from './add.js';
+import { track } from './telemetry.js';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -148,6 +149,10 @@ async function runSearchPrompt(initialQuery = ''): Promise<SearchSkill | null> {
     loading = true;
     render();
 
+    // Adaptive debounce: shorter queries = longer wait (user still typing)
+    // 2 chars: 250ms, 3 chars: 200ms, 4 chars: 150ms, 5+ chars: 150ms
+    const debounceMs = Math.max(150, 350 - q.length * 50);
+
     debounceTimer = setTimeout(async () => {
       try {
         results = await searchSkillsAPI(q);
@@ -159,7 +164,7 @@ async function runSearchPrompt(initialQuery = ''): Promise<SearchSkill | null> {
         debounceTimer = null;
         render();
       }
-    }, 150); // Short debounce for responsive feel
+    }, debounceMs);
   }
 
   // Trigger initial search if there's a query, then render
@@ -258,6 +263,13 @@ export async function runFind(args: string[]): Promise<void> {
   if (query) {
     const results = await searchSkillsAPI(query);
 
+    // Track telemetry for non-interactive search
+    track({
+      event: 'find',
+      query,
+      resultCount: String(results.length),
+    });
+
     if (results.length === 0) {
       console.log(`${DIM}No skills found for "${query}"${RESET}`);
       return;
@@ -277,6 +289,14 @@ export async function runFind(args: string[]): Promise<void> {
 
   // Interactive mode
   const selected = await runSearchPrompt();
+
+  // Track telemetry for interactive search
+  track({
+    event: 'find',
+    query: '',
+    resultCount: selected ? '1' : '0',
+    interactive: '1',
+  });
 
   if (!selected) {
     console.log(`${DIM}Search cancelled${RESET}`);

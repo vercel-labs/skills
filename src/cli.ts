@@ -8,6 +8,7 @@ import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 import { runAdd, parseAddOptions, initTelemetry } from './add.js';
 import { runFind } from './find.js';
+import { track } from './telemetry.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -536,6 +537,13 @@ async function runCheck(args: string[] = []): Promise<void> {
         `${DIM}Could not check ${data.errors.length} skill(s) (may need reinstall)${RESET}`
       );
     }
+
+    // Track telemetry
+    track({
+      event: 'check',
+      skillCount: String(checkRequest.skills.length),
+      updatesAvailable: String(data.updates.length),
+    });
   } catch (error) {
     console.log(
       `${TEXT}Error checking for updates:${RESET} ${error instanceof Error ? error.message : 'Unknown error'}`
@@ -656,6 +664,15 @@ async function runUpdate(): Promise<void> {
   if (failCount > 0) {
     console.log(`${DIM}Failed to update ${failCount} skill(s)${RESET}`);
   }
+
+  // Track telemetry
+  track({
+    event: 'update',
+    skillCount: String(updates.length),
+    successCount: String(successCount),
+    failCount: String(failCount),
+  });
+
   console.log();
 }
 
