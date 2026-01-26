@@ -23,7 +23,7 @@ import {
   isPromptDismissed,
   dismissPrompt,
 } from './skill-lock.js';
-import type { Skill, AgentType, RemoteSkill } from './types.js';
+import type { Skill, AgentType, RemoteSkill, AddOptions } from './types.js';
 import packageJson from '../package.json' assert { type: 'json' };
 export function initTelemetry(version: string): void {
   setVersion(version);
@@ -126,14 +126,8 @@ async function selectAgentsInteractive(
 const version = packageJson.version;
 setVersion(version);
 
-export interface AddOptions {
-  global?: boolean;
-  agent?: string[];
-  yes?: boolean;
-  skill?: string[];
-  list?: boolean;
-  all?: boolean;
-}
+// Re-export AddOptions from types for backwards compatibility
+export type { AddOptions } from './types.js';
 
 /**
  * Handle remote skill installation from any supported host provider.
@@ -1413,6 +1407,8 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       options.list = true;
     } else if (arg === '--all') {
       options.all = true;
+    } else if (arg === '--sync') {
+      options.sync = true;
     } else if (arg === '-a' || arg === '--agent') {
       options.agent = options.agent || [];
       i++;
