@@ -1,6 +1,6 @@
 {
   "name": "add-skill",
-  "version": "1.0.26",
+  "version": "1.0.29",
   "description": "Install agent skills onto coding agents (OpenCode, Claude Code, Codex, Cursor)",
   "type": "module",
   "bin": {
@@ -13,15 +13,16 @@
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean",
     "dev": "tsx src/index.ts",
+    "test": "tsx scripts/execute-tests.ts",
     "prepublishOnly": "npm run build",
-    "format": "prettier --write 'src/**/*.ts' 'scripts/**/*.ts'",
-    "format:check": "prettier --check 'src/**/*.ts' 'scripts/**/*.ts'",
-    "prepare": "husky",
-    "test": "echo 'No tests yet'"
+    "format": "prettier --write 'src/**/*.ts' 'scripts/**/*.ts' 'tests/**/*.ts'",
+    "format:check": "prettier --check 'src/**/*.ts' 'scripts/**/*.ts' 'tests/**/*.ts'",
+    "prepare": "husky"
   },
   "lint-staged": {
     "src/**/*.ts": "prettier --write",
-    "scripts/**/*.ts": "prettier --write"
+    "scripts/**/*.ts": "prettier --write",
+    "tests/**/*.ts": "prettier --write"
   },
   "keywords": [
     "cli",
@@ -35,6 +36,8 @@
     "cline",
     "codex",
     "command-code",
+    "continue",
+    "crush",
     "cursor",
     "droid",
     "gemini-cli",
@@ -42,10 +45,12 @@
     "goose",
     "kilo",
     "kiro-cli",
+    "mcpjam",
     "opencode",
     "openhands",
     "pi",
     "qoder",
+    "qwen-code",
     "roo",
     "trae",
     "windsurf",

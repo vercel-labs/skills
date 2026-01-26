@@ -20,7 +20,7 @@ import { detectInstalledAgents, agents } from './agents.js';
 import { track, setVersion } from './telemetry.js';
 import { fetchMintlifySkill } from './mintlify.js';
 import { findProvider } from './providers/index.js';
-import { addSkillToLock, computeContentHash } from './skill-lock.js';
+import { addSkillToLock, fetchSkillFolderHash } from './skill-lock.js';
 import type { Skill, AgentType, MintlifySkill, RemoteSkill } from './types.js';
 import packageJson from '../package.json' with { type: 'json' };
 
@@ -48,6 +48,21 @@ function formatList(items: string[], maxShow: number = 5): string {
   const shown = items.slice(0, maxShow);
   const remaining = items.length - maxShow;
   return `${shown.join(', ')} +${remaining} more`;
+}
+
+/**
+ * Wrapper around p.multiselect that adds a hint for keyboard usage
+ */
+function multiselect<Option extends { value: unknown; label: string; hint?: string }>(opts: {
+  message: string;
+  options: Option[];
+  initialValues?: Option['value'][];
+  required?: boolean;
+}) {
+  return p.multiselect({
+    ...opts,
+    message: `${opts.message} ${chalk.dim('(space to toggle)')}`,
+  }) as Promise<Option['value'][] | symbol>;
 }
 
 const version = packageJson.version;
@@ -208,9 +223,9 @@ async function handleRemoteSkill(
           label: config.displayName,
         }));
 
-        const selected = await p.multiselect({
+        const selected = await multiselect({
           message: 'Select agents to install skills to',
-          options: allAgentChoices,
+          options: allAgentChoices as unknown as p.Option<AgentType>[],
           required: true,
           initialValues: Object.keys(agents) as AgentType[],
         });
@@ -239,9 +254,9 @@ async function handleRemoteSkill(
         hint: `${options.global ? agents[a].globalSkillsDir : agents[a].skillsDir}`,
       }));
 
-      const selected = await p.multiselect({
+      const selected = await multiselect({
         message: 'Select agents to install skills to',
-        options: agentChoices,
+        options: agentChoices as unknown as p.Option<AgentType>[],
         required: true,
         initialValues: installedAgents,
       });
@@ -400,15 +415,18 @@ async function handleRemoteSkill(
   // Add to skill lock file for update tracking (only for global installs)
   if (successful.length > 0 && installGlobally) {
     try {
-      // For remote skills, we only have the SKILL.md content
-      // The server will compute the full folder hash via GitHub Trees API
-      const contentHash = computeContentHash(remoteSkill.content);
+      // Try to fetch the folder hash from GitHub Trees API
+      let skillFolderHash = '';
+      if (remoteSkill.providerId === 'github') {
+        const hash = await fetchSkillFolderHash(remoteSkill.sourceIdentifier, url);
+        if (hash) skillFolderHash = hash;
+      }
+
       await addSkillToLock(remoteSkill.installName, {
         source: remoteSkill.sourceIdentifier,
         sourceType: remoteSkill.providerId,
         sourceUrl: url,
-        contentHash,
-        // skillFolderHash will be populated by server during update check
+        skillFolderHash,
       });
     } catch {
       // Don't fail installation if lock file update fails
@@ -547,9 +565,9 @@ async function handleDirectUrlSkillLegacy(
           label: config.displayName,
         }));
 
-        const selected = await p.multiselect({
+        const selected = await multiselect({
           message: 'Select agents to install skills to',
-          options: allAgentChoices,
+          options: allAgentChoices as unknown as p.Option<AgentType>[],
           required: true,
           initialValues: Object.keys(agents) as AgentType[],
         });
@@ -578,9 +596,9 @@ async function handleDirectUrlSkillLegacy(
         hint: `${options.global ? agents[a].globalSkillsDir : agents[a].skillsDir}`,
       }));
 
-      const selected = await p.multiselect({
+      const selected = await multiselect({
         message: 'Select agents to install skills to',
-        options: agentChoices,
+        options: agentChoices as unknown as p.Option<AgentType>[],
         required: true,
         initialValues: installedAgents,
       });
@@ -739,14 +757,13 @@ async function handleDirectUrlSkillLegacy(
   // Add to skill lock file for update tracking (only for global installs)
   if (successful.length > 0 && installGlobally) {
     try {
-      // For Mintlify skills, we only have the SKILL.md content
-      const contentHash = computeContentHash(mintlifySkill.content);
+      // skillFolderHash will be populated by telemetry server
+      // Mintlify skills are single-file, so folder hash = content hash on server
       await addSkillToLock(mintlifySkill.mintlifySite, {
         source: `mintlify/${mintlifySkill.mintlifySite}`,
         sourceType: 'mintlify',
         sourceUrl: url,
-        contentHash,
-        // skillFolderHash will be populated by server during update check
+        skillFolderHash: '', // Populated by server
       });
     } catch {
       // Don't fail installation if lock file update fails
@@ -927,7 +944,7 @@ async function main(source: string, options: Options) {
         hint: s.description.length > 60 ? s.description.slice(0, 57) + '...' : s.description,
       }));
 
-      const selected = await p.multiselect({
+      const selected = await multiselect({
         message: 'Select skills to install',
         options: skillChoices,
         required: true,
@@ -978,9 +995,9 @@ async function main(source: string, options: Options) {
             label: config.displayName,
           }));
 
-          const selected = await p.multiselect({
+          const selected = await multiselect({
             message: 'Select agents to install skills to',
-            options: allAgentChoices,
+            options: allAgentChoices as unknown as p.Option<AgentType>[],
             required: true,
             initialValues: Object.keys(agents) as AgentType[],
           });
@@ -1010,9 +1027,9 @@ async function main(source: string, options: Options) {
           hint: `${options.global ? agents[a].globalSkillsDir : agents[a].skillsDir}`,
         }));
 
-        const selected = await p.multiselect({
+        const selected = await multiselect({
           message: 'Select agents to install skills to',
-          options: agentChoices,
+          options: agentChoices as unknown as p.Option<AgentType>[],
           required: true,
           initialValues: installedAgents,
         });
@@ -1202,15 +1219,20 @@ async function main(source: string, options: Options) {
         const skillDisplayName = getSkillDisplayName(skill);
         if (successfulSkillNames.has(skillDisplayName)) {
           try {
-            // Store contentHash for backwards compat
-            // Server will fetch skillFolderHash via GitHub Trees API
+            // Fetch the folder hash from GitHub Trees API
+            let skillFolderHash = '';
+            const skillPathValue = skillFiles[skill.name];
+            if (parsed.type === 'github' && skillPathValue) {
+              const hash = await fetchSkillFolderHash(normalizedSource, skillPathValue);
+              if (hash) skillFolderHash = hash;
+            }
+
             await addSkillToLock(skill.name, {
               source: normalizedSource,
               sourceType: parsed.type,
               sourceUrl: parsed.url,
-              skillPath: skillFiles[skill.name],
-              contentHash: skill.rawContent ? computeContentHash(skill.rawContent) : '',
-              // skillFolderHash is populated by server via GitHub Trees API
+              skillPath: skillPathValue,
+              skillFolderHash,
             });
           } catch {
             // Don't fail installation if lock file update fails

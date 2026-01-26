@@ -20,17 +20,11 @@ export interface SkillLockEntry {
   /** Subpath within the source repo, if applicable */
   skillPath?: string;
   /**
-   * SHA-256 hash of the SKILL.md content at install time.
-   * @deprecated Use skillFolderHash for v3+. Kept for backwards compatibility during migration.
-   */
-  contentHash: string;
-  /**
-   * GitHub tree SHA or computed folder hash for the entire skill folder.
+   * GitHub tree SHA for the entire skill folder.
    * This hash changes when ANY file in the skill folder changes.
-   * For GitHub sources, this is the tree SHA from the Git Trees API.
-   * For other sources, this is computed from all file contents.
+   * Fetched via GitHub Trees API by the telemetry server.
    */
-  skillFolderHash?: string;
+  skillFolderHash: string;
   /** ISO timestamp when the skill was first installed */
   installedAt: string;
   /** ISO timestamp when the skill was last updated */
@@ -67,21 +61,15 @@ export async function readSkillLock(): Promise<SkillLockFile> {
     const content = await readFile(lockPath, 'utf-8');
     const parsed = JSON.parse(content) as SkillLockFile;
 
-    // Validate version - wipe if old format (missing contentHash support)
+    // Validate version - wipe if old format
     if (typeof parsed.version !== 'number' || !parsed.skills) {
       return createEmptyLockFile();
     }
 
-    // v2 -> v3 migration: v2 files are compatible, just missing skillFolderHash
-    // We don't wipe them; the check command will use contentHash as fallback
-    // Only wipe v1 files (pre-contentHash)
-    if (parsed.version < 2) {
-      return createEmptyLockFile();
-    }
-
-    // Update version to current if needed (v2 -> v3 upgrade)
+    // If old version, wipe and start fresh (backwards incompatible change)
+    // v3 adds skillFolderHash - we want fresh installs to populate it
     if (parsed.version < CURRENT_VERSION) {
-      parsed.version = CURRENT_VERSION;
+      return createEmptyLockFile();
     }
 
     return parsed;
@@ -111,6 +99,70 @@ export async function writeSkillLock(lock: SkillLockFile): Promise<void> {
  */
 export function computeContentHash(content: string): string {
   return createHash('sha256').update(content, 'utf-8').digest('hex');
+}
+
+/**
+ * Fetch the tree SHA (folder hash) for a skill folder using GitHub's Trees API.
+ * This makes ONE API call to get the entire repo tree, then extracts the SHA
+ * for the specific skill folder.
+ *
+ * @param ownerRepo - GitHub owner/repo (e.g., "vercel-labs/agent-skills")
+ * @param skillPath - Path to skill folder or SKILL.md (e.g., "skills/react-best-practices/SKILL.md")
+ * @returns The tree SHA for the skill folder, or null if not found
+ */
+export async function fetchSkillFolderHash(
+  ownerRepo: string,
+  skillPath: string
+): Promise<string | null> {
+  // Normalize the skill path - remove SKILL.md suffix to get folder path
+  let folderPath = skillPath;
+  if (folderPath.endsWith('/SKILL.md')) {
+    folderPath = folderPath.slice(0, -9);
+  } else if (folderPath.endsWith('SKILL.md')) {
+    folderPath = folderPath.slice(0, -8);
+  }
+  if (folderPath.endsWith('/')) {
+    folderPath = folderPath.slice(0, -1);
+  }
+
+  const branches = ['main', 'master'];
+
+  for (const branch of branches) {
+    try {
+      const url = `https://api.github.com/repos/${ownerRepo}/git/trees/${branch}?recursive=1`;
+      const response = await fetch(url, {
+        headers: {
+          Accept: 'application/vnd.github.v3+json',
+          'User-Agent': 'add-skill-cli',
+        },
+      });
+
+      if (!response.ok) continue;
+
+      const data = (await response.json()) as {
+        sha: string;
+        tree: Array<{ path: string; type: string; sha: string }>;
+      };
+
+      // If folderPath is empty, this is a root-level skill - use the root tree SHA
+      if (!folderPath) {
+        return data.sha;
+      }
+
+      // Find the tree entry for the skill folder
+      const folderEntry = data.tree.find(
+        (entry) => entry.type === 'tree' && entry.path === folderPath
+      );
+
+      if (folderEntry) {
+        return folderEntry.sha;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
 }
 
 /**

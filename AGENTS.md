@@ -81,7 +81,6 @@ The `.skill-lock.json` file (at `~/.agents/.skill-lock.json`) tracks globally in
       "sourceType": "github",
       "sourceUrl": "https://github.com/owner/repo.git",
       "skillPath": "skills/skill-name/SKILL.md",
-      "contentHash": "sha256-of-skill-md-content",
       "skillFolderHash": "github-tree-sha-for-folder",
       "installedAt": "...",
       "updatedAt": "..."
@@ -91,39 +90,37 @@ The `.skill-lock.json` file (at `~/.agents/.skill-lock.json`) tracks globally in
 ```
 
 **Key fields:**
-- `contentHash`: SHA-256 hash of SKILL.md content (v2+, kept for backwards compatibility)
-- `skillFolderHash`: GitHub tree SHA for the skill folder (v3+) - changes when ANY file in the folder changes
+- `skillFolderHash`: GitHub tree SHA for the skill folder - changes when ANY file in the folder changes
 - `skillPath`: Path to SKILL.md within the repo
 - `version`: Schema version (current: 3)
 
 **Version History:**
 - v1: Initial format (wiped on read)
-- v2: Added `contentHash` for SKILL.md-only change detection
-- v3: Added `skillFolderHash` for full folder change detection via GitHub Trees API
+- v2: Added `contentHash` for SKILL.md-only change detection (wiped on read)
+- v3: Uses `skillFolderHash` only - full folder change detection via GitHub Trees API
 
-**How hashes work:**
+**How `skillFolderHash` works:**
 
-v2 (`contentHash`) - hashes only SKILL.md content:
+The CLI fetches the tree SHA directly from GitHub at install time:
 ```typescript
-import { createHash } from 'crypto';
-const hash = createHash('sha256').update(skillMdContent, 'utf-8').digest('hex');
+const url = `https://api.github.com/repos/${ownerRepo}/git/trees/${branch}?recursive=1`;
+const data = await fetch(url).then(r => r.json());
+const folderEntry = data.tree.find(e => e.type === 'tree' && e.path === skillFolderPath);
+const skillFolderHash = folderEntry.sha;
 ```
 
-v3 (`skillFolderHash`) - uses GitHub's tree SHA:
-- The server calls GitHub's Trees API: `GET /repos/{owner}/{repo}/git/trees/{branch}?recursive=1`
-- Extracts the `sha` for the skill folder entry (type: "tree")
 - This SHA is content-addressable: it changes when ANY file in the folder changes
 - Benefits: 1 API call per repo (not per file), detects changes to reference files, code examples, etc.
+- Rate limit: 5,000 requests/hour with `GITHUB_TOKEN`, 60/hour without
 
 **Update checking flow:**
-1. Client sends `skillFolderHash` (if available) + `contentHash` to `/check-updates`
-2. Server compares `skillFolderHash` first (v3 mode), falls back to `contentHash` (v2 mode)
-3. For non-GitHub sources (Mintlify, HuggingFace), only `contentHash` is available
+1. Client sends `skillFolderHash` to `/check-updates`
+2. Server fetches latest tree SHA from GitHub and compares
+3. If different, skill has updates available
 
 **Backwards compatibility:**
-- v2 lock files are auto-upgraded to v3 on read (skills keep working, just missing `skillFolderHash`)
-- v1 lock files are wiped (too old, users must reinstall)
-- Server accepts both v2 and v3 clients
+- v1 and v2 lock files are wiped on read (users must reinstall skills)
+- Non-GitHub sources (Mintlify, HuggingFace) store empty `skillFolderHash` - update checking not supported
 
 ### Provider System
 
