@@ -133,7 +133,7 @@ export async function fetchSkillFolderHash(
       const response = await fetch(url, {
         headers: {
           Accept: 'application/vnd.github.v3+json',
-          'User-Agent': 'add-skill-cli',
+          'User-Agent': 'skills-cli',
         },
       });
 
