@@ -4,15 +4,15 @@
   "description": "The open agent skills ecosystem",
   "type": "module",
   "bin": {
-    "skills": "./dist/cli.js",
-    "add-skill": "./dist/cli.js"
+    "skills": "./dist/cli.mjs",
+    "add-skill": "./dist/cli.mjs"
   },
   "files": [
     "dist",
     "README.md"
   ],
   "scripts": {
-    "build": "tsup src/cli.ts --format esm --clean",
+    "build": "obuild",
     "dev": "tsx src/cli.ts",
     "exec:test": "tsx scripts/execute-tests.ts",
     "prepublishOnly": "npm run build",
@@ -73,19 +73,17 @@
   },
   "author": "",
   "license": "MIT",
-  "dependencies": {
-    "@clack/prompts": "^0.11.0",
-    "chalk": "^5.4.1",
-    "gray-matter": "^4.0.3",
-    "simple-git": "^3.27.0"
-  },
   "devDependencies": {
+    "@clack/prompts": "^0.11.0",
     "@types/bun": "latest",
     "@types/node": "^22.10.0",
+    "chalk": "^5.4.1",
+    "gray-matter": "^4.0.3",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
+    "obuild": "^0.4.20",
     "prettier": "^3.8.1",
-    "tsup": "^8.3.5",
+    "simple-git": "^3.27.0",
     "tsx": "^4.19.2",
     "typescript": "^5.9.3",
     "vitest": "^4.0.17"
