@@ -1,7 +1,7 @@
 import { homedir } from 'os';
 import { join } from 'path';
 import { existsSync } from 'fs';
-import type { AgentConfig, AgentType } from './types.js';
+import type { AgentConfig, AgentType } from './types.ts';
 
 const home = homedir();
 const codexHome = process.env.CODEX_HOME?.trim() || join(home, '.codex');
@@ -37,13 +37,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(claudeHome);
     },
   },
-  clawdbot: {
-    name: 'clawdbot',
-    displayName: 'Clawdbot',
+  moltbot: {
+    name: 'moltbot',
+    displayName: 'Moltbot',
     skillsDir: 'skills',
-    globalSkillsDir: join(home, '.clawdbot/skills'),
+    globalSkillsDir: existsSync(join(home, '.clawdbot'))
+      ? join(home, '.clawdbot/skills')
+      : join(home, '.moltbot/skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.clawdbot'));
+      return existsSync(join(home, '.moltbot')) || existsSync(join(home, '.clawdbot'));
     },
   },
   cline: {
@@ -163,6 +165,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.kilocode'));
     },
   },
+  'kimi-cli': {
+    name: 'kimi-cli',
+    displayName: 'Kimi Code CLI',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.config/agents/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.kimi'));
+    },
+  },
   'kiro-cli': {
     name: 'kiro-cli',
     displayName: 'Kiro CLI',
@@ -170,6 +181,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.kiro/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.kiro'));
+    },
+  },
+  kode: {
+    name: 'kode',
+    displayName: 'Kode',
+    skillsDir: '.kode/skills',
+    globalSkillsDir: join(home, '.kode/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.kode'));
     },
   },
   mcpjam: {
@@ -278,6 +298,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.neovate/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.neovate'));
+    },
+  },
+  pochi: {
+    name: 'pochi',
+    displayName: 'Pochi',
+    skillsDir: '.pochi/skills',
+    globalSkillsDir: join(home, '.pochi/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.pochi'));
     },
   },
 };
