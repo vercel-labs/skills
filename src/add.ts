@@ -23,6 +23,8 @@ import {
   fetchSkillFolderHash,
   isPromptDismissed,
   dismissPrompt,
+  getLastSelectedAgents,
+  saveSelectedAgents,
 } from './skill-lock.js';
 import type { Skill, AgentType, RemoteSkill } from './types.js';
 import packageJson from '../package.json' assert { type: 'json' };
@@ -114,12 +116,23 @@ async function selectAgentsInteractive(
     hint: `${options.global ? agents[a].globalSkillsDir : agents[a].skillsDir}`,
   }));
 
+  // Get last selected agents to pre-select
+  const lastSelected = await getLastSelectedAgents();
+  const initialValues = lastSelected
+    ? (lastSelected.filter((a) => availableAgents.includes(a as AgentType)) as AgentType[])
+    : [];
+
   const selected = await multiselect({
     message: 'Select agents to install skills to',
     options: agentChoices,
     required: true,
-    initialValues: [], // Start with none selected for easier picking
+    initialValues,
   });
+
+  if (!p.isCancel(selected)) {
+    // Save selection for next time
+    await saveSelectedAgents(selected as string[]);
+  }
 
   return selected as AgentType[] | symbol;
 }
@@ -229,17 +242,27 @@ async function handleRemoteSkill(
           label: config.displayName,
         }));
 
+        // Get last selected agents to pre-select, or default to all
+        const lastSelected = await getLastSelectedAgents();
+        const initialValues =
+          lastSelected && lastSelected.length > 0
+            ? (lastSelected.filter((a) => Object.keys(agents).includes(a)) as AgentType[])
+            : (Object.keys(agents) as AgentType[]);
+
         const selected = await multiselect({
           message: 'Select agents to install skills to',
           options: allAgentChoices,
           required: true,
-          initialValues: Object.keys(agents) as AgentType[],
+          initialValues,
         });
 
         if (p.isCancel(selected)) {
           p.cancel('Installation cancelled');
           process.exit(0);
         }
+
+        // Save selection for next time
+        await saveSelectedAgents(selected as string[]);
 
         targetAgents = selected as AgentType[];
       }
@@ -630,17 +653,27 @@ async function handleWellKnownSkills(
           label: config.displayName,
         }));
 
+        // Get last selected agents to pre-select, or default to all
+        const lastSelected = await getLastSelectedAgents();
+        const initialValues =
+          lastSelected && lastSelected.length > 0
+            ? (lastSelected.filter((a) => Object.keys(agents).includes(a)) as AgentType[])
+            : (Object.keys(agents) as AgentType[]);
+
         const selected = await multiselect({
           message: 'Select agents to install skills to',
           options: allAgentChoices,
           required: true,
-          initialValues: Object.keys(agents) as AgentType[],
+          initialValues,
         });
 
         if (p.isCancel(selected)) {
           p.cancel('Installation cancelled');
           process.exit(0);
         }
+
+        // Save selection for next time
+        await saveSelectedAgents(selected as string[]);
 
         targetAgents = selected as AgentType[];
       }
@@ -995,17 +1028,27 @@ async function handleDirectUrlSkillLegacy(
           label: config.displayName,
         }));
 
+        // Get last selected agents to pre-select, or default to all
+        const lastSelected = await getLastSelectedAgents();
+        const initialValues =
+          lastSelected && lastSelected.length > 0
+            ? (lastSelected.filter((a) => Object.keys(agents).includes(a)) as AgentType[])
+            : (Object.keys(agents) as AgentType[]);
+
         const selected = await multiselect({
           message: 'Select agents to install skills to',
           options: allAgentChoices,
           required: true,
-          initialValues: Object.keys(agents) as AgentType[],
+          initialValues,
         });
 
         if (p.isCancel(selected)) {
           p.cancel('Installation cancelled');
           process.exit(0);
         }
+
+        // Save selection for next time
+        await saveSelectedAgents(selected as string[]);
 
         targetAgents = selected as AgentType[];
       }
@@ -1418,11 +1461,18 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             label: config.displayName,
           }));
 
+          // Get last selected agents to pre-select, or default to all
+          const lastSelected = await getLastSelectedAgents();
+          const initialValues =
+            lastSelected && lastSelected.length > 0
+              ? (lastSelected.filter((a) => Object.keys(agents).includes(a)) as AgentType[])
+              : (Object.keys(agents) as AgentType[]);
+
           const selected = await multiselect({
             message: 'Select agents to install skills to',
             options: allAgentChoices,
             required: true,
-            initialValues: Object.keys(agents) as AgentType[],
+            initialValues,
           });
 
           if (p.isCancel(selected)) {
@@ -1430,6 +1480,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             await cleanup(tempDir);
             process.exit(0);
           }
+
+          // Save selection for next time
+          await saveSelectedAgents(selected as string[]);
 
           targetAgents = selected as AgentType[];
         }
