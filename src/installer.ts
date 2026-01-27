@@ -23,7 +23,7 @@ interface InstallResult {
  * @param name - The name to sanitize
  * @returns Sanitized name safe for use in file paths
  */
-function sanitizeName(name: string): string {
+export function sanitizeName(name: string): string {
   let sanitized = name.replace(/[\/\\:\0]/g, '');
   sanitized = sanitized.replace(/^[.\s]+|[.\s]+$/g, '');
   sanitized = sanitized.replace(/^\.+/, '');

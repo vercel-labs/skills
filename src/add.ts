@@ -13,6 +13,7 @@ import {
   getCanonicalPath,
   installRemoteSkillForAgent,
   installToCustomPath,
+  sanitizeName,
   type InstallMode,
 } from './installer.js';
 import { detectInstalledAgents, agents } from './agents.js';
@@ -336,7 +337,7 @@ async function handleRemoteSkill(
   const summaryLines: string[] = [];
 
   if (options.path) {
-    const targetPath = join(options.path, remoteSkill.installName);
+    const targetPath = join(options.path, sanitizeName(remoteSkill.installName));
     summaryLines.push(`${chalk.cyan(shortenPath(targetPath, cwd))}`);
   } else {
     // Check for overwrites
@@ -691,7 +692,7 @@ async function handleDirectUrlSkillLegacy(
   const summaryLines: string[] = [];
 
   if (options.path) {
-    const targetPath = join(options.path, remoteSkill.installName);
+    const targetPath = join(options.path, sanitizeName(remoteSkill.installName));
     summaryLines.push(`${chalk.cyan(shortenPath(targetPath, cwd))}`);
   } else {
     // Check for overwrites
@@ -1172,7 +1173,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     if (options.path) {
       // Build summary for custom path installation
       for (const skill of selectedSkills) {
-        const targetPath = join(options.path, skill.name);
+        const targetPath = join(options.path, sanitizeName(skill.name));
         if (summaryLines.length > 0) summaryLines.push('');
         summaryLines.push(`${chalk.cyan(shortenPath(targetPath, cwd))}`);
       }
