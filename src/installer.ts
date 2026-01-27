@@ -258,10 +258,11 @@ async function copyDirectory(src: string, dest: string): Promise<void> {
     // Handle symlinks: resolve them and copy the target content
     if (entry.isSymbolicLink()) {
       try {
-        const stats = await lstat(resolve(src, await readlink(srcPath)));
+        const linkTarget = await readlink(srcPath);
+        const resolvedPath = resolve(src, linkTarget);
+        const stats = await lstat(resolvedPath);
         if (stats.isDirectory()) {
           // Symlink points to directory - recursively copy resolved content
-          const resolvedPath = resolve(src, await readlink(srcPath));
           if (isExcluded(entry.name, true)) continue;
           await copyDirectory(resolvedPath, destPath);
         } else {
@@ -269,9 +270,12 @@ async function copyDirectory(src: string, dest: string): Promise<void> {
           if (isExcluded(entry.name, false)) continue;
           await cp(srcPath, destPath, { dereference: true });
         }
-      } catch {
-        // Broken symlink or inaccessible target - skip it
-        continue;
+      } catch (err: unknown) {
+        // Only skip broken symlinks (ENOENT), re-throw other errors
+        if (err && typeof err === 'object' && 'code' in err && err.code === 'ENOENT') {
+          continue;
+        }
+        throw err;
       }
       continue;
     }
