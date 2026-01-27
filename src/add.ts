@@ -17,7 +17,12 @@ import { detectInstalledAgents, agents } from './agents.js';
 import { track, setVersion } from './telemetry.js';
 import { findProvider } from './providers/index.js';
 import { fetchMintlifySkill } from './mintlify.js';
-import { addSkillToLock, fetchSkillFolderHash } from './skill-lock.js';
+import {
+  addSkillToLock,
+  fetchSkillFolderHash,
+  isPromptDismissed,
+  dismissPrompt,
+} from './skill-lock.js';
 import type { Skill, AgentType, RemoteSkill } from './types.js';
 import packageJson from '../package.json' assert { type: 'json' };
 export function initTelemetry(version: string): void {
@@ -66,6 +71,56 @@ function multiselect<Value>(opts: {
     options: opts.options as p.Option<Value>[],
     message: `${opts.message} ${chalk.dim('(space to toggle)')}`,
   }) as Promise<Value[] | symbol>;
+}
+
+/**
+ * Two-step agent selection: first ask "all agents" or "select specific",
+ * then show the multiselect only if user wants to select specific agents.
+ */
+async function selectAgentsInteractive(
+  availableAgents: AgentType[],
+  options: { global?: boolean }
+): Promise<AgentType[] | symbol> {
+  // First step: ask if user wants all agents or to select specific ones
+  const installChoice = await p.select({
+    message: 'Install to',
+    options: [
+      {
+        value: 'all',
+        label: 'All agents (Recommended)',
+        hint: `Install to all ${availableAgents.length} detected agents`,
+      },
+      {
+        value: 'select',
+        label: 'Select specific agents',
+        hint: 'Choose which agents to install to',
+      },
+    ],
+  });
+
+  if (p.isCancel(installChoice)) {
+    return installChoice;
+  }
+
+  if (installChoice === 'all') {
+    return availableAgents;
+  }
+
+  // Second step: show multiselect for specific agent selection
+  const agentChoices = availableAgents.map((a) => ({
+    value: a,
+    label: agents[a].displayName,
+    hint: `${options.global ? agents[a].globalSkillsDir : agents[a].skillsDir}`,
+  }));
+
+  const selected = await multiselect({
+    message: 'Select agents to install skills to',
+    options: agentChoices,
+    required: true,
+    initialValues: [], // Start with none selected for easier picking
+  });
+
+  return selected as AgentType[] | symbol;
 }
 
 const version = packageJson.version;
@@ -198,18 +253,7 @@ async function handleRemoteSkill(
         );
       }
     } else {
-      const agentChoices = installedAgents.map((a) => ({
-        value: a,
-        label: agents[a].displayName,
-        hint: `${options.global ? agents[a].globalSkillsDir : agents[a].skillsDir}`,
-      }));
-
-      const selected = await multiselect({
-        message: 'Select agents to install skills to',
-        options: agentChoices,
-        required: true,
-        initialValues: installedAgents,
-      });
+      const selected = await selectAgentsInteractive(installedAgents, { global: options.global });
 
       if (p.isCancel(selected)) {
         p.cancel('Installation cancelled');
@@ -440,6 +484,9 @@ async function handleRemoteSkill(
 
   console.log();
   p.outro(chalk.green('Done!'));
+
+  // Prompt for find-skills after successful install
+  await promptForFindSkills();
 }
 
 /**
@@ -550,18 +597,7 @@ async function handleDirectUrlSkillLegacy(
         );
       }
     } else {
-      const agentChoices = installedAgents.map((a) => ({
-        value: a,
-        label: agents[a].displayName,
-        hint: `${options.global ? agents[a].globalSkillsDir : agents[a].skillsDir}`,
-      }));
-
-      const selected = await multiselect({
-        message: 'Select agents to install skills to',
-        options: agentChoices,
-        required: true,
-        initialValues: installedAgents,
-      });
+      const selected = await selectAgentsInteractive(installedAgents, { global: options.global });
 
       if (p.isCancel(selected)) {
         p.cancel('Installation cancelled');
@@ -750,10 +786,22 @@ async function handleDirectUrlSkillLegacy(
 
   console.log();
   p.outro(chalk.green('Done!'));
+
+  // Prompt for find-skills after successful install
+  await promptForFindSkills();
 }
 
 export async function runAdd(args: string[], options: AddOptions = {}): Promise<void> {
   const source = args[0];
+  let installTipShown = false;
+
+  const showInstallTip = (): void => {
+    if (installTipShown) return;
+    p.log.message(
+      chalk.dim('Tip: use the --yes (-y) and --global (-g) flags to install without prompts.')
+    );
+    installTipShown = true;
+  };
 
   if (!source) {
     console.log();
@@ -772,14 +820,17 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     process.exit(1);
   }
 
-  // --all implies -y and -g
+  // --all implies -y (skip prompts and select all)
   if (options.all) {
     options.yes = true;
-    options.global = true;
   }
 
   console.log();
   p.intro(chalk.bgCyan.black(' skills '));
+
+  if (!process.stdin.isTTY) {
+    showInstallTip();
+  }
 
   let tempDir: string | null = null;
 
@@ -962,18 +1013,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           );
         }
       } else {
-        const agentChoices = installedAgents.map((a) => ({
-          value: a,
-          label: agents[a].displayName,
-          hint: `${options.global ? agents[a].globalSkillsDir : agents[a].skillsDir}`,
-        }));
-
-        const selected = await multiselect({
-          message: 'Select agents to install skills to',
-          options: agentChoices,
-          required: true,
-          initialValues: installedAgents,
-        });
+        const selected = await selectAgentsInteractive(installedAgents, { global: options.global });
 
         if (p.isCancel(selected)) {
           p.cancel('Installation cancelled');
@@ -1259,6 +1299,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     console.log();
     p.outro(chalk.green('Done!'));
+
+    // Prompt for find-skills after successful install
+    await promptForFindSkills();
   } catch (error) {
     if (error instanceof GitCloneError) {
       p.log.error(chalk.red('Failed to clone repository'));
@@ -1269,6 +1312,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     } else {
       p.log.error(error instanceof Error ? error.message : 'Unknown error occurred');
     }
+    showInstallTip();
     p.outro(chalk.red('Installation failed'));
     process.exit(1);
   } finally {
@@ -1283,6 +1327,72 @@ async function cleanup(tempDir: string | null) {
     } catch {
       // Ignore cleanup errors
     }
+  }
+}
+
+/**
+ * Prompt user to install the find-skills skill after their first installation.
+ * This helps users discover skills via their coding agent.
+ * The prompt is only shown once - if dismissed, it's stored in the lock file.
+ */
+async function promptForFindSkills(): Promise<void> {
+  // Skip if already dismissed or not in interactive mode
+  if (!process.stdin.isTTY) return;
+
+  try {
+    const dismissed = await isPromptDismissed('findSkillsPrompt');
+    if (dismissed) return;
+
+    // Check if find-skills is already installed
+    const findSkillsInstalled = await isSkillInstalled('find-skills', 'claude-code', {
+      global: true,
+    });
+    if (findSkillsInstalled) {
+      // Mark as dismissed so we don't check again
+      await dismissPrompt('findSkillsPrompt');
+      return;
+    }
+
+    console.log();
+    p.log.message(chalk.dim("One-time prompt - you won't be asked again if you dismiss."));
+    const install = await p.confirm({
+      message: `Install the ${chalk.cyan('find-skills')} skill? It helps your agent discover and suggest skills.`,
+    });
+
+    if (p.isCancel(install)) {
+      await dismissPrompt('findSkillsPrompt');
+      return;
+    }
+
+    if (install) {
+      // Install find-skills globally to all agents
+      // Mark as dismissed first to prevent recursive prompts
+      await dismissPrompt('findSkillsPrompt');
+
+      console.log();
+      p.log.step('Installing find-skills skill...');
+
+      try {
+        // Call runAdd directly instead of spawning subprocess
+        await runAdd(['vercel-labs/skills'], {
+          skill: ['find-skills'],
+          global: true,
+          yes: true,
+          all: true,
+        });
+      } catch {
+        p.log.warn('Failed to install find-skills. You can try again with:');
+        p.log.message(chalk.dim('  npx skills add vercel-labs/skills@find-skills -g -y --all'));
+      }
+    } else {
+      // User declined - dismiss the prompt
+      await dismissPrompt('findSkillsPrompt');
+      p.log.message(
+        chalk.dim('You can install it later with: npx skills add vercel-labs/skills@find-skills')
+      );
+    }
+  } catch {
+    // Don't fail the main installation if prompt fails
   }
 }
 

@@ -258,6 +258,10 @@ async function isRepoPublic(owner: string, repo: string): Promise<boolean> {
 
 export async function runFind(args: string[]): Promise<void> {
   const query = args.join(' ');
+  const isNonInteractive = !process.stdin.isTTY;
+  const agentTip = `${DIM}Tip: if running in a coding agent, follow these steps:${RESET}
+${DIM}  1) npx skills find [query]${RESET}
+${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
 
   // Non-interactive mode: just print results and exit
   if (query) {
@@ -287,7 +291,11 @@ export async function runFind(args: string[]): Promise<void> {
     return;
   }
 
-  // Interactive mode
+  // Interactive mode - show tip only if running non-interactively (likely in a coding agent)
+  if (isNonInteractive) {
+    console.log(agentTip);
+    console.log();
+  }
   const selected = await runSearchPrompt();
 
   // Track telemetry for interactive search
