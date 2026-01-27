@@ -81,7 +81,7 @@
     "gray-matter": "^4.0.3",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
-    "obuild": "^0.4.20",
+    "obuild": "^0.4.21",
     "prettier": "^3.8.1",
     "simple-git": "^3.27.0",
     "tsx": "^4.19.2",

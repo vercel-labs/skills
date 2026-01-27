@@ -30,8 +30,8 @@ importers:
         specifier: ^16.2.7
         version: 16.2.7
       obuild:
-        specifier: ^0.4.20
-        version: 0.4.20(typescript@5.9.3)
+        specifier: ^0.4.21
+        version: 0.4.21(typescript@5.9.3)
       prettier:
         specifier: ^3.8.1
         version: 3.8.1
@@ -785,8 +785,8 @@ packages:
   obug@2.1.1:
     resolution: {integrity: sha512-uTqF9MuPraAQ+IsnPf366RG4cP9RtUi7MLO1N3KEc+wb0a6yKpeL0lmk2IB1jY5KHPAlTc6T/JRdC/YqxHNwkQ==}
 
-  obuild@0.4.20:
-    resolution: {integrity: sha512-9xOVCwJkm6Xane61y2AIQWKAqhDLRz5FosS4eLNYR+hzTQAnslrlYBxH6iXTZWRfc5a+8kVXa9R7LZxHHq+mzg==}
+  obuild@0.4.21:
+    resolution: {integrity: sha512-X2zk2W2lGP9rKZIPELs07aLRgIXQ4aYQfhU11xIvjLIVQbGizGpiFm3097OgBZrFrRqXXRgd5G+KuruPqCLvDg==}
     hasBin: true
 
   ohash@2.0.11:
@@ -1647,7 +1647,7 @@ snapshots:
 
   obug@2.1.1: {}
 
-  obuild@0.4.20(typescript@5.9.3):
+  obuild@0.4.21(typescript@5.9.3):
     dependencies:
       c12: 3.3.3
       consola: 3.4.2
