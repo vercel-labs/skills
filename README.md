@@ -41,7 +41,7 @@ npx skills add ./my-local-skills
 ### Options
 
 | Option                    | Description                                                                                                                                        |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+|---------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------|
 | `-g, --global`            | Install to user directory instead of project                                                                                                       |
 | `-a, --agent <agents...>` | <!-- agent-names:start -->Target specific agents (e.g., `claude-code`, `codex`). See [Available Agents](#available-agents)<!-- agent-names:end --> |
 | `-s, --skill <skills...>` | Install specific skills by name                                                                                                                    |
@@ -71,7 +71,7 @@ npx skills add vercel-labs/agent-skills --all
 ### Installation Scope
 
 | Scope       | Flag      | Location            | Use Case                                      |
-| ----------- | --------- | ------------------- | --------------------------------------------- |
+|-------------|-----------|---------------------|-----------------------------------------------|
 | **Project** | (default) | `./<agent>/skills/` | Committed with your project, shared with team |
 | **Global**  | `-g`      | `~/<agent>/skills/` | Available across all projects                 |
 
@@ -80,14 +80,14 @@ npx skills add vercel-labs/agent-skills --all
 When installing interactively, you can choose:
 
 | Method                    | Description                                                                                 |
-| ------------------------- | ------------------------------------------------------------------------------------------- |
+|---------------------------|---------------------------------------------------------------------------------------------|
 | **Symlink** (Recommended) | Creates symlinks from each agent to a canonical copy. Single source of truth, easy updates. |
 | **Copy**                  | Creates independent copies for each agent. Use when symlinks aren't supported.              |
 
 ## Other Commands
 
 | Command                    | Description                                           |
-| -------------------------- | ----------------------------------------------------- |
+|----------------------------|-------------------------------------------------------|
 | `npx skills find [query]`  | Search for skills interactively or by keyword         |
 | `npx skills check`         | Check for available skill updates                     |
 | `npx skills update`        | Update all installed skills to latest versions        |
@@ -138,7 +138,8 @@ npx skills generate-lock --dry-run
 
 ## What are Agent Skills?
 
-Agent skills are reusable instruction sets that extend your coding agent's capabilities. They're defined in `SKILL.md` files with YAML frontmatter containing a `name` and `description`.
+Agent skills are reusable instruction sets that extend your coding agent's capabilities. They're defined in `SKILL.md`
+files with YAML frontmatter containing a `name` and `description`.
 
 Skills let agents perform specialized tasks like:
 
@@ -153,6 +154,7 @@ Discover skills at **[skills.sh](https://skills.sh)**
 Skills can be installed to any of these agents:
 
 <!-- available-agents:start -->
+
 | Agent          | `--agent`        | Project Path           | Global Path                            |
 |----------------|------------------|------------------------|----------------------------------------|
 | Amp            | `amp`            | `.agents/skills/`      | `~/.config/agents/skills/`             |
@@ -170,7 +172,7 @@ Skills can be installed to any of these agents:
 | Gemini CLI     | `gemini-cli`     | `.gemini/skills/`      | `~/.gemini/skills/`                    |
 | GitHub Copilot | `github-copilot` | `.github/skills/`      | `~/.copilot/skills/`                   |
 | Goose          | `goose`          | `.goose/skills/`       | `~/.config/goose/skills/`              |
-| Junie          | `junie`          | `.junie/skills/`       | `~/.junie/skills/`               |
+| Junie          | `junie`          | `.junie/skills/`       | `~/.junie/skills/`                     |
 | Kilo Code      | `kilo`           | `.kilocode/skills/`    | `~/.kilocode/skills/`                  |
 | Kiro CLI       | `kiro-cli`       | `.kiro/skills/`        | `~/.kiro/skills/`                      |
 | MCPJam         | `mcpjam`         | `.mcpjam/skills/`      | `~/.mcpjam/skills/`                    |
@@ -185,10 +187,12 @@ Skills can be installed to any of these agents:
 | Windsurf       | `windsurf`       | `.windsurf/skills/`    | `~/.codeium/windsurf/skills/`          |
 | Zencoder       | `zencoder`       | `.zencoder/skills/`    | `~/.zencoder/skills/`                  |
 | Neovate        | `neovate`        | `.neovate/skills/`     | `~/.neovate/skills/`                   |
+
 <!-- available-agents:end -->
 
 > [!NOTE]
-> **Kiro CLI users:** After installing skills, manually add them to your custom agent's `resources` in `.kiro/agents/<agent>.json`:
+> **Kiro CLI users:** After installing skills, manually add them to your custom agent's `resources` in
+`.kiro/agents/<agent>.json`:
 >
 > ```json
 > {
@@ -196,7 +200,8 @@ Skills can be installed to any of these agents:
 > }
 > ```
 
-The CLI automatically detects which coding agents you have installed. If none are detected, you'll be prompted to select which agents to install to.
+The CLI automatically detects which coding agents you have installed. If none are detected, you'll be prompted to select
+which agents to install to.
 
 ## Creating Skills
 
@@ -229,7 +234,9 @@ Describe the scenarios where this skill should be used.
 
 ### Optional Fields
 
-- `metadata.internal`: Set to `true` to hide the skill from normal discovery. Internal skills are only visible and installable when `INSTALL_INTERNAL_SKILLS=1` is set. Useful for work-in-progress skills or skills meant only for internal tooling.
+- `metadata.internal`: Set to `true` to hide the skill from normal discovery. Internal skills are only visible and
+  installable when `INSTALL_INTERNAL_SKILLS=1` is set. Useful for work-in-progress skills or skills meant only for
+  internal tooling.
 
 ```markdown
 ---
@@ -245,6 +252,7 @@ metadata:
 The CLI searches for skills in these locations within a repository:
 
 <!-- skill-discovery:start -->
+
 - Root directory (if it contains `SKILL.md`)
 - `skills/`
 - `skills/.curated/`
@@ -279,16 +287,18 @@ The CLI searches for skills in these locations within a repository:
 - `.windsurf/skills/`
 - `.zencoder/skills/`
 - `.neovate/skills/`
+
 <!-- skill-discovery:end -->
 
 If no skills are found in standard locations, a recursive search is performed.
 
 ## Compatibility
 
-Skills are generally compatible across agents since they follow a shared [Agent Skills specification](https://agentskills.io). However, some features may be agent-specific:
+Skills are generally compatible across agents since they follow a
+shared [Agent Skills specification](https://agentskills.io). However, some features may be agent-specific:
 
 | Feature         | OpenCode | OpenHands | Claude Code | Cline | CodeBuddy | Codex | Command Code | Kiro CLI | Cursor | Antigravity | Roo Code | Github Copilot | Amp | Clawdbot | Neovate | Pi  | Qoder | Zencoder |
-| --------------- | -------- | --------- | ----------- | ----- | --------- | ----- | ------------ | -------- | ------ | ----------- | -------- | -------------- | --- | -------- | ------- | --- | ----- | -------- |
+|-----------------|----------|-----------|-------------|-------|-----------|-------|--------------|----------|--------|-------------|----------|----------------|-----|----------|---------|-----|-------|----------|
 | Basic skills    | Yes      | Yes       | Yes         | Yes   | Yes       | Yes   | Yes          | Yes      | Yes    | Yes         | Yes      | Yes            | Yes | Yes      | Yes     | Yes | Yes   | Yes      |
 | `allowed-tools` | Yes      | Yes       | Yes         | Yes   | Yes       | Yes   | Yes          | No       | Yes    | Yes         | Yes      | Yes            | Yes | Yes      | Yes     | Yes | Yes   | No       |
 | `context: fork` | No       | No        | Yes         | No    | No        | No    | No           | No       | No     | No          | No       | No             | No  | No       | No      | No  | No    | No       |
@@ -313,7 +323,7 @@ Ensure you have write access to the target directory.
 ## Environment Variables
 
 | Variable                  | Description                                                                |
-| ------------------------- | -------------------------------------------------------------------------- |
+|---------------------------|----------------------------------------------------------------------------|
 | `INSTALL_INTERNAL_SKILLS` | Set to `1` or `true` to show and install skills marked as `internal: true` |
 | `DISABLE_TELEMETRY`       | Set to disable anonymous usage telemetry                                   |
 | `DO_NOT_TRACK`            | Alternative way to disable telemetry                                       |
