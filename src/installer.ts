@@ -229,8 +229,9 @@ async function copyDirectory(src: string, dest: string): Promise<void> {
         // If the file is a symlink to elsewhere in a remote skill, it may not
         // resolve correctly once it has been copied to the local location.
         // `dereference: true` tells Node to copy the file instead of copying
-        // the symlink.
+        // the symlink. `recursive: true` handles symlinks pointing to directories.
         dereference: true,
+        recursive: true,
       });
     }
   }
