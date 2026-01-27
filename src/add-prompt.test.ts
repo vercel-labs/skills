@@ -17,8 +17,9 @@ vi.mock('../package.json', () => ({
 describe('promptForAgents', () => {
   // Cast to any to avoid AgentType validation in tests
   const choices: any[] = [
-    { value: 'agent1', label: 'Agent 1' },
-    { value: 'agent2', label: 'Agent 2' },
+    { value: 'opencode', label: 'OpenCode' },
+    { value: 'cursor', label: 'Cursor' },
+    { value: 'claude-code', label: 'Claude Code' },
   ];
 
   beforeEach(() => {
@@ -29,7 +30,7 @@ describe('promptForAgents', () => {
 
   it('should use default agents (none) when no history exists and defaultToAll is false', async () => {
     vi.mocked(skillLock.getLastSelectedAgents).mockResolvedValue(undefined);
-    vi.mocked(p.multiselect).mockResolvedValue(['agent1']);
+    vi.mocked(p.multiselect).mockResolvedValue(['opencode']);
 
     await promptForAgents('Select agents', choices, false);
 
@@ -42,39 +43,39 @@ describe('promptForAgents', () => {
 
   it('should use all agents when no history exists and defaultToAll is true', async () => {
     vi.mocked(skillLock.getLastSelectedAgents).mockResolvedValue(undefined);
-    vi.mocked(p.multiselect).mockResolvedValue(['agent1']);
+    vi.mocked(p.multiselect).mockResolvedValue(['opencode']);
 
     await promptForAgents('Select agents', choices, true);
 
     expect(p.multiselect).toHaveBeenCalledWith(
       expect.objectContaining({
-        initialValues: ['agent1', 'agent2'],
+        initialValues: ['opencode', 'cursor', 'claude-code'],
       })
     );
   });
 
   it('should use last selected agents when history exists', async () => {
-    vi.mocked(skillLock.getLastSelectedAgents).mockResolvedValue(['agent2']);
-    vi.mocked(p.multiselect).mockResolvedValue(['agent2']);
+    vi.mocked(skillLock.getLastSelectedAgents).mockResolvedValue(['cursor']);
+    vi.mocked(p.multiselect).mockResolvedValue(['cursor']);
 
     await promptForAgents('Select agents', choices, false);
 
     expect(p.multiselect).toHaveBeenCalledWith(
       expect.objectContaining({
-        initialValues: ['agent2'],
+        initialValues: ['cursor'],
       })
     );
   });
 
   it('should filter out invalid agents from history', async () => {
-    vi.mocked(skillLock.getLastSelectedAgents).mockResolvedValue(['agent2', 'invalid-agent']);
-    vi.mocked(p.multiselect).mockResolvedValue(['agent2']);
+    vi.mocked(skillLock.getLastSelectedAgents).mockResolvedValue(['cursor', 'invalid-agent']);
+    vi.mocked(p.multiselect).mockResolvedValue(['cursor']);
 
     await promptForAgents('Select agents', choices, false);
 
     expect(p.multiselect).toHaveBeenCalledWith(
       expect.objectContaining({
-        initialValues: ['agent2'],
+        initialValues: ['cursor'],
       })
     );
   });
@@ -82,14 +83,14 @@ describe('promptForAgents', () => {
   it('should fallback to defaultToAll logic if filtered history is empty', async () => {
     // History exists but all agents are invalid
     vi.mocked(skillLock.getLastSelectedAgents).mockResolvedValue(['invalid-agent']);
-    vi.mocked(p.multiselect).mockResolvedValue(['agent1']);
+    vi.mocked(p.multiselect).mockResolvedValue(['opencode']);
 
     await promptForAgents('Select agents', choices, true);
 
     // Should fall back to all agents since history resulted in empty list and defaultToAll=true
     expect(p.multiselect).toHaveBeenCalledWith(
       expect.objectContaining({
-        initialValues: ['agent1', 'agent2'],
+        initialValues: ['opencode', 'cursor', 'claude-code'],
       })
     );
   });
@@ -97,7 +98,7 @@ describe('promptForAgents', () => {
   it('should fallback to empty list if filtered history is empty and defaultToAll is false', async () => {
     // History exists but all agents are invalid
     vi.mocked(skillLock.getLastSelectedAgents).mockResolvedValue(['invalid-agent']);
-    vi.mocked(p.multiselect).mockResolvedValue(['agent1']);
+    vi.mocked(p.multiselect).mockResolvedValue(['opencode']);
 
     await promptForAgents('Select agents', choices, false);
 
@@ -110,11 +111,11 @@ describe('promptForAgents', () => {
 
   it('should save selected agents if not cancelled', async () => {
     vi.mocked(skillLock.getLastSelectedAgents).mockResolvedValue(undefined);
-    vi.mocked(p.multiselect).mockResolvedValue(['agent1']);
+    vi.mocked(p.multiselect).mockResolvedValue(['opencode']);
 
     await promptForAgents('Select agents', choices, false);
 
-    expect(skillLock.saveSelectedAgents).toHaveBeenCalledWith(['agent1']);
+    expect(skillLock.saveSelectedAgents).toHaveBeenCalledWith(['opencode']);
   });
 
   it('should not save agents if cancelled', async () => {
