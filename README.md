@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **Opencode**, **Claude Code**, **Codex**, **Cursor**, and [23 more](#available-agents).
+Supports **Opencode**, **Claude Code**, **Codex**, **Cursor**, and [25 more](#available-agents).
 <!-- agent-list:end -->
 
 ## Install a Skill
@@ -39,7 +39,7 @@ npx skills add ./my-local-skills
 | Option                    | Description                                                                                                                                        |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `-g, --global`            | Install to user directory instead of project                                                                                                       |
-| `-a, --agent <agents...>` | <!-- agent-names:start -->Target specific agents (e.g., `claude-code`, `codex`). See [Supported Agents](#supported-agents)<!-- agent-names:end --> |
+| `-a, --agent <agents...>` | <!-- agent-names:start -->Target specific agents (e.g., `claude-code`, `codex`). See [Available Agents](#available-agents)<!-- agent-names:end --> |
 | `-s, --skill <skills...>` | Install specific skills by name                                                                                                                    |
 | `-l, --list`              | List available skills without installing                                                                                                           |
 | `-y, --yes`               | Skip all confirmation prompts                                                                                                                      |
@@ -191,6 +191,7 @@ Skills can be installed to any of these agents:
 | Claude Code | `claude-code` | `.claude/skills/` | `~/.claude/skills/` |
 | Clawdbot | `clawdbot` | `skills/` | `~/.clawdbot/skills/` |
 | Cline | `cline` | `.cline/skills/` | `~/.cline/skills/` |
+| CodeBuddy | `codebuddy` | `.codebuddy/skills/` | `~/.codebuddy/skills/` |
 | Codex | `codex` | `.codex/skills/` | `~/.codex/skills/` |
 | Command Code | `command-code` | `.commandcode/skills/` | `~/.commandcode/skills/` |
 | Continue | `continue` | `.continue/skills/` | `~/.continue/skills/` |
@@ -203,6 +204,7 @@ Skills can be installed to any of these agents:
 | Kilo Code | `kilo` | `.kilocode/skills/` | `~/.kilocode/skills/` |
 | Kiro CLI | `kiro-cli` | `.kiro/skills/` | `~/.kiro/skills/` |
 | MCPJam | `mcpjam` | `.mcpjam/skills/` | `~/.mcpjam/skills/` |
+| Mux | `mux` | `.mux/skills/` | `~/.mux/skills/` |
 | OpenCode | `opencode` | `.opencode/skills/` | `~/.config/opencode/skills/` |
 | OpenHands | `openhands` | `.openhands/skills/` | `~/.openhands/skills/` |
 | Pi | `pi` | `.pi/skills/` | `~/.pi/agent/skills/` |
@@ -255,12 +257,24 @@ Describe the scenarios where this skill should be used.
 - `name`: Unique identifier (lowercase, hyphens allowed)
 - `description`: Brief explanation of what the skill does
 
+### Optional Fields
+
+- `metadata.internal`: Set to `true` to hide the skill from normal discovery. Internal skills are only visible and installable when `INSTALL_INTERNAL_SKILLS=1` is set. Useful for work-in-progress skills or skills meant only for internal tooling.
+
+```markdown
+---
+name: my-internal-skill
+description: An internal skill not shown by default
+metadata:
+  internal: true
+---
+```
+
 ### Skill Discovery
 
 The CLI searches for skills in these locations within a repository:
 
 <!-- skill-discovery:start -->
-
 - Root directory (if it contains `SKILL.md`)
 - `skills/`
 - `skills/.curated/`
@@ -271,6 +285,7 @@ The CLI searches for skills in these locations within a repository:
 - `.claude/skills/`
 - `./skills/`
 - `.cline/skills/`
+- `.codebuddy/skills/`
 - `.codex/skills/`
 - `.commandcode/skills/`
 - `.continue/skills/`
@@ -283,6 +298,7 @@ The CLI searches for skills in these locations within a repository:
 - `.kilocode/skills/`
 - `.kiro/skills/`
 - `.mcpjam/skills/`
+- `.mux/skills/`
 - `.opencode/skills/`
 - `.openhands/skills/`
 - `.pi/skills/`
@@ -301,12 +317,12 @@ If no skills are found in standard locations, a recursive search is performed.
 
 Skills are generally compatible across agents since they follow a shared [Agent Skills specification](https://agentskills.io). However, some features may be agent-specific:
 
-| Feature         | OpenCode | OpenHands | Claude Code | Cline | Codex | Command Code | Kiro CLI | Cursor | Antigravity | Roo Code | Github Copilot | Amp | Clawdbot | Neovate | Pi  | Qoder | Zencoder |
-| --------------- | -------- | --------- | ----------- | ----- | ----- | ------------ | -------- | ------ | ----------- | -------- | -------------- | --- | -------- | ------- | --- | ----- | -------- |
-| Basic skills    | Yes      | Yes       | Yes         | Yes   | Yes   | Yes          | Yes      | Yes    | Yes         | Yes      | Yes            | Yes | Yes      | Yes     | Yes | Yes   | Yes      |
-| `allowed-tools` | Yes      | Yes       | Yes         | Yes   | Yes   | Yes          | No       | Yes    | Yes         | Yes      | Yes            | Yes | Yes      | Yes     | Yes | Yes   | No       |
-| `context: fork` | No       | No        | Yes         | No    | No    | No           | No       | No     | No          | No       | No             | No  | No       | No      | No  | No    | No       |
-| Hooks           | No       | No        | Yes         | Yes   | No    | No           | No       | No     | No          | No       | No             | No  | No       | No      | No  | No    | No       |
+| Feature         | OpenCode | OpenHands | Claude Code | Cline | CodeBuddy | Codex | Command Code | Kiro CLI | Cursor | Antigravity | Roo Code | Github Copilot | Amp | Clawdbot | Neovate | Pi  | Qoder | Zencoder |
+| --------------- | -------- | --------- | ----------- | ----- | --------- | ----- | ------------ | -------- | ------ | ----------- | -------- | -------------- | --- | -------- | ------- | --- | ----- | -------- |
+| Basic skills    | Yes      | Yes       | Yes         | Yes   | Yes       | Yes   | Yes          | Yes      | Yes    | Yes         | Yes      | Yes            | Yes | Yes      | Yes     | Yes | Yes   | Yes      |
+| `allowed-tools` | Yes      | Yes       | Yes         | Yes   | Yes       | Yes   | Yes          | No       | Yes    | Yes         | Yes      | Yes            | Yes | Yes      | Yes     | Yes | Yes   | No       |
+| `context: fork` | No       | No        | Yes         | No    | No        | No    | No           | No       | No     | No          | No       | No             | No  | No       | No      | No  | No    | No       |
+| Hooks           | No       | No        | Yes         | Yes   | No        | No    | No           | No       | No     | No          | No       | No             | No  | No       | No      | No  | No    | No       |
 
 ## Troubleshooting
 
@@ -324,17 +340,22 @@ Ensure the repository contains valid `SKILL.md` files with both `name` and `desc
 
 Ensure you have write access to the target directory.
 
+## Environment Variables
+
+| Variable                  | Description                                                                |
+| ------------------------- | -------------------------------------------------------------------------- |
+| `INSTALL_INTERNAL_SKILLS` | Set to `1` or `true` to show and install skills marked as `internal: true` |
+| `DISABLE_TELEMETRY`       | Set to disable anonymous usage telemetry                                   |
+| `DO_NOT_TRACK`            | Alternative way to disable telemetry                                       |
+
+```bash
+# Install internal skills
+INSTALL_INTERNAL_SKILLS=1 npx skills add vercel-labs/agent-skills --list
+```
+
 ## Telemetry
 
 This CLI collects anonymous usage data to help improve the tool. No personal information is collected.
-
-To disable telemetry:
-
-```bash
-DISABLE_TELEMETRY=1 npx skills add vercel-labs/agent-skills
-# or
-DO_NOT_TRACK=1 npx skills add vercel-labs/agent-skills
-```
 
 Telemetry is automatically disabled in CI environments.
 
@@ -344,9 +365,11 @@ Telemetry is automatically disabled in CI environments.
 - [Skills Directory](https://skills.sh)
 - [Amp Skills Documentation](https://ampcode.com/manual#agent-skills)
 - [Antigravity Skills Documentation](https://antigravity.google/docs/skills)
+- [Factory AI / Droid Skills Documentation](https://docs.factory.ai/cli/configuration/skills)
 - [Claude Code Skills Documentation](https://code.claude.com/docs/en/skills)
 - [Clawdbot Skills Documentation](https://docs.clawd.bot/tools/skills)
 - [Cline Skills Documentation](https://docs.cline.bot/features/skills)
+- [CodeBuddy Skills Documentation](https://www.codebuddy.ai/docs/ide/Features/Skills)
 - [Codex Skills Documentation](https://developers.openai.com/codex/skills)
 - [Command Code Skills Documentation](https://commandcode.ai/docs/skills)
 - [Crush Skills Documentation](https://github.com/charmbracelet/crush?tab=readme-ov-file#agent-skills)

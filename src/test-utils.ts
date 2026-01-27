@@ -19,13 +19,15 @@ export function stripLogo(str: string): string {
 
 export function runCli(
   args: string[],
-  cwd?: string
+  cwd?: string,
+  env?: Record<string, string>
 ): { stdout: string; stderr: string; exitCode: number } {
   try {
     const output = execSync(`${TSX_PATH} ${CLI_PATH} ${args.join(' ')}`, {
       encoding: 'utf-8',
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: env ? { ...process.env, ...env } : undefined,
     });
     return { stdout: stripAnsi(output), stderr: '', exitCode: 0 };
   } catch (error: any) {

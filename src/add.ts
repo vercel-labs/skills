@@ -11,11 +11,12 @@ import {
   getInstallPath,
   getCanonicalPath,
   installRemoteSkillForAgent,
+  installWellKnownSkillForAgent,
   type InstallMode,
 } from './installer.js';
 import { detectInstalledAgents, agents } from './agents.js';
 import { track, setVersion } from './telemetry.js';
-import { findProvider } from './providers/index.js';
+import { findProvider, wellKnownProvider, type WellKnownSkill } from './providers/index.js';
 import { fetchMintlifySkill } from './mintlify.js';
 import {
   addSkillToLock,
@@ -490,6 +491,428 @@ async function handleRemoteSkill(
 }
 
 /**
+ * Handle skills from a well-known endpoint (RFC 8615).
+ * Discovers skills from /.well-known/skills/index.json
+ */
+async function handleWellKnownSkills(
+  source: string,
+  url: string,
+  options: AddOptions,
+  spinner: ReturnType<typeof p.spinner>
+): Promise<void> {
+  spinner.start('Discovering skills from well-known endpoint...');
+
+  // Fetch all skills from the well-known endpoint
+  const skills = await wellKnownProvider.fetchAllSkills(url);
+
+  if (skills.length === 0) {
+    spinner.stop(chalk.red('No skills found'));
+    p.outro(
+      chalk.red(
+        'No skills found at this URL. Make sure the server has a /.well-known/skills/index.json file.'
+      )
+    );
+    process.exit(1);
+  }
+
+  spinner.stop(`Found ${chalk.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
+
+  // Log discovered skills
+  for (const skill of skills) {
+    p.log.info(`Skill: ${chalk.cyan(skill.installName)}`);
+    p.log.message(chalk.dim(skill.description));
+    if (skill.files.size > 1) {
+      p.log.message(chalk.dim(`  Files: ${Array.from(skill.files.keys()).join(', ')}`));
+    }
+  }
+
+  if (options.list) {
+    console.log();
+    p.log.step(chalk.bold('Available Skills'));
+    for (const skill of skills) {
+      p.log.message(`  ${chalk.cyan(skill.installName)}`);
+      p.log.message(`    ${chalk.dim(skill.description)}`);
+      if (skill.files.size > 1) {
+        p.log.message(`    ${chalk.dim(`Files: ${skill.files.size}`)}`);
+      }
+    }
+    console.log();
+    p.outro('Run without --list to install');
+    process.exit(0);
+  }
+
+  // Filter skills if --skill option is provided
+  let selectedSkills: WellKnownSkill[];
+
+  if (options.skill && options.skill.length > 0) {
+    selectedSkills = skills.filter((s) =>
+      options.skill!.some(
+        (name) =>
+          s.installName.toLowerCase() === name.toLowerCase() ||
+          s.name.toLowerCase() === name.toLowerCase()
+      )
+    );
+
+    if (selectedSkills.length === 0) {
+      p.log.error(`No matching skills found for: ${options.skill.join(', ')}`);
+      p.log.info('Available skills:');
+      for (const s of skills) {
+        p.log.message(`  - ${s.installName}`);
+      }
+      process.exit(1);
+    }
+
+    p.log.info(
+      `Selected ${selectedSkills.length} skill${selectedSkills.length !== 1 ? 's' : ''}: ${selectedSkills.map((s) => chalk.cyan(s.installName)).join(', ')}`
+    );
+  } else if (skills.length === 1) {
+    selectedSkills = skills;
+    const firstSkill = skills[0]!;
+    p.log.info(`Skill: ${chalk.cyan(firstSkill.installName)}`);
+  } else if (options.yes) {
+    selectedSkills = skills;
+    p.log.info(`Installing all ${skills.length} skills`);
+  } else {
+    // Prompt user to select skills
+    const skillChoices = skills.map((s) => ({
+      value: s,
+      label: s.installName,
+      hint: s.description.length > 60 ? s.description.slice(0, 57) + '...' : s.description,
+    }));
+
+    const selected = await multiselect({
+      message: 'Select skills to install',
+      options: skillChoices,
+      required: true,
+    });
+
+    if (p.isCancel(selected)) {
+      p.cancel('Installation cancelled');
+      process.exit(0);
+    }
+
+    selectedSkills = selected as WellKnownSkill[];
+  }
+
+  // Detect agents
+  let targetAgents: AgentType[];
+  const validAgents = Object.keys(agents);
+
+  if (options.agent && options.agent.length > 0) {
+    const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
+
+    if (invalidAgents.length > 0) {
+      p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
+      p.log.info(`Valid agents: ${validAgents.join(', ')}`);
+      process.exit(1);
+    }
+
+    targetAgents = options.agent as AgentType[];
+  } else if (options.all) {
+    targetAgents = validAgents as AgentType[];
+    p.log.info(`Installing to all ${targetAgents.length} agents`);
+  } else {
+    spinner.start('Detecting installed agents...');
+    const installedAgents = await detectInstalledAgents();
+    spinner.stop(
+      `Detected ${installedAgents.length} agent${installedAgents.length !== 1 ? 's' : ''}`
+    );
+
+    if (installedAgents.length === 0) {
+      if (options.yes) {
+        targetAgents = validAgents as AgentType[];
+        p.log.info('Installing to all agents (none detected)');
+      } else {
+        p.log.warn('No coding agents detected. You can still install skills.');
+
+        const allAgentChoices = Object.entries(agents).map(([key, config]) => ({
+          value: key as AgentType,
+          label: config.displayName,
+        }));
+
+        const selected = await multiselect({
+          message: 'Select agents to install skills to',
+          options: allAgentChoices,
+          required: true,
+          initialValues: Object.keys(agents) as AgentType[],
+        });
+
+        if (p.isCancel(selected)) {
+          p.cancel('Installation cancelled');
+          process.exit(0);
+        }
+
+        targetAgents = selected as AgentType[];
+      }
+    } else if (installedAgents.length === 1 || options.yes) {
+      targetAgents = installedAgents;
+      if (installedAgents.length === 1) {
+        const firstAgent = installedAgents[0]!;
+        p.log.info(`Installing to: ${chalk.cyan(agents[firstAgent].displayName)}`);
+      } else {
+        p.log.info(
+          `Installing to: ${installedAgents.map((a) => chalk.cyan(agents[a].displayName)).join(', ')}`
+        );
+      }
+    } else {
+      const selected = await selectAgentsInteractive(installedAgents, { global: options.global });
+
+      if (p.isCancel(selected)) {
+        p.cancel('Installation cancelled');
+        process.exit(0);
+      }
+
+      targetAgents = selected as AgentType[];
+    }
+  }
+
+  let installGlobally = options.global ?? false;
+
+  if (options.global === undefined && !options.yes) {
+    const scope = await p.select({
+      message: 'Installation scope',
+      options: [
+        {
+          value: false,
+          label: 'Project',
+          hint: 'Install in current directory (committed with your project)',
+        },
+        {
+          value: true,
+          label: 'Global',
+          hint: 'Install in home directory (available across all projects)',
+        },
+      ],
+    });
+
+    if (p.isCancel(scope)) {
+      p.cancel('Installation cancelled');
+      process.exit(0);
+    }
+
+    installGlobally = scope as boolean;
+  }
+
+  // Prompt for install mode (symlink vs copy)
+  let installMode: InstallMode = 'symlink';
+
+  if (!options.yes) {
+    const modeChoice = await p.select({
+      message: 'Installation method',
+      options: [
+        {
+          value: 'symlink',
+          label: 'Symlink (Recommended)',
+          hint: 'Single source of truth, easy updates',
+        },
+        { value: 'copy', label: 'Copy to all agents', hint: 'Independent copies for each agent' },
+      ],
+    });
+
+    if (p.isCancel(modeChoice)) {
+      p.cancel('Installation cancelled');
+      process.exit(0);
+    }
+
+    installMode = modeChoice as InstallMode;
+  }
+
+  const cwd = process.cwd();
+
+  // Build installation summary
+  const summaryLines: string[] = [];
+  const agentNames = targetAgents.map((a) => agents[a].displayName);
+
+  // Check if any skill will be overwritten
+  const overwriteStatus = new Map<string, Map<string, boolean>>();
+  for (const skill of selectedSkills) {
+    const agentStatus = new Map<string, boolean>();
+    for (const agent of targetAgents) {
+      agentStatus.set(
+        agent,
+        await isSkillInstalled(skill.installName, agent, { global: installGlobally })
+      );
+    }
+    overwriteStatus.set(skill.installName, agentStatus);
+  }
+
+  for (const skill of selectedSkills) {
+    if (summaryLines.length > 0) summaryLines.push('');
+
+    if (installMode === 'symlink') {
+      const canonicalPath = getCanonicalPath(skill.installName, { global: installGlobally });
+      const shortCanonical = shortenPath(canonicalPath, cwd);
+      summaryLines.push(`${chalk.cyan(shortCanonical)}`);
+      summaryLines.push(`  ${chalk.dim('symlink →')} ${formatList(agentNames)}`);
+      if (skill.files.size > 1) {
+        summaryLines.push(`  ${chalk.dim('files:')} ${skill.files.size}`);
+      }
+    } else {
+      summaryLines.push(`${chalk.cyan(skill.installName)}`);
+      summaryLines.push(`  ${chalk.dim('copy →')} ${formatList(agentNames)}`);
+    }
+
+    const skillOverwrites = overwriteStatus.get(skill.installName);
+    const overwriteAgents = targetAgents
+      .filter((a) => skillOverwrites?.get(a))
+      .map((a) => agents[a].displayName);
+
+    if (overwriteAgents.length > 0) {
+      summaryLines.push(`  ${chalk.yellow('overwrites:')} ${formatList(overwriteAgents)}`);
+    }
+  }
+
+  console.log();
+  p.note(summaryLines.join('\n'), 'Installation Summary');
+
+  if (!options.yes) {
+    const confirmed = await p.confirm({ message: 'Proceed with installation?' });
+
+    if (p.isCancel(confirmed) || !confirmed) {
+      p.cancel('Installation cancelled');
+      process.exit(0);
+    }
+  }
+
+  spinner.start('Installing skills...');
+
+  const results: {
+    skill: string;
+    agent: string;
+    success: boolean;
+    path: string;
+    canonicalPath?: string;
+    mode: InstallMode;
+    symlinkFailed?: boolean;
+    error?: string;
+  }[] = [];
+
+  for (const skill of selectedSkills) {
+    for (const agent of targetAgents) {
+      const result = await installWellKnownSkillForAgent(skill, agent, {
+        global: installGlobally,
+        mode: installMode,
+      });
+      results.push({
+        skill: skill.installName,
+        agent: agents[agent].displayName,
+        ...result,
+      });
+    }
+  }
+
+  spinner.stop('Installation complete');
+
+  console.log();
+  const successful = results.filter((r) => r.success);
+  const failed = results.filter((r) => !r.success);
+
+  // Track installation
+  const sourceIdentifier = wellKnownProvider.getSourceIdentifier(url);
+  track({
+    event: 'install',
+    source: sourceIdentifier,
+    skills: selectedSkills.map((s) => s.installName).join(','),
+    agents: targetAgents.join(','),
+    ...(installGlobally && { global: '1' }),
+    sourceType: 'well-known',
+  });
+
+  // Add to skill lock file for update tracking (only for global installs)
+  if (successful.length > 0 && installGlobally) {
+    const successfulSkillNames = new Set(successful.map((r) => r.skill));
+    for (const skill of selectedSkills) {
+      if (successfulSkillNames.has(skill.installName)) {
+        try {
+          await addSkillToLock(skill.installName, {
+            source: sourceIdentifier,
+            sourceType: 'well-known',
+            sourceUrl: skill.sourceUrl,
+            skillFolderHash: '', // Well-known skills don't have a folder hash
+          });
+        } catch {
+          // Don't fail installation if lock file update fails
+        }
+      }
+    }
+  }
+
+  if (successful.length > 0) {
+    const bySkill = new Map<string, typeof results>();
+    for (const r of successful) {
+      const skillResults = bySkill.get(r.skill) || [];
+      skillResults.push(r);
+      bySkill.set(r.skill, skillResults);
+    }
+
+    const skillCount = bySkill.size;
+    const agentCount = new Set(successful.map((r) => r.agent)).size;
+    const symlinkFailures = successful.filter((r) => r.mode === 'symlink' && r.symlinkFailed);
+    const copiedAgents = symlinkFailures.map((r) => r.agent);
+    const resultLines: string[] = [];
+
+    for (const [skillName, skillResults] of bySkill) {
+      const firstResult = skillResults[0]!;
+
+      if (firstResult.mode === 'copy') {
+        // Copy mode: show skill name and list all agent paths
+        resultLines.push(`${chalk.green('✓')} ${skillName} ${chalk.dim('(copied)')}`);
+        for (const r of skillResults) {
+          const shortPath = shortenPath(r.path, cwd);
+          resultLines.push(`  ${chalk.dim('→')} ${shortPath}`);
+        }
+      } else {
+        // Symlink mode: show canonical path and symlinked agents
+        if (firstResult.canonicalPath) {
+          const shortPath = shortenPath(firstResult.canonicalPath, cwd);
+          resultLines.push(`${chalk.green('✓')} ${shortPath}`);
+        } else {
+          resultLines.push(`${chalk.green('✓')} ${skillName}`);
+        }
+        const symlinked = skillResults.filter((r) => !r.symlinkFailed).map((r) => r.agent);
+        const copied = skillResults.filter((r) => r.symlinkFailed).map((r) => r.agent);
+
+        if (symlinked.length > 0) {
+          resultLines.push(`  ${chalk.dim('symlink →')} ${formatList(symlinked)}`);
+        }
+        if (copied.length > 0) {
+          resultLines.push(`  ${chalk.yellow('copied →')} ${formatList(copied)}`);
+        }
+      }
+    }
+
+    const title = chalk.green(
+      `Installed ${skillCount} skill${skillCount !== 1 ? 's' : ''} to ${agentCount} agent${agentCount !== 1 ? 's' : ''}`
+    );
+    p.note(resultLines.join('\n'), title);
+
+    // Show symlink failure warning (only for symlink mode)
+    if (symlinkFailures.length > 0) {
+      p.log.warn(chalk.yellow(`Symlinks failed for: ${formatList(copiedAgents)}`));
+      p.log.message(
+        chalk.dim(
+          '  Files were copied instead. On Windows, enable Developer Mode for symlink support.'
+        )
+      );
+    }
+  }
+
+  if (failed.length > 0) {
+    console.log();
+    p.log.error(chalk.red(`Failed to install ${failed.length}`));
+    for (const r of failed) {
+      p.log.message(`  ${chalk.red('✗')} ${r.skill} → ${r.agent}: ${chalk.dim(r.error)}`);
+    }
+  }
+
+  console.log();
+  p.outro(chalk.green('Done!'));
+
+  // Prompt for find-skills after successful install
+  await promptForFindSkills();
+}
+
+/**
  * Legacy handler for direct URL skill installation (Mintlify-hosted skills)
  * @deprecated Use handleRemoteSkill with provider system instead
  */
@@ -820,10 +1243,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     process.exit(1);
   }
 
-  // --all implies -y and -g
+  // --all implies -y (skip prompts and select all)
   if (options.all) {
     options.yes = true;
-    options.global = true;
   }
 
   console.log();
@@ -847,6 +1269,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Handle direct URL skills (Mintlify, HuggingFace, etc.) via provider system
     if (parsed.type === 'direct-url') {
       await handleRemoteSkill(source, parsed.url, options, spinner);
+      return;
+    }
+
+    // Handle well-known skills from arbitrary URLs
+    if (parsed.type === 'well-known') {
+      await handleWellKnownSkills(source, parsed.url, options, spinner);
       return;
     }
 
@@ -882,7 +1310,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       process.exit(1);
     }
 
-    spinner.stop(`Found ${chalk.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
+    spinner.stop(
+      `Found ${chalk.green(skills.length)} skill${skills.length > 1 ? 's' : ''} ${chalk.dim('(via Well-known Agent Skill Discovery)')}`
+    );
 
     if (options.list) {
       console.log();
