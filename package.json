@@ -80,7 +80,7 @@
     "gray-matter": "^4.0.3",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
-    "obuild": "^0.4.21",
+    "obuild": "^0.4.22",
     "picocolors": "^1.1.1",
     "prettier": "^3.8.1",
     "simple-git": "^3.27.0",
