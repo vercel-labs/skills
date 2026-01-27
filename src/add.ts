@@ -86,16 +86,20 @@ export async function promptForAgents(
   defaultToAll: boolean = false
 ): Promise<AgentType[] | symbol> {
   // Get last selected agents to pre-select, or default to all if specified
-  const lastSelected = await getLastSelectedAgents();
+  let lastSelected: string[] | undefined;
+  try {
+    lastSelected = await getLastSelectedAgents();
+  } catch {
+    // Silently ignore errors reading lock file
+  }
+
   const validAgents = choices.map((c) => c.value);
 
   let initialValues: AgentType[];
 
   if (lastSelected && lastSelected.length > 0) {
     // Filter stored agents against currently valid agents
-    initialValues = lastSelected.filter((a) =>
-      validAgents.includes(a as AgentType)
-    ) as AgentType[];
+    initialValues = lastSelected.filter((a) => validAgents.includes(a as AgentType)) as AgentType[];
 
     // If filtering results in empty list and we should default to all, do so
     if (initialValues.length === 0 && defaultToAll) {
@@ -115,7 +119,11 @@ export async function promptForAgents(
 
   if (!p.isCancel(selected)) {
     // Save selection for next time
-    await saveSelectedAgents(selected as string[]);
+    try {
+      await saveSelectedAgents(selected as string[]);
+    } catch {
+      // Silently ignore errors writing lock file
+    }
   }
 
   return selected as AgentType[] | symbol;

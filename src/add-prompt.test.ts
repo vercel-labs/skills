@@ -11,7 +11,7 @@ vi.mock('./telemetry.js', () => ({
   track: vi.fn(),
 }));
 vi.mock('../package.json', () => ({
-  default: { version: '1.0.0' }
+  default: { version: '1.0.0' },
 }));
 
 describe('promptForAgents', () => {
@@ -33,9 +33,11 @@ describe('promptForAgents', () => {
 
     await promptForAgents('Select agents', choices, false);
 
-    expect(p.multiselect).toHaveBeenCalledWith(expect.objectContaining({
-      initialValues: []
-    }));
+    expect(p.multiselect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialValues: [],
+      })
+    );
   });
 
   it('should use all agents when no history exists and defaultToAll is true', async () => {
@@ -44,9 +46,11 @@ describe('promptForAgents', () => {
 
     await promptForAgents('Select agents', choices, true);
 
-    expect(p.multiselect).toHaveBeenCalledWith(expect.objectContaining({
-      initialValues: ['agent1', 'agent2']
-    }));
+    expect(p.multiselect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialValues: ['agent1', 'agent2'],
+      })
+    );
   });
 
   it('should use last selected agents when history exists', async () => {
@@ -55,9 +59,11 @@ describe('promptForAgents', () => {
 
     await promptForAgents('Select agents', choices, false);
 
-    expect(p.multiselect).toHaveBeenCalledWith(expect.objectContaining({
-      initialValues: ['agent2']
-    }));
+    expect(p.multiselect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialValues: ['agent2'],
+      })
+    );
   });
 
   it('should filter out invalid agents from history', async () => {
@@ -66,9 +72,11 @@ describe('promptForAgents', () => {
 
     await promptForAgents('Select agents', choices, false);
 
-    expect(p.multiselect).toHaveBeenCalledWith(expect.objectContaining({
-      initialValues: ['agent2']
-    }));
+    expect(p.multiselect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialValues: ['agent2'],
+      })
+    );
   });
 
   it('should fallback to defaultToAll logic if filtered history is empty', async () => {
@@ -79,9 +87,11 @@ describe('promptForAgents', () => {
     await promptForAgents('Select agents', choices, true);
 
     // Should fall back to all agents since history resulted in empty list and defaultToAll=true
-    expect(p.multiselect).toHaveBeenCalledWith(expect.objectContaining({
-      initialValues: ['agent1', 'agent2']
-    }));
+    expect(p.multiselect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialValues: ['agent1', 'agent2'],
+      })
+    );
   });
 
   it('should fallback to empty list if filtered history is empty and defaultToAll is false', async () => {
@@ -91,9 +101,11 @@ describe('promptForAgents', () => {
 
     await promptForAgents('Select agents', choices, false);
 
-    expect(p.multiselect).toHaveBeenCalledWith(expect.objectContaining({
-      initialValues: []
-    }));
+    expect(p.multiselect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialValues: [],
+      })
+    );
   });
 
   it('should save selected agents if not cancelled', async () => {
