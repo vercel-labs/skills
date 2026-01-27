@@ -11,7 +11,7 @@ export function stripAnsi(str: string): string {
 export function stripLogo(str: string): string {
   return str
     .split('\n')
-    .filter((line) => !line.includes('╔') && !line.includes('╚'))
+    .filter((line) => !line.includes('███') && !line.includes('╔') && !line.includes('╚'))
     .join('\n')
     .replace(/^\n+/, '');
 }
