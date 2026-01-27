@@ -159,6 +159,7 @@ Skills can be installed to any of these agents:
 | Claude Code | `claude-code` | `.claude/skills/` | `~/.claude/skills/` |
 | Clawdbot | `clawdbot` | `skills/` | `~/.clawdbot/skills/` |
 | Cline | `cline` | `.cline/skills/` | `~/.cline/skills/` |
+| CodeBuddy | `codebuddy` | `.codebuddy/skills/` | `~/.codebuddy/skills/` |
 | Codex | `codex` | `.codex/skills/` | `~/.codex/skills/` |
 | Command Code | `command-code` | `.commandcode/skills/` | `~/.commandcode/skills/` |
 | Continue | `continue` | `.continue/skills/` | `~/.continue/skills/` |
@@ -239,6 +240,7 @@ The CLI searches for skills in these locations within a repository:
 - `.claude/skills/`
 - `./skills/`
 - `.cline/skills/`
+- `.codebuddy/skills/`
 - `.codex/skills/`
 - `.commandcode/skills/`
 - `.continue/skills/`
@@ -270,12 +272,12 @@ If no skills are found in standard locations, a recursive search is performed.
 
 Skills are generally compatible across agents since they follow a shared [Agent Skills specification](https://agentskills.io). However, some features may be agent-specific:
 
-| Feature         | OpenCode | OpenHands | Claude Code | Cline | Codex | Command Code | Kiro CLI | Cursor | Antigravity | Roo Code | Github Copilot | Amp | Clawdbot | Neovate | Pi  | Qoder | Zencoder |
-| --------------- | -------- | --------- | ----------- | ----- | ----- | ------------ | -------- | ------ | ----------- | -------- | -------------- | --- | -------- | ------- | --- | ----- | -------- |
-| Basic skills    | Yes      | Yes       | Yes         | Yes   | Yes   | Yes          | Yes      | Yes    | Yes         | Yes      | Yes            | Yes | Yes      | Yes     | Yes | Yes   | Yes      |
-| `allowed-tools` | Yes      | Yes       | Yes         | Yes   | Yes   | Yes          | No       | Yes    | Yes         | Yes      | Yes            | Yes | Yes      | Yes     | Yes | Yes   | No       |
-| `context: fork` | No       | No        | Yes         | No    | No    | No           | No       | No     | No          | No       | No             | No  | No       | No      | No  | No    | No       |
-| Hooks           | No       | No        | Yes         | Yes   | No    | No           | No       | No     | No          | No       | No             | No  | No       | No      | No  | No    | No       |
+| Feature         | OpenCode | OpenHands | Claude Code | Cline | CodeBuddy | Codex | Command Code | Kiro CLI | Cursor | Antigravity | Roo Code | Github Copilot | Amp | Clawdbot | Neovate | Pi  | Qoder | Zencoder |
+| --------------- | -------- | --------- | ----------- | ----- | --------- | ----- | ------------ | -------- | ------ | ----------- | -------- | -------------- | --- | -------- | ------- | --- | ----- | -------- |
+| Basic skills    | Yes      | Yes       | Yes         | Yes   | Yes       | Yes   | Yes          | Yes      | Yes    | Yes         | Yes      | Yes            | Yes | Yes      | Yes     | Yes | Yes   | Yes      |
+| `allowed-tools` | Yes      | Yes       | Yes         | Yes   | Yes       | Yes   | Yes          | No       | Yes    | Yes         | Yes      | Yes            | Yes | Yes      | Yes     | Yes | Yes   | No       |
+| `context: fork` | No       | No        | Yes         | No    | No        | No    | No           | No       | No     | No          | No       | No             | No  | No       | No      | No  | No    | No       |
+| Hooks           | No       | No        | Yes         | Yes   | No        | No    | No           | No       | No     | No          | No       | No             | No  | No       | No      | No  | No    | No       |
 
 ## Troubleshooting
 
@@ -317,6 +319,7 @@ Telemetry is automatically disabled in CI environments.
 - [Claude Code Skills Documentation](https://code.claude.com/docs/en/skills)
 - [Clawdbot Skills Documentation](https://docs.clawd.bot/tools/skills)
 - [Cline Skills Documentation](https://docs.cline.bot/features/skills)
+- [CodeBuddy Skills Documentation](https://www.codebuddy.ai/docs/ide/Features/Skills)
 - [Codex Skills Documentation](https://developers.openai.com/codex/skills)
 - [Command Code Skills Documentation](https://commandcode.ai/docs/skills)
 - [Crush Skills Documentation](https://github.com/charmbracelet/crush?tab=readme-ov-file#agent-skills)
