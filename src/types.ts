@@ -2,8 +2,9 @@ export type AgentType =
   | 'amp'
   | 'antigravity'
   | 'claude-code'
-  | 'clawdbot'
+  | 'moltbot'
   | 'cline'
+  | 'codebuddy'
   | 'codex'
   | 'command-code'
   | 'continue'
@@ -13,9 +14,13 @@ export type AgentType =
   | 'gemini-cli'
   | 'github-copilot'
   | 'goose'
+  | 'junie'
   | 'kilo'
+  | 'kimi-cli'
   | 'kiro-cli'
+  | 'kode'
   | 'mcpjam'
+  | 'mux'
   | 'neovate'
   | 'opencode'
   | 'openhands'
@@ -25,7 +30,8 @@ export type AgentType =
   | 'roo'
   | 'trae'
   | 'windsurf'
-  | 'zencoder';
+  | 'zencoder'
+  | 'pochi';
 
 export interface Skill {
   name: string;
@@ -33,7 +39,7 @@ export interface Skill {
   path: string;
   /** Raw SKILL.md content for hashing */
   rawContent?: string;
-  metadata?: Record<string, string>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface AgentConfig {
@@ -45,11 +51,13 @@ export interface AgentConfig {
 }
 
 export interface ParsedSource {
-  type: 'github' | 'gitlab' | 'git' | 'local' | 'direct-url';
+  type: 'github' | 'gitlab' | 'git' | 'local' | 'direct-url' | 'well-known';
   url: string;
   subpath?: string;
   localPath?: string;
   ref?: string;
+  /** Skill name extracted from @skill syntax (e.g., owner/repo@skill-name) */
+  skillFilter?: string;
 }
 
 export interface MintlifySkill {
