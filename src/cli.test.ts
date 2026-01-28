@@ -76,12 +76,12 @@ describe('formatSkippedMessage', () => {
   });
 
   it('should format single skill', () => {
-    expect(formatSkippedMessage(['my-skill'])).toBe('Skipped 1 (reinstall needed): my-skill');
+    expect(formatSkippedMessage(['my-skill'])).toBe('Skipped 1 (reinstall needed):\n  - my-skill');
   });
 
   it('should format multiple skills', () => {
     expect(formatSkippedMessage(['skill-a', 'skill-b', 'skill-c'])).toBe(
-      'Skipped 3 (reinstall needed): skill-a, skill-b, skill-c'
+      'Skipped 3 (reinstall needed):\n  - skill-a\n  - skill-b\n  - skill-c'
     );
   });
 });

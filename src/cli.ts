@@ -12,7 +12,11 @@ import { track } from './telemetry.ts';
 
 export function formatSkippedMessage(skippedSkills: string[]): string | null {
   if (skippedSkills.length === 0) return null;
-  return `Skipped ${skippedSkills.length} (reinstall needed): ${skippedSkills.join(', ')}`;
+  const lines = [`Skipped ${skippedSkills.length} (reinstall needed):`];
+  for (const skill of skippedSkills) {
+    lines.push(`  - ${skill}`);
+  }
+  return lines.join('\n');
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
