@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { runCliOutput, stripLogo } from './test-utils.ts';
+import { runCliOutput, stripLogo, hasLogo } from './test-utils.ts';
 import { formatSkippedMessage } from './cli.ts';
 
 describe('skills CLI', () => {
@@ -66,6 +66,28 @@ describe('skills CLI', () => {
         Run skills --help for usage.
         "
       `);
+    });
+  });
+
+  describe('logo display', () => {
+    it('should not display logo for list command', () => {
+      const output = runCliOutput(['list']);
+      expect(hasLogo(output)).toBe(false);
+    });
+
+    it('should not display logo for check command', () => {
+      const output = runCliOutput(['check']);
+      expect(hasLogo(output)).toBe(false);
+    });
+
+    it('should not display logo for update command', () => {
+      const output = runCliOutput(['update']);
+      expect(hasLogo(output)).toBe(false);
+    });
+
+    it('should not display logo for generate-lock command', () => {
+      const output = runCliOutput(['generate-lock']);
+      expect(hasLogo(output)).toBe(false);
     });
   });
 });

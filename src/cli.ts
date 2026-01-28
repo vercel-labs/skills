@@ -737,25 +737,17 @@ async function main(): Promise<void> {
     }
     case 'list':
     case 'ls':
-      showLogo();
-      console.log();
       await runList(restArgs);
       break;
     case 'check':
-      showLogo();
-      console.log();
       runCheck(restArgs);
       break;
     case 'update':
     case 'upgrade':
-      showLogo();
-      console.log();
       runUpdate();
       break;
     case 'generate-lock':
     case 'gen-lock':
-      showLogo();
-      console.log();
       runGenerateLock(restArgs);
       break;
     case '--help':

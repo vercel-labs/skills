@@ -16,6 +16,10 @@ export function stripLogo(str: string): string {
     .replace(/^\n+/, '');
 }
 
+export function hasLogo(str: string): boolean {
+  return str.includes('███') || str.includes('╔') || str.includes('╚');
+}
+
 export function runCli(
   args: string[],
   cwd?: string,
