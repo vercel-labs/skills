@@ -399,16 +399,18 @@ async function handleRemoteSkill(
 
   const cwd = process.cwd();
 
-  // Check for overwrites
-  const overwriteStatus = new Map<string, boolean>();
-  for (const agent of targetAgents) {
-    overwriteStatus.set(
+  // Check for overwrites (parallel)
+  const overwriteChecks = await Promise.all(
+    targetAgents.map(async (agent) => ({
       agent,
-      await isSkillInstalled(remoteSkill.installName, agent, {
+      installed: await isSkillInstalled(remoteSkill.installName, agent, {
         global: installGlobally,
-      })
-    );
-  }
+      }),
+    }))
+  );
+  const overwriteStatus = new Map(
+    overwriteChecks.map(({ agent, installed }) => [agent, installed])
+  );
 
   // Build installation summary
   const summaryLines: string[] = [];
@@ -804,17 +806,22 @@ async function handleWellKnownSkills(
   const summaryLines: string[] = [];
   const agentNames = targetAgents.map((a) => agents[a].displayName);
 
-  // Check if any skill will be overwritten
-  const overwriteStatus = new Map<string, Map<string, boolean>>();
-  for (const skill of selectedSkills) {
-    const agentStatus = new Map<string, boolean>();
-    for (const agent of targetAgents) {
-      agentStatus.set(
+  // Check if any skill will be overwritten (parallel)
+  const overwriteChecks = await Promise.all(
+    selectedSkills.flatMap((skill) =>
+      targetAgents.map(async (agent) => ({
+        skillName: skill.installName,
         agent,
-        await isSkillInstalled(skill.installName, agent, { global: installGlobally })
-      );
+        installed: await isSkillInstalled(skill.installName, agent, { global: installGlobally }),
+      }))
+    )
+  );
+  const overwriteStatus = new Map<string, Map<string, boolean>>();
+  for (const { skillName, agent, installed } of overwriteChecks) {
+    if (!overwriteStatus.has(skillName)) {
+      overwriteStatus.set(skillName, new Map());
     }
-    overwriteStatus.set(skill.installName, agentStatus);
+    overwriteStatus.get(skillName)!.set(agent, installed);
   }
 
   for (const skill of selectedSkills) {
@@ -1151,16 +1158,18 @@ async function handleDirectUrlSkillLegacy(
   const installMode: InstallMode = 'symlink';
   const cwd = process.cwd();
 
-  // Check for overwrites
-  const overwriteStatus = new Map<string, boolean>();
-  for (const agent of targetAgents) {
-    overwriteStatus.set(
+  // Check for overwrites (parallel)
+  const overwriteChecks = await Promise.all(
+    targetAgents.map(async (agent) => ({
       agent,
-      await isSkillInstalled(remoteSkill.installName, agent, {
+      installed: await isSkillInstalled(remoteSkill.installName, agent, {
         global: installGlobally,
-      })
-    );
-  }
+      }),
+    }))
+  );
+  const overwriteStatus = new Map(
+    overwriteChecks.map(({ agent, installed }) => [agent, installed])
+  );
 
   // Build installation summary
   const summaryLines: string[] = [];
@@ -1613,17 +1622,22 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     const summaryLines: string[] = [];
     const agentNames = targetAgents.map((a) => agents[a].displayName);
 
-    // Check if any skill will be overwritten
-    const overwriteStatus = new Map<string, Map<string, boolean>>();
-    for (const skill of selectedSkills) {
-      const agentStatus = new Map<string, boolean>();
-      for (const agent of targetAgents) {
-        agentStatus.set(
+    // Check if any skill will be overwritten (parallel)
+    const overwriteChecks = await Promise.all(
+      selectedSkills.flatMap((skill) =>
+        targetAgents.map(async (agent) => ({
+          skillName: skill.name,
           agent,
-          await isSkillInstalled(skill.name, agent, { global: installGlobally })
-        );
+          installed: await isSkillInstalled(skill.name, agent, { global: installGlobally }),
+        }))
+      )
+    );
+    const overwriteStatus = new Map<string, Map<string, boolean>>();
+    for (const { skillName, agent, installed } of overwriteChecks) {
+      if (!overwriteStatus.has(skillName)) {
+        overwriteStatus.set(skillName, new Map());
       }
-      overwriteStatus.set(skill.name, agentStatus);
+      overwriteStatus.get(skillName)!.set(agent, installed);
     }
 
     for (const skill of selectedSkills) {

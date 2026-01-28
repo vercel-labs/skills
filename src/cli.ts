@@ -6,10 +6,20 @@ import { basename, join, dirname } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
-import { runAdd, parseAddOptions, initTelemetry } from './add.js';
-import { runFind } from './find.js';
-import { track } from './telemetry.js';
+import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
+import { runFind } from './find.ts';
+import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.js';
+import { track } from './telemetry.ts';
+
+export function formatSkippedMessage(skippedSkills: string[]): string | null {
+  if (skippedSkills.length === 0) return null;
+  const lines = [`Skipped ${skippedSkills.length} (reinstall needed):`];
+  for (const skill of skippedSkills) {
+    lines.push(`  - ${skill}`);
+  }
+  return lines.join('\n');
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -67,6 +77,9 @@ function showBanner(): void {
     `  ${DIM}$${RESET} ${TEXT}npx skills add ${DIM}<package>${RESET}   ${DIM}Install a skill${RESET}`
   );
   console.log(
+    `  ${DIM}$${RESET} ${TEXT}npx skills list${RESET}            ${DIM}List installed skills${RESET}`
+  );
+  console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills find ${DIM}[query]${RESET}    ${DIM}Search for skills${RESET}`
   );
   console.log(
@@ -93,12 +106,13 @@ function showHelp(): void {
 ${BOLD}Usage:${RESET} skills <command> [options]
 
 ${BOLD}Commands:${RESET}
-  find [query]      Search for skills interactively
-  init [name]       Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)
   add <package>     Add a skill package
                     e.g. vercel-labs/agent-skills
                          https://github.com/vercel-labs/agent-skills
   remove [skills]   Remove installed skills
+  list, ls          List installed skills
+  find [query]      Search for skills interactively
+  init [name]       Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)
   check             Check for available skill updates
   update            Update all skills to latest versions
   generate-lock     Generate lock file from installed skills
@@ -116,6 +130,10 @@ ${BOLD}Remove Options:${RESET}
   -a, --agent <agents>   Remove from specific agents
   -y, --yes              Skip confirmation prompts
   --all                  Remove all installed skills
+  
+${BOLD}List Options:${RESET}
+  -g, --global           List global skills (default: project)
+  -a, --agent <agents>   Filter by specific agents
 
 ${BOLD}Options:${RESET}
   --help, -h        Show this help message
@@ -123,10 +141,6 @@ ${BOLD}Options:${RESET}
   --dry-run         Preview changes without writing (generate-lock)
 
 ${BOLD}Examples:${RESET}
-  ${DIM}$${RESET} skills find                     ${DIM}# interactive search${RESET}
-  ${DIM}$${RESET} skills find typescript          ${DIM}# search by keyword${RESET}
-  ${DIM}$${RESET} skills find "react testing"    ${DIM}# search by phrase${RESET}
-  ${DIM}$${RESET} skills init my-skill
   ${DIM}$${RESET} skills add vercel-labs/agent-skills
   ${DIM}$${RESET} skills add vercel-labs/agent-skills -g
   ${DIM}$${RESET} skills add vercel-labs/agent-skills --agent claude-code cursor
@@ -134,9 +148,14 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills remove                   ${DIM}# interactive remove${RESET}
   ${DIM}$${RESET} skills remove web-design        ${DIM}# remove by name${RESET}
   ${DIM}$${RESET} skills rm --global frontend-design
+  ${DIM}$${RESET} skills list                     ${DIM}# list all installed skills${RESET}
+  ${DIM}$${RESET} skills ls -g                    ${DIM}# list global skills only${RESET}
+  ${DIM}$${RESET} skills ls -a claude-code        ${DIM}# filter by agent${RESET}
+  ${DIM}$${RESET} skills find                     ${DIM}# interactive search${RESET}
+  ${DIM}$${RESET} skills find typescript          ${DIM}# search by keyword${RESET}
+  ${DIM}$${RESET} skills init my-skill
   ${DIM}$${RESET} skills check
   ${DIM}$${RESET} skills update
-  ${DIM}$${RESET} skills generate-lock --dry-run
 
 Discover more skills at ${TEXT}https://skills.sh/${RESET}
 `);
@@ -514,14 +533,14 @@ async function runCheck(args: string[] = []): Promise<void> {
     skills: [],
   };
 
-  let skippedCount = 0;
+  const skippedSkills: string[] = [];
   for (const skillName of skillNames) {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
     // Skip skills without skillFolderHash (shouldn't happen with v3)
     if (!entry.skillFolderHash) {
-      skippedCount++;
+      skippedSkills.push(skillName);
       continue;
     }
 
@@ -533,8 +552,9 @@ async function runCheck(args: string[] = []): Promise<void> {
     });
   }
 
-  if (skippedCount > 0) {
-    console.log(`${DIM}Skipped ${skippedCount} (reinstall needed)${RESET}`);
+  const skippedMsg = formatSkippedMessage(skippedSkills);
+  if (skippedMsg) {
+    console.log(`${DIM}${skippedMsg}${RESET}`);
   }
 
   if (checkRequest.skills.length === 0) {
@@ -614,14 +634,14 @@ async function runUpdate(): Promise<void> {
     skills: [],
   };
 
-  let skippedCount = 0;
+  const skippedSkills: string[] = [];
   for (const skillName of skillNames) {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
     // Skip skills without skillFolderHash (shouldn't happen with v3)
     if (!entry.skillFolderHash) {
-      skippedCount++;
+      skippedSkills.push(skillName);
       continue;
     }
 
@@ -633,8 +653,9 @@ async function runUpdate(): Promise<void> {
     });
   }
 
-  if (skippedCount > 0) {
-    console.log(`${DIM}Skipped ${skippedCount} (reinstall needed)${RESET}`);
+  const skippedMsg = formatSkippedMessage(skippedSkills);
+  if (skippedMsg) {
+    console.log(`${DIM}${skippedMsg}${RESET}`);
   }
 
   if (checkRequest.skills.length === 0) {
@@ -769,6 +790,11 @@ async function main(): Promise<void> {
       console.log();
       const { skills, options: removeOptions } = parseRemoveOptions(restArgs);
       await removeCommand(skills, removeOptions);
+    case 'list':
+    case 'ls':
+      showLogo();
+      console.log();
+      await runList(restArgs);
       break;
     case 'check':
       showLogo();
