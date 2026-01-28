@@ -24,7 +24,10 @@ async function hasSkillMd(dir: string): Promise<boolean> {
   }
 }
 
-async function parseSkillMd(skillMdPath: string): Promise<Skill | null> {
+async function parseSkillMd(
+  skillMdPath: string,
+  options?: { includeInternal?: boolean }
+): Promise<Skill | null> {
   try {
     const content = await readFile(skillMdPath, 'utf-8');
     const { data } = matter(content);
@@ -33,9 +36,11 @@ async function parseSkillMd(skillMdPath: string): Promise<Skill | null> {
       return null;
     }
 
-    // Skip internal skills unless INSTALL_INTERNAL_SKILLS=1 is set
+    // Skip internal skills unless:
+    // 1. INSTALL_INTERNAL_SKILLS=1 is set, OR
+    // 2. includeInternal option is true (e.g., when user explicitly requests a skill)
     const isInternal = data.metadata?.internal === true;
-    if (isInternal && !shouldInstallInternalSkills()) {
+    if (isInternal && !shouldInstallInternalSkills() && !options?.includeInternal) {
       return null;
     }
 
@@ -76,14 +81,23 @@ async function findSkillDirs(dir: string, depth = 0, maxDepth = 5): Promise<stri
   return skillDirs;
 }
 
-export async function discoverSkills(basePath: string, subpath?: string): Promise<Skill[]> {
+export interface DiscoverSkillsOptions {
+  /** Include internal skills (e.g., when user explicitly requests a skill by name) */
+  includeInternal?: boolean;
+}
+
+export async function discoverSkills(
+  basePath: string,
+  subpath?: string,
+  options?: DiscoverSkillsOptions
+): Promise<Skill[]> {
   const skills: Skill[] = [];
   const seenNames = new Set<string>();
   const searchPath = subpath ? join(basePath, subpath) : basePath;
 
   // If pointing directly at a skill, return just that
   if (await hasSkillMd(searchPath)) {
-    const skill = await parseSkillMd(join(searchPath, 'SKILL.md'));
+    const skill = await parseSkillMd(join(searchPath, 'SKILL.md'), options);
     if (skill) {
       skills.push(skill);
       return skills;
@@ -108,6 +122,7 @@ export async function discoverSkills(basePath: string, subpath?: string): Promis
     join(searchPath, '.cursor/skills'),
     join(searchPath, '.github/skills'),
     join(searchPath, '.goose/skills'),
+    join(searchPath, '.junie/skills'),
     join(searchPath, '.kilocode/skills'),
     join(searchPath, '.kiro/skills'),
     join(searchPath, '.mux/skills'),
@@ -130,7 +145,7 @@ export async function discoverSkills(basePath: string, subpath?: string): Promis
         if (entry.isDirectory()) {
           const skillDir = join(dir, entry.name);
           if (await hasSkillMd(skillDir)) {
-            const skill = await parseSkillMd(join(skillDir, 'SKILL.md'));
+            const skill = await parseSkillMd(join(skillDir, 'SKILL.md'), options);
             if (skill && !seenNames.has(skill.name)) {
               skills.push(skill);
               seenNames.add(skill.name);
@@ -148,7 +163,7 @@ export async function discoverSkills(basePath: string, subpath?: string): Promis
     const allSkillDirs = await findSkillDirs(searchPath);
 
     for (const skillDir of allSkillDirs) {
-      const skill = await parseSkillMd(join(skillDir, 'SKILL.md'));
+      const skill = await parseSkillMd(join(skillDir, 'SKILL.md'), options);
       if (skill && !seenNames.has(skill.name)) {
         skills.push(skill);
         seenNames.add(skill.name);

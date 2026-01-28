@@ -890,12 +890,20 @@ async function handleWellKnownSkills(
 
   // Track installation
   const sourceIdentifier = wellKnownProvider.getSourceIdentifier(url);
+
+  // Build skillFiles map: { skillName: sourceUrl }
+  const skillFiles: Record<string, string> = {};
+  for (const skill of selectedSkills) {
+    skillFiles[skill.installName] = skill.sourceUrl;
+  }
+
   track({
     event: 'install',
     source: sourceIdentifier,
     skills: selectedSkills.map((s) => s.installName).join(','),
     agents: targetAgents.join(','),
     ...(installGlobally && { global: '1' }),
+    skillFiles: JSON.stringify(skillFiles),
     sourceType: 'well-known',
   });
 
@@ -1342,7 +1350,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     spinner.start('Parsing source...');
     const parsed = parseSource(source);
     spinner.stop(
-      `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}`
+      `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
     );
 
     // Handle direct URL skills (Mintlify, HuggingFace, etc.) via provider system
@@ -1377,8 +1385,21 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       spinner.stop('Repository cloned');
     }
 
+    // If skillFilter is present from @skill syntax (e.g., owner/repo@skill-name),
+    // merge it into options.skill
+    if (parsed.skillFilter) {
+      options.skill = options.skill || [];
+      if (!options.skill.includes(parsed.skillFilter)) {
+        options.skill.push(parsed.skillFilter);
+      }
+    }
+
+    // Include internal skills when a specific skill is explicitly requested
+    // (via --skill or @skill syntax)
+    const includeInternal = !!(options.skill && options.skill.length > 0);
+
     spinner.start('Discovering skills...');
-    const skills = await discoverSkills(skillsDir, parsed.subpath);
+    const skills = await discoverSkills(skillsDir, parsed.subpath, { includeInternal });
 
     if (skills.length === 0) {
       spinner.stop(pc.red('No skills found'));
@@ -1389,9 +1410,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       process.exit(1);
     }
 
-    spinner.stop(
-      `Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''} ${pc.dim('(via Well-known Agent Skill Discovery)')}`
-    );
+    spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
 
     if (options.list) {
       console.log();
