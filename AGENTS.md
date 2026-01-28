@@ -47,6 +47,16 @@ src/
 │   └── mintlify.ts
 ├── init.test.ts     # Init command tests
 └── test-utils.ts    # Test utilities
+
+tests/
+├── sanitize-name.test.ts     # Tests for sanitizeName (path traversal prevention)
+├── skill-matching.test.ts    # Tests for filterSkills (multi-word skill name matching)
+├── source-parser.test.ts     # Tests for URL/path parsing
+├── installer-symlink.test.ts # Tests for symlink installation
+├── list-installed.test.ts    # Tests for listing installed skills
+├── skill-path.test.ts        # Tests for skill path handling
+├── wellknown-provider.test.ts # Tests for well-known provider
+└── dist.test.ts              # Tests for built distribution
 ```
 
 ## Update Checking System
@@ -103,8 +113,12 @@ pnpm dev check
 pnpm dev update
 pnpm dev init my-skill
 
-# Run tests
+# Run all tests
 pnpm test
+
+# Run specific test file(s)
+pnpm test tests/sanitize-name.test.ts
+pnpm test tests/skill-matching.test.ts tests/source-parser.test.ts
 
 # Type check
 pnpm type-check

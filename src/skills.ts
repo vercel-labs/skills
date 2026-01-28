@@ -178,46 +178,16 @@ export function getSkillDisplayName(skill: Skill): string {
 }
 
 /**
- * Filter skills based on user input, supporting fuzzy/smart matching for multi-word names
+ * Filter skills based on user input (case-insensitive direct matching).
+ * Multi-word skill names must be quoted on the command line.
  */
 export function filterSkills(skills: Skill[], inputNames: string[]): Skill[] {
   const normalizedInputs = inputNames.map((n) => n.toLowerCase());
-  const matchedSkills = new Set<Skill>();
 
-  for (const skill of skills) {
+  return skills.filter((skill) => {
     const name = skill.name.toLowerCase();
     const displayName = getSkillDisplayName(skill).toLowerCase();
-    const tokens = displayName.split(/\s+/);
-    const nameTokens = name.split(/\s+/);
 
-    // Direct match
-    if (normalizedInputs.some((input) => input === name || input === displayName)) {
-      matchedSkills.add(skill);
-      continue;
-    }
-
-    // Smart match: check if a squence of inputs matches the skill name tokens
-    if (tokens.length > 1) {
-      for (let i = 0; i <= normalizedInputs.length - tokens.length; i++) {
-        const window = normalizedInputs.slice(i, i + tokens.length);
-        if (window.join(' ') === tokens.join(' ')) {
-          matchedSkills.add(skill);
-          break;
-        }
-      }
-    }
-
-    // Smart match for directory-based name (if different from display name)
-    if (name !== displayName && nameTokens.length > 1) {
-      for (let i = 0; i <= normalizedInputs.length - nameTokens.length; i++) {
-        const window = normalizedInputs.slice(i, i + nameTokens.length);
-        if (window.join(' ') === nameTokens.join(' ')) {
-          matchedSkills.add(skill);
-          break;
-        }
-      }
-    }
-  }
-
-  return Array.from(matchedSkills);
+    return normalizedInputs.some((input) => input === name || input === displayName);
+  });
 }

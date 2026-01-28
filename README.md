@@ -42,7 +42,7 @@ npx skills add ./my-local-skills
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `-g, --global`            | Install to user directory instead of project                                                                                                       |
 | `-a, --agent <agents...>` | <!-- agent-names:start -->Target specific agents (e.g., `claude-code`, `codex`). See [Available Agents](#available-agents)<!-- agent-names:end --> |
-| `-s, --skill <skills...>` | Install specific skills by name                                                                                                                    |
+| `-s, --skill <skills...>` | Install specific skills by name (quote multi-word names: `--skill "My Skill"`)                                                                     |
 | `-l, --list`              | List available skills without installing                                                                                                           |
 | `-y, --yes`               | Skip all confirmation prompts                                                                                                                      |
 | `--all`                   | Install all skills to all agents without prompts                                                                                                   |
@@ -55,6 +55,9 @@ npx skills add vercel-labs/agent-skills --list
 
 # Install specific skills
 npx skills add vercel-labs/agent-skills --skill frontend-design --skill skill-creator
+
+# Install a skill with spaces in the name (must be quoted)
+npx skills add owner/repo --skill "Convex Best Practices"
 
 # Install to specific agents
 npx skills add vercel-labs/agent-skills -a claude-code -a opencode
