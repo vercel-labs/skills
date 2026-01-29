@@ -11,6 +11,7 @@ import { runFind } from './find.ts';
 import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { track } from './telemetry.ts';
+import { stripAnsi, visualLength, padEnd, alignTable } from './string-utils.ts';
 
 export function formatSkippedMessage(skippedSkills: string[]): string | null {
   if (skippedSkills.length === 0) return null;
@@ -74,25 +75,27 @@ function showBanner(): void {
   console.log(`${DIM}The open agent skills ecosystem${RESET}`);
   console.log();
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills add ${DIM}<package>${RESET}   ${DIM}Install a skill${RESET}`
-  );
-  console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills list${RESET}            ${DIM}List installed skills${RESET}`
-  );
-  console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills find ${DIM}[query]${RESET}    ${DIM}Search for skills${RESET}`
-  );
-  console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills check${RESET}           ${DIM}Check for updates${RESET}`
-  );
-  console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills update${RESET}          ${DIM}Update all skills${RESET}`
-  );
-  console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills remove${RESET}          ${DIM}Remove installed skills${RESET}`
-  );
-  console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills init ${DIM}[name]${RESET}     ${DIM}Create a new skill${RESET}`
+    alignTable([
+      [
+        `  ${DIM}$${RESET} ${TEXT}npx skills add ${DIM}<package>${RESET}`,
+        `${DIM}Install a skill${RESET}`,
+      ],
+      [`  ${DIM}$${RESET} ${TEXT}npx skills list${RESET}`, `${DIM}List installed skills${RESET}`],
+      [
+        `  ${DIM}$${RESET} ${TEXT}npx skills find ${DIM}[query]${RESET}`,
+        `${DIM}Search for skills${RESET}`,
+      ],
+      [`  ${DIM}$${RESET} ${TEXT}npx skills check${RESET}`, `${DIM}Check for updates${RESET}`],
+      [`  ${DIM}$${RESET} ${TEXT}npx skills update${RESET}`, `${DIM}Update all skills${RESET}`],
+      [
+        `  ${DIM}$${RESET} ${TEXT}npx skills remove${RESET}`,
+        `${DIM}Remove installed skills${RESET}`,
+      ],
+      [
+        `  ${DIM}$${RESET} ${TEXT}npx skills init ${DIM}[name]${RESET}`,
+        `${DIM}Create a new skill${RESET}`,
+      ],
+    ])
   );
   console.log();
   console.log(`${DIM}try:${RESET} npx skills add vercel-labs/agent-skills`);
@@ -106,56 +109,68 @@ function showHelp(): void {
 ${BOLD}Usage:${RESET} skills <command> [options]
 
 ${BOLD}Commands:${RESET}
-  add <package>     Add a skill package
-                    e.g. vercel-labs/agent-skills
-                         https://github.com/vercel-labs/agent-skills
-  remove [skills]   Remove installed skills
-  list, ls          List installed skills
-  find [query]      Search for skills interactively
-  init [name]       Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)
-  check             Check for available skill updates
-  update            Update all skills to latest versions
-  generate-lock     Generate lock file from installed skills
+${alignTable([
+  ['  add <package>', 'Add a skill package'],
+  ['', 'e.g. vercel-labs/agent-skills'],
+  ['', '     https://github.com/vercel-labs/agent-skills'],
+  ['  remove [skills]', 'Remove installed skills'],
+  ['  list, ls', 'List installed skills'],
+  ['  find [query]', 'Search for skills interactively'],
+  ['  init [name]', 'Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)'],
+  ['  check', 'Check for available skill updates'],
+  ['  update', 'Update all skills to latest versions'],
+  ['  generate-lock', 'Generate lock file from installed skills'],
+])}
 
 ${BOLD}Add Options:${RESET}
-  -g, --global           Install skill globally (user-level) instead of project-level
-  -a, --agent <agents>   Specify agents to install to
-  -s, --skill <skills>   Specify skill names to install (skip selection prompt)
-  -l, --list             List available skills in the repository without installing
-  -y, --yes              Skip confirmation prompts
-  --all                  Install all skills to all agents without any prompts
+${alignTable([
+  ['  --global, -g', 'Install skill globally (user-level) instead of project-level'],
+  ['  --agent, -a <agents>', 'Specify agents to install to'],
+  ['  --skill, -s <skills>', 'Specify skill names to install (skip selection prompt)'],
+  ['  --list, -l', 'List available skills in the repository without installing'],
+  ['  --yes, -y', 'Skip confirmation prompts'],
+  ['  --all', 'Install all skills to all agents without any prompts'],
+])}
 
 ${BOLD}Remove Options:${RESET}
-  -g, --global           Remove from global scope
-  -a, --agent <agents>   Remove from specific agents
-  -y, --yes              Skip confirmation prompts
-  --all                  Remove all installed skills
-  
+${alignTable([
+  ['  --global, -g', 'Remove from global scope'],
+  ['  --agent, -a <agents>', 'Remove from specific agents'],
+  ['  --yes, -y', 'Skip confirmation prompts'],
+  ['  --all', 'Remove all installed skills'],
+])}
+
 ${BOLD}List Options:${RESET}
-  -g, --global           List global skills (default: project)
-  -a, --agent <agents>   Filter by specific agents
+${alignTable([
+  ['  --global, -g', 'List global skills (default: project)'],
+  ['  --agent, -a <agents>', 'Filter by specific agents'],
+])}
 
 ${BOLD}Options:${RESET}
-  --help, -h        Show this help message
-  --version, -v     Show version number
-  --dry-run         Preview changes without writing (generate-lock)
+${alignTable([
+  ['  --help, -h', 'Show this help message'],
+  ['  --version, -v', 'Show version number'],
+  ['  --dry-run', 'Preview changes without writing (generate-lock)'],
+])}
 
 ${BOLD}Examples:${RESET}
-  ${DIM}$${RESET} skills add vercel-labs/agent-skills
-  ${DIM}$${RESET} skills add vercel-labs/agent-skills -g
-  ${DIM}$${RESET} skills add vercel-labs/agent-skills --agent claude-code cursor
-  ${DIM}$${RESET} skills add vercel-labs/agent-skills --skill pr-review commit
-  ${DIM}$${RESET} skills remove                   ${DIM}# interactive remove${RESET}
-  ${DIM}$${RESET} skills remove web-design        ${DIM}# remove by name${RESET}
-  ${DIM}$${RESET} skills rm --global frontend-design
-  ${DIM}$${RESET} skills list                     ${DIM}# list all installed skills${RESET}
-  ${DIM}$${RESET} skills ls -g                    ${DIM}# list global skills only${RESET}
-  ${DIM}$${RESET} skills ls -a claude-code        ${DIM}# filter by agent${RESET}
-  ${DIM}$${RESET} skills find                     ${DIM}# interactive search${RESET}
-  ${DIM}$${RESET} skills find typescript          ${DIM}# search by keyword${RESET}
-  ${DIM}$${RESET} skills init my-skill
-  ${DIM}$${RESET} skills check
-  ${DIM}$${RESET} skills update
+${alignTable([
+  [`  ${DIM}$${RESET} skills add vercel-labs/agent-skills`, ''],
+  [`  ${DIM}$${RESET} skills add vercel-labs/agent-skills -g`, ''],
+  [`  ${DIM}$${RESET} skills add vercel-labs/agent-skills --agent claude-code cursor`, ''],
+  [`  ${DIM}$${RESET} skills add vercel-labs/agent-skills --skill pr-review commit`, ''],
+  [`  ${DIM}$${RESET} skills remove`, `${DIM}# interactive remove${RESET}`],
+  [`  ${DIM}$${RESET} skills remove web-design`, `${DIM}# remove by name${RESET}`],
+  [`  ${DIM}$${RESET} skills rm --global frontend-design`, ''],
+  [`  ${DIM}$${RESET} skills list`, `${DIM}# list all installed skills${RESET}`],
+  [`  ${DIM}$${RESET} skills ls -g`, `${DIM}# list global skills only${RESET}`],
+  [`  ${DIM}$${RESET} skills ls -a claude-code`, `${DIM}# filter by agent${RESET}`],
+  [`  ${DIM}$${RESET} skills find`, `${DIM}# interactive search${RESET}`],
+  [`  ${DIM}$${RESET} skills find typescript`, `${DIM}# search by keyword${RESET}`],
+  [`  ${DIM}$${RESET} skills init my-skill`, ''],
+  [`  ${DIM}$${RESET} skills check`, ''],
+  [`  ${DIM}$${RESET} skills update`, ''],
+])}
 
 Discover more skills at ${TEXT}https://skills.sh/${RESET}
 `);
@@ -170,21 +185,28 @@ ${BOLD}Description:${RESET}
   an interactive selection menu will be shown.
 
 ${BOLD}Arguments:${RESET}
-  skills            Optional skill names to remove (space-separated)
+${alignTable([['  skills', 'Optional skill names to remove (space-separated)']])}
 
 ${BOLD}Options:${RESET}
-  -g, --global       Remove from global scope (~/) instead of project scope
-  -a, --agent        Remove from specific agents only
-  -y, --yes          Skip confirmation prompts
-  --all              Remove all installed skills
+${alignTable([
+  ['  --global, -g', 'Remove from global scope (~/) instead of project scope'],
+  ['  --agent, -a', 'Remove from specific agents only'],
+  ['  --yes, -y', 'Skip confirmation prompts'],
+  ['  --all', 'Remove all installed skills'],
+])}
 
 ${BOLD}Examples:${RESET}
-  ${DIM}$${RESET} skills remove                           ${DIM}# interactive selection${RESET}
-  ${DIM}$${RESET} skills remove my-skill                   ${DIM}# remove specific skill${RESET}
-  ${DIM}$${RESET} skills remove skill1 skill2 -y           ${DIM}# remove multiple skills${RESET}
-  ${DIM}$${RESET} skills remove --global my-skill          ${DIM}# remove from global scope${RESET}
-  ${DIM}$${RESET} skills rm --agent claude-code my-skill   ${DIM}# remove from specific agent${RESET}
-  ${DIM}$${RESET} skills remove --all -y                   ${DIM}# remove all skills${RESET}
+${alignTable([
+  [`  ${DIM}$${RESET} skills remove`, `${DIM}# interactive selection${RESET}`],
+  [`  ${DIM}$${RESET} skills remove my-skill`, `${DIM}# remove specific skill${RESET}`],
+  [`  ${DIM}$${RESET} skills remove skill1 skill2 -y`, `${DIM}# remove multiple skills${RESET}`],
+  [`  ${DIM}$${RESET} skills remove --global my-skill`, `${DIM}# remove from global scope${RESET}`],
+  [
+    `  ${DIM}$${RESET} skills rm --agent claude-code my-skill`,
+    `${DIM}# remove from specific agent${RESET}`,
+  ],
+  [`  ${DIM}$${RESET} skills remove --all -y`, `${DIM}# remove all skills${RESET}`],
+])}
 
 Discover more skills at ${TEXT}https://skills.sh/${RESET}
 `);
