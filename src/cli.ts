@@ -124,26 +124,26 @@ ${alignTable([
 
 ${BOLD}Add Options:${RESET}
 ${alignTable([
-  ['  -g, --global', 'Install skill globally (user-level) instead of project-level'],
-  ['  -a, --agent <agents>', 'Specify agents to install to'],
-  ['  -s, --skill <skills>', 'Specify skill names to install (skip selection prompt)'],
-  ['  -l, --list', 'List available skills in the repository without installing'],
-  ['  -y, --yes', 'Skip confirmation prompts'],
+  ['  --global, -g', 'Install skill globally (user-level) instead of project-level'],
+  ['  --agent, -a <agents>', 'Specify agents to install to'],
+  ['  --skill, -s <skills>', 'Specify skill names to install (skip selection prompt)'],
+  ['  --list, -l', 'List available skills in the repository without installing'],
+  ['  --yes, -y', 'Skip confirmation prompts'],
   ['  --all', 'Install all skills to all agents without any prompts'],
 ])}
 
 ${BOLD}Remove Options:${RESET}
 ${alignTable([
-  ['  -g, --global', 'Remove from global scope'],
-  ['  -a, --agent <agents>', 'Remove from specific agents'],
-  ['  -y, --yes', 'Skip confirmation prompts'],
+  ['  --global, -g', 'Remove from global scope'],
+  ['  --agent, -a <agents>', 'Remove from specific agents'],
+  ['  --yes, -y', 'Skip confirmation prompts'],
   ['  --all', 'Remove all installed skills'],
 ])}
 
 ${BOLD}List Options:${RESET}
 ${alignTable([
-  ['  -g, --global', 'List global skills (default: project)'],
-  ['  -a, --agent <agents>', 'Filter by specific agents'],
+  ['  --global, -g', 'List global skills (default: project)'],
+  ['  --agent, -a <agents>', 'Filter by specific agents'],
 ])}
 
 ${BOLD}Options:${RESET}
@@ -189,9 +189,9 @@ ${alignTable([['  skills', 'Optional skill names to remove (space-separated)']])
 
 ${BOLD}Options:${RESET}
 ${alignTable([
-  ['  -g, --global', 'Remove from global scope (~/) instead of project scope'],
-  ['  -a, --agent', 'Remove from specific agents only'],
-  ['  -y, --yes', 'Skip confirmation prompts'],
+  ['  --global, -g', 'Remove from global scope (~/) instead of project scope'],
+  ['  --agent, -a', 'Remove from specific agents only'],
+  ['  --yes, -y', 'Skip confirmation prompts'],
   ['  --all', 'Remove all installed skills'],
 ])}
 
