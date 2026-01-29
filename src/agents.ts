@@ -219,6 +219,17 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.config/opencode')) || existsSync(join(claudeHome, 'skills'));
     },
   },
+  openclaude: {
+    name: 'openclaude',
+    displayName: 'OpenClaude IDE',
+    skillsDir: '.openclaude/skills',
+    globalSkillsDir: join(home, '.openclaude/skills'),
+    detectInstalled: async () => {
+      return (
+        existsSync(join(home, '.openclaude')) || existsSync(join(process.cwd(), '.openclaude'))
+      );
+    },
+  },
   openhands: {
     name: 'openhands',
     displayName: 'OpenHands',
