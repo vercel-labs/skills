@@ -18,13 +18,28 @@ function isEmpty(cell: string | undefined): boolean {
   return !cell || cell.trim() === '';
 }
 
+interface TableOptions {
+  minPadding: number;
+}
+
+const DEFAULT_TABLE_OPTIONS: TableOptions = {
+  minPadding: 3,
+};
+
 // Align a multi-column table, padding each column based on visual width.
 // Cells can overflow into adjacent empty columns to the right.
-export function alignTable(rows: ReadonlyArray<readonly string[]>, minPadding: number = 2): string {
+export function alignTable(
+  rows: ReadonlyArray<readonly string[]>,
+  tableOptions: Partial<TableOptions> = {}
+): string {
   const firstRow = rows[0];
   if (!firstRow) return '';
 
   const numCols = firstRow.length;
+  const options = {
+    ...DEFAULT_TABLE_OPTIONS,
+    ...tableOptions,
+  };
 
   // Calculate max width for each column (except the last).
   // Only consider rows where the cell has non-empty content to its right,
@@ -38,7 +53,7 @@ export function alignTable(rows: ReadonlyArray<readonly string[]>, minPadding: n
         maxWidth = Math.max(maxWidth, visualLength(row[col] ?? ''));
       }
     }
-    colWidths.push(maxWidth > 0 ? maxWidth + minPadding : 0);
+    colWidths.push(maxWidth > 0 ? maxWidth + options.minPadding : 0);
   }
 
   // Format each row

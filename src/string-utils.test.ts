@@ -64,7 +64,8 @@ describe('alignTable', () => {
       ['short', 'desc1'],
       ['longer text', 'desc2'],
     ]);
-    expect(result).toBe('short        desc1\nlonger text  desc2');
+    // col0: max(5, 11) + 3 = 14
+    expect(result).toBe('short         desc1\nlonger text   desc2');
   });
 
   it('should align three columns', () => {
@@ -72,7 +73,8 @@ describe('alignTable', () => {
       ['a', 'bb', 'ccc'],
       ['aaa', 'b', 'c'],
     ]);
-    expect(result).toBe('a    bb  ccc\naaa  b   c');
+    // col0: max(1, 3) + 3 = 6, col1: max(2, 1) + 3 = 5
+    expect(result).toBe('a     bb   ccc\naaa   b    c');
   });
 
   it('should handle ANSI codes correctly', () => {
@@ -80,8 +82,8 @@ describe('alignTable', () => {
       ['\x1b[1mhi\x1b[0m', 'desc1'],
       ['hello', 'desc2'],
     ]);
-    // "hi" is 2 chars, "hello" is 5 chars, so column width is 5 + 2 padding = 7
-    expect(stripAnsi(result)).toBe('hi     desc1\nhello  desc2');
+    // "hi" is 2 chars, "hello" is 5 chars, so column width is 5 + 3 padding = 8
+    expect(stripAnsi(result)).toBe('hi      desc1\nhello   desc2');
   });
 
   it('should use custom padding', () => {
@@ -90,7 +92,7 @@ describe('alignTable', () => {
         ['a', 'b'],
         ['aa', 'bb'],
       ],
-      4
+      { minPadding: 4 }
     );
     expect(result).toBe('a     b\naa    bb');
   });
@@ -101,7 +103,8 @@ describe('alignTable', () => {
 
   it('should handle single row', () => {
     const result = alignTable([['col1', 'col2']]);
-    expect(result).toBe('col1  col2');
+    // col0: 4 + 3 = 7
+    expect(result).toBe('col1   col2');
   });
 
   it('should allow overflow into empty right columns', () => {
@@ -110,9 +113,9 @@ describe('alignTable', () => {
       ['short', 'medium', 'end'],
     ]);
     // Row 1 has no right content, so it doesn't affect column widths
-    // Row 2 determines widths: col0=5+2=7, col1=6+2=8
+    // Row 2 determines widths: col0=5+3=8, col1=6+3=9
     // Row 1 outputs without padding since all right cols are empty
-    expect(result).toBe('very long text that spans multiple columns\n' + 'short  medium  end');
+    expect(result).toBe('very long text that spans multiple columns\n' + 'short   medium   end');
   });
 
   it('should allow partial overflow into adjacent empty column', () => {
@@ -120,11 +123,11 @@ describe('alignTable', () => {
       ['much shorter', '42', '1000'],
       ['a bit longer, but not bad', '', '2000'],
     ]);
-    // col0 width: max(12, 25) + 2 = 27 (both rows have right content)
-    // col1 width: max(2, 0) + 2 = 4 (only row 1 counts, row 2 col1 is empty)
-    // Row 2 col0 can use col0+col1 space (31) since col1 is empty
+    // col0 width: max(12, 25) + 3 = 28 (both rows have right content)
+    // col1 width: max(2, 0) + 3 = 5 (only row 1 counts, row 2 col1 is empty)
+    // Row 2 col0 can use col0+col1 space (33) since col1 is empty
     expect(result).toBe(
-      'much shorter               42  1000\n' + 'a bit longer, but not bad      2000'
+      'much shorter                42   1000\n' + 'a bit longer, but not bad        2000'
     );
   });
 
@@ -134,10 +137,10 @@ describe('alignTable', () => {
       ['cmd', '# has comment'],
       ['another long command here', ''],
     ]);
-    // Only row 2 has right content, so col0 width = 3 + 2 = 5
+    // Only row 2 has right content, so col0 width = 3 + 3 = 6
     // Rows 1 and 3 overflow (no padding)
     expect(result).toBe(
-      'command with no comment\n' + 'cmd  # has comment\n' + 'another long command here'
+      'command with no comment\n' + 'cmd   # has comment\n' + 'another long command here'
     );
   });
 
