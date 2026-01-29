@@ -33,7 +33,8 @@ export type AgentType =
   | 'windsurf'
   | 'zencoder'
   | 'openclaude'
-  | 'pochi';
+  | 'pochi'
+  | 'adal';
 
 export interface Skill {
   name: string;

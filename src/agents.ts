@@ -332,6 +332,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.pochi'));
     },
   },
+  adal: {
+    name: 'adal',
+    displayName: 'AdaL',
+    skillsDir: '.adal/skills',
+    globalSkillsDir: join(home, '.adal/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.adal'));
+    },
+  },
 };
 
 export async function detectInstalledAgents(): Promise<AgentType[]> {
