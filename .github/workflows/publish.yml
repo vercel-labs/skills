@@ -118,15 +118,23 @@ jobs:
         run: |
           VERSION=$(node -p "require('./package.json').version")
 
-          # Get changelog from commits since last tag
+          # Get changelog from merged PRs since last tag
           LATEST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
           if [ -z "$LATEST_TAG" ]; then
-            CHANGELOG=$(git log --format="- %s" HEAD)
-            CONTRIBUTORS=$(git log --format="@%an" HEAD | sort -u | paste -sd ', ' -)
+            SINCE=""
           else
-            CHANGELOG=$(git log --format="- %s" ${LATEST_TAG}..HEAD)
-            CONTRIBUTORS=$(git log --format="@%an" ${LATEST_TAG}..HEAD | sort -u | paste -sd ', ' -)
+            SINCE=$(git log -1 --format=%cI ${LATEST_TAG})
           fi
+
+          # Fetch merged PRs and format as changelog
+          if [ -z "$SINCE" ]; then
+            PRS=$(gh pr list --state merged --json number,title,author --limit 100)
+          else
+            PRS=$(gh pr list --state merged --search "merged:>=${SINCE}" --json number,title,author --limit 100)
+          fi
+
+          CHANGELOG=$(echo "$PRS" | jq -r '.[] | "- \(.title) (#\(.number))"')
+          CONTRIBUTORS=$(echo "$PRS" | jq -r '.[].author.login' | sort -u | sed 's/^/@/' | paste -sd ', ' -)
 
           # Generate release notes from template
           export VERSION CHANGELOG CONTRIBUTORS
