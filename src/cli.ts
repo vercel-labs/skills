@@ -124,6 +124,8 @@ ${BOLD}Add Options:${RESET}
   -l, --list             List available skills in the repository without installing
   -y, --yes              Skip confirmation prompts
   --all                  Install all skills to all agents without any prompts
+  --all-skills           Select all skills without prompts
+  --all-agents           Install to all agents without prompts
 
 ${BOLD}Remove Options:${RESET}
   -g, --global           Remove from global scope

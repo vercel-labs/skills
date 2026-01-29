@@ -46,6 +46,8 @@ npx skills add ./my-local-skills
 | `-l, --list`              | List available skills without installing                                                                                                           |
 | `-y, --yes`               | Skip all confirmation prompts                                                                                                                      |
 | `--all`                   | Install all skills to all agents without prompts                                                                                                   |
+| `--all-skills`            | Select all skills without prompts                                                                                                                  |
+| `--all-agents`            | Install to all agents without prompts                                                                                                              |
 
 ### Examples
 
@@ -67,6 +69,12 @@ npx skills add vercel-labs/agent-skills --skill frontend-design -g -a claude-cod
 
 # Install all skills from a repo to all agents
 npx skills add vercel-labs/agent-skills --all
+
+# Install all skills to specific agents
+npx skills add vercel-labs/agent-skills --all-skills -a claude-code
+
+# Install specific skills to all agents
+npx skills add vercel-labs/agent-skills --all-agents --skill frontend-design
 ```
 
 ### Installation Scope

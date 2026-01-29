@@ -215,6 +215,8 @@ export interface AddOptions {
   skill?: string[];
   list?: boolean;
   all?: boolean;
+  allSkills?: boolean;
+  allAgents?: boolean;
 }
 
 /**
@@ -291,6 +293,9 @@ async function handleRemoteSkill(
     }
 
     targetAgents = options.agent as AgentType[];
+  } else if (options.all || options.allAgents) {
+    targetAgents = validAgents as AgentType[];
+    p.log.info(`Installing to all ${targetAgents.length} agents`);
   } else {
     spinner.start('Detecting installed agents...');
     const installedAgents = await detectInstalledAgents();
@@ -652,7 +657,7 @@ async function handleWellKnownSkills(
     selectedSkills = skills;
     const firstSkill = skills[0]!;
     p.log.info(`Skill: ${pc.cyan(firstSkill.installName)}`);
-  } else if (options.yes) {
+  } else if (options.allSkills || options.yes) {
     selectedSkills = skills;
     p.log.info(`Installing all ${skills.length} skills`);
   } else {
@@ -691,7 +696,7 @@ async function handleWellKnownSkills(
     }
 
     targetAgents = options.agent as AgentType[];
-  } else if (options.all) {
+  } else if (options.all || options.allAgents) {
     targetAgents = validAgents as AgentType[];
     p.log.info(`Installing to all ${targetAgents.length} agents`);
   } else {
@@ -1072,6 +1077,9 @@ async function handleDirectUrlSkillLegacy(
     }
 
     targetAgents = options.agent as AgentType[];
+  } else if (options.all || options.allAgents) {
+    targetAgents = validAgents as AgentType[];
+    p.log.info(`Installing to all ${targetAgents.length} agents`);
   } else {
     spinner.start('Detecting installed agents...');
     const installedAgents = await detectInstalledAgents();
@@ -1339,8 +1347,14 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     process.exit(1);
   }
 
-  // --all implies -y (skip prompts and select all)
+  // --all implies both allSkills and allAgents
   if (options.all) {
+    options.allSkills = true;
+    options.allAgents = true;
+  }
+
+  // allSkills or allAgents implies -y (skip prompts)
+  if (options.allSkills || options.allAgents) {
     options.yes = true;
   }
 
@@ -1457,7 +1471,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       const firstSkill = skills[0]!;
       p.log.info(`Skill: ${pc.cyan(getSkillDisplayName(firstSkill))}`);
       p.log.message(pc.dim(firstSkill.description));
-    } else if (options.yes) {
+    } else if (options.allSkills || options.yes) {
       selectedSkills = skills;
       p.log.info(`Installing all ${skills.length} skills`);
     } else {
@@ -1496,8 +1510,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
 
       targetAgents = options.agent as AgentType[];
-    } else if (options.all) {
-      // --all flag: install to all agents without detection
+    } else if (options.all || options.allAgents) {
+      // --all or --all-agents flag: install to all agents without detection
       targetAgents = validAgents as AgentType[];
       p.log.info(`Installing to all ${targetAgents.length} agents`);
     } else {
@@ -1949,6 +1963,10 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       options.list = true;
     } else if (arg === '--all') {
       options.all = true;
+    } else if (arg === '--all-skills') {
+      options.allSkills = true;
+    } else if (arg === '--all-agents') {
+      options.allAgents = true;
     } else if (arg === '-a' || arg === '--agent') {
       options.agent = options.agent || [];
       i++;
