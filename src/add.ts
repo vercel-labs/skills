@@ -35,6 +35,7 @@ import { fetchMintlifySkill } from './mintlify.ts';
 import {
   addSkillToLock,
   fetchSkillFolderHash,
+  computeLocalSkillFolderHash,
   isPromptDismissed,
   dismissPrompt,
   getLastSelectedAgents,
@@ -1795,12 +1796,21 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         const skillDisplayName = getSkillDisplayName(skill);
         if (successfulSkillNames.has(skillDisplayName)) {
           try {
-            // Fetch the folder hash from GitHub Trees API
+            // Fetch the folder hash - try local computation first (works for private repos),
+            // fallback to GitHub API (for compatibility with older versions)
             let skillFolderHash = '';
             const skillPathValue = skillFiles[skill.name];
             if (parsed.type === 'github' && skillPathValue) {
-              const hash = await fetchSkillFolderHash(normalizedSource, skillPathValue);
-              if (hash) skillFolderHash = hash;
+              // Try local computation first if we have the cloned repo
+              if (tempDir) {
+                const hash = await computeLocalSkillFolderHash(tempDir, skillPathValue);
+                if (hash) skillFolderHash = hash;
+              }
+              // Fallback to GitHub API if local computation failed or not available
+              if (!skillFolderHash) {
+                const hash = await fetchSkillFolderHash(normalizedSource, skillPathValue);
+                if (hash) skillFolderHash = hash;
+              }
             }
 
             await addSkillToLock(skill.name, {

@@ -182,6 +182,79 @@ export async function fetchSkillFolderHash(
 }
 
 /**
+ * Compute the tree SHA (folder hash) for a skill folder from a local git repository.
+ * This uses `git ls-tree` to get the tree hash directly from the cloned repo,
+ * which works for both public and private repositories.
+ *
+ * @param repoPath - Absolute path to the cloned git repository
+ * @param skillPath - Path to skill folder or SKILL.md relative to repo root (e.g., "skills/react-best-practices/SKILL.md")
+ * @returns The tree SHA for the skill folder, or null if not found
+ */
+export async function computeLocalSkillFolderHash(
+  repoPath: string,
+  skillPath: string
+): Promise<string | null> {
+  // Normalize to forward slashes (for git compatibility)
+  let folderPath = skillPath.replace(/\\/g, '/');
+
+  // Remove SKILL.md suffix to get folder path
+  if (folderPath.endsWith('/SKILL.md')) {
+    folderPath = folderPath.slice(0, -9);
+  } else if (folderPath.endsWith('SKILL.md')) {
+    folderPath = folderPath.slice(0, -8);
+  }
+
+  // Remove trailing slash
+  if (folderPath.endsWith('/')) {
+    folderPath = folderPath.slice(0, -1);
+  }
+
+  try {
+    const { execSync } = await import('child_process');
+
+    // If folderPath is empty, this is a root-level skill
+    if (!folderPath) {
+      // Get the tree SHA of the entire repository
+      const result = execSync('git rev-parse HEAD^{tree}', {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return result.trim() || null;
+    }
+
+    // Split the path into parent and child parts
+    // For "skills/my-skill", we need to get the tree SHA for the "my-skill" folder
+    const parts = folderPath.split('/');
+    const lastPart = parts[parts.length - 1];
+    const parentPath = parts.slice(0, -1).join('/');
+
+    // Use git ls-tree to get the tree hash for the folder
+    // If there's a parent path, use HEAD:parent/path syntax
+    const treeRef = parentPath ? `HEAD:${parentPath}` : 'HEAD';
+    const result = execSync(`git ls-tree ${treeRef}`, {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    // Parse the output to find the tree SHA for the skill folder
+    // Format: "040000 tree <sha>\t<name>"
+    const lines = result.trim().split('\n');
+    for (const line of lines) {
+      const match = line.match(/^(\d+)\s+(tree|blob)\s+([a-f0-9]+)\s+(.+)$/);
+      if (match && match[2] === 'tree' && match[4] === lastPart) {
+        return match[3] || null;
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Add or update a skill entry in the lock file.
  */
 export async function addSkillToLock(
