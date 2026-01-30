@@ -29,8 +29,10 @@ export type AgentType =
   | 'qwen-code'
   | 'roo'
   | 'trae'
+  | 'trae-cn'
   | 'windsurf'
   | 'zencoder'
+  | 'openclaude'
   | 'pochi';
 
 export interface Skill {

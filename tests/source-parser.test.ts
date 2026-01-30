@@ -7,7 +7,10 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { platform } from 'os';
 import { parseSource, getOwnerRepo } from '../src/source-parser.ts';
+
+const isWindows = platform() === 'win32';
 
 describe('parseSource', () => {
   describe('GitHub URL tests', () => {
@@ -130,9 +133,11 @@ describe('parseSource', () => {
     });
 
     it('Local path - absolute path', () => {
-      const result = parseSource('/home/user/skills');
+      // Use platform-specific absolute path
+      const testPath = isWindows ? 'C:\\Users\\test\\skills' : '/home/user/skills';
+      const result = parseSource(testPath);
       expect(result.type).toBe('local');
-      expect(result.localPath).toBe('/home/user/skills');
+      expect(result.localPath).toBe(testPath);
     });
   });
 

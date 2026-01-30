@@ -1,6 +1,6 @@
 {
   "name": "skills",
-  "version": "1.2.0",
+  "version": "1.2.2",
   "description": "The open agent skills ecosystem",
   "type": "module",
   "bin": {
@@ -57,12 +57,14 @@
     "mcpjam",
     "mux",
     "opencode",
+    "openclaude",
     "openhands",
     "pi",
     "qoder",
     "qwen-code",
     "roo",
     "trae",
+    "trae-cn",
     "windsurf",
     "zencoder",
     "neovate",
@@ -78,6 +80,9 @@
   },
   "author": "",
   "license": "MIT",
+  "dependencies": {
+    "xdg-basedir": "^5.1.0"
+  },
   "devDependencies": {
     "@clack/prompts": "^0.11.0",
     "@types/bun": "latest",

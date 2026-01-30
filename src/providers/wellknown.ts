@@ -174,8 +174,8 @@ export class WellKnownProvider implements HostProvider {
     // Validate files array
     for (const file of e.files) {
       if (typeof file !== 'string') return false;
-      // Files must not start with / or contain ..
-      if (file.startsWith('/') || file.includes('..')) return false;
+      // Files must not start with / or \ or contain .. (path traversal prevention)
+      if (file.startsWith('/') || file.startsWith('\\') || file.includes('..')) return false;
     }
 
     // Must include SKILL.md

@@ -3,9 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [29 more](#available-agents).
-
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [31 more](#available-agents).
 <!-- agent-list:end -->
 
 ## Install a Skill
@@ -218,7 +216,7 @@ Discover skills at **[skills.sh](https://skills.sh)**
 
 Skills can be installed to any of these agents:
 
-<!-- available-agents:start -->
+<!-- supported-agents:start -->
 
 | Agent              | `--agent`         | Project Path           | Global Path                            |
 | ------------------ | ----------------- | ---------------------- | -------------------------------------- |
@@ -250,12 +248,14 @@ Skills can be installed to any of these agents:
 | Qwen Code          | `qwen-code`       | `.qwen/skills/`        | `~/.qwen/skills/`                      |
 | Roo Code           | `roo`             | `.roo/skills/`         | `~/.roo/skills/`                       |
 | Trae               | `trae`            | `.trae/skills/`        | `~/.trae/skills/`                      |
+| Trae CN            | `trae-cn`         | `.trae/skills/`        | `~/.trae-cn/skills/`                   |
 | Windsurf           | `windsurf`        | `.windsurf/skills/`    | `~/.codeium/windsurf/skills/`          |
 | Zencoder           | `zencoder`        | `.zencoder/skills/`    | `~/.zencoder/skills/`                  |
+| OpenClaude IDE     | `openclaude`      | `.openclaude/skills/`  | `~/.openclaude/skills/`                |
 | Neovate            | `neovate`         | `.neovate/skills/`     | `~/.neovate/skills/`                   |
 | Pochi              | `pochi`           | `.pochi/skills/`       | `~/.pochi/skills/`                     |
 
-<!-- available-agents:end -->
+<!-- supported-agents:end -->
 
 > [!NOTE]
 > **Kiro CLI users:** After installing skills, manually add them to your custom agent's `resources` in
@@ -319,7 +319,6 @@ metadata:
 The CLI searches for skills in these locations within a repository:
 
 <!-- skill-discovery:start -->
-
 - Root directory (if it contains `SKILL.md`)
 - `skills/`
 - `skills/.curated/`
@@ -347,6 +346,7 @@ The CLI searches for skills in these locations within a repository:
 - `.mcpjam/skills/`
 - `.mux/skills/`
 - `.opencode/skills/`
+- `.openclaude/skills/`
 - `.openhands/skills/`
 - `.pi/skills/`
 - `.qoder/skills/`

@@ -1,9 +1,12 @@
 import { homedir } from 'os';
 import { join } from 'path';
 import { existsSync } from 'fs';
+import { xdgConfig } from 'xdg-basedir';
 import type { AgentConfig, AgentType } from './types.ts';
 
 const home = homedir();
+// Use xdg-basedir (not env-paths) to match OpenCode/Amp/Goose behavior on all platforms.
+const configHome = xdgConfig ?? join(home, '.config');
 const codexHome = process.env.CODEX_HOME?.trim() || join(home, '.codex');
 const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude');
 
@@ -12,9 +15,9 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'amp',
     displayName: 'Amp',
     skillsDir: '.agents/skills',
-    globalSkillsDir: join(home, '.config/agents/skills'),
+    globalSkillsDir: join(configHome, 'agents/skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.config/amp'));
+      return existsSync(join(configHome, 'amp'));
     },
   },
   antigravity: {
@@ -142,9 +145,9 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'goose',
     displayName: 'Goose',
     skillsDir: '.goose/skills',
-    globalSkillsDir: join(home, '.config/goose/skills'),
+    globalSkillsDir: join(configHome, 'goose/skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.config/goose'));
+      return existsSync(join(configHome, 'goose'));
     },
   },
   junie: {
@@ -214,9 +217,20 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'opencode',
     displayName: 'OpenCode',
     skillsDir: '.opencode/skills',
-    globalSkillsDir: join(home, '.config/opencode/skills'),
+    globalSkillsDir: join(configHome, 'opencode/skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.config/opencode')) || existsSync(join(claudeHome, 'skills'));
+      return existsSync(join(configHome, 'opencode')) || existsSync(join(claudeHome, 'skills'));
+    },
+  },
+  openclaude: {
+    name: 'openclaude',
+    displayName: 'OpenClaude IDE',
+    skillsDir: '.openclaude/skills',
+    globalSkillsDir: join(home, '.openclaude/skills'),
+    detectInstalled: async () => {
+      return (
+        existsSync(join(home, '.openclaude')) || existsSync(join(process.cwd(), '.openclaude'))
+      );
     },
   },
   openhands: {
@@ -271,6 +285,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.trae/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.trae'));
+    },
+  },
+  'trae-cn': {
+    name: 'trae-cn',
+    displayName: 'Trae CN',
+    skillsDir: '.trae/skills',
+    globalSkillsDir: join(home, '.trae-cn/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.trae-cn'));
     },
   },
   windsurf: {

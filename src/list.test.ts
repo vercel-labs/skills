@@ -253,8 +253,8 @@ description: A test skill
       );
 
       const result = runCli(['list'], testDir);
-      // Path is shown inline with skill name
-      expect(result.stdout).toContain('.agents/skills/test-skill');
+      // Path is shown inline with skill name (handles both Unix / and Windows \)
+      expect(result.stdout).toMatch(/\.agents[/\\]skills[/\\]test-skill/);
     });
   });
 

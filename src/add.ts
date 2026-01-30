@@ -2,7 +2,21 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
-import { parseSource, getOwnerRepo } from './source-parser.ts';
+import { sep } from 'path';
+import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
+
+/**
+ * Check if a source identifier (owner/repo format) represents a private GitHub repo.
+ * Returns true if private, false if public, null if unable to determine or not a GitHub repo.
+ */
+async function isSourcePrivate(source: string): Promise<boolean | null> {
+  const ownerRepo = parseOwnerRepo(source);
+  if (!ownerRepo) {
+    // Not in owner/repo format, assume not private (could be other providers)
+    return false;
+  }
+  return isRepoPrivate(ownerRepo.owner, ownerRepo.repo);
+}
 import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
 import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
 import {
@@ -34,13 +48,15 @@ export function initTelemetry(version: string): void {
 
 /**
  * Shortens a path for display: replaces homedir with ~ and cwd with .
+ * Handles both Unix and Windows path separators.
  */
 function shortenPath(fullPath: string, cwd: string): string {
   const home = homedir();
-  if (fullPath.startsWith(home)) {
-    return fullPath.replace(home, '~');
+  // Ensure we match complete path segments by checking for separator after the prefix
+  if (fullPath === home || fullPath.startsWith(home + sep)) {
+    return '~' + fullPath.slice(home.length);
   }
-  if (fullPath.startsWith(cwd)) {
+  if (fullPath === cwd || fullPath.startsWith(cwd + sep)) {
     return '.' + fullPath.slice(cwd.length);
   }
   return fullPath;
@@ -484,15 +500,20 @@ async function handleRemoteSkill(
   const failed = results.filter((r) => !r.success);
 
   // Track installation with provider-specific source identifier
-  track({
-    event: 'install',
-    source: remoteSkill.sourceIdentifier,
-    skills: remoteSkill.installName,
-    agents: targetAgents.join(','),
-    ...(installGlobally && { global: '1' }),
-    skillFiles: JSON.stringify({ [remoteSkill.installName]: url }),
-    sourceType: remoteSkill.providerId,
-  });
+  // Skip telemetry for private GitHub repos
+  const isPrivate = await isSourcePrivate(remoteSkill.sourceIdentifier);
+  if (isPrivate !== true) {
+    // Only send telemetry if repo is public (isPrivate === false) or we can't determine (null for non-GitHub sources)
+    track({
+      event: 'install',
+      source: remoteSkill.sourceIdentifier,
+      skills: remoteSkill.installName,
+      agents: targetAgents.join(','),
+      ...(installGlobally && { global: '1' }),
+      skillFiles: JSON.stringify({ [remoteSkill.installName]: url }),
+      sourceType: remoteSkill.providerId,
+    });
+  }
 
   // Add to skill lock file for update tracking (only for global installs)
   if (successful.length > 0 && installGlobally) {
@@ -574,7 +595,7 @@ async function handleRemoteSkill(
   p.outro(pc.green('Done!'));
 
   // Prompt for find-skills after successful install
-  await promptForFindSkills();
+  await promptForFindSkills(options);
 }
 
 /**
@@ -913,15 +934,20 @@ async function handleWellKnownSkills(
     skillFiles[skill.installName] = skill.sourceUrl;
   }
 
-  track({
-    event: 'install',
-    source: sourceIdentifier,
-    skills: selectedSkills.map((s) => s.installName).join(','),
-    agents: targetAgents.join(','),
-    ...(installGlobally && { global: '1' }),
-    skillFiles: JSON.stringify(skillFiles),
-    sourceType: 'well-known',
-  });
+  // Skip telemetry for private GitHub repos
+  const isPrivate = await isSourcePrivate(sourceIdentifier);
+  if (isPrivate !== true) {
+    // Only send telemetry if repo is public (isPrivate === false) or we can't determine (null for non-GitHub sources)
+    track({
+      event: 'install',
+      source: sourceIdentifier,
+      skills: selectedSkills.map((s) => s.installName).join(','),
+      agents: targetAgents.join(','),
+      ...(installGlobally && { global: '1' }),
+      skillFiles: JSON.stringify(skillFiles),
+      sourceType: 'well-known',
+    });
+  }
 
   // Add to skill lock file for update tracking (only for global installs)
   if (successful.length > 0 && installGlobally) {
@@ -1014,7 +1040,7 @@ async function handleWellKnownSkills(
   p.outro(pc.green('Done!'));
 
   // Prompt for find-skills after successful install
-  await promptForFindSkills();
+  await promptForFindSkills(options);
 }
 
 /**
@@ -1246,6 +1272,7 @@ async function handleDirectUrlSkillLegacy(
   const failed = results.filter((r) => !r.success);
 
   // Track installation
+  // Skip telemetry for private GitHub repos (mintlify/com is not a GitHub repo, so always send)
   track({
     event: 'install',
     source: 'mintlify/com',
@@ -1322,7 +1349,7 @@ async function handleDirectUrlSkillLegacy(
   p.outro(pc.green('Done!'));
 
   // Prompt for find-skills after successful install
-  await promptForFindSkills();
+  await promptForFindSkills(options);
 }
 
 export async function runAdd(args: string[], options: AddOptions = {}): Promise<void> {
@@ -1731,9 +1758,14 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       if (tempDir && skill.path === tempDir) {
         // Skill is at root level of repo
         relativePath = 'SKILL.md';
-      } else if (tempDir && skill.path.startsWith(tempDir + '/')) {
+      } else if (tempDir && skill.path.startsWith(tempDir + sep)) {
         // Compute path relative to repo root (tempDir), not search path
-        relativePath = skill.path.slice(tempDir.length + 1) + '/SKILL.md';
+        // Use forward slashes for telemetry (URL-style paths)
+        relativePath =
+          skill.path
+            .slice(tempDir.length + 1)
+            .split(sep)
+            .join('/') + '/SKILL.md';
       } else {
         // Local path - skip telemetry for local installs
         continue;
@@ -1744,16 +1776,35 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Normalize source to owner/repo format for telemetry
     const normalizedSource = getOwnerRepo(parsed);
 
-    // Only track if we have a valid remote source
+    // Only track if we have a valid remote source and it's not a private repo
     if (normalizedSource) {
-      track({
-        event: 'install',
-        source: normalizedSource,
-        skills: selectedSkills.map((s) => s.name).join(','),
-        agents: targetAgents.join(','),
-        ...(installGlobally && { global: '1' }),
-        skillFiles: JSON.stringify(skillFiles),
-      });
+      const ownerRepo = parseOwnerRepo(normalizedSource);
+      if (ownerRepo) {
+        // Check if repo is private - skip telemetry for private repos
+        const isPrivate = await isRepoPrivate(ownerRepo.owner, ownerRepo.repo);
+        // Only send telemetry if repo is public (isPrivate === false)
+        // If we can't determine (null), err on the side of caution and skip telemetry
+        if (isPrivate === false) {
+          track({
+            event: 'install',
+            source: normalizedSource,
+            skills: selectedSkills.map((s) => s.name).join(','),
+            agents: targetAgents.join(','),
+            ...(installGlobally && { global: '1' }),
+            skillFiles: JSON.stringify(skillFiles),
+          });
+        }
+      } else {
+        // If we can't parse owner/repo, still send telemetry (for non-GitHub sources)
+        track({
+          event: 'install',
+          source: normalizedSource,
+          skills: selectedSkills.map((s) => s.name).join(','),
+          agents: targetAgents.join(','),
+          ...(installGlobally && { global: '1' }),
+          skillFiles: JSON.stringify(skillFiles),
+        });
+      }
     }
 
     // Add to skill lock file for update tracking (only for global installs)
@@ -1857,7 +1908,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     p.outro(pc.green('Done!'));
 
     // Prompt for find-skills after successful install
-    await promptForFindSkills();
+    await promptForFindSkills(options);
   } catch (error) {
     if (error instanceof GitCloneError) {
       p.log.error(pc.red('Failed to clone repository'));
@@ -1890,10 +1941,13 @@ async function cleanup(tempDir: string | null) {
  * Prompt user to install the find-skills skill after their first installation.
  * This helps users discover skills via their coding agent.
  * The prompt is only shown once - if dismissed, it's stored in the lock file.
+ *
+ * @param options - Installation options, used to check for -y/--yes flag
  */
-async function promptForFindSkills(): Promise<void> {
+async function promptForFindSkills(options?: AddOptions): Promise<void> {
   // Skip if already dismissed or not in interactive mode
   if (!process.stdin.isTTY) return;
+  if (options?.yes) return;
 
   try {
     const dismissed = await isPromptDismissed('findSkillsPrompt');
