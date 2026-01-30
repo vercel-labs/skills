@@ -3,9 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [29 more](#available-agents).
-
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [32 more](#available-agents).
 <!-- agent-list:end -->
 
 ## Install a Skill
@@ -50,8 +48,8 @@ npx skills add npm:my-skill --registry=https://registry.npmmirror.com
 | Option                    | Description                                                                                                                                        |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `-g, --global`            | Install to user directory instead of project                                                                                                       |
-| `-a, --agent <agents...>` | <!-- agent-names:start -->Target specific agents (e.g., `claude-code`, `codex`). See [Available Agents](#available-agents)<!-- agent-names:end --> |
-| `-s, --skill <skills...>` | Install specific skills by name (quote multi-word names: `--skill "My Skill"`)                                                                     |
+| `-a, --agent <agents...>` | <!-- agent-names:start -->Target specific agents (e.g., `claude-code`, `codex`). Use `'*'` for all agents<!-- agent-names:end -->                  |
+| `-s, --skill <skills...>` | Install specific skills by name (use `'*'` for all skills)                                                                                         |
 | `-l, --list`              | List available skills without installing                                                                                                           |
 | `-y, --yes`               | Skip all confirmation prompts                                                                                                                      |
 | `--all`                   | Install all skills to all agents without prompts                                                                                                   |
@@ -80,6 +78,12 @@ npx skills add vercel-labs/agent-skills --all
 
 # Install from npm package
 npx skills add npm:@vercel/skills -g -y
+
+# Install all skills to specific agents
+npx skills add vercel-labs/agent-skills --skill '*' -a claude-code
+
+# Install specific skills to all agents
+npx skills add vercel-labs/agent-skills --agent '*' --skill frontend-design
 ```
 
 ### Installation Scope
@@ -108,7 +112,6 @@ When installing interactively, you can choose:
 | `npx skills check`           | Check for available skill updates                       |
 | `npx skills update`          | Update all installed skills to latest versions          |
 | `npx skills init [name]`     | Create a new SKILL.md template                          |
-| `npx skills generate-lock`   | Match installed skills to sources for update tracking   |
 
 ### `skills list`
 
@@ -157,16 +160,6 @@ npx skills init
 npx skills init my-skill
 ```
 
-### `skills generate-lock`
-
-```bash
-# Match installed skills to sources for update tracking
-npx skills generate-lock
-
-# Preview without writing
-npx skills generate-lock --dry-run
-```
-
 ### `skills remove`
 
 Remove installed skills from agents.
@@ -188,7 +181,13 @@ npx skills remove --global web-design-guidelines
 npx skills remove --agent claude-code cursor my-skill
 
 # Remove all installed skills without confirmation
-npx skills remove --all -y
+npx skills remove --all
+
+# Remove all skills from a specific agent
+npx skills remove --skill '*' -a cursor
+
+# Remove a specific skill from all agents
+npx skills remove my-skill --agent '*'
 
 # Use 'rm' alias
 npx skills rm my-skill
@@ -197,9 +196,10 @@ npx skills rm my-skill
 | Option              | Description                                          |
 | ------------------- | ---------------------------------------------------- |
 | `-g, --global`      | Remove from global scope (~/) instead of project      |
-| `-a, --agent`       | Remove from specific agents only                     |
+| `-a, --agent`       | Remove from specific agents (use `'*'` for all)      |
+| `-s, --skill`       | Specify skills to remove (use `'*'` for all)         |
 | `-y, --yes`         | Skip confirmation prompts                            |
-| `--all`             | Remove all installed skills                          |
+| `--all`             | Shorthand for `--skill '*' --agent '*' -y`           |
 
 ## What are Agent Skills?
 
@@ -218,7 +218,7 @@ Discover skills at **[skills.sh](https://skills.sh)**
 
 Skills can be installed to any of these agents:
 
-<!-- available-agents:start -->
+<!-- supported-agents:start -->
 
 | Agent              | `--agent`         | Project Path           | Global Path                            |
 | ------------------ | ----------------- | ---------------------- | -------------------------------------- |
@@ -248,14 +248,17 @@ Skills can be installed to any of these agents:
 | Pi                 | `pi`              | `.pi/skills/`          | `~/.pi/agent/skills/`                  |
 | Qoder              | `qoder`           | `.qoder/skills/`       | `~/.qoder/skills/`                     |
 | Qwen Code          | `qwen-code`       | `.qwen/skills/`        | `~/.qwen/skills/`                      |
+| Replit             | `replit`          | `.agent/skills/`       | N/A (project-only)                     |
 | Roo Code           | `roo`             | `.roo/skills/`         | `~/.roo/skills/`                       |
 | Trae               | `trae`            | `.trae/skills/`        | `~/.trae/skills/`                      |
+| Trae CN            | `trae-cn`         | `.trae/skills/`        | `~/.trae-cn/skills/`                   |
 | Windsurf           | `windsurf`        | `.windsurf/skills/`    | `~/.codeium/windsurf/skills/`          |
 | Zencoder           | `zencoder`        | `.zencoder/skills/`    | `~/.zencoder/skills/`                  |
+| OpenClaude IDE     | `openclaude`      | `.openclaude/skills/`  | `~/.openclaude/skills/`                |
 | Neovate            | `neovate`         | `.neovate/skills/`     | `~/.neovate/skills/`                   |
 | Pochi              | `pochi`           | `.pochi/skills/`       | `~/.pochi/skills/`                     |
 
-<!-- available-agents:end -->
+<!-- supported-agents:end -->
 
 > [!NOTE]
 > **Kiro CLI users:** After installing skills, manually add them to your custom agent's `resources` in
@@ -319,7 +322,6 @@ metadata:
 The CLI searches for skills in these locations within a repository:
 
 <!-- skill-discovery:start -->
-
 - Root directory (if it contains `SKILL.md`)
 - `skills/`
 - `skills/.curated/`
@@ -347,6 +349,7 @@ The CLI searches for skills in these locations within a repository:
 - `.mcpjam/skills/`
 - `.mux/skills/`
 - `.opencode/skills/`
+- `.openclaude/skills/`
 - `.openhands/skills/`
 - `.pi/skills/`
 - `.qoder/skills/`
@@ -433,6 +436,7 @@ Telemetry is automatically disabled in CI environments.
 - [OpenHands Skills Documentation](https://docs.openhands.ai/modules/usage/how-to/using-skills)
 - [Pi Skills Documentation](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/skills.md)
 - [Qoder Skills Documentation](https://docs.qoder.com/cli/Skills)
+- [Replit Skills Documentation](https://docs.replit.com/replitai/skills)
 - [Roo Code Skills Documentation](https://docs.roocode.com/features/skills)
 - [Trae Skills Documentation](https://docs.trae.ai/ide/skills)
 - [Vercel Agent Skills Repository](https://github.com/vercel-labs/agent-skills)

@@ -57,7 +57,7 @@ export function runCliWithInput(
       encoding: 'utf-8',
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
-      shell: true,
+      shell: '/bin/bash',
     });
     return { stdout: stripAnsi(output), stderr: '', exitCode: 0 };
   } catch (error: any) {

@@ -2,6 +2,7 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
+import { sep } from 'path';
 import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
 
 /**
@@ -48,13 +49,15 @@ export function initTelemetry(version: string): void {
 
 /**
  * Shortens a path for display: replaces homedir with ~ and cwd with .
+ * Handles both Unix and Windows path separators.
  */
 function shortenPath(fullPath: string, cwd: string): string {
   const home = homedir();
-  if (fullPath.startsWith(home)) {
-    return fullPath.replace(home, '~');
+  // Ensure we match complete path segments by checking for separator after the prefix
+  if (fullPath === home || fullPath.startsWith(home + sep)) {
+    return '~' + fullPath.slice(home.length);
   }
-  if (fullPath.startsWith(cwd)) {
+  if (fullPath === cwd || fullPath.startsWith(cwd + sep)) {
     return '.' + fullPath.slice(cwd.length);
   }
   return fullPath;
@@ -230,6 +233,7 @@ export interface AddOptions {
   list?: boolean;
   all?: boolean;
   registry?: string;
+  fullDepth?: boolean;
 }
 
 /**
@@ -296,7 +300,11 @@ async function handleRemoteSkill(
   let targetAgents: AgentType[];
   const validAgents = Object.keys(agents);
 
-  if (options.agent && options.agent.length > 0) {
+  if (options.agent?.includes('*')) {
+    // --agent '*' selects all agents
+    targetAgents = validAgents as AgentType[];
+    p.log.info(`Installing to all ${targetAgents.length} agents`);
+  } else if (options.agent && options.agent.length > 0) {
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 
     if (invalidAgents.length > 0) {
@@ -363,7 +371,10 @@ async function handleRemoteSkill(
 
   let installGlobally = options.global ?? false;
 
-  if (options.global === undefined && !options.yes) {
+  // Check if any selected agents support global installation
+  const supportsGlobal = targetAgents.some((a) => agents[a].globalSkillsDir !== undefined);
+
+  if (options.global === undefined && !options.yes && supportsGlobal) {
     const scope = await p.select({
       message: 'Installation scope',
       options: [
@@ -590,7 +601,7 @@ async function handleRemoteSkill(
   p.outro(pc.green('Done!'));
 
   // Prompt for find-skills after successful install
-  await promptForFindSkills();
+  await promptForFindSkills(options);
 }
 
 /**
@@ -647,7 +658,11 @@ async function handleWellKnownSkills(
   // Filter skills if --skill option is provided
   let selectedSkills: WellKnownSkill[];
 
-  if (options.skill && options.skill.length > 0) {
+  if (options.skill?.includes('*')) {
+    // --skill '*' selects all skills
+    selectedSkills = skills;
+    p.log.info(`Installing all ${skills.length} skills`);
+  } else if (options.skill && options.skill.length > 0) {
     selectedSkills = skills.filter((s) =>
       options.skill!.some(
         (name) =>
@@ -701,7 +716,11 @@ async function handleWellKnownSkills(
   let targetAgents: AgentType[];
   const validAgents = Object.keys(agents);
 
-  if (options.agent && options.agent.length > 0) {
+  if (options.agent?.includes('*')) {
+    // --agent '*' selects all agents
+    targetAgents = validAgents as AgentType[];
+    p.log.info(`Installing to all ${targetAgents.length} agents`);
+  } else if (options.agent && options.agent.length > 0) {
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 
     if (invalidAgents.length > 0) {
@@ -711,9 +730,6 @@ async function handleWellKnownSkills(
     }
 
     targetAgents = options.agent as AgentType[];
-  } else if (options.all) {
-    targetAgents = validAgents as AgentType[];
-    p.log.info(`Installing to all ${targetAgents.length} agents`);
   } else {
     spinner.start('Detecting installed agents...');
     const installedAgents = await detectInstalledAgents();
@@ -771,7 +787,10 @@ async function handleWellKnownSkills(
 
   let installGlobally = options.global ?? false;
 
-  if (options.global === undefined && !options.yes) {
+  // Check if any selected agents support global installation
+  const supportsGlobal = targetAgents.some((a) => agents[a].globalSkillsDir !== undefined);
+
+  if (options.global === undefined && !options.yes && supportsGlobal) {
     const scope = await p.select({
       message: 'Installation scope',
       options: [
@@ -1030,7 +1049,7 @@ async function handleWellKnownSkills(
   p.outro(pc.green('Done!'));
 
   // Prompt for find-skills after successful install
-  await promptForFindSkills();
+  await promptForFindSkills(options);
 }
 
 /**
@@ -1087,7 +1106,11 @@ async function handleDirectUrlSkillLegacy(
   let targetAgents: AgentType[];
   const validAgents = Object.keys(agents);
 
-  if (options.agent && options.agent.length > 0) {
+  if (options.agent?.includes('*')) {
+    // --agent '*' selects all agents
+    targetAgents = validAgents as AgentType[];
+    p.log.info(`Installing to all ${targetAgents.length} agents`);
+  } else if (options.agent && options.agent.length > 0) {
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 
     if (invalidAgents.length > 0) {
@@ -1154,7 +1177,10 @@ async function handleDirectUrlSkillLegacy(
 
   let installGlobally = options.global ?? false;
 
-  if (options.global === undefined && !options.yes) {
+  // Check if any selected agents support global installation
+  const supportsGlobal = targetAgents.some((a) => agents[a].globalSkillsDir !== undefined);
+
+  if (options.global === undefined && !options.yes && supportsGlobal) {
     const scope = await p.select({
       message: 'Installation scope',
       options: [
@@ -1335,7 +1361,7 @@ async function handleDirectUrlSkillLegacy(
   p.outro(pc.green('Done!'));
 
   // Prompt for find-skills after successful install
-  await promptForFindSkills();
+  await promptForFindSkills(options);
 }
 
 export async function runAdd(args: string[], options: AddOptions = {}): Promise<void> {
@@ -1365,8 +1391,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     process.exit(1);
   }
 
-  // --all implies -y (skip prompts and select all)
+  // --all implies --skill '*' and --agent '*' and -y
   if (options.all) {
+    options.skill = ['*'];
+    options.agent = ['*'];
     options.yes = true;
   }
 
@@ -1457,7 +1485,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     const includeInternal = !!(options.skill && options.skill.length > 0);
 
     spinner.start('Discovering skills...');
-    const skills = await discoverSkills(skillsDir, parsed.subpath, { includeInternal });
+    const skills = await discoverSkills(skillsDir, parsed.subpath, {
+      includeInternal,
+      fullDepth: options.fullDepth,
+    });
 
     if (skills.length === 0) {
       spinner.stop(pc.red('No skills found'));
@@ -1485,7 +1516,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     let selectedSkills: Skill[];
 
-    if (options.skill && options.skill.length > 0) {
+    if (options.skill?.includes('*')) {
+      // --skill '*' selects all skills
+      selectedSkills = skills;
+      p.log.info(`Installing all ${skills.length} skills`);
+    } else if (options.skill && options.skill.length > 0) {
       selectedSkills = filterSkills(skills, options.skill);
 
       if (selectedSkills.length === 0) {
@@ -1534,7 +1569,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     let targetAgents: AgentType[];
     const validAgents = Object.keys(agents);
 
-    if (options.agent && options.agent.length > 0) {
+    if (options.agent?.includes('*')) {
+      // --agent '*' selects all agents
+      targetAgents = validAgents as AgentType[];
+      p.log.info(`Installing to all ${targetAgents.length} agents`);
+    } else if (options.agent && options.agent.length > 0) {
       const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 
       if (invalidAgents.length > 0) {
@@ -1545,10 +1584,6 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
 
       targetAgents = options.agent as AgentType[];
-    } else if (options.all) {
-      // --all flag: install to all agents without detection
-      targetAgents = validAgents as AgentType[];
-      p.log.info(`Installing to all ${targetAgents.length} agents`);
     } else {
       spinner.start('Detecting installed agents...');
       const installedAgents = await detectInstalledAgents();
@@ -1608,7 +1643,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     let installGlobally = options.global ?? false;
 
-    if (options.global === undefined && !options.yes) {
+    // Check if any selected agents support global installation
+    const supportsGlobal = targetAgents.some((a) => agents[a].globalSkillsDir !== undefined);
+
+    if (options.global === undefined && !options.yes && supportsGlobal) {
       const scope = await p.select({
         message: 'Installation scope',
         options: [
@@ -1761,9 +1799,14 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       if (tempDir && skill.path === tempDir) {
         // Skill is at root level of repo
         relativePath = 'SKILL.md';
-      } else if (tempDir && skill.path.startsWith(tempDir + '/')) {
+      } else if (tempDir && skill.path.startsWith(tempDir + sep)) {
         // Compute path relative to repo root (tempDir), not search path
-        relativePath = skill.path.slice(tempDir.length + 1) + '/SKILL.md';
+        // Use forward slashes for telemetry (URL-style paths)
+        relativePath =
+          skill.path
+            .slice(tempDir.length + 1)
+            .split(sep)
+            .join('/') + '/SKILL.md';
       } else {
         // Local path - skip telemetry for local installs
         continue;
@@ -1906,7 +1949,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     p.outro(pc.green('Done!'));
 
     // Prompt for find-skills after successful install
-    await promptForFindSkills();
+    await promptForFindSkills(options);
   } catch (error) {
     if (error instanceof GitCloneError) {
       p.log.error(pc.red('Failed to clone repository'));
@@ -1939,10 +1982,13 @@ async function cleanup(tempDir: string | null) {
  * Prompt user to install the find-skills skill after their first installation.
  * This helps users discover skills via their coding agent.
  * The prompt is only shown once - if dismissed, it's stored in the lock file.
+ *
+ * @param options - Installation options, used to check for -y/--yes flag
  */
-async function promptForFindSkills(): Promise<void> {
+async function promptForFindSkills(options?: AddOptions): Promise<void> {
   // Skip if already dismissed or not in interactive mode
   if (!process.stdin.isTTY) return;
+  if (options?.yes) return;
 
   try {
     const dismissed = await isPromptDismissed('findSkillsPrompt');
@@ -2042,6 +2088,8 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       options.registry = args[i];
     } else if (arg?.startsWith('--registry=')) {
       options.registry = arg.slice('--registry='.length);
+    } else if (arg === '--full-depth') {
+      options.fullDepth = true;
     } else if (arg && !arg.startsWith('-')) {
       source.push(arg);
     }

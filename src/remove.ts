@@ -42,7 +42,9 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   if (isGlobal) {
     await scanDir(getCanonicalSkillsDir(true, cwd));
     for (const agent of Object.values(agents)) {
-      await scanDir(agent.globalSkillsDir);
+      if (agent.globalSkillsDir !== undefined) {
+        await scanDir(agent.globalSkillsDir);
+      }
     }
   } else {
     await scanDir(getCanonicalSkillsDir(false, cwd));

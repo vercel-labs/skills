@@ -8,15 +8,14 @@ This file provides guidance to AI coding agents working on the `skills` CLI code
 
 ## Commands
 
-| Command                | Description                                         |
-| ---------------------- | --------------------------------------------------- |
-| `skills`               | Show banner with available commands                 |
-| `skills init [name]`   | Create a new SKILL.md template                      |
-| `skills add <pkg>`     | Install skills from git repos, URLs, or local paths |
-| `skills list`          | List installed skills (alias: `ls`)                 |
-| `skills check`         | Check for available skill updates                   |
-| `skills update`        | Update all skills to latest versions                |
-| `skills generate-lock` | Match installed skills to sources via API           |
+| Command              | Description                                         |
+| -------------------- | --------------------------------------------------- |
+| `skills`             | Show banner with available commands                 |
+| `skills init [name]` | Create a new SKILL.md template                      |
+| `skills add <pkg>`   | Install skills from git repos, URLs, or local paths |
+| `skills list`        | List installed skills (alias: `ls`)                 |
+| `skills check`       | Check for available skill updates                   |
+| `skills update`      | Update all skills to latest versions                |
 
 Aliases: `skills a`, `skills i`, `skills install` all work for `add`. `skills ls` works for `list`.
 
@@ -24,7 +23,7 @@ Aliases: `skills a`, `skills i`, `skills install` all work for `add`. `skills ls
 
 ```
 src/
-├── cli.ts           # Main entry point, command routing, init/check/update/generate-lock
+├── cli.ts           # Main entry point, command routing, init/check/update
 ├── cli.test.ts      # CLI tests
 ├── add.ts           # Core add command logic
 ├── add.test.ts      # Add command tests
@@ -91,12 +90,11 @@ If reading an older lock file version, it's wiped. Users must reinstall skills t
 
 ## Key Integration Points
 
-| Feature                | Implementation                              |
-| ---------------------- | ------------------------------------------- |
-| `skills add`           | `src/add.ts` - full implementation          |
-| `skills check`         | `POST /check-updates` API                   |
-| `skills update`        | `POST /check-updates` + reinstall per skill |
-| `skills generate-lock` | `POST /api/skills/search` on skills.sh      |
+| Feature          | Implementation                              |
+| ---------------- | ------------------------------------------- |
+| `skills add`     | `src/add.ts` - full implementation          |
+| `skills check`   | `POST /check-updates` API                   |
+| `skills update`  | `POST /check-updates` + reinstall per skill |
 
 ## Development
 

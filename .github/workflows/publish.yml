@@ -108,7 +108,39 @@ jobs:
           git push --tags
 
       - name: Publish to npm
+        id: publish
         if: steps.version.outputs.bump != 'none'
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        if: steps.publish.outcome == 'success'
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+
+          # Get changelog from merged PRs since last tag
+          LATEST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -z "$LATEST_TAG" ]; then
+            SINCE=""
+          else
+            SINCE=$(git log -1 --format=%cI ${LATEST_TAG})
+          fi
+
+          # Fetch merged PRs and format as changelog
+          if [ -z "$SINCE" ]; then
+            PRS=$(gh pr list --state merged --json number,title,author --limit 100)
+          else
+            PRS=$(gh pr list --state merged --search "merged:>=${SINCE}" --json number,title,author --limit 100)
+          fi
+
+          CHANGELOG=$(echo "$PRS" | jq -r '.[] | "- \(.title) (#\(.number))"')
+          CONTRIBUTORS=$(echo "$PRS" | jq -r '.[].author.login' | sort -u | sed 's/^/@/' | paste -sd ', ' -)
+
+          # Generate release notes from template
+          export VERSION CHANGELOG CONTRIBUTORS
+          envsubst < .github/RELEASE_TEMPLATE.md > release-notes.md
+
+          gh release create "v${VERSION}" --notes-file release-notes.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

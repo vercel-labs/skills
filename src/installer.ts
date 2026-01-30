@@ -79,26 +79,20 @@ function resolveSymlinkTarget(linkPath: string, linkTarget: string): string {
   return resolve(dirname(linkPath), linkTarget);
 }
 
-async function ensureDirectory(path: string): Promise<void> {
+/**
+ * Cleans and recreates a directory for skill installation.
+ *
+ * This ensures:
+ * 1. Renamed/deleted files from previous installs are removed
+ * 2. Symlinks (including self-referential ones causing ELOOP) are handled
+ *    when canonical and agent paths resolve to the same location
+ */
+async function cleanAndCreateDirectory(path: string): Promise<void> {
   try {
-    const stats = await lstat(path);
-    if (stats.isSymbolicLink()) {
-      await rm(path, { recursive: true, force: true });
-    }
-  } catch (err: unknown) {
-    if (err && typeof err === 'object' && 'code' in err) {
-      if (err.code !== 'ENOENT') {
-        if (err.code === 'ELOOP') {
-          await rm(path, { recursive: true, force: true });
-        } else {
-          throw err;
-        }
-      }
-    } else if (err) {
-      throw err;
-    }
+    await rm(path, { recursive: true, force: true });
+  } catch {
+    // Ignore cleanup errors - mkdir will fail if there's a real problem
   }
-
   await mkdir(path, { recursive: true });
 }
 
@@ -161,6 +155,16 @@ export async function installSkillForAgent(
   const isGlobal = options.global ?? false;
   const cwd = options.cwd || process.cwd();
 
+  // Check if agent supports global installation
+  if (isGlobal && agent.globalSkillsDir === undefined) {
+    return {
+      success: false,
+      path: '',
+      mode: options.mode ?? 'symlink',
+      error: `${agent.displayName} does not support global skill installation`,
+    };
+  }
+
   // Sanitize skill name to prevent directory traversal
   const rawSkillName = skill.name || basename(skill.path);
   const skillName = sanitizeName(rawSkillName);
@@ -170,7 +174,7 @@ export async function installSkillForAgent(
   const canonicalDir = join(canonicalBase, skillName);
 
   // Agent-specific location (for symlink)
-  const agentBase = isGlobal ? agent.globalSkillsDir : join(cwd, agent.skillsDir);
+  const agentBase = isGlobal ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
   const agentDir = join(agentBase, skillName);
 
   const installMode = options.mode ?? 'symlink';
@@ -197,7 +201,7 @@ export async function installSkillForAgent(
   try {
     // For copy mode, skip canonical directory and copy directly to agent location
     if (installMode === 'copy') {
-      await mkdir(agentDir, { recursive: true });
+      await cleanAndCreateDirectory(agentDir);
       await copyDirectory(skill.path, agentDir);
 
       return {
@@ -208,19 +212,14 @@ export async function installSkillForAgent(
     }
 
     // Symlink mode: copy to canonical location and symlink to agent location
-    await ensureDirectory(canonicalDir);
+    await cleanAndCreateDirectory(canonicalDir);
     await copyDirectory(skill.path, canonicalDir);
 
     const symlinkCreated = await createSymlink(canonicalDir, agentDir);
 
     if (!symlinkCreated) {
-      // Clean up any existing broken symlink before copying
-      try {
-        await rm(agentDir, { recursive: true, force: true });
-      } catch {
-        // Ignore cleanup errors
-      }
-      await mkdir(agentDir, { recursive: true });
+      // Symlink failed, fall back to copy
+      await cleanAndCreateDirectory(agentDir);
       await copyDirectory(skill.path, agentDir);
 
       return {
@@ -295,8 +294,13 @@ export async function isSkillInstalled(
   const agent = agents[agentType];
   const sanitized = sanitizeName(skillName);
 
+  // Agent doesn't support global installation
+  if (options.global && agent.globalSkillsDir === undefined) {
+    return false;
+  }
+
   const targetBase = options.global
-    ? agent.globalSkillsDir
+    ? agent.globalSkillsDir!
     : join(options.cwd || process.cwd(), agent.skillsDir);
 
   const skillDir = join(targetBase, sanitized);
@@ -322,7 +326,11 @@ export function getInstallPath(
   const cwd = options.cwd || process.cwd();
   const sanitized = sanitizeName(skillName);
 
-  const targetBase = options.global ? agent.globalSkillsDir : join(cwd, agent.skillsDir);
+  // Agent doesn't support global installation, fall back to project path
+  const targetBase =
+    options.global && agent.globalSkillsDir !== undefined
+      ? agent.globalSkillsDir
+      : join(cwd, agent.skillsDir);
 
   const installPath = join(targetBase, sanitized);
 
@@ -368,6 +376,16 @@ export async function installMintlifySkillForAgent(
   const cwd = options.cwd || process.cwd();
   const installMode = options.mode ?? 'symlink';
 
+  // Check if agent supports global installation
+  if (isGlobal && agent.globalSkillsDir === undefined) {
+    return {
+      success: false,
+      path: '',
+      mode: installMode,
+      error: `${agent.displayName} does not support global skill installation`,
+    };
+  }
+
   // Use mintlify-proj as the skill directory name (e.g., "bun.com")
   const skillName = sanitizeName(skill.mintlifySite);
 
@@ -376,7 +394,7 @@ export async function installMintlifySkillForAgent(
   const canonicalDir = join(canonicalBase, skillName);
 
   // Agent-specific location (for symlink)
-  const agentBase = isGlobal ? agent.globalSkillsDir : join(cwd, agent.skillsDir);
+  const agentBase = isGlobal ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
   const agentDir = join(agentBase, skillName);
 
   // Validate paths
@@ -401,7 +419,7 @@ export async function installMintlifySkillForAgent(
   try {
     // For copy mode, write directly to agent location
     if (installMode === 'copy') {
-      await mkdir(agentDir, { recursive: true });
+      await cleanAndCreateDirectory(agentDir);
       const skillMdPath = join(agentDir, 'SKILL.md');
       await writeFile(skillMdPath, skill.content, 'utf-8');
 
@@ -413,7 +431,7 @@ export async function installMintlifySkillForAgent(
     }
 
     // Symlink mode: write to canonical location and symlink to agent location
-    await ensureDirectory(canonicalDir);
+    await cleanAndCreateDirectory(canonicalDir);
     const skillMdPath = join(canonicalDir, 'SKILL.md');
     await writeFile(skillMdPath, skill.content, 'utf-8');
 
@@ -421,12 +439,7 @@ export async function installMintlifySkillForAgent(
 
     if (!symlinkCreated) {
       // Symlink failed, fall back to copy
-      try {
-        await rm(agentDir, { recursive: true, force: true });
-      } catch {
-        // Ignore cleanup errors
-      }
-      await mkdir(agentDir, { recursive: true });
+      await cleanAndCreateDirectory(agentDir);
       const agentSkillMdPath = join(agentDir, 'SKILL.md');
       await writeFile(agentSkillMdPath, skill.content, 'utf-8');
 
@@ -471,6 +484,16 @@ export async function installRemoteSkillForAgent(
   const cwd = options.cwd || process.cwd();
   const installMode = options.mode ?? 'symlink';
 
+  // Check if agent supports global installation
+  if (isGlobal && agent.globalSkillsDir === undefined) {
+    return {
+      success: false,
+      path: '',
+      mode: installMode,
+      error: `${agent.displayName} does not support global skill installation`,
+    };
+  }
+
   // Use installName as the skill directory name
   const skillName = sanitizeName(skill.installName);
 
@@ -479,7 +502,7 @@ export async function installRemoteSkillForAgent(
   const canonicalDir = join(canonicalBase, skillName);
 
   // Agent-specific location (for symlink)
-  const agentBase = isGlobal ? agent.globalSkillsDir : join(cwd, agent.skillsDir);
+  const agentBase = isGlobal ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
   const agentDir = join(agentBase, skillName);
 
   // Validate paths
@@ -504,7 +527,7 @@ export async function installRemoteSkillForAgent(
   try {
     // For copy mode, write directly to agent location
     if (installMode === 'copy') {
-      await mkdir(agentDir, { recursive: true });
+      await cleanAndCreateDirectory(agentDir);
       const skillMdPath = join(agentDir, 'SKILL.md');
       await writeFile(skillMdPath, skill.content, 'utf-8');
 
@@ -516,7 +539,7 @@ export async function installRemoteSkillForAgent(
     }
 
     // Symlink mode: write to canonical location and symlink to agent location
-    await ensureDirectory(canonicalDir);
+    await cleanAndCreateDirectory(canonicalDir);
     const skillMdPath = join(canonicalDir, 'SKILL.md');
     await writeFile(skillMdPath, skill.content, 'utf-8');
 
@@ -524,12 +547,7 @@ export async function installRemoteSkillForAgent(
 
     if (!symlinkCreated) {
       // Symlink failed, fall back to copy
-      try {
-        await rm(agentDir, { recursive: true, force: true });
-      } catch {
-        // Ignore cleanup errors
-      }
-      await mkdir(agentDir, { recursive: true });
+      await cleanAndCreateDirectory(agentDir);
       const agentSkillMdPath = join(agentDir, 'SKILL.md');
       await writeFile(agentSkillMdPath, skill.content, 'utf-8');
 
@@ -575,6 +593,16 @@ export async function installWellKnownSkillForAgent(
   const cwd = options.cwd || process.cwd();
   const installMode = options.mode ?? 'symlink';
 
+  // Check if agent supports global installation
+  if (isGlobal && agent.globalSkillsDir === undefined) {
+    return {
+      success: false,
+      path: '',
+      mode: installMode,
+      error: `${agent.displayName} does not support global skill installation`,
+    };
+  }
+
   // Use installName as the skill directory name
   const skillName = sanitizeName(skill.installName);
 
@@ -583,7 +611,7 @@ export async function installWellKnownSkillForAgent(
   const canonicalDir = join(canonicalBase, skillName);
 
   // Agent-specific location (for symlink)
-  const agentBase = isGlobal ? agent.globalSkillsDir : join(cwd, agent.skillsDir);
+  const agentBase = isGlobal ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
   const agentDir = join(agentBase, skillName);
 
   // Validate paths
@@ -606,11 +634,9 @@ export async function installWellKnownSkillForAgent(
   }
 
   /**
-   * Write all skill files to a directory
+   * Write all skill files to a directory (assumes directory already exists)
    */
   async function writeSkillFiles(targetDir: string): Promise<void> {
-    await mkdir(targetDir, { recursive: true });
-
     for (const [filePath, content] of skill.files) {
       // Validate file path doesn't escape the target directory
       const fullPath = join(targetDir, filePath);
@@ -631,6 +657,7 @@ export async function installWellKnownSkillForAgent(
   try {
     // For copy mode, write directly to agent location
     if (installMode === 'copy') {
+      await cleanAndCreateDirectory(agentDir);
       await writeSkillFiles(agentDir);
 
       return {
@@ -641,17 +668,14 @@ export async function installWellKnownSkillForAgent(
     }
 
     // Symlink mode: write to canonical location and symlink to agent location
+    await cleanAndCreateDirectory(canonicalDir);
     await writeSkillFiles(canonicalDir);
 
     const symlinkCreated = await createSymlink(canonicalDir, agentDir);
 
     if (!symlinkCreated) {
       // Symlink failed, fall back to copy
-      try {
-        await rm(agentDir, { recursive: true, force: true });
-      } catch {
-        // Ignore cleanup errors
-      }
+      await cleanAndCreateDirectory(agentDir);
       await writeSkillFiles(agentDir);
 
       return {
@@ -749,7 +773,13 @@ export async function listInstalledSkills(
 
         for (const agentType of agentsToCheck) {
           const agent = agents[agentType];
-          const agentBase = scope.global ? agent.globalSkillsDir : join(cwd, agent.skillsDir);
+
+          // Skip agents that don't support global installation when checking global scope
+          if (scope.global && agent.globalSkillsDir === undefined) {
+            continue;
+          }
+
+          const agentBase = scope.global ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
 
           let found = false;
 

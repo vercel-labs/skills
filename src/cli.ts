@@ -12,15 +12,6 @@ import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { track } from './telemetry.ts';
 
-export function formatSkippedMessage(skippedSkills: string[]): string | null {
-  if (skippedSkills.length === 0) return null;
-  const lines = [`Skipped ${skippedSkills.length} (reinstall needed):`];
-  for (const skill of skippedSkills) {
-    lines.push(`  - ${skill}`);
-  }
-  return lines.join('\n');
-}
-
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function getVersion(): string {
@@ -89,7 +80,7 @@ function showBanner(): void {
     `  ${DIM}$${RESET} ${TEXT}npx skills update${RESET}          ${DIM}Update all skills${RESET}`
   );
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills remove${RESET}         ${DIM}Remove installed skills${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}npx skills remove${RESET}          ${DIM}Remove installed skills${RESET}`
   );
   console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills init ${DIM}[name]${RESET}     ${DIM}Create a new skill${RESET}`
@@ -115,21 +106,22 @@ ${BOLD}Commands:${RESET}
   init [name]       Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)
   check             Check for available skill updates
   update            Update all skills to latest versions
-  generate-lock     Generate lock file from installed skills
 
 ${BOLD}Add Options:${RESET}
   -g, --global           Install skill globally (user-level) instead of project-level
-  -a, --agent <agents>   Specify agents to install to
-  -s, --skill <skills>   Specify skill names to install (skip selection prompt)
+  -a, --agent <agents>   Specify agents to install to (use '*' for all agents)
+  -s, --skill <skills>   Specify skill names to install (use '*' for all skills)
   -l, --list             List available skills in the repository without installing
   -y, --yes              Skip confirmation prompts
-  --all                  Install all skills to all agents without any prompts
+  --all                  Shorthand for --skill '*' --agent '*' -y
+  --full-depth           Search all subdirectories even when a root SKILL.md exists
 
 ${BOLD}Remove Options:${RESET}
   -g, --global           Remove from global scope
-  -a, --agent <agents>   Remove from specific agents
+  -a, --agent <agents>   Remove from specific agents (use '*' for all agents)
+  -s, --skill <skills>   Specify skills to remove (use '*' for all skills)
   -y, --yes              Skip confirmation prompts
-  --all                  Remove all installed skills
+  --all                  Shorthand for --skill '*' --agent '*' -y
   
 ${BOLD}List Options:${RESET}
   -g, --global           List global skills (default: project)
@@ -138,7 +130,6 @@ ${BOLD}List Options:${RESET}
 ${BOLD}Options:${RESET}
   --help, -h        Show this help message
   --version, -v     Show version number
-  --dry-run         Preview changes without writing (generate-lock)
 
 ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills add vercel-labs/agent-skills
@@ -174,9 +165,10 @@ ${BOLD}Arguments:${RESET}
 
 ${BOLD}Options:${RESET}
   -g, --global       Remove from global scope (~/) instead of project scope
-  -a, --agent        Remove from specific agents only
+  -a, --agent        Remove from specific agents (use '*' for all agents)
+  -s, --skill        Specify skills to remove (use '*' for all skills)
   -y, --yes          Skip confirmation prompts
-  --all              Remove all installed skills
+  --all              Shorthand for --skill '*' --agent '*' -y
 
 ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills remove                           ${DIM}# interactive selection${RESET}
@@ -184,7 +176,8 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills remove skill1 skill2 -y           ${DIM}# remove multiple skills${RESET}
   ${DIM}$${RESET} skills remove --global my-skill          ${DIM}# remove from global scope${RESET}
   ${DIM}$${RESET} skills rm --agent claude-code my-skill   ${DIM}# remove from specific agent${RESET}
-  ${DIM}$${RESET} skills remove --all -y                   ${DIM}# remove all skills${RESET}
+  ${DIM}$${RESET} skills remove --all                      ${DIM}# remove all skills${RESET}
+  ${DIM}$${RESET} skills remove --skill '*' -a cursor      ${DIM}# remove all skills from cursor${RESET}
 
 Discover more skills at ${TEXT}https://skills.sh/${RESET}
 `);
@@ -254,13 +247,11 @@ Describe when this skill should be used.
 }
 
 // ============================================
-// Generate Lock Command
+// Check and Update Commands
 // ============================================
 
 const AGENTS_DIR = '.agents';
-const SKILLS_SUBDIR = 'skills';
 const LOCK_FILE = '.skill-lock.json';
-const SEARCH_API_URL = 'https://skills.sh/api/skills/search';
 const CHECK_UPDATES_API_URL = 'https://add-skill.vercel.sh/check-updates';
 const CURRENT_LOCK_VERSION = 3; // Bumped from 2 to 3 for folder hash support
 
@@ -303,19 +294,6 @@ interface CheckUpdatesResponse {
   }>;
 }
 
-interface MatchResult {
-  source: string;
-  skillId: string;
-  name: string;
-  installs: number;
-  score: number;
-  sourceUrl?: string;
-}
-
-interface SearchResponse {
-  matches: Record<string, MatchResult | null>;
-}
-
 function getSkillLockPath(): string {
   return join(homedir(), AGENTS_DIR, LOCK_FILE);
 }
@@ -348,174 +326,6 @@ function writeSkillLock(lock: SkillLockFile): void {
   writeFileSync(lockPath, JSON.stringify(lock, null, 2), 'utf-8');
 }
 
-function getInstalledSkillNames(): string[] {
-  const skillsDir = join(homedir(), AGENTS_DIR, SKILLS_SUBDIR);
-  const skillNames: string[] = [];
-
-  try {
-    const entries = readdirSync(skillsDir, { withFileTypes: true });
-
-    for (const entry of entries) {
-      if (entry.isDirectory() || entry.isSymbolicLink()) {
-        const skillMdPath = join(skillsDir, entry.name, 'SKILL.md');
-        try {
-          const stat = statSync(skillMdPath);
-          if (stat.isFile()) {
-            skillNames.push(entry.name);
-          }
-        } catch {
-          // No SKILL.md, check if directory has content
-          try {
-            const contents = readdirSync(join(skillsDir, entry.name));
-            if (contents.length > 0) {
-              skillNames.push(entry.name);
-            }
-          } catch {
-            // Skip
-          }
-        }
-      }
-    }
-  } catch {
-    // Directory doesn't exist
-  }
-
-  return skillNames;
-}
-
-async function fuzzyMatchSkills(
-  skillNames: string[],
-  apiUrl: string = SEARCH_API_URL
-): Promise<Record<string, MatchResult | null>> {
-  if (skillNames.length === 0) return {};
-
-  const response = await fetch(apiUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ skills: skillNames }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`API request failed: ${response.status} ${response.statusText}`);
-  }
-
-  const data = (await response.json()) as SearchResponse;
-  return data.matches;
-}
-
-function inferSourceType(source: string): string {
-  if (source.startsWith('mintlify/')) return 'mintlify';
-  if (source.startsWith('huggingface/')) return 'huggingface';
-  return 'github';
-}
-
-function buildSourceUrl(source: string, sourceType: string): string {
-  switch (sourceType) {
-    case 'github':
-      return `https://github.com/${source}.git`;
-    case 'mintlify':
-      return source;
-    case 'huggingface':
-      const parts = source.replace('huggingface/', '').split('/');
-      return `https://huggingface.co/spaces/${parts.join('/')}`;
-    default:
-      return source;
-  }
-}
-
-async function runGenerateLock(args: string[]): Promise<void> {
-  const dryRun = args.includes('--dry-run');
-
-  // Allow API URL override for testing
-  const apiUrlIdx = args.indexOf('--api-url');
-  const apiUrl = apiUrlIdx !== -1 && args[apiUrlIdx + 1] ? args[apiUrlIdx + 1] : SEARCH_API_URL;
-
-  console.log(`${TEXT}Scanning for installed skills...${RESET}`);
-  const installedSkills = getInstalledSkillNames();
-
-  if (installedSkills.length === 0) {
-    console.log(`${DIM}No installed skills found.${RESET}`);
-    return;
-  }
-
-  console.log(`${DIM}Found ${installedSkills.length} installed skill(s)${RESET}`);
-  console.log();
-
-  // Read existing lock file
-  const existingLock = readSkillLock();
-  const existingCount = Object.keys(existingLock.skills).length;
-
-  // Filter skills not already in lock file
-  const skillsToMatch = installedSkills.filter((skill) => !(skill in existingLock.skills));
-
-  if (skillsToMatch.length === 0) {
-    console.log(`${TEXT}All skills already in lock file.${RESET}`);
-    return;
-  }
-
-  console.log(`${TEXT}Matching ${skillsToMatch.length} skill(s) against database...${RESET}`);
-  console.log();
-
-  const matches = await fuzzyMatchSkills(skillsToMatch, apiUrl);
-
-  // Build updated lock file (only exact matches)
-  const now = new Date().toISOString();
-  const updatedLock: SkillLockFile = { ...existingLock };
-  let matchedCount = 0;
-  let skippedCount = 0;
-
-  const EXACT_MATCH_THRESHOLD = 1000;
-
-  for (const skillName of skillsToMatch) {
-    const match = matches[skillName];
-
-    if (match && match.score >= EXACT_MATCH_THRESHOLD) {
-      matchedCount++;
-      const sourceType = inferSourceType(match.source);
-      // Use sourceUrl from API if available (for mintlify etc), otherwise build it
-      const sourceUrl = match.sourceUrl || buildSourceUrl(match.source, sourceType);
-
-      console.log(`${TEXT}✓${RESET} ${skillName}`);
-      console.log(`  ${DIM}source: ${match.source}${RESET}`);
-
-      // Note: contentHash is empty for generate-lock; check command computes from disk
-      updatedLock.skills[skillName] = {
-        source: match.source,
-        sourceType,
-        sourceUrl,
-        skillFolderHash: '', // Will be populated by server on first check
-        installedAt: now,
-        updatedAt: now,
-      };
-    } else {
-      skippedCount++;
-    }
-  }
-
-  console.log();
-  console.log(`${TEXT}Matched:${RESET} ${matchedCount}`);
-  console.log(`${DIM}Skipped: ${skippedCount} (no exact match)${RESET}`);
-  console.log();
-
-  if (matchedCount === 0) {
-    console.log(`${DIM}No new skills to add to lock file.${RESET}`);
-    return;
-  }
-
-  if (dryRun) {
-    console.log(`${DIM}Dry run - no changes written${RESET}`);
-    console.log();
-    console.log(JSON.stringify(updatedLock, null, 2));
-  } else {
-    writeSkillLock(updatedLock);
-    console.log(`${TEXT}Lock file updated:${RESET} ${DIM}~/.agents/.skill-lock.json${RESET}`);
-  }
-}
-
-// ============================================
-// Check and Update Commands
-// ============================================
-
 async function runCheck(args: string[] = []): Promise<void> {
   console.log(`${TEXT}Checking for skill updates...${RESET}`);
   console.log();
@@ -533,14 +343,12 @@ async function runCheck(args: string[] = []): Promise<void> {
     skills: [],
   };
 
-  const skippedSkills: string[] = [];
   for (const skillName of skillNames) {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    // Skip skills without skillFolderHash (shouldn't happen with v3)
+    // Skip skills without skillFolderHash (e.g., private repos where API can't fetch hash)
     if (!entry.skillFolderHash) {
-      skippedSkills.push(skillName);
       continue;
     }
 
@@ -550,11 +358,6 @@ async function runCheck(args: string[] = []): Promise<void> {
       path: entry.skillPath,
       skillFolderHash: entry.skillFolderHash,
     });
-  }
-
-  const skippedMsg = formatSkippedMessage(skippedSkills);
-  if (skippedMsg) {
-    console.log(`${DIM}${skippedMsg}${RESET}`);
   }
 
   if (checkRequest.skills.length === 0) {
@@ -634,14 +437,12 @@ async function runUpdate(): Promise<void> {
     skills: [],
   };
 
-  const skippedSkills: string[] = [];
   for (const skillName of skillNames) {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    // Skip skills without skillFolderHash (shouldn't happen with v3)
+    // Skip skills without skillFolderHash (e.g., private repos where API can't fetch hash)
     if (!entry.skillFolderHash) {
-      skippedSkills.push(skillName);
       continue;
     }
 
@@ -651,11 +452,6 @@ async function runUpdate(): Promise<void> {
       path: entry.skillPath,
       skillFolderHash: entry.skillFolderHash,
     });
-  }
-
-  const skippedMsg = formatSkippedMessage(skippedSkills);
-  if (skippedMsg) {
-    console.log(`${DIM}${skippedMsg}${RESET}`);
   }
 
   if (checkRequest.skills.length === 0) {
@@ -799,10 +595,6 @@ async function main(): Promise<void> {
     case 'update':
     case 'upgrade':
       runUpdate();
-      break;
-    case 'generate-lock':
-    case 'gen-lock':
-      runGenerateLock(restArgs);
       break;
     case '--help':
     case '-h':

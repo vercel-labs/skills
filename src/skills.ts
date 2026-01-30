@@ -83,6 +83,8 @@ async function findSkillDirs(dir: string, depth = 0, maxDepth = 5): Promise<stri
 export interface DiscoverSkillsOptions {
   /** Include internal skills (e.g., when user explicitly requests a skill by name) */
   includeInternal?: boolean;
+  /** Search all subdirectories even when a root SKILL.md exists */
+  fullDepth?: boolean;
 }
 
 export async function discoverSkills(
@@ -94,12 +96,16 @@ export async function discoverSkills(
   const seenNames = new Set<string>();
   const searchPath = subpath ? join(basePath, subpath) : basePath;
 
-  // If pointing directly at a skill, return just that
+  // If pointing directly at a skill, add it (and return early unless fullDepth is set)
   if (await hasSkillMd(searchPath)) {
     const skill = await parseSkillMd(join(searchPath, 'SKILL.md'), options);
     if (skill) {
       skills.push(skill);
-      return skills;
+      seenNames.add(skill.name);
+      // Only return early if fullDepth is not set
+      if (!options?.fullDepth) {
+        return skills;
+      }
     }
   }
 
@@ -126,6 +132,7 @@ export async function discoverSkills(
     join(searchPath, '.kiro/skills'),
     join(searchPath, '.mux/skills'),
     join(searchPath, '.neovate/skills'),
+    join(searchPath, '.openclaude/skills'),
     join(searchPath, '.opencode/skills'),
     join(searchPath, '.openhands/skills'),
     join(searchPath, '.pi/skills'),

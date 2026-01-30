@@ -1,6 +1,7 @@
 export type AgentType =
   | 'amp'
   | 'antigravity'
+  | 'augment'
   | 'claude-code'
   | 'moltbot'
   | 'cline'
@@ -20,6 +21,7 @@ export type AgentType =
   | 'kiro-cli'
   | 'kode'
   | 'mcpjam'
+  | 'mistral-vibe'
   | 'mux'
   | 'neovate'
   | 'opencode'
@@ -27,11 +29,15 @@ export type AgentType =
   | 'pi'
   | 'qoder'
   | 'qwen-code'
+  | 'replit'
   | 'roo'
   | 'trae'
+  | 'trae-cn'
   | 'windsurf'
   | 'zencoder'
-  | 'pochi';
+  | 'openclaude'
+  | 'pochi'
+  | 'adal';
 
 export interface Skill {
   name: string;
@@ -46,7 +52,8 @@ export interface AgentConfig {
   name: string;
   displayName: string;
   skillsDir: string;
-  globalSkillsDir: string;
+  /** Global skills directory. Set to undefined if the agent doesn't support global installation. */
+  globalSkillsDir: string | undefined;
   detectInstalled: () => Promise<boolean>;
 }
 
