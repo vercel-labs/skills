@@ -1,30 +1,44 @@
 export type AgentType =
   | 'amp'
   | 'antigravity'
+  | 'augment'
   | 'claude-code'
-  | 'clawdbot'
+  | 'openclaw'
   | 'cline'
+  | 'codebuddy'
   | 'codex'
   | 'command-code'
+  | 'continue'
+  | 'crush'
   | 'cursor'
   | 'droid'
   | 'gemini-cli'
   | 'github-copilot'
   | 'goose'
   | 'iflow-cli'
+  | 'junie'
   | 'kilo'
+  | 'kimi-cli'
   | 'kiro-cli'
+  | 'kode'
   | 'mcpjam'
+  | 'mistral-vibe'
+  | 'mux'
   | 'neovate'
   | 'opencode'
   | 'openhands'
   | 'pi'
   | 'qoder'
   | 'qwen-code'
+  | 'replit'
   | 'roo'
   | 'trae'
+  | 'trae-cn'
   | 'windsurf'
-  | 'zencoder';
+  | 'zencoder'
+  | 'openclaude'
+  | 'pochi'
+  | 'adal';
 
 export interface Skill {
   name: string;
@@ -32,23 +46,26 @@ export interface Skill {
   path: string;
   /** Raw SKILL.md content for hashing */
   rawContent?: string;
-  metadata?: Record<string, string>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface AgentConfig {
   name: string;
   displayName: string;
   skillsDir: string;
-  globalSkillsDir: string;
+  /** Global skills directory. Set to undefined if the agent doesn't support global installation. */
+  globalSkillsDir: string | undefined;
   detectInstalled: () => Promise<boolean>;
 }
 
 export interface ParsedSource {
-  type: 'github' | 'gitlab' | 'git' | 'local' | 'direct-url';
+  type: 'github' | 'gitlab' | 'git' | 'local' | 'direct-url' | 'well-known';
   url: string;
   subpath?: string;
   localPath?: string;
   ref?: string;
+  /** Skill name extracted from @skill syntax (e.g., owner/repo@skill-name) */
+  skillFilter?: string;
 }
 
 export interface MintlifySkill {

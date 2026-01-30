@@ -1,5 +1,5 @@
 import matter from 'gray-matter';
-import type { HostProvider, ProviderMatch, RemoteSkill } from './types.js';
+import type { HostProvider, ProviderMatch, RemoteSkill } from './types.ts';
 
 /**
  * HuggingFace Spaces skills provider.
@@ -53,7 +53,8 @@ export class HuggingFaceProvider implements HostProvider {
     try {
       // Convert to raw URL
       const rawUrl = this.toRawUrl(url);
-      const response = await fetch(rawUrl);
+
+      const response = await fetch(rawUrl, { signal: AbortSignal.timeout(30000) });
 
       if (!response.ok) {
         return null;

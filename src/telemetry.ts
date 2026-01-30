@@ -1,6 +1,6 @@
 const TELEMETRY_URL = 'https://add-skill.vercel.sh/t';
 
-interface TelemetryData {
+interface InstallTelemetryData {
   event: 'install';
   source: string;
   skills: string;
@@ -15,6 +15,42 @@ interface TelemetryData {
    */
   sourceType?: string;
 }
+
+interface RemoveTelemetryData {
+  event: 'remove';
+  source?: string;
+  skills: string;
+  agents: string;
+  global?: '1';
+  sourceType?: string;
+}
+
+interface CheckTelemetryData {
+  event: 'check';
+  skillCount: string;
+  updatesAvailable: string;
+}
+
+interface UpdateTelemetryData {
+  event: 'update';
+  skillCount: string;
+  successCount: string;
+  failCount: string;
+}
+
+interface FindTelemetryData {
+  event: 'find';
+  query: string;
+  resultCount: string;
+  interactive?: '1';
+}
+
+type TelemetryData =
+  | InstallTelemetryData
+  | RemoveTelemetryData
+  | CheckTelemetryData
+  | UpdateTelemetryData
+  | FindTelemetryData;
 
 let cliVersion: string | null = null;
 

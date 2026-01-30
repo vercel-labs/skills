@@ -1,9 +1,9 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 
 import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
-import { agents } from '../src/agents.js';
+import { agents } from '../src/agents.ts';
 
 const ROOT = join(import.meta.dirname, '..');
 const README_PATH = join(ROOT, 'README.md');
@@ -12,7 +12,7 @@ const PACKAGE_PATH = join(ROOT, 'package.json');
 function generateAgentList(): string {
   const agentList = Object.values(agents);
   const count = agentList.length;
-  return `Supports **Opencode**, **Claude Code**, **Codex**, **Cursor**, and [${count - 4} more](#available-agents).`;
+  return `Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [${count - 4} more](#available-agents).`;
 }
 
 function generateAgentNames(): string {
@@ -20,9 +20,39 @@ function generateAgentNames(): string {
 }
 
 function generateAvailableAgentsTable(): string {
-  const rows = Object.entries(agents).map(([key, a]) => {
-    const globalPath = a.globalSkillsDir.replace(homedir(), '~');
-    return `| ${a.displayName} | \`${key}\` | \`${a.skillsDir}/\` | \`${globalPath}/\` |`;
+  // Group agents by their paths
+  const pathGroups = new Map<
+    string,
+    {
+      keys: string[];
+      displayNames: string[];
+      skillsDir: string;
+      globalSkillsDir: string | undefined;
+    }
+  >();
+
+  for (const [key, a] of Object.entries(agents)) {
+    const pathKey = `${a.skillsDir}|${a.globalSkillsDir}`;
+    if (!pathGroups.has(pathKey)) {
+      pathGroups.set(pathKey, {
+        keys: [],
+        displayNames: [],
+        skillsDir: a.skillsDir,
+        globalSkillsDir: a.globalSkillsDir,
+      });
+    }
+    const group = pathGroups.get(pathKey)!;
+    group.keys.push(key);
+    group.displayNames.push(a.displayName);
+  }
+
+  const rows = Array.from(pathGroups.values()).map((group) => {
+    const globalPath = group.globalSkillsDir
+      ? `\`${group.globalSkillsDir.replace(homedir(), '~')}/\``
+      : 'N/A (project-only)';
+    const names = group.displayNames.join(', ');
+    const keys = group.keys.map((k) => `\`${k}\``).join(', ');
+    return `| ${names} | ${keys} | \`${group.skillsDir}/\` | ${globalPath} |`;
   });
   return [
     '| Agent | `--agent` | Project Path | Global Path |',
@@ -71,7 +101,7 @@ function main() {
 
   readme = replaceSection(readme, 'agent-list', generateAgentList());
   readme = replaceSection(readme, 'agent-names', generateAgentNames(), true);
-  readme = replaceSection(readme, 'available-agents', generateAvailableAgentsTable());
+  readme = replaceSection(readme, 'supported-agents', generateAvailableAgentsTable());
   readme = replaceSection(readme, 'skill-discovery', generateSkillDiscoveryPaths());
 
   writeFileSync(README_PATH, readme);

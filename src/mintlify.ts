@@ -1,5 +1,5 @@
 import matter from 'gray-matter';
-import type { MintlifySkill } from './types.js';
+import type { MintlifySkill } from './types.ts';
 
 /**
  * Fetch a skill.md file from a direct URL and parse its contents
@@ -15,7 +15,7 @@ import type { MintlifySkill } from './types.js';
  */
 export async function fetchMintlifySkill(url: string): Promise<MintlifySkill | null> {
   try {
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: AbortSignal.timeout(30000) });
 
     if (!response.ok) {
       return null;

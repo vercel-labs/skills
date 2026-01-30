@@ -3,15 +3,18 @@ name: CI
 on:
   pull_request:
     paths-ignore:
-      - '**/*.md'
+      - "**/*.md"
   push:
     branches: [main]
     paths-ignore:
-      - '**/*.md'
+      - "**/*.md"
 
 jobs:
   checks:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout repo
@@ -23,7 +26,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: lts/*
           cache: pnpm
 
       - name: Install dependencies
@@ -33,6 +36,7 @@ jobs:
         run: pnpm build
 
       - name: Prettier
+        if: matrix.os == 'ubuntu-latest'
         run: pnpm format:check
 
       - name: Tests
