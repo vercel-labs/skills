@@ -127,20 +127,11 @@ export function parseSource(input: string): ParsedSource {
     };
   }
 
-  // GitHub URL with path: https://github.com/owner/repo/tree/branch/path/to/skill
-  const githubTreeWithPathMatch = input.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/);
-  if (githubTreeWithPathMatch) {
-    const [, owner, repo, ref, subpath] = githubTreeWithPathMatch;
-    return {
-      type: 'github',
-      url: `https://github.com/${owner}/${repo}.git`,
-      ref,
-      subpath,
-    };
-  }
-
-  // GitHub URL with branch only: https://github.com/owner/repo/tree/branch
-  const githubTreeMatch = input.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)$/);
+  // GitHub URL with tree/ref: https://github.com/owner/repo/tree/branch-or-tag
+  // Captures everything after /tree/ as the ref (branch/tag name).
+  // Git branch names can contain slashes (e.g., feature/branch-name),
+  // so we use a greedy match to capture the full branch name.
+  const githubTreeMatch = input.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/(.+)/);
   if (githubTreeMatch) {
     const [, owner, repo, ref] = githubTreeMatch;
     return {

@@ -82,13 +82,15 @@ describe('source-parser', () => {
       });
     });
 
-    it('parses github full URL', () => {
+    it('parses github full URL with branch containing slashes', () => {
+      // With the /tree/ syntax, we treat everything after /tree/ as the branch name
+      // because branch names can contain slashes and GitHub URLs are ambiguous.
+      // For subpaths, use the shorthand syntax: owner/repo/path/to/skill
       const result = parseSource('https://github.com/owner/repo/tree/main/path');
       expect(result).toEqual({
         type: 'github',
         url: 'https://github.com/owner/repo.git',
-        ref: 'main',
-        subpath: 'path',
+        ref: 'main/path',
       });
     });
   });

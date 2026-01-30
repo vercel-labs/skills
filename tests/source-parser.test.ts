@@ -36,23 +36,33 @@ describe('parseSource', () => {
       expect(result.subpath).toBeUndefined();
     });
 
-    it('GitHub URL - tree with branch and path', () => {
-      const result = parseSource('https://github.com/owner/repo/tree/main/skills/my-skill');
-      expect(result.type).toBe('github');
-      expect(result.url).toBe('https://github.com/owner/repo.git');
-      expect(result.ref).toBe('main');
-      expect(result.subpath).toBe('skills/my-skill');
-    });
-
-    // Note: Branch names with slashes (e.g., feature/my-feature) are ambiguous.
-    // The parser treats the first segment as branch and rest as path.
-    // This matches GitHub's URL structure behavior.
-    it('GitHub URL - tree with slash in path (ambiguous branch)', () => {
+    // Branch names can contain slashes (e.g., feature/my-feature or copilot/scaffold-repo).
+    // The parser uses a greedy match to capture the full branch name after /tree/.
+    // This matches GitHub's actual URL behavior where everything after /tree/ is the branch name.
+    it('GitHub URL - tree with branch containing slashes', () => {
       const result = parseSource('https://github.com/owner/repo/tree/feature/my-feature');
       expect(result.type).toBe('github');
       expect(result.url).toBe('https://github.com/owner/repo.git');
-      expect(result.ref).toBe('feature');
-      expect(result.subpath).toBe('my-feature');
+      expect(result.ref).toBe('feature/my-feature');
+      expect(result.subpath).toBeUndefined();
+    });
+
+    it('GitHub URL - tree with branch containing multiple slashes', () => {
+      const result = parseSource('https://github.com/owner/repo/tree/main/skills/my-skill');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+      expect(result.ref).toBe('main/skills/my-skill');
+      expect(result.subpath).toBeUndefined();
+    });
+
+    it('GitHub URL - tree with custom branch from issue example', () => {
+      const result = parseSource(
+        'https://github.com/jotaijs/jotai-skills/tree/copilot/scaffold-jotai-skills-repo'
+      );
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/jotaijs/jotai-skills.git');
+      expect(result.ref).toBe('copilot/scaffold-jotai-skills-repo');
+      expect(result.subpath).toBeUndefined();
     });
   });
 
