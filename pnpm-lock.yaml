@@ -7,10 +7,6 @@ settings:
 importers:
 
   .:
-    dependencies:
-      xdg-basedir:
-        specifier: ^5.1.0
-        version: 5.1.0
     devDependencies:
       '@clack/prompts':
         specifier: ^0.11.0
@@ -48,6 +44,9 @@ importers:
       vitest:
         specifier: ^4.0.17
         version: 4.0.18(@types/node@22.19.7)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2)
+      xdg-basedir:
+        specifier: ^5.1.0
+        version: 5.1.0
 
 packages:
 

@@ -84,9 +84,6 @@
   },
   "author": "",
   "license": "MIT",
-  "dependencies": {
-    "xdg-basedir": "^5.1.0"
-  },
   "devDependencies": {
     "@clack/prompts": "^0.11.0",
     "@types/bun": "latest",
@@ -99,7 +96,8 @@
     "prettier": "^3.8.1",
     "simple-git": "^3.27.0",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.17"
+    "vitest": "^4.0.17",
+    "xdg-basedir": "^5.1.0"
   },
   "engines": {
     "node": ">=18"
