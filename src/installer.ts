@@ -14,7 +14,7 @@ import { join, basename, normalize, resolve, sep, relative, dirname } from 'path
 import { homedir, platform } from 'os';
 import type { Skill, AgentType, MintlifySkill, RemoteSkill } from './types.ts';
 import type { WellKnownSkill } from './providers/wellknown.ts';
-import { agents } from './agents.ts';
+import { agents, detectInstalledAgents } from './agents.ts';
 import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
 import { parseSkillMd } from './skills.ts';
 
@@ -728,6 +728,9 @@ export async function listInstalledSkills(
   const installedSkills: InstalledSkill[] = [];
   const scopes: Array<{ global: boolean; path: string }> = [];
 
+  // Detect which agents are actually installed (fixes issue #225)
+  const detectedAgents = await detectInstalledAgents();
+
   // Determine which scopes to scan
   if (options.global === undefined) {
     // Scan both project and global
@@ -768,8 +771,12 @@ export async function listInstalledSkills(
         // Use multiple strategies to handle mismatches between canonical and agent directories
         const sanitizedSkillName = sanitizeName(skill.name);
         const installedAgents: AgentType[] = [];
-        // Check all agents if no filter, otherwise only check filtered agents
-        const agentsToCheck = options.agentFilter || (Object.keys(agents) as AgentType[]);
+        // Only check installed agents, with optional filter
+        // Assign to a new variable to make below ts infer happy
+        const agentFilter = options.agentFilter;
+        const agentsToCheck = agentFilter
+          ? detectedAgents.filter((a) => agentFilter.includes(a))
+          : detectedAgents;
 
         for (const agentType of agentsToCheck) {
           const agent = agents[agentType];
