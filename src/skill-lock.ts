@@ -231,6 +231,7 @@ export async function computeLocalSkillFolderHash(
 
     // Use git ls-tree to get the tree hash for the folder
     // If there's a parent path, use HEAD:parent/path syntax
+    // Note: Git ref syntax (HEAD:path) doesn't require escaping as it's validated by git
     const treeRef = parentPath ? `HEAD:${parentPath}` : 'HEAD';
     const result = execSync(`git ls-tree ${treeRef}`, {
       cwd: repoPath,
@@ -242,7 +243,8 @@ export async function computeLocalSkillFolderHash(
     // Format: "040000 tree <sha>\t<name>"
     const lines = result.trim().split('\n');
     for (const line of lines) {
-      const match = line.match(/^(\d+)\s+(tree|blob)\s+([a-f0-9]+)\s+(.+)$/);
+      // Match both lowercase and uppercase hex characters (though git typically uses lowercase)
+      const match = line.match(/^(\d+)\s+(tree|blob)\s+([a-fA-F0-9]+)\s+(.+)$/);
       if (match && match[2] === 'tree' && match[4] === lastPart) {
         return match[3] || null;
       }
