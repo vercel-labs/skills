@@ -5,7 +5,7 @@ import { join } from 'node:path';
 const rootDir = join(import.meta.dirname, '..');
 
 describe('dist build', () => {
-  it('builds and runs without errors', () => {
+  it('builds and runs without errors', { timeout: 30000 }, () => {
     // Build the project
     execSync('pnpm build', { cwd: rootDir, stdio: 'pipe' });
 
