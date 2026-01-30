@@ -32,6 +32,15 @@ npx skills add git@github.com:vercel-labs/agent-skills.git
 
 # Local path
 npx skills add ./my-local-skills
+
+# npm package
+npx skills add npm:@vercel/skills
+
+# npm package with version
+npx skills add npm:@scope/skill@1.2.3
+
+# npm package with custom registry
+npx skills add npm:my-skill --registry=https://registry.npmmirror.com
 ```
 
 ### Options
@@ -44,6 +53,7 @@ npx skills add ./my-local-skills
 | `-l, --list`              | List available skills without installing                                                                                                           |
 | `-y, --yes`               | Skip all confirmation prompts                                                                                                                      |
 | `--all`                   | Install all skills to all agents without prompts                                                                                                   |
+| `--registry <url>`        | Custom npm registry URL (for `npm:` sources, default: `https://registry.npmjs.org`)                                                                |
 
 ### Examples
 
@@ -65,6 +75,9 @@ npx skills add vercel-labs/agent-skills --skill frontend-design -g -a claude-cod
 
 # Install all skills from a repo to all agents
 npx skills add vercel-labs/agent-skills --all
+
+# Install from npm package
+npx skills add npm:@vercel/skills -g -y
 
 # Install all skills to specific agents
 npx skills add vercel-labs/agent-skills --skill '*' -a claude-code

@@ -107,7 +107,49 @@ function isDirectSkillUrl(input: string): boolean {
  * Parse a source string into a structured format
  * Supports: local paths, GitHub URLs, GitLab URLs, GitHub shorthand, direct skill.md URLs, and direct git URLs
  */
-export function parseSource(input: string): ParsedSource {
+export function parseSource(input: string, options?: { registry?: string }): ParsedSource {
+  // npm package: npm:@scope/pkg@version or npm:pkg@version
+  if (input.startsWith('npm:')) {
+    const raw = input.slice(4); // strip "npm:"
+    let packageName: string;
+    let version: string | undefined;
+
+    if (raw.startsWith('@')) {
+      // Scoped package: @scope/pkg or @scope/pkg@version
+      const slashIdx = raw.indexOf('/');
+      if (slashIdx === -1) {
+        // Invalid scoped package, treat as package name only
+        packageName = raw;
+      } else {
+        const afterSlash = raw.slice(slashIdx + 1);
+        const atIdx = afterSlash.indexOf('@');
+        if (atIdx !== -1) {
+          packageName = raw.slice(0, slashIdx + 1 + atIdx);
+          version = afterSlash.slice(atIdx + 1);
+        } else {
+          packageName = raw;
+        }
+      }
+    } else {
+      // Non-scoped package: pkg or pkg@version
+      const atIdx = raw.indexOf('@');
+      if (atIdx !== -1) {
+        packageName = raw.slice(0, atIdx);
+        version = raw.slice(atIdx + 1);
+      } else {
+        packageName = raw;
+      }
+    }
+
+    return {
+      type: 'npm',
+      url: `npm:${packageName}${version ? `@${version}` : ''}`,
+      packageName,
+      version: version || undefined,
+      registry: options?.registry,
+    };
+  }
+
   // Local path: absolute, relative, or current directory
   if (isLocalPath(input)) {
     const resolvedPath = resolve(input);
