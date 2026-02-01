@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { spawn, spawnSync } from 'child_process';
-import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs';
+import { spawnSync } from 'child_process';
+import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { basename, join, dirname } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
@@ -11,6 +11,7 @@ import { runFind } from './find.ts';
 import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { track } from './telemetry.ts';
+import { getUserConfigPath, loadUserConfig, getDefaultConfig } from './config.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -106,6 +107,7 @@ ${BOLD}Commands:${RESET}
   init [name]       Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)
   check             Check for available skill updates
   update            Update all skills to latest versions
+  config            Manage configuration (init, list)
 
 ${BOLD}Add Options:${RESET}
   -g, --global           Install skill globally (user-level) instead of project-level
@@ -537,6 +539,119 @@ async function runUpdate(): Promise<void> {
 }
 
 // ============================================
+// Config Command
+// ============================================
+
+function runConfig(args: string[]): void {
+  const subcommand = args[0];
+
+  switch (subcommand) {
+    case 'init':
+      initConfig();
+      break;
+    case 'list':
+    case 'ls':
+      listConfig();
+      break;
+    case 'path':
+      showConfigPath();
+      break;
+    default:
+      showConfigHelp();
+  }
+}
+
+function showConfigHelp(): void {
+  console.log(`
+${BOLD}Usage:${RESET} skills config <subcommand>
+
+${BOLD}Subcommands:${RESET}
+  init              Initialize a new configuration file
+  list, ls          List current configuration
+  path              Show configuration file path
+
+${BOLD}Examples:${RESET}
+  ${DIM}$${RESET} skills config init
+  ${DIM}$${RESET} skills config list
+  ${DIM}$${RESET} skills config path
+`);
+}
+
+function initConfig(): void {
+  const configPath = getUserConfigPath();
+
+  if (existsSync(configPath)) {
+    console.log(`${TEXT}Configuration already exists at:${RESET}`);
+    console.log(`  ${DIM}${configPath}${RESET}`);
+    console.log();
+    console.log(`${DIM}Edit this file to customize your agents and canonical base.${RESET}`);
+    return;
+  }
+
+  const defaultConfig = getDefaultConfig();
+  const configDir = join(homedir(), AGENTS_DIR);
+
+  if (!existsSync(configDir)) {
+    mkdirSync(configDir, { recursive: true });
+  }
+
+  writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2), 'utf-8');
+
+  console.log(`${TEXT}✓ Created configuration file:${RESET}`);
+  console.log(`  ${DIM}${configPath}${RESET}`);
+  console.log();
+  console.log(`${DIM}Edit this file to:${RESET}`);
+  console.log(`  • Customize your canonical base directory`);
+  console.log(`  • Add custom agent configurations`);
+  console.log();
+  console.log(`${DIM}Example configuration:${RESET}`);
+  console.log(`  ${TEXT}canonicalBase${RESET}: ${DIM}~/.agents/skills${RESET}`);
+  console.log(
+    `  ${TEXT}agents${RESET}: ${DIM}{ my-agent: { name, displayName, skillsDir, ... } }${RESET}`
+  );
+}
+
+function listConfig(): void {
+  const config = loadUserConfig();
+
+  if (!config) {
+    console.log(`${DIM}No configuration file found.${RESET}`);
+    console.log();
+    console.log(`${DIM}Run${RESET} ${TEXT}skills config init${RESET} ${DIM}to create one.${RESET}`);
+    return;
+  }
+
+  console.log(`${TEXT}Configuration:${RESET}`);
+  console.log();
+  console.log(
+    `${TEXT}canonicalBase:${RESET} ${DIM}${config.canonicalBase || '(default: ~/.agents)'}${RESET}`
+  );
+  console.log();
+
+  if (config.agents && Object.keys(config.agents).length > 0) {
+    console.log(`${TEXT}Custom Agents:${RESET}`);
+    for (const [key, agent] of Object.entries(config.agents)) {
+      console.log(`  ${TEXT}•${RESET} ${agent.displayName} ${DIM}(${key})${RESET}`);
+      console.log(`    ${DIM}skillsDir:${RESET} ${agent.skillsDir}`);
+      if (agent.globalSkillsDir) {
+        console.log(`    ${DIM}globalSkillsDir:${RESET} ${agent.globalSkillsDir}`);
+      }
+      console.log(`    ${DIM}detect:${RESET} ${agent.detectInstalled.type}`);
+    }
+  } else {
+    console.log(`${DIM}No custom agents defined.${RESET}`);
+  }
+
+  console.log();
+  console.log(`${DIM}Config file:${RESET} ${TEXT}${getUserConfigPath()}${RESET}`);
+}
+
+function showConfigPath(): void {
+  const configPath = getUserConfigPath();
+  console.log(configPath);
+}
+
+// ============================================
 // Main
 // ============================================
 
@@ -595,6 +710,9 @@ async function main(): Promise<void> {
     case 'update':
     case 'upgrade':
       runUpdate();
+      break;
+    case 'config':
+      runConfig(restArgs);
       break;
     case '--help':
     case '-h':
