@@ -34,8 +34,8 @@ export const agents: Record<AgentType, AgentConfig> = {
   augment: {
     name: 'augment',
     displayName: 'Augment',
-    skillsDir: '.augment/rules',
-    globalSkillsDir: join(home, '.augment/rules'),
+    skillsDir: '.augment/skills',
+    globalSkillsDir: join(home, '.augment/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.augment'));
     },
