@@ -99,6 +99,7 @@ When installing interactively, you can choose:
 | `npx skills check`           | Check for available skill updates                       |
 | `npx skills update`          | Update all installed skills to latest versions          |
 | `npx skills init [name]`     | Create a new SKILL.md template                          |
+| `npx skills config`          | Manage user configuration (init, list, path)            |
 
 ### `skills list`
 
@@ -145,6 +146,21 @@ npx skills init
 
 # Create a new skill in a subdirectory
 npx skills init my-skill
+```
+
+### `skills config`
+
+Manage user configuration for custom agents and settings.
+
+```bash
+# Initialize config file (~/.agents/config.json)
+npx skills config init
+
+# View current configuration
+npx skills config list
+
+# Show config file path
+npx skills config path
 ```
 
 ### `skills remove`
@@ -261,6 +277,50 @@ Skills can be installed to any of these agents:
 
 The CLI automatically detects which coding agents you have installed. If none are detected, you'll be prompted to select
 which agents to install to.
+
+## User Configuration
+
+You can customize the CLI behavior and add custom agents via configuration files.
+
+### Configuration Files
+
+| Scope   | Location                        | Affects                                     |
+| ------- | ------------------------------- | ------------------------------------------- |
+| Global  | `~/.agents/config.json`         | `skills add -g` installations               |
+| Project | `<project>/.agents/config.json` | `skills add` (without `-g`) in that project |
+
+### Configuration Options
+
+```json
+{
+  "canonicalBase": "~/custom-skills",
+  "agents": {
+    "my-agent": {
+      "name": "my-agent",
+      "displayName": "My Custom Agent",
+      "skillsDir": ".myagent/skills",
+      "globalSkillsDir": "~/.myagent/skills",
+      "detectInstalled": {
+        "type": "exists",
+        "paths": ["~/.myagent"]
+      }
+    }
+  }
+}
+```
+
+| Field            | Description                                              |
+| ---------------- | -------------------------------------------------------- |
+| `canonicalBase`  | Custom directory for storing canonical skill copies      |
+| `agents`         | Custom agent definitions (can override built-in agents)  |
+
+### Detection Strategies
+
+| Type      | Description                   | Example                                        |
+| --------- | ----------------------------- | ---------------------------------------------- |
+| `exists`  | Check if paths exist          | `{ "type": "exists", "paths": ["~/.claude"] }` |
+| `env`     | Check environment variable    | `{ "type": "env", "var": "AGENT_HOME" }`       |
+| `command` | Check if command is available | `{ "type": "command", "cmd": "my-agent" }`     |
 
 ## Creating Skills
 

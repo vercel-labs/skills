@@ -16,6 +16,7 @@ This file provides guidance to AI coding agents working on the `skills` CLI code
 | `skills list`        | List installed skills (alias: `ls`)                 |
 | `skills check`       | Check for available skill updates                   |
 | `skills update`      | Update all skills to latest versions                |
+| `skills config`      | Manage user configuration (init, list, path)        |
 
 Aliases: `skills a`, `skills i`, `skills install` all work for `add`. `skills ls` works for `list`.
 
@@ -30,6 +31,7 @@ src/
 ├── list.ts          # List installed skills command
 ├── list.test.ts     # List command tests
 ├── agents.ts        # Agent definitions and detection
+├── config.ts        # User configuration loading and management
 ├── installer.ts     # Skill installation logic (symlink/copy) + listInstalledSkills
 ├── skills.ts        # Skill discovery and parsing
 ├── skill-lock.ts    # Lock file management
@@ -55,6 +57,7 @@ tests/
 ├── list-installed.test.ts    # Tests for listing installed skills
 ├── skill-path.test.ts        # Tests for skill path handling
 ├── wellknown-provider.test.ts # Tests for well-known provider
+├── config.test.ts            # Tests for user configuration
 └── dist.test.ts              # Tests for built distribution
 ```
 
@@ -151,6 +154,33 @@ npm publish
 
 ## Adding a New Agent
 
+### Via Pull Request (for built-in agents)
+
 1. Add the agent definition to `src/agents.ts`
 2. Run `pnpm run -C scripts validate-agents.ts` to validate
 3. Run `pnpm run -C scripts sync-agents.ts` to update README.md
+
+### Via User Configuration (for custom/experimental agents)
+
+Users can add custom agents without a PR by creating a config file:
+
+**Global config** (`~/.agents/config.json`):
+
+```json
+{
+  "agents": {
+    "my-agent": {
+      "name": "my-agent",
+      "displayName": "My Custom Agent",
+      "skillsDir": ".myagent/skills",
+      "globalSkillsDir": "~/.myagent/skills",
+      "detectInstalled": {
+        "type": "exists",
+        "paths": ["~/.myagent"]
+      }
+    }
+  }
+}
+```
+
+User-defined agents with the same name as built-in agents will override the built-in configuration.
