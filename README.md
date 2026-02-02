@@ -355,6 +355,24 @@ The CLI searches for skills in these locations within a repository:
 - `.adal/skills/`
 <!-- skill-discovery:end -->
 
+### Plugin Manifest Discovery
+
+If `.claude-plugin/marketplace.json` or `.claude-plugin/plugin.json` exists, skills declared in those files are also discovered:
+
+```json
+// .claude-plugin/marketplace.json
+{
+  "metadata": { "pluginRoot": "./plugins" },
+  "plugins": [{
+    "name": "my-plugin",
+    "source": "my-plugin",
+    "skills": ["./skills/review", "./skills/test"]
+  }]
+}
+```
+
+This enables compatibility with the [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-marketplaces) ecosystem.
+
 If no skills are found in standard locations, a recursive search is performed.
 
 ## Compatibility
