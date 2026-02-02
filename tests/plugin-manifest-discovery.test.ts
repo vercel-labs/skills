@@ -449,4 +449,138 @@ description: Safe skill in conventional location
     expect(skills).toHaveLength(1);
     expect(skills[0].name).toBe('safe-skill');
   });
+
+  it('should reject paths without ./ prefix (per Claude Code convention)', async () => {
+    mkdirSync(join(testDir, '.claude-plugin'), { recursive: true });
+
+    // Paths without './' prefix should be rejected
+    // Use a non-standard directory that WON'T be found by fallback search
+    writeFileSync(
+      join(testDir, '.claude-plugin/marketplace.json'),
+      JSON.stringify({
+        metadata: { pluginRoot: 'custom-plugins' }, // Missing './' prefix - INVALID
+        plugins: [{ source: './my-plugin', skills: ['./custom-skills/my-skill'] }],
+      })
+    );
+
+    // Create the plugin in a non-standard location only reachable via manifest
+    mkdirSync(join(testDir, 'custom-plugins/my-plugin/custom-skills/my-skill'), {
+      recursive: true,
+    });
+    writeFileSync(
+      join(testDir, 'custom-plugins/my-plugin/custom-skills/my-skill/SKILL.md'),
+      `---
+name: unreachable-skill
+description: Should not be found - pluginRoot lacks ./
+---
+`
+    );
+
+    // Also create a skill in standard location to prevent fallback deep search
+    mkdirSync(join(testDir, 'skills/standard-skill'), { recursive: true });
+    writeFileSync(
+      join(testDir, 'skills/standard-skill/SKILL.md'),
+      `---
+name: standard-skill
+description: Found via standard location
+---
+`
+    );
+
+    const skills = await discoverSkills(testDir);
+    // Only the standard skill should be found, not the one behind invalid pluginRoot
+    expect(skills).toHaveLength(1);
+    expect(skills[0].name).toBe('standard-skill');
+  });
+
+  it('should reject plugin sources without ./ prefix', async () => {
+    mkdirSync(join(testDir, '.claude-plugin'), { recursive: true });
+
+    writeFileSync(
+      join(testDir, '.claude-plugin/marketplace.json'),
+      JSON.stringify({
+        plugins: [
+          { source: 'bare-plugin', skills: ['./skills/skill1'] }, // Invalid - no './'
+          { source: './valid-plugin', skills: ['./skills/skill2'] }, // Valid
+        ],
+      })
+    );
+
+    // Create both plugins
+    mkdirSync(join(testDir, 'bare-plugin/skills/skill1'), { recursive: true });
+    writeFileSync(
+      join(testDir, 'bare-plugin/skills/skill1/SKILL.md'),
+      `---
+name: bare-skill
+description: Should not be found
+---
+`
+    );
+
+    mkdirSync(join(testDir, 'valid-plugin/skills/skill2'), { recursive: true });
+    writeFileSync(
+      join(testDir, 'valid-plugin/skills/skill2/SKILL.md'),
+      `---
+name: valid-skill
+description: Should be found
+---
+`
+    );
+
+    const skills = await discoverSkills(testDir);
+    expect(skills).toHaveLength(1);
+    expect(skills[0].name).toBe('valid-skill');
+  });
+
+  it('should reject skill paths without ./ prefix', async () => {
+    mkdirSync(join(testDir, '.claude-plugin'), { recursive: true });
+
+    // Use SEPARATE non-standard directories to isolate the test
+    // (parent dir scanning would find siblings if in same parent)
+    writeFileSync(
+      join(testDir, '.claude-plugin/plugin.json'),
+      JSON.stringify({
+        skills: ['invalid-loc/bare-skill', './valid-loc/valid-skill'], // First lacks ./
+      })
+    );
+
+    // Skill with invalid path (no ./) - in its own directory tree
+    mkdirSync(join(testDir, 'invalid-loc/bare-skill'), { recursive: true });
+    writeFileSync(
+      join(testDir, 'invalid-loc/bare-skill/SKILL.md'),
+      `---
+name: bare-skill
+description: Should not be found - path lacks ./
+---
+`
+    );
+
+    // Skill with valid path - in separate directory tree
+    mkdirSync(join(testDir, 'valid-loc/valid-skill'), { recursive: true });
+    writeFileSync(
+      join(testDir, 'valid-loc/valid-skill/SKILL.md'),
+      `---
+name: valid-skill
+description: Should be found - path has ./
+---
+`
+    );
+
+    // Add a skill in standard location to prevent fallback search
+    mkdirSync(join(testDir, 'skills/standard'), { recursive: true });
+    writeFileSync(
+      join(testDir, 'skills/standard/SKILL.md'),
+      `---
+name: standard-skill
+description: Standard location
+---
+`
+    );
+
+    const skills = await discoverSkills(testDir);
+    const names = skills.map((s) => s.name).sort();
+    // Should find: valid-skill (via valid manifest path) and standard-skill (via convention)
+    // Should NOT find: bare-skill (manifest path lacks ./)
+    expect(names).toEqual(['standard-skill', 'valid-skill']);
+  });
 });

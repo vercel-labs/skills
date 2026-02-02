@@ -12,6 +12,14 @@ function isContainedIn(targetPath: string, basePath: string): boolean {
 }
 
 /**
+ * Validate that a relative path follows Claude Code conventions.
+ * Paths must start with './' per the plugin manifest spec.
+ */
+function isValidRelativePath(path: string): boolean {
+  return path.startsWith('./');
+}
+
+/**
  * Plugin manifest types
  */
 interface PluginManifestEntry {
@@ -49,6 +57,9 @@ export async function getPluginSkillPaths(basePath: string): Promise<string[]> {
     if (skills && skills.length > 0) {
       // Plugin explicitly declares skill paths - add parent dirs so existing loop finds them
       for (const skillPath of skills) {
+        // Validate skill path starts with './' (per Claude Code convention)
+        if (!isValidRelativePath(skillPath)) continue;
+
         const skillDir = dirname(join(pluginBase, skillPath));
         if (isContainedIn(skillDir, basePath)) {
           searchDirs.push(skillDir);
@@ -64,14 +75,22 @@ export async function getPluginSkillPaths(basePath: string): Promise<string[]> {
   try {
     const content = await readFile(join(basePath, '.claude-plugin/marketplace.json'), 'utf-8');
     const manifest: MarketplaceManifest = JSON.parse(content);
-    const pluginRoot = manifest.metadata?.pluginRoot ?? '';
+    const pluginRoot = manifest.metadata?.pluginRoot;
 
-    for (const plugin of manifest.plugins ?? []) {
-      // Skip remote sources (object with source/repo) - only handle local string paths
-      if (typeof plugin.source !== 'string' && plugin.source !== undefined) continue;
+    // Validate pluginRoot starts with './' if provided (per Claude Code convention)
+    const validPluginRoot = pluginRoot === undefined || isValidRelativePath(pluginRoot);
 
-      const pluginBase = join(basePath, pluginRoot, plugin.source ?? '');
-      addPluginSkillPaths(pluginBase, plugin.skills);
+    if (validPluginRoot) {
+      for (const plugin of manifest.plugins ?? []) {
+        // Skip remote sources (object with source/repo) - only handle local string paths
+        if (typeof plugin.source !== 'string' && plugin.source !== undefined) continue;
+
+        // Validate source starts with './' if provided (per Claude Code convention)
+        if (plugin.source !== undefined && !isValidRelativePath(plugin.source)) continue;
+
+        const pluginBase = join(basePath, pluginRoot ?? '', plugin.source ?? '');
+        addPluginSkillPaths(pluginBase, plugin.skills);
+      }
     }
   } catch {
     // File doesn't exist or invalid JSON
