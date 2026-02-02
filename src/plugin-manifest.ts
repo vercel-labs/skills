@@ -1,14 +1,14 @@
 import { readFile } from 'fs/promises';
-import { join, dirname, resolve } from 'path';
+import { join, dirname, resolve, normalize, sep } from 'path';
 
 /**
  * Check if a path is contained within a base directory.
  * Prevents path traversal attacks via `..` segments or absolute paths.
  */
 function isContainedIn(targetPath: string, basePath: string): boolean {
-  const resolvedBase = resolve(basePath);
-  const resolvedTarget = resolve(targetPath);
-  return resolvedTarget.startsWith(resolvedBase + '/') || resolvedTarget === resolvedBase;
+  const normalizedBase = normalize(resolve(basePath));
+  const normalizedTarget = normalize(resolve(targetPath));
+  return normalizedTarget.startsWith(normalizedBase + sep) || normalizedTarget === normalizedBase;
 }
 
 /**
