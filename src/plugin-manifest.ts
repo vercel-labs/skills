@@ -1,5 +1,15 @@
 import { readFile } from 'fs/promises';
-import { join, dirname } from 'path';
+import { join, dirname, resolve } from 'path';
+
+/**
+ * Check if a path is contained within a base directory.
+ * Prevents path traversal attacks via `..` segments or absolute paths.
+ */
+function isContainedIn(targetPath: string, basePath: string): boolean {
+  const resolvedBase = resolve(basePath);
+  const resolvedTarget = resolve(targetPath);
+  return resolvedTarget.startsWith(resolvedBase + '/') || resolvedTarget === resolvedBase;
+}
 
 /**
  * Plugin manifest types
@@ -31,11 +41,18 @@ export async function getPluginSkillPaths(basePath: string): Promise<string[]> {
   const searchDirs: string[] = [];
 
   // Helper: add skill paths for a plugin at a given base path
+  // Only adds paths that are contained within basePath (security: prevents traversal)
   const addPluginSkillPaths = (pluginBase: string, skills?: string[]) => {
+    // Validate pluginBase itself is contained
+    if (!isContainedIn(pluginBase, basePath)) return;
+
     if (skills && skills.length > 0) {
       // Plugin explicitly declares skill paths - add parent dirs so existing loop finds them
       for (const skillPath of skills) {
-        searchDirs.push(dirname(join(pluginBase, skillPath)));
+        const skillDir = dirname(join(pluginBase, skillPath));
+        if (isContainedIn(skillDir, basePath)) {
+          searchDirs.push(skillDir);
+        }
       }
     }
     // Always add conventional skills/ directory for discovery

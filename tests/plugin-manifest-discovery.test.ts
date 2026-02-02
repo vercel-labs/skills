@@ -376,4 +376,77 @@ description: Found via convention
     const names = skills.map((s) => s.name).sort();
     expect(names).toEqual(['conventional-skill', 'explicit-skill']);
   });
+
+  it('should reject paths that traverse outside basePath', async () => {
+    // Create marketplace.json with malicious traversal paths
+    mkdirSync(join(testDir, '.claude-plugin'), { recursive: true });
+    writeFileSync(
+      join(testDir, '.claude-plugin/marketplace.json'),
+      JSON.stringify({
+        plugins: [
+          { source: '../../../etc', skills: ['./passwd'] }, // Traversal via source
+          { source: 'legit', skills: ['../../../outside/skill'] }, // Traversal via skill path
+        ],
+      })
+    );
+
+    // Create a legit plugin with a valid skill to ensure discovery still works
+    mkdirSync(join(testDir, 'legit/skills/valid-skill'), { recursive: true });
+    writeFileSync(
+      join(testDir, 'legit/skills/valid-skill/SKILL.md'),
+      `---
+name: valid-skill
+description: A valid skill inside basePath
+---
+`
+    );
+
+    // Create a skill outside testDir that should NOT be discovered
+    const outsideDir = join(testDir, '..', `outside-${Date.now()}`);
+    mkdirSync(join(outsideDir, 'skill'), { recursive: true });
+    writeFileSync(
+      join(outsideDir, 'skill/SKILL.md'),
+      `---
+name: outside-skill
+description: Should not be discovered
+---
+`
+    );
+
+    try {
+      const skills = await discoverSkills(testDir);
+      // Should only find the valid skill, not the traversal attempts
+      expect(skills).toHaveLength(1);
+      expect(skills[0].name).toBe('valid-skill');
+    } finally {
+      // Clean up outside directory
+      rmSync(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should reject absolute paths in manifests', async () => {
+    mkdirSync(join(testDir, '.claude-plugin'), { recursive: true });
+    writeFileSync(
+      join(testDir, '.claude-plugin/plugin.json'),
+      JSON.stringify({
+        skills: ['/etc/passwd', '/tmp/malicious-skill'],
+      })
+    );
+
+    // Create a valid skill via convention
+    mkdirSync(join(testDir, 'skills/safe-skill'), { recursive: true });
+    writeFileSync(
+      join(testDir, 'skills/safe-skill/SKILL.md'),
+      `---
+name: safe-skill
+description: Safe skill in conventional location
+---
+`
+    );
+
+    const skills = await discoverSkills(testDir);
+    // Should only find the conventional skill
+    expect(skills).toHaveLength(1);
+    expect(skills[0].name).toBe('safe-skill');
+  });
 });
