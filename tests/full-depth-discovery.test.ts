@@ -169,6 +169,56 @@ description: Skill 2
     expect(skillsFullDepth).toHaveLength(2);
   });
 
+  it('should discover nested skills inside container directories without --full-depth', async () => {
+    // No root SKILL.md — simulates a repo like wix-private/skills
+    // Structure:
+    //   skills/flat-skill/SKILL.md
+    //   skills/container/nested-a/SKILL.md   (container has no SKILL.md)
+    //   skills/container/nested-b/SKILL.md
+
+    mkdirSync(join(testDir, 'skills', 'flat-skill'), { recursive: true });
+    writeFileSync(
+      join(testDir, 'skills', 'flat-skill', 'SKILL.md'),
+      `---
+name: flat-skill
+description: A flat skill
+---
+
+# Flat Skill
+`
+    );
+
+    mkdirSync(join(testDir, 'skills', 'container', 'nested-a'), { recursive: true });
+    writeFileSync(
+      join(testDir, 'skills', 'container', 'nested-a', 'SKILL.md'),
+      `---
+name: nested-a
+description: Nested skill A
+---
+
+# Nested A
+`
+    );
+
+    mkdirSync(join(testDir, 'skills', 'container', 'nested-b'), { recursive: true });
+    writeFileSync(
+      join(testDir, 'skills', 'container', 'nested-b', 'SKILL.md'),
+      `---
+name: nested-b
+description: Nested skill B
+---
+
+# Nested B
+`
+    );
+
+    const skills = await discoverSkills(testDir);
+
+    expect(skills).toHaveLength(3);
+    const names = skills.map((s) => s.name).sort();
+    expect(names).toEqual(['flat-skill', 'nested-a', 'nested-b']);
+  });
+
   it('should not duplicate skills when root and nested have the same name', async () => {
     // Edge case: root SKILL.md and a nested skill with the same name
     writeFileSync(
