@@ -1,6 +1,6 @@
 {
   "name": "skills",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "description": "The open agent skills ecosystem",
   "type": "module",
   "bin": {
