@@ -107,7 +107,7 @@ export async function discoverSkills(
   // If pointing directly at a skill, add it (and return early unless fullDepth is set)
   if (await hasSkillMd(searchPath)) {
     await collectSkill(searchPath);
-    if (!options?.fullDepth) {
+    if (skills.length > 0 && !options?.fullDepth) {
       return skills;
     }
   }
