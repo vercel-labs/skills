@@ -400,8 +400,11 @@ async function runCheck(args: string[] = []): Promise<void> {
     if (data.errors && data.errors.length > 0) {
       console.log();
       console.log(
-        `${DIM}Could not check ${data.errors.length} skill(s) (may need reinstall)${RESET}`
+        `${DIM}Could not check ${data.errors.length} skill(s) (may need reinstall):${RESET}`
       );
+      for (const err of data.errors) {
+        console.log(`  ${DIM}• ${err.name}${RESET}`);
+      }
     }
 
     // Track telemetry
