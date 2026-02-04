@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [35 more](#available-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [37 more](#available-agents).
 <!-- agent-list:end -->
 
 ## Install a Skill
@@ -246,6 +246,8 @@ Skills can be installed to any of these agents:
 | Neovate | `neovate` | `.neovate/skills/` | `~/.neovate/skills/` |
 | Pochi | `pochi` | `.pochi/skills/` | `~/.pochi/skills/` |
 | AdaL | `adal` | `.adal/skills/` | `~/.adal/skills/` |
+| Xcode Codex | `xcode-codex` | `.codex/skills/` | `~/Library/Developer/Xcode/CodingAssistant/codex/skills/` |
+| Xcode Claude Agent | `xcode-claude` | `.claude/skills/` | `~/Library/Developer/Xcode/CodingAssistant/ClaudeAgentConfig/skills/` |
 <!-- supported-agents:end -->
 
 > [!NOTE]
