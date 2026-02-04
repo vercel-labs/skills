@@ -11,12 +11,13 @@ import {
   stat,
 } from 'fs/promises';
 import { join, basename, normalize, resolve, sep, relative, dirname } from 'path';
-import { homedir, platform } from 'os';
+import { platform } from 'os';
 import type { Skill, AgentType, MintlifySkill, RemoteSkill } from './types.ts';
 import type { WellKnownSkill } from './providers/wellknown.ts';
-import { agents, detectInstalledAgents } from './agents.ts';
-import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
+import { detectInstalledAgents, getAllAgents } from './agents.ts';
+import { SKILLS_SUBDIR } from './constants.ts';
 import { parseSkillMd } from './skills.ts';
+import { getCanonicalBase } from './config.ts';
 
 export type InstallMode = 'symlink' | 'copy';
 
@@ -66,13 +67,14 @@ function isPathSafe(basePath: string, targetPath: string): boolean {
 }
 
 /**
- * Gets the canonical .agents/skills directory path
+ * Gets the canonical skills directory path
+ * Uses custom canonical base from config if available
  * @param global - Whether to use global (home) or project-level location
  * @param cwd - Current working directory for project-level installs
  */
 export function getCanonicalSkillsDir(global: boolean, cwd?: string): string {
-  const baseDir = global ? homedir() : cwd || process.cwd();
-  return join(baseDir, AGENTS_DIR, SKILLS_SUBDIR);
+  const canonicalBase = getCanonicalBase(global, cwd);
+  return join(canonicalBase, SKILLS_SUBDIR);
 }
 
 function resolveSymlinkTarget(linkPath: string, linkTarget: string): string {
@@ -151,7 +153,8 @@ export async function installSkillForAgent(
   agentType: AgentType,
   options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
 ): Promise<InstallResult> {
-  const agent = agents[agentType];
+  const allAgents = getAllAgents();
+  const agent = allAgents[agentType];
   const isGlobal = options.global ?? false;
   const cwd = options.cwd || process.cwd();
 
@@ -291,7 +294,8 @@ export async function isSkillInstalled(
   agentType: AgentType,
   options: { global?: boolean; cwd?: string } = {}
 ): Promise<boolean> {
-  const agent = agents[agentType];
+  const allAgents = getAllAgents();
+  const agent = allAgents[agentType];
   const sanitized = sanitizeName(skillName);
 
   // Agent doesn't support global installation
@@ -322,7 +326,8 @@ export function getInstallPath(
   agentType: AgentType,
   options: { global?: boolean; cwd?: string } = {}
 ): string {
-  const agent = agents[agentType];
+  const allAgents = getAllAgents();
+  const agent = allAgents[agentType];
   const cwd = options.cwd || process.cwd();
   const sanitized = sanitizeName(skillName);
 
@@ -371,7 +376,8 @@ export async function installMintlifySkillForAgent(
   agentType: AgentType,
   options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
 ): Promise<InstallResult> {
-  const agent = agents[agentType];
+  const allAgents = getAllAgents();
+  const agent = allAgents[agentType];
   const isGlobal = options.global ?? false;
   const cwd = options.cwd || process.cwd();
   const installMode = options.mode ?? 'symlink';
@@ -479,7 +485,8 @@ export async function installRemoteSkillForAgent(
   agentType: AgentType,
   options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
 ): Promise<InstallResult> {
-  const agent = agents[agentType];
+  const allAgents = getAllAgents();
+  const agent = allAgents[agentType];
   const isGlobal = options.global ?? false;
   const cwd = options.cwd || process.cwd();
   const installMode = options.mode ?? 'symlink';
@@ -588,7 +595,8 @@ export async function installWellKnownSkillForAgent(
   agentType: AgentType,
   options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
 ): Promise<InstallResult> {
-  const agent = agents[agentType];
+  const allAgents = getAllAgents();
+  const agent = allAgents[agentType];
   const isGlobal = options.global ?? false;
   const cwd = options.cwd || process.cwd();
   const installMode = options.mode ?? 'symlink';
@@ -834,8 +842,9 @@ export async function listInstalledSkills(
         const sanitizedSkillName = sanitizeName(skill.name);
         const installedAgents: AgentType[] = [];
 
+        const allAgents = getAllAgents();
         for (const agentType of agentsToCheck) {
-          const agent = agents[agentType];
+          const agent = allAgents[agentType];
 
           if (scope.global && agent.globalSkillsDir === undefined) {
             continue;

@@ -57,6 +57,36 @@ export interface AgentConfig {
   detectInstalled: () => Promise<boolean>;
 }
 
+/**
+ * Strategy for detecting if an agent is installed
+ * Used in user configuration files
+ */
+export type DetectStrategy =
+  | { type: 'exists'; paths: string[] }
+  | { type: 'command'; cmd: string; args?: string[] }
+  | { type: 'env'; var: string };
+
+/**
+ * User-defined agent configuration (serializable, no functions)
+ */
+export interface UserAgentConfig {
+  name: string;
+  displayName: string;
+  skillsDir: string;
+  globalSkillsDir?: string;
+  detectInstalled: DetectStrategy;
+}
+
+/**
+ * User configuration file structure
+ */
+export interface UserConfig {
+  /** Custom canonical base directory (default: ~/.agents/skills) */
+  canonicalBase?: string;
+  /** User-defined agents to merge with built-in agents */
+  agents?: Record<string, UserAgentConfig>;
+}
+
 export interface ParsedSource {
   type: 'github' | 'gitlab' | 'git' | 'local' | 'direct-url' | 'well-known';
   url: string;

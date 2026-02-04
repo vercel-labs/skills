@@ -32,7 +32,7 @@ import {
   installWellKnownSkillForAgent,
   type InstallMode,
 } from './installer.ts';
-import { detectInstalledAgents, agents } from './agents.ts';
+import { detectInstalledAgents, getAllAgents } from './agents.ts';
 import { track, setVersion } from './telemetry.ts';
 import { findProvider, wellKnownProvider, type WellKnownSkill } from './providers/index.ts';
 import { fetchMintlifySkill } from './mintlify.ts';
@@ -157,11 +157,11 @@ export async function promptForAgents(
 async function selectAgentsInteractive(options: {
   global?: boolean;
 }): Promise<AgentType[] | symbol> {
-  const allAgents = Object.keys(agents) as AgentType[];
+  const allAgents = Object.keys(getAllAgents()) as AgentType[];
   const agentChoices = allAgents.map((a) => ({
     value: a,
-    label: agents[a].displayName,
-    hint: `${options.global ? agents[a].globalSkillsDir : agents[a].skillsDir}`,
+    label: getAllAgents()[a].displayName,
+    hint: `${options.global ? getAllAgents()[a].globalSkillsDir : getAllAgents()[a].skillsDir}`,
   }));
 
   return promptForAgents('Which agents do you want to install to?', agentChoices);
@@ -242,7 +242,7 @@ async function handleRemoteSkill(
 
   // Detect agents
   let targetAgents: AgentType[];
-  const validAgents = Object.keys(agents);
+  const validAgents = Object.keys(getAllAgents());
 
   if (options.agent?.includes('*')) {
     // --agent '*' selects all agents
@@ -261,7 +261,7 @@ async function handleRemoteSkill(
   } else {
     spinner.start('Loading agents...');
     const installedAgents = await detectInstalledAgents();
-    const totalAgents = Object.keys(agents).length;
+    const totalAgents = Object.keys(getAllAgents()).length;
     spinner.stop(`${totalAgents} agents`);
 
     if (installedAgents.length === 0) {
@@ -271,7 +271,7 @@ async function handleRemoteSkill(
       } else {
         p.log.info('Select agents to install skills to');
 
-        const allAgentChoices = Object.entries(agents).map(([key, config]) => ({
+        const allAgentChoices = Object.entries(getAllAgents()).map(([key, config]) => ({
           value: key as AgentType,
           label: config.displayName,
         }));
@@ -293,10 +293,10 @@ async function handleRemoteSkill(
       targetAgents = installedAgents;
       if (installedAgents.length === 1) {
         const firstAgent = installedAgents[0]!;
-        p.log.info(`Installing to: ${pc.cyan(agents[firstAgent].displayName)}`);
+        p.log.info(`Installing to: ${pc.cyan(getAllAgents()[firstAgent].displayName)}`);
       } else {
         p.log.info(
-          `Installing to: ${installedAgents.map((a) => pc.cyan(agents[a].displayName)).join(', ')}`
+          `Installing to: ${installedAgents.map((a) => pc.cyan(getAllAgents()[a].displayName)).join(', ')}`
         );
       }
     } else {
@@ -314,7 +314,7 @@ async function handleRemoteSkill(
   let installGlobally = options.global ?? false;
 
   // Check if any selected agents support global installation
-  const supportsGlobal = targetAgents.some((a) => agents[a].globalSkillsDir !== undefined);
+  const supportsGlobal = targetAgents.some((a) => getAllAgents()[a].globalSkillsDir !== undefined);
 
   if (options.global === undefined && !options.yes && supportsGlobal) {
     const scope = await p.select({
@@ -382,7 +382,7 @@ async function handleRemoteSkill(
 
   // Build installation summary
   const summaryLines: string[] = [];
-  const agentNames = targetAgents.map((a) => agents[a].displayName);
+  const agentNames = targetAgents.map((a) => getAllAgents()[a].displayName);
 
   if (installMode === 'symlink') {
     const canonicalPath = getCanonicalPath(remoteSkill.installName, { global: installGlobally });
@@ -396,7 +396,7 @@ async function handleRemoteSkill(
 
   const overwriteAgents = targetAgents
     .filter((a) => overwriteStatus.get(a))
-    .map((a) => agents[a].displayName);
+    .map((a) => getAllAgents()[a].displayName);
 
   if (overwriteAgents.length > 0) {
     summaryLines.push(`  ${pc.yellow('overwrites:')} ${formatList(overwriteAgents)}`);
@@ -436,7 +436,7 @@ async function handleRemoteSkill(
     });
     results.push({
       skill: remoteSkill.installName,
-      agent: agents[agent].displayName,
+      agent: getAllAgents()[agent].displayName,
       ...result,
     });
   }
@@ -656,7 +656,7 @@ async function handleWellKnownSkills(
 
   // Detect agents
   let targetAgents: AgentType[];
-  const validAgents = Object.keys(agents);
+  const validAgents = Object.keys(getAllAgents());
 
   if (options.agent?.includes('*')) {
     // --agent '*' selects all agents
@@ -675,7 +675,7 @@ async function handleWellKnownSkills(
   } else {
     spinner.start('Loading agents...');
     const installedAgents = await detectInstalledAgents();
-    const totalAgents = Object.keys(agents).length;
+    const totalAgents = Object.keys(getAllAgents()).length;
     spinner.stop(`${totalAgents} agents`);
 
     if (installedAgents.length === 0) {
@@ -685,7 +685,7 @@ async function handleWellKnownSkills(
       } else {
         p.log.info('Select agents to install skills to');
 
-        const allAgentChoices = Object.entries(agents).map(([key, config]) => ({
+        const allAgentChoices = Object.entries(getAllAgents()).map(([key, config]) => ({
           value: key as AgentType,
           label: config.displayName,
         }));
@@ -707,10 +707,10 @@ async function handleWellKnownSkills(
       targetAgents = installedAgents;
       if (installedAgents.length === 1) {
         const firstAgent = installedAgents[0]!;
-        p.log.info(`Installing to: ${pc.cyan(agents[firstAgent].displayName)}`);
+        p.log.info(`Installing to: ${pc.cyan(getAllAgents()[firstAgent].displayName)}`);
       } else {
         p.log.info(
-          `Installing to: ${installedAgents.map((a) => pc.cyan(agents[a].displayName)).join(', ')}`
+          `Installing to: ${installedAgents.map((a) => pc.cyan(getAllAgents()[a].displayName)).join(', ')}`
         );
       }
     } else {
@@ -728,7 +728,7 @@ async function handleWellKnownSkills(
   let installGlobally = options.global ?? false;
 
   // Check if any selected agents support global installation
-  const supportsGlobal = targetAgents.some((a) => agents[a].globalSkillsDir !== undefined);
+  const supportsGlobal = targetAgents.some((a) => getAllAgents()[a].globalSkillsDir !== undefined);
 
   if (options.global === undefined && !options.yes && supportsGlobal) {
     const scope = await p.select({
@@ -783,7 +783,7 @@ async function handleWellKnownSkills(
 
   // Build installation summary
   const summaryLines: string[] = [];
-  const agentNames = targetAgents.map((a) => agents[a].displayName);
+  const agentNames = targetAgents.map((a) => getAllAgents()[a].displayName);
 
   // Check if any skill will be overwritten (parallel)
   const overwriteChecks = await Promise.all(
@@ -822,7 +822,7 @@ async function handleWellKnownSkills(
     const skillOverwrites = overwriteStatus.get(skill.installName);
     const overwriteAgents = targetAgents
       .filter((a) => skillOverwrites?.get(a))
-      .map((a) => agents[a].displayName);
+      .map((a) => getAllAgents()[a].displayName);
 
     if (overwriteAgents.length > 0) {
       summaryLines.push(`  ${pc.yellow('overwrites:')} ${formatList(overwriteAgents)}`);
@@ -862,7 +862,7 @@ async function handleWellKnownSkills(
       });
       results.push({
         skill: skill.installName,
-        agent: agents[agent].displayName,
+        agent: getAllAgents()[agent].displayName,
         ...result,
       });
     }
@@ -1044,7 +1044,7 @@ async function handleDirectUrlSkillLegacy(
 
   // Detect agents
   let targetAgents: AgentType[];
-  const validAgents = Object.keys(agents);
+  const validAgents = Object.keys(getAllAgents());
 
   if (options.agent?.includes('*')) {
     // --agent '*' selects all agents
@@ -1063,7 +1063,7 @@ async function handleDirectUrlSkillLegacy(
   } else {
     spinner.start('Loading agents...');
     const installedAgents = await detectInstalledAgents();
-    const totalAgents = Object.keys(agents).length;
+    const totalAgents = Object.keys(getAllAgents()).length;
     spinner.stop(`${totalAgents} agents`);
 
     if (installedAgents.length === 0) {
@@ -1073,7 +1073,7 @@ async function handleDirectUrlSkillLegacy(
       } else {
         p.log.info('Select agents to install skills to');
 
-        const allAgentChoices = Object.entries(agents).map(([key, config]) => ({
+        const allAgentChoices = Object.entries(getAllAgents()).map(([key, config]) => ({
           value: key as AgentType,
           label: config.displayName,
         }));
@@ -1095,10 +1095,10 @@ async function handleDirectUrlSkillLegacy(
       targetAgents = installedAgents;
       if (installedAgents.length === 1) {
         const firstAgent = installedAgents[0]!;
-        p.log.info(`Installing to: ${pc.cyan(agents[firstAgent].displayName)}`);
+        p.log.info(`Installing to: ${pc.cyan(getAllAgents()[firstAgent].displayName)}`);
       } else {
         p.log.info(
-          `Installing to: ${installedAgents.map((a) => pc.cyan(agents[a].displayName)).join(', ')}`
+          `Installing to: ${installedAgents.map((a) => pc.cyan(getAllAgents()[a].displayName)).join(', ')}`
         );
       }
     } else {
@@ -1116,7 +1116,7 @@ async function handleDirectUrlSkillLegacy(
   let installGlobally = options.global ?? false;
 
   // Check if any selected agents support global installation
-  const supportsGlobal = targetAgents.some((a) => agents[a].globalSkillsDir !== undefined);
+  const supportsGlobal = targetAgents.some((a) => getAllAgents()[a].globalSkillsDir !== undefined);
 
   if (options.global === undefined && !options.yes && supportsGlobal) {
     const scope = await p.select({
@@ -1162,7 +1162,7 @@ async function handleDirectUrlSkillLegacy(
 
   // Build installation summary
   const summaryLines: string[] = [];
-  const agentNames = targetAgents.map((a) => agents[a].displayName);
+  const agentNames = targetAgents.map((a) => getAllAgents()[a].displayName);
   const canonicalPath = getCanonicalPath(remoteSkill.installName, { global: installGlobally });
   const shortCanonical = shortenPath(canonicalPath, cwd);
   summaryLines.push(`${pc.cyan(shortCanonical)}`);
@@ -1170,7 +1170,7 @@ async function handleDirectUrlSkillLegacy(
 
   const overwriteAgents = targetAgents
     .filter((a) => overwriteStatus.get(a))
-    .map((a) => agents[a].displayName);
+    .map((a) => getAllAgents()[a].displayName);
 
   if (overwriteAgents.length > 0) {
     summaryLines.push(`  ${pc.yellow('overwrites:')} ${formatList(overwriteAgents)}`);
@@ -1210,7 +1210,7 @@ async function handleDirectUrlSkillLegacy(
     });
     results.push({
       skill: remoteSkill.installName,
-      agent: agents[agent].displayName,
+      agent: getAllAgents()[agent].displayName,
       ...result,
     });
   }
@@ -1482,7 +1482,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     let targetAgents: AgentType[];
-    const validAgents = Object.keys(agents);
+    const validAgents = Object.keys(getAllAgents());
 
     if (options.agent?.includes('*')) {
       // --agent '*' selects all agents
@@ -1502,7 +1502,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     } else {
       spinner.start('Loading agents...');
       const installedAgents = await detectInstalledAgents();
-      const totalAgents = Object.keys(agents).length;
+      const totalAgents = Object.keys(getAllAgents()).length;
       spinner.stop(`${totalAgents} agents`);
 
       if (installedAgents.length === 0) {
@@ -1512,7 +1512,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         } else {
           p.log.info('Select agents to install skills to');
 
-          const allAgentChoices = Object.entries(agents).map(([key, config]) => ({
+          const allAgentChoices = Object.entries(getAllAgents()).map(([key, config]) => ({
             value: key as AgentType,
             label: config.displayName,
           }));
@@ -1535,10 +1535,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         targetAgents = installedAgents;
         if (installedAgents.length === 1) {
           const firstAgent = installedAgents[0]!;
-          p.log.info(`Installing to: ${pc.cyan(agents[firstAgent].displayName)}`);
+          p.log.info(`Installing to: ${pc.cyan(getAllAgents()[firstAgent].displayName)}`);
         } else {
           p.log.info(
-            `Installing to: ${installedAgents.map((a) => pc.cyan(agents[a].displayName)).join(', ')}`
+            `Installing to: ${installedAgents.map((a) => pc.cyan(getAllAgents()[a].displayName)).join(', ')}`
           );
         }
       } else {
@@ -1557,7 +1557,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     let installGlobally = options.global ?? false;
 
     // Check if any selected agents support global installation
-    const supportsGlobal = targetAgents.some((a) => agents[a].globalSkillsDir !== undefined);
+    const supportsGlobal = targetAgents.some(
+      (a) => getAllAgents()[a].globalSkillsDir !== undefined
+    );
 
     if (options.global === undefined && !options.yes && supportsGlobal) {
       const scope = await p.select({
@@ -1614,7 +1616,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     // Build installation summary
     const summaryLines: string[] = [];
-    const agentNames = targetAgents.map((a) => agents[a].displayName);
+    const agentNames = targetAgents.map((a) => getAllAgents()[a].displayName);
 
     // Check if any skill will be overwritten (parallel)
     const overwriteChecks = await Promise.all(
@@ -1650,7 +1652,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       const skillOverwrites = overwriteStatus.get(skill.name);
       const overwriteAgents = targetAgents
         .filter((a) => skillOverwrites?.get(a))
-        .map((a) => agents[a].displayName);
+        .map((a) => getAllAgents()[a].displayName);
 
       if (overwriteAgents.length > 0) {
         summaryLines.push(`  ${pc.yellow('overwrites:')} ${formatList(overwriteAgents)}`);
@@ -1691,7 +1693,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         });
         results.push({
           skill: getSkillDisplayName(skill),
-          agent: agents[agent].displayName,
+          agent: getAllAgents()[agent].displayName,
           ...result,
         });
       }

@@ -2,7 +2,7 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { readdir, rm, lstat } from 'fs/promises';
 import { join } from 'path';
-import { agents, detectInstalledAgents } from './agents.ts';
+import { getAllAgents, detectInstalledAgents } from './agents.ts';
 import { track } from './telemetry.ts';
 import { removeSkillFromLock, getSkillFromLock } from './skill-lock.ts';
 import type { AgentType } from './types.ts';
@@ -41,14 +41,14 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
   if (isGlobal) {
     await scanDir(getCanonicalSkillsDir(true, cwd));
-    for (const agent of Object.values(agents)) {
+    for (const agent of Object.values(getAllAgents())) {
       if (agent.globalSkillsDir !== undefined) {
         await scanDir(agent.globalSkillsDir);
       }
     }
   } else {
     await scanDir(getCanonicalSkillsDir(false, cwd));
-    for (const agent of Object.values(agents)) {
+    for (const agent of Object.values(getAllAgents())) {
       await scanDir(join(cwd, agent.skillsDir));
     }
   }
@@ -63,7 +63,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
   // Validate agent options BEFORE prompting for skill selection
   if (options.agent && options.agent.length > 0) {
-    const validAgents = Object.keys(agents);
+    const validAgents = Object.keys(getAllAgents());
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 
     if (invalidAgents.length > 0) {
@@ -114,7 +114,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     targetAgents = await detectInstalledAgents();
     if (targetAgents.length === 0) {
       // Fallback to all agents if none detected, to ensure we can at least try to remove from defaults
-      targetAgents = Object.keys(agents) as AgentType[];
+      targetAgents = Object.keys(getAllAgents()) as AgentType[];
     }
     spinner.stop(`Targeting ${targetAgents.length} installed agent(s)`);
   }
@@ -150,7 +150,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   for (const skillName of selectedSkills) {
     try {
       for (const agentKey of targetAgents) {
-        const agent = agents[agentKey];
+        const agent = getAllAgents()[agentKey];
         const skillPath = getInstallPath(skillName, agentKey, { global: isGlobal, cwd });
 
         try {

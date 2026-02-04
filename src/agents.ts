@@ -3,6 +3,7 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 import { xdgConfig } from 'xdg-basedir';
 import type { AgentConfig, AgentType } from './types.ts';
+import { loadUserConfig, convertUserAgentConfig } from './config.ts';
 
 const home = homedir();
 // Use xdg-basedir (not env-paths) to match OpenCode/Amp/Goose behavior on all platforms.
@@ -374,9 +375,27 @@ export const agents: Record<AgentType, AgentConfig> = {
   },
 };
 
+/**
+ * Get all agents including user-defined ones from config
+ */
+export function getAllAgents(): Record<AgentType, AgentConfig> {
+  const userConfig = loadUserConfig();
+  const mergedAgents = { ...agents };
+
+  if (userConfig?.agents) {
+    for (const [key, userAgent] of Object.entries(userConfig.agents)) {
+      // User agents override built-in agents if names conflict
+      (mergedAgents as Record<string, AgentConfig>)[key] = convertUserAgentConfig(userAgent);
+    }
+  }
+
+  return mergedAgents;
+}
+
 export async function detectInstalledAgents(): Promise<AgentType[]> {
+  const allAgents = getAllAgents();
   const results = await Promise.all(
-    Object.entries(agents).map(async ([type, config]) => ({
+    Object.entries(allAgents).map(async ([type, config]) => ({
       type: type as AgentType,
       installed: await config.detectInstalled(),
     }))
@@ -385,5 +404,6 @@ export async function detectInstalledAgents(): Promise<AgentType[]> {
 }
 
 export function getAgentConfig(type: AgentType): AgentConfig {
-  return agents[type];
+  const allAgents = getAllAgents();
+  return allAgents[type];
 }
