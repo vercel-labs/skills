@@ -207,9 +207,30 @@ describe('getOwnerRepo', () => {
     expect(getOwnerRepo(parsed)).toBe('owner/repo');
   });
 
-  it('getOwnerRepo - SSH format returns null', () => {
+  // SSH URLs should extract owner/repo for lockfile tracking
+  it('getOwnerRepo - SSH format extracts owner/repo', () => {
     const parsed = parseSource('git@github.com:owner/repo.git');
-    expect(getOwnerRepo(parsed)).toBeNull();
+    expect(getOwnerRepo(parsed)).toBe('owner/repo');
+  });
+
+  it('getOwnerRepo - SSH format without .git suffix', () => {
+    const parsed = parseSource('git@github.com:owner/repo');
+    expect(getOwnerRepo(parsed)).toBe('owner/repo');
+  });
+
+  it('getOwnerRepo - SSH format with GitLab', () => {
+    const parsed = parseSource('git@gitlab.com:owner/repo.git');
+    expect(getOwnerRepo(parsed)).toBe('owner/repo');
+  });
+
+  it('getOwnerRepo - SSH format with custom host', () => {
+    const parsed = parseSource('git@git.example.com:team/project.git');
+    expect(getOwnerRepo(parsed)).toBe('team/project');
+  });
+
+  it('getOwnerRepo - SSH format with GitLab subgroups', () => {
+    const parsed = parseSource('git@gitlab.com:group/subgroup/repo.git');
+    expect(getOwnerRepo(parsed)).toBe('group/subgroup/repo');
   });
 
   it('getOwnerRepo - private GitLab instance extracts owner/repo', () => {

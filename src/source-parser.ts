@@ -12,7 +12,19 @@ export function getOwnerRepo(parsed: ParsedSource): string | null {
     return null;
   }
 
-  // Only handle HTTP(S) URLs
+  // Handle SSH URLs: git@host:owner/repo.git
+  const sshMatch = parsed.url.match(/^git@[^:]+:(.+)$/);
+  if (sshMatch) {
+    let path = sshMatch[1]!;
+    path = path.replace(/\.git$/, '');
+    // Must have at least owner/repo (one slash)
+    if (path.includes('/')) {
+      return path;
+    }
+    return null;
+  }
+
+  // Handle HTTP(S) URLs
   if (!parsed.url.startsWith('http://') && !parsed.url.startsWith('https://')) {
     return null;
   }
