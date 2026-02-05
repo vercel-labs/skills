@@ -9,6 +9,7 @@ const home = homedir();
 const configHome = xdgConfig ?? join(home, '.config');
 const codexHome = process.env.CODEX_HOME?.trim() || join(home, '.codex');
 const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude');
+const piHome = process.env.PI_CODING_AGENT_DIR?.trim() || join(home, '.pi/agent');
 
 export const agents: Record<AgentType, AgentConfig> = {
   amp: {
@@ -268,9 +269,9 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'pi',
     displayName: 'Pi',
     skillsDir: '.pi/skills',
-    globalSkillsDir: join(home, '.pi/agent/skills'),
+    globalSkillsDir: join(piHome, 'skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.pi/agent'));
+      return existsSync(piHome);
     },
   },
   qoder: {
