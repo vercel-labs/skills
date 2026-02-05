@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { existsSync, rmSync, mkdirSync, writeFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { runCli, runCliWithInput } from './test-utils.js';
+import { runCli, runCliWithInput } from './test-utils.ts';
 
 describe('remove command', () => {
   let testDir: string;
