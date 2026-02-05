@@ -1,8 +1,10 @@
 import { execSync } from 'child_process';
 import { join } from 'path';
+import { existsSync } from 'fs';
 
 // const PROJECT_ROOT = join(import.meta.dirname, '..');
-const CLI_PATH = join(import.meta.dirname, 'cli.ts');
+const CLI_PATH_SRC = join(import.meta.dirname, 'cli.ts');
+const CLI_PATH_DIST = join(import.meta.dirname, '..', 'dist', 'cli.mjs');
 
 export function stripAnsi(str: string): string {
   return str.replace(/\x1b\[[0-9;]*m/g, '');
@@ -27,7 +29,17 @@ export function runCli(
   timeout?: number
 ): { stdout: string; stderr: string; exitCode: number } {
   const tsxPath = join(import.meta.dirname, '..', 'node_modules', '.bin', 'tsx');
-  const cmd = `${tsxPath} ${CLI_PATH} ${args.join(' ')}`;
+
+  // Use tsx if available, otherwise use node with compiled dist/cli.mjs
+  let cmd: string;
+  const tsxExists = existsSync(tsxPath);
+
+  if (tsxExists) {
+    cmd = `${tsxPath} ${CLI_PATH_SRC} ${args.join(' ')}`;
+  } else {
+    cmd = `node ${CLI_PATH_DIST} ${args.join(' ')}`;
+  }
+
   try {
     const output = execSync(cmd, {
       encoding: 'utf-8',
@@ -57,7 +69,17 @@ export function runCliWithInput(
   cwd?: string
 ): { stdout: string; stderr: string; exitCode: number } {
   const tsxPath = join(import.meta.dirname, '..', 'node_modules', '.bin', 'tsx');
-  const cmd = `${tsxPath} ${CLI_PATH} ${args.join(' ')}`;
+
+  // Use tsx if available, otherwise use node with compiled dist/cli.mjs
+  let cmd: string;
+  const tsxExists = existsSync(tsxPath);
+
+  if (tsxExists) {
+    cmd = `${tsxPath} ${CLI_PATH_SRC} ${args.join(' ')}`;
+  } else {
+    cmd = `node ${CLI_PATH_DIST} ${args.join(' ')}`;
+  }
+
   try {
     const output = execSync(cmd, {
       encoding: 'utf-8',
