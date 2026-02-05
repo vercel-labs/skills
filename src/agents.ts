@@ -372,6 +372,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.adal'));
     },
   },
+  'purecode-ai':{
+    name: 'purecode-ai',
+    displayName: 'Purecode AI',
+    skillsDir: '.purecode/skills',
+    globalSkillsDir: join(home, '.purecode/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.purecode'));
+    },
+  }
 };
 
 export async function detectInstalledAgents(): Promise<AgentType[]> {
