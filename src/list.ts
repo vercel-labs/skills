@@ -104,7 +104,8 @@ export async function runList(args: string[]): Promise<void> {
     const agentNames = skill.agents.map((a) => agents[a].displayName);
     const agentInfo =
       skill.agents.length > 0 ? formatList(agentNames) : `${YELLOW}not linked${RESET}`;
-    console.log(`${CYAN}${skill.name}${RESET} ${DIM}${shortPath}${RESET}`);
+    const nsInfo = skill.namespace ? ` ${DIM}[${skill.namespace}]${RESET}` : '';
+    console.log(`${CYAN}${skill.name}${RESET}${nsInfo} ${DIM}${shortPath}${RESET}`);
     console.log(`  ${DIM}Agents:${RESET} ${agentInfo}`);
   }
 

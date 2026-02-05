@@ -2,9 +2,9 @@
 
 import { spawn, spawnSync } from 'child_process';
 import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs';
+import { readdir, stat, readFile, mkdir, rename } from 'fs/promises';
 import { basename, join, dirname } from 'path';
 import { homedir } from 'os';
-import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
 import { runFind } from './find.ts';
@@ -12,6 +12,10 @@ import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { track } from './telemetry.ts';
 import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
+import { getCanonicalSkillsDir } from './installer.ts';
+import { SKILLS_SUBDIR } from './constants.ts';
+import { parseSource, getOwnerRepo, inferNamespace } from './source-parser.ts';
+import { runMergeWithNamespace } from './merge-with-namespace.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -33,6 +37,9 @@ const BOLD = '\x1b[1m';
 // 256-color grays - visible on both light and dark backgrounds
 const DIM = '\x1b[38;5;102m'; // darker gray for secondary text
 const TEXT = '\x1b[38;5;145m'; // lighter gray for primary text
+
+// Export for use in other modules
+export { RESET, BOLD, DIM, TEXT };
 
 const LOGO_LINES = [
   '███████╗██╗  ██╗██╗██╗     ██╗     ███████╗',
@@ -86,6 +93,9 @@ function showBanner(): void {
   console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills init ${DIM}[name]${RESET}     ${DIM}Create a new skill${RESET}`
   );
+  console.log(
+    `  ${DIM}$${RESET} ${TEXT}npx skills merge-with-namespace ${DIM}Migrate skills to namespace structure${RESET}`
+  );
   console.log();
   console.log(`${DIM}try:${RESET} npx skills add vercel-labs/agent-skills`);
   console.log();
@@ -107,6 +117,7 @@ ${BOLD}Commands:${RESET}
   init [name]       Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)
   check             Check for available skill updates
   update            Update all skills to latest versions
+  merge-with-namespace Migrate existing skills to namespace-based structure
 
 ${BOLD}Add Options:${RESET}
   -g, --global           Install skill globally (user-level) instead of project-level
@@ -116,6 +127,7 @@ ${BOLD}Add Options:${RESET}
   -y, --yes              Skip confirmation prompts
   --all                  Shorthand for --skill '*' --agent '*' -y
   --full-depth           Search all subdirectories even when a root SKILL.md exists
+  --namespace, --ns <ns> Set namespace prefix for installed skills
 
 ${BOLD}Remove Options:${RESET}
   -g, --global           Remove from global scope
@@ -128,6 +140,11 @@ ${BOLD}List Options:${RESET}
   -g, --global           List global skills (default: project)
   -a, --agent <agents>   Filter by specific agents
 
+${BOLD}Merge Options:${RESET}
+  -g, --global           Migrate global skills only (default: both project and global)
+  -y, --yes              Skip confirmation prompts
+  --dry-run              Show what would be migrated without making changes
+
 ${BOLD}Options:${RESET}
   --help, -h        Show this help message
   --version, -v     Show version number
@@ -137,6 +154,7 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills add vercel-labs/agent-skills -g
   ${DIM}$${RESET} skills add vercel-labs/agent-skills --agent claude-code cursor
   ${DIM}$${RESET} skills add vercel-labs/agent-skills --skill pr-review commit
+  ${DIM}$${RESET} skills add vercel-labs/agent-skills --namespace my-ns
   ${DIM}$${RESET} skills remove                   ${DIM}# interactive remove${RESET}
   ${DIM}$${RESET} skills remove web-design        ${DIM}# remove by name${RESET}
   ${DIM}$${RESET} skills rm --global frontend-design
@@ -148,6 +166,7 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills init my-skill
   ${DIM}$${RESET} skills check
   ${DIM}$${RESET} skills update
+  ${DIM}$${RESET} skills merge-with-namespace   ${DIM}# migrate legacy skills to namespace structure${RESET}
 
 Discover more skills at ${TEXT}https://skills.sh/${RESET}
 `);
@@ -261,6 +280,8 @@ interface SkillLockEntry {
   sourceType: string;
   sourceUrl: string;
   skillPath?: string;
+  /** Namespace for skill organization (optional) */
+  namespace?: string;
   /** GitHub tree SHA for the entire skill folder (v3) */
   skillFolderHash: string;
   installedAt: string;
@@ -546,10 +567,6 @@ async function runUpdate(): Promise<void> {
   console.log();
 }
 
-// ============================================
-// Main
-// ============================================
-
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
 
@@ -600,11 +617,15 @@ async function main(): Promise<void> {
       await runList(restArgs);
       break;
     case 'check':
-      runCheck(restArgs);
+      await runCheck(restArgs);
       break;
     case 'update':
     case 'upgrade':
-      runUpdate();
+      await runUpdate();
+      break;
+    case 'merge-with-namespace':
+    case 'migrate-namespace':
+      await runMergeWithNamespace(restArgs);
       break;
     case '--help':
     case '-h':
