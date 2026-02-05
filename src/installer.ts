@@ -9,6 +9,7 @@ import {
   readlink,
   writeFile,
   stat,
+  realpath,
 } from 'fs/promises';
 import { join, basename, normalize, resolve, sep, relative, dirname } from 'path';
 import { homedir, platform } from 'os';
@@ -105,7 +106,15 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
     const resolvedTarget = resolve(target);
     const resolvedLinkPath = resolve(linkPath);
 
-    if (resolvedTarget === resolvedLinkPath) {
+    // Use realpath to handle cases where parent directories are symlinked.
+    // This prevents deleting the canonical directory if the agent directory
+    // is a symlink to the canonical location.
+    const [realTarget, realLinkPath] = await Promise.all([
+      realpath(resolvedTarget).catch(() => resolvedTarget),
+      realpath(resolvedLinkPath).catch(() => resolvedLinkPath),
+    ]);
+
+    if (realTarget === realLinkPath) {
       return true;
     }
 
