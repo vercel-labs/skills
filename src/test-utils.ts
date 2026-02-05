@@ -26,8 +26,10 @@ export function runCli(
   env?: Record<string, string>,
   timeout?: number
 ): { stdout: string; stderr: string; exitCode: number } {
+  const tsxPath = join(import.meta.dirname, '..', 'node_modules', '.bin', 'tsx');
+  const cmd = `${tsxPath} ${CLI_PATH} ${args.join(' ')}`;
   try {
-    const output = execSync(`node ${CLI_PATH} ${args.join(' ')}`, {
+    const output = execSync(cmd, {
       encoding: 'utf-8',
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -54,8 +56,10 @@ export function runCliWithInput(
   input: string,
   cwd?: string
 ): { stdout: string; stderr: string; exitCode: number } {
+  const tsxPath = join(import.meta.dirname, '..', 'node_modules', '.bin', 'tsx');
+  const cmd = `${tsxPath} ${CLI_PATH} ${args.join(' ')}`;
   try {
-    const output = execSync(`node ${CLI_PATH} ${args.join(' ')}`, {
+    const output = execSync(cmd, {
       encoding: 'utf-8',
       cwd,
       input: input + '\n',
