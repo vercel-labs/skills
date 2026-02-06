@@ -92,4 +92,41 @@ describe('source-parser', () => {
       });
     });
   });
+
+  describe('GitCode Support', () => {
+    it('parses gitcode basic repository URL', () => {
+      const result = parseSource('https://gitcode.com/owner/repo');
+      expect(result).toEqual({
+        type: 'gitcode',
+        url: 'https://gitcode.com/owner/repo.git',
+      });
+    });
+
+    it('parses gitcode URL with .git suffix', () => {
+      const result = parseSource('https://gitcode.com/owner/repo.git');
+      expect(result).toEqual({
+        type: 'gitcode',
+        url: 'https://gitcode.com/owner/repo.git',
+      });
+    });
+
+    it('parses gitcode URL with branch only', () => {
+      const result = parseSource('https://gitcode.com/owner/repo/tree/main');
+      expect(result).toEqual({
+        type: 'gitcode',
+        url: 'https://gitcode.com/owner/repo.git',
+        ref: 'main',
+      });
+    });
+
+    it('parses gitcode URL with path', () => {
+      const result = parseSource('https://gitcode.com/owner/repo/tree/main/path/to/skill');
+      expect(result).toEqual({
+        type: 'gitcode',
+        url: 'https://gitcode.com/owner/repo.git',
+        ref: 'main',
+        subpath: 'path/to/skill',
+      });
+    });
+  });
 });

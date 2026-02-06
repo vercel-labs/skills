@@ -176,6 +176,42 @@ export function parseSource(input: string): ParsedSource {
     };
   }
 
+  // GitCode URL with path: https://gitcode.com/owner/repo/tree/branch/path/to/skill
+  const gitcodeTreeWithPathMatch = input.match(
+    /gitcode\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/
+  );
+  if (gitcodeTreeWithPathMatch) {
+    const [, owner, repo, ref, subpath] = gitcodeTreeWithPathMatch;
+    return {
+      type: 'gitcode',
+      url: `https://gitcode.com/${owner}/${repo}.git`,
+      ref,
+      subpath,
+    };
+  }
+
+  // GitCode URL with branch only: https://gitcode.com/owner/repo/tree/branch
+  const gitcodeTreeMatch = input.match(/gitcode\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)$/);
+  if (gitcodeTreeMatch) {
+    const [, owner, repo, ref] = gitcodeTreeMatch;
+    return {
+      type: 'gitcode',
+      url: `https://gitcode.com/${owner}/${repo}.git`,
+      ref,
+    };
+  }
+
+  // GitCode URL: https://gitcode.com/owner/repo
+  const gitcodeRepoMatch = input.match(/gitcode\.com\/([^/]+)\/([^/]+)/);
+  if (gitcodeRepoMatch) {
+    const [, owner, repo] = gitcodeRepoMatch;
+    const cleanRepo = repo!.replace(/\.git$/, '');
+    return {
+      type: 'gitcode',
+      url: `https://gitcode.com/${owner}/${cleanRepo}.git`,
+    };
+  }
+
   // GitLab URL with path (any GitLab instance): https://gitlab.com/owner/repo/-/tree/branch/path
   // Key identifier is the "/-/tree/" path pattern unique to GitLab.
   // Supports subgroups by using a non-greedy match for the repository path.
@@ -278,6 +314,7 @@ function isWellKnownUrl(input: string): boolean {
     const excludedHosts = [
       'github.com',
       'gitlab.com',
+      'gitcode.com',
       'huggingface.co',
       'raw.githubusercontent.com',
     ];
