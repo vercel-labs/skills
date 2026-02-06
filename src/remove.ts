@@ -149,9 +149,16 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
   for (const skillName of selectedSkills) {
     try {
+      const canonicalPath = getCanonicalPath(skillName, { global: isGlobal, cwd });
+
       for (const agentKey of targetAgents) {
         const agent = agents[agentKey];
         const skillPath = getInstallPath(skillName, agentKey, { global: isGlobal, cwd });
+
+        // Skip if this is the canonical path - we'll handle that after checking all agents
+        if (skillPath === canonicalPath) {
+          continue;
+        }
 
         try {
           const stats = await lstat(skillPath).catch(() => null);
@@ -167,8 +174,24 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
         }
       }
 
-      const canonicalPath = getCanonicalPath(skillName, { global: isGlobal, cwd });
-      await rm(canonicalPath, { recursive: true, force: true });
+      // Only remove the canonical path if no other installed agents are using it.
+      // This prevents breaking other agents when uninstalling from a specific agent (#287).
+      const installedAgents = await detectInstalledAgents();
+      const remainingAgents = installedAgents.filter((a) => !targetAgents.includes(a));
+
+      let isStillUsed = false;
+      for (const agentKey of remainingAgents) {
+        const path = getInstallPath(skillName, agentKey, { global: isGlobal, cwd });
+        const exists = await lstat(path).catch(() => null);
+        if (exists) {
+          isStillUsed = true;
+          break;
+        }
+      }
+
+      if (!isStillUsed) {
+        await rm(canonicalPath, { recursive: true, force: true });
+      }
 
       const lockEntry = isGlobal ? await getSkillFromLock(skillName) : null;
       const effectiveSource = lockEntry?.source || 'local';
