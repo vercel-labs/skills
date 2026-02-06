@@ -207,16 +207,19 @@ export function parseSource(input: string): ParsedSource {
     }
   }
 
-  // GitLab.com URL: https://gitlab.com/owner/repo
+  // GitLab.com URL: https://gitlab.com/owner/repo or https://gitlab.com/group/subgroup/repo
   // Only for the official gitlab.com domain for user convenience.
-  const gitlabRepoMatch = input.match(/gitlab\.com\/([^/]+)\/([^/]+)/);
+  // Supports nested subgroups (e.g., gitlab.com/group/subgroup1/subgroup2/repo).
+  const gitlabRepoMatch = input.match(/gitlab\.com\/(.+?)(?:\.git)?\/?$/);
   if (gitlabRepoMatch) {
-    const [, owner, repo] = gitlabRepoMatch;
-    const cleanRepo = repo!.replace(/\.git$/, '');
-    return {
-      type: 'gitlab',
-      url: `https://gitlab.com/${owner}/${cleanRepo}.git`,
-    };
+    const repoPath = gitlabRepoMatch[1]!;
+    // Must have at least owner/repo (one slash)
+    if (repoPath.includes('/')) {
+      return {
+        type: 'gitlab',
+        url: `https://gitlab.com/${repoPath}.git`,
+      };
+    }
   }
 
   // GitHub shorthand: owner/repo, owner/repo/path/to/skill, or owner/repo@skill-name
