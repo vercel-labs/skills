@@ -1,3 +1,7 @@
+[English](./README.md) | [简体中文](./README_zh.md)
+
+---
+
 # skills
 
 The CLI for the open agent skills ecosystem.
