@@ -15,7 +15,7 @@ import { join, basename, normalize, resolve, sep, relative, dirname } from 'path
 import { homedir, platform } from 'os';
 import type { Skill, AgentType, MintlifySkill, RemoteSkill } from './types.ts';
 import type { WellKnownSkill } from './providers/wellknown.ts';
-import { agents, detectInstalledAgents } from './agents.ts';
+import { agents, detectInstalledAgents, isUniversalAgent } from './agents.ts';
 import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
 import { parseSkillMd } from './skills.ts';
 
@@ -66,14 +66,33 @@ function isPathSafe(basePath: string, targetPath: string): boolean {
   return normalizedTarget.startsWith(normalizedBase + sep) || normalizedTarget === normalizedBase;
 }
 
-/**
- * Gets the canonical .agents/skills directory path
- * @param global - Whether to use global (home) or project-level location
- * @param cwd - Current working directory for project-level installs
- */
 export function getCanonicalSkillsDir(global: boolean, cwd?: string): string {
   const baseDir = global ? homedir() : cwd || process.cwd();
   return join(baseDir, AGENTS_DIR, SKILLS_SUBDIR);
+}
+
+/**
+ * Gets the base directory for an agent's skills, respecting universal agents.
+ * Universal agents always use the canonical directory, which prevents
+ * redundant symlinks and double-listing of skills.
+ */
+export function getAgentBaseDir(agentType: AgentType, global: boolean, cwd?: string): string {
+  if (isUniversalAgent(agentType)) {
+    return getCanonicalSkillsDir(global, cwd);
+  }
+
+  const agent = agents[agentType];
+  const baseDir = global ? homedir() : cwd || process.cwd();
+
+  if (global) {
+    if (agent.globalSkillsDir === undefined) {
+      // This should be caught by callers checking support
+      return join(baseDir, agent.skillsDir);
+    }
+    return agent.globalSkillsDir;
+  }
+
+  return join(baseDir, agent.skillsDir);
 }
 
 function resolveSymlinkTarget(linkPath: string, linkTarget: string): string {
@@ -183,7 +202,7 @@ export async function installSkillForAgent(
   const canonicalDir = join(canonicalBase, skillName);
 
   // Agent-specific location (for symlink)
-  const agentBase = isGlobal ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
+  const agentBase = getAgentBaseDir(agentType, isGlobal, cwd);
   const agentDir = join(agentBase, skillName);
 
   const installMode = options.mode ?? 'symlink';
@@ -256,7 +275,7 @@ export async function installSkillForAgent(
   }
 }
 
-const EXCLUDE_FILES = new Set(['README.md', 'metadata.json']);
+const EXCLUDE_FILES = new Set(['metadata.json']);
 const EXCLUDE_DIRS = new Set(['.git']);
 
 const isExcluded = (name: string, isDirectory: boolean = false): boolean => {
@@ -335,12 +354,7 @@ export function getInstallPath(
   const cwd = options.cwd || process.cwd();
   const sanitized = sanitizeName(skillName);
 
-  // Agent doesn't support global installation, fall back to project path
-  const targetBase =
-    options.global && agent.globalSkillsDir !== undefined
-      ? agent.globalSkillsDir
-      : join(cwd, agent.skillsDir);
-
+  const targetBase = getAgentBaseDir(agentType, options.global ?? false, options.cwd);
   const installPath = join(targetBase, sanitized);
 
   if (!isPathSafe(targetBase, installPath)) {
@@ -511,7 +525,7 @@ export async function installRemoteSkillForAgent(
   const canonicalDir = join(canonicalBase, skillName);
 
   // Agent-specific location (for symlink)
-  const agentBase = isGlobal ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
+  const agentBase = getAgentBaseDir(agentType, isGlobal, cwd);
   const agentDir = join(agentBase, skillName);
 
   // Validate paths
@@ -620,7 +634,7 @@ export async function installWellKnownSkillForAgent(
   const canonicalDir = join(canonicalBase, skillName);
 
   // Agent-specific location (for symlink)
-  const agentBase = isGlobal ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
+  const agentBase = getAgentBaseDir(agentType, isGlobal, cwd);
   const agentDir = join(agentBase, skillName);
 
   // Validate paths
