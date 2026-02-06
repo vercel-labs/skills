@@ -37,7 +37,8 @@ export type AgentType =
   | 'windsurf'
   | 'zencoder'
   | 'pochi'
-  | 'adal';
+  | 'adal'
+  | 'purecode-ai';
 
 export interface Skill {
   name: string;
