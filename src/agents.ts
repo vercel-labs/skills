@@ -373,6 +373,24 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.adal'));
     },
   },
+  'xcode-codex': {
+    name: 'xcode-codex',
+    displayName: 'Xcode Codex',
+    skillsDir: '.codex/skills',
+    globalSkillsDir: join(home, 'Library/Developer/Xcode/CodingAssistant/codex/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, 'Library/Developer/Xcode/CodingAssistant/codex'));
+    },
+  },
+  'xcode-claude': {
+    name: 'xcode-claude',
+    displayName: 'Xcode Claude Agent',
+    skillsDir: '.claude/skills',
+    globalSkillsDir: join(home, 'Library/Developer/Xcode/CodingAssistant/ClaudeAgentConfig/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, 'Library/Developer/Xcode/CodingAssistant/ClaudeAgentConfig'));
+    },
+  },
 };
 
 export async function detectInstalledAgents(): Promise<AgentType[]> {
