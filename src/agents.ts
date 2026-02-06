@@ -219,6 +219,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.kode'));
     },
   },
+  'letta-code': {
+    name: 'letta-code',
+    displayName: 'Letta Code',
+    skillsDir: '.skills',
+    globalSkillsDir: join(home, '.letta/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.letta'));
+    },
+  },
   mcpjam: {
     name: 'mcpjam',
     displayName: 'MCPJam',
