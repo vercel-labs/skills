@@ -340,8 +340,8 @@ export const agents: Record<AgentType, AgentConfig> = {
   zencoder: {
     name: 'zencoder',
     displayName: 'Zencoder',
-    skillsDir: '.zencoder/skills',
-    globalSkillsDir: join(home, '.zencoder/skills'),
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.zencoder'));
     },
