@@ -1,14 +1,9 @@
 import { homedir } from 'os';
+import pc from 'picocolors';
+import { logger } from '../utils/logger.ts';
 import type { AgentType, CognitiveType } from '../core/types.ts';
 import { agents } from '../services/registry/index.ts';
 import { listInstalledSkills, type InstalledSkill } from '../services/installer/index.ts';
-
-const RESET = '\x1b[0m';
-const BOLD = '\x1b[1m';
-const DIM = '\x1b[38;5;102m';
-const TEXT = '\x1b[38;5;145m';
-const CYAN = '\x1b[36m';
-const YELLOW = '\x1b[33m';
 
 interface ListOptions {
   global?: boolean;
@@ -80,8 +75,8 @@ export async function runList(args: string[]): Promise<void> {
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 
     if (invalidAgents.length > 0) {
-      console.log(`${YELLOW}Invalid agents: ${invalidAgents.join(', ')}${RESET}`);
-      console.log(`${DIM}Valid agents: ${validAgents.join(', ')}${RESET}`);
+      logger.warning(`Invalid agents: ${invalidAgents.join(', ')}`);
+      logger.dim(`Valid agents: ${validAgents.join(', ')}`);
       process.exit(1);
     }
 
@@ -103,37 +98,36 @@ export async function runList(args: string[]): Promise<void> {
   const typeLabel = options.type ? ` ${options.type}s` : '';
 
   if (filteredSkills.length === 0) {
-    console.log(`${DIM}No ${scopeLabel.toLowerCase()}${typeLabel} found.${RESET}`);
+    logger.dim(`No ${scopeLabel.toLowerCase()}${typeLabel} found.`);
     if (scope) {
-      console.log(`${DIM}Try listing project cognitives without -g${RESET}`);
+      logger.dim('Try listing project cognitives without -g');
     } else {
-      console.log(`${DIM}Try listing global cognitives with -g${RESET}`);
+      logger.dim('Try listing global cognitives with -g');
     }
     return;
   }
 
   function getTypeLabel(skill: InstalledSkill): string {
     const ct = skill.cognitiveType || 'skill';
-    if (ct === 'agent') return ` ${DIM}[AGENT]${RESET}`;
-    if (ct === 'prompt') return ` ${DIM}[PROMPT]${RESET}`;
+    if (ct === 'agent') return ` ${pc.dim('[AGENT]')}`;
+    if (ct === 'prompt') return ` ${pc.dim('[PROMPT]')}`;
     return '';
   }
 
   function printSkill(skill: InstalledSkill): void {
     const shortPath = shortenPath(skill.canonicalPath, cwd);
     const agentNames = skill.agents.map((a) => agents[a].displayName);
-    const agentInfo =
-      skill.agents.length > 0 ? formatList(agentNames) : `${YELLOW}not linked${RESET}`;
-    console.log(`${CYAN}${skill.name}${RESET}${getTypeLabel(skill)} ${DIM}${shortPath}${RESET}`);
-    console.log(`  ${DIM}Agents:${RESET} ${agentInfo}`);
+    const agentInfo = skill.agents.length > 0 ? formatList(agentNames) : pc.yellow('not linked');
+    logger.log(`${pc.cyan(skill.name)}${getTypeLabel(skill)} ${pc.dim(shortPath)}`);
+    logger.log(`  ${pc.dim('Agents:')} ${agentInfo}`);
   }
 
-  console.log(
-    `${BOLD}${scopeLabel}${typeLabel ? typeLabel.charAt(0).toUpperCase() + typeLabel.slice(1) : ' Cognitives'}${RESET}`
+  logger.bold(
+    `${scopeLabel}${typeLabel ? typeLabel.charAt(0).toUpperCase() + typeLabel.slice(1) : ' Cognitives'}`
   );
-  console.log();
+  logger.line();
   for (const skill of filteredSkills) {
     printSkill(skill);
   }
-  console.log();
+  logger.line();
 }

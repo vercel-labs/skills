@@ -1,15 +1,9 @@
 import * as readline from 'readline';
+import pc from 'picocolors';
+import { logger } from '../utils/logger.ts';
 import { runAdd, parseAddOptions } from './add.ts';
 import { track } from '../services/telemetry/index.ts';
 import { isRepoPrivate, parseOwnerRepo } from '../services/source/parser.ts';
-
-const RESET = '\x1b[0m';
-const BOLD = '\x1b[1m';
-const DIM = '\x1b[38;5;102m';
-const TEXT = '\x1b[38;5;145m';
-const CYAN = '\x1b[36m';
-const MAGENTA = '\x1b[35m';
-const YELLOW = '\x1b[33m';
 
 // API endpoint for skills search
 const SEARCH_API_BASE = process.env.SKILLS_API_URL || 'https://skills.sh';
@@ -91,17 +85,17 @@ async function runSearchPrompt(initialQuery = ''): Promise<SearchSkill | null> {
     const lines: string[] = [];
 
     // Search input line with cursor
-    const cursor = `${BOLD}_${RESET}`;
-    lines.push(`${TEXT}Search skills:${RESET} ${query}${cursor}`);
+    const cursor = `${pc.bold('_')}`;
+    lines.push(`Search skills: ${query}${cursor}`);
     lines.push('');
 
     // Results - keep showing existing results while loading new ones
     if (!query || query.length < 2) {
-      lines.push(`${DIM}Start typing to search (min 2 chars)${RESET}`);
+      lines.push(pc.dim('Start typing to search (min 2 chars)'));
     } else if (results.length === 0 && loading) {
-      lines.push(`${DIM}Searching...${RESET}`);
+      lines.push(pc.dim('Searching...'));
     } else if (results.length === 0) {
-      lines.push(`${DIM}No skills found${RESET}`);
+      lines.push(pc.dim('No skills found'));
     } else {
       const maxVisible = 8;
       const visible = results.slice(0, maxVisible);
@@ -109,17 +103,17 @@ async function runSearchPrompt(initialQuery = ''): Promise<SearchSkill | null> {
       for (let i = 0; i < visible.length; i++) {
         const skill = visible[i]!;
         const isSelected = i === selectedIndex;
-        const arrow = isSelected ? `${BOLD}>${RESET}` : ' ';
-        const name = isSelected ? `${BOLD}${skill.name}${RESET}` : `${TEXT}${skill.name}${RESET}`;
-        const source = skill.source ? ` ${DIM}${skill.source}${RESET}` : '';
-        const loadingIndicator = loading && i === 0 ? ` ${DIM}...${RESET}` : '';
+        const arrow = isSelected ? pc.bold('>') : ' ';
+        const name = isSelected ? pc.bold(skill.name) : skill.name;
+        const source = skill.source ? ` ${pc.dim(skill.source)}` : '';
+        const loadingIndicator = loading && i === 0 ? ` ${pc.dim('...')}` : '';
 
         lines.push(`  ${arrow} ${name}${source}${loadingIndicator}`);
       }
     }
 
     lines.push('');
-    lines.push(`${DIM}up/down navigate | enter select | esc cancel${RESET}`);
+    lines.push(pc.dim('up/down navigate | enter select | esc cancel'));
 
     // Write each line
     for (const line of lines) {
@@ -258,9 +252,9 @@ async function isRepoPublic(owner: string, repo: string): Promise<boolean> {
 export async function runFind(args: string[]): Promise<void> {
   const query = args.join(' ');
   const isNonInteractive = !process.stdin.isTTY;
-  const agentTip = `${DIM}Tip: if running in a coding agent, follow these steps:${RESET}
-${DIM}  1) npx synk find [query]${RESET}
-${DIM}  2) npx synk add <owner/repo@skill>${RESET}`;
+  const agentTip = `${pc.dim('Tip: if running in a coding agent, follow these steps:')}
+${pc.dim('  1) npx synk find [query]')}
+${pc.dim('  2) npx synk add <owner/repo@skill>')}`;
 
   // Non-interactive mode: just print results and exit
   if (query) {
@@ -274,26 +268,26 @@ ${DIM}  2) npx synk add <owner/repo@skill>${RESET}`;
     });
 
     if (results.length === 0) {
-      console.log(`${DIM}No skills found for "${query}"${RESET}`);
+      logger.dim(`No skills found for "${query}"`);
       return;
     }
 
-    console.log(`${DIM}Install with${RESET} npx synk add <owner/repo@skill>`);
-    console.log();
+    logger.log(`${pc.dim('Install with')} npx synk add <owner/repo@skill>`);
+    logger.line();
 
     for (const skill of results.slice(0, 6)) {
       const pkg = skill.source || skill.slug;
-      console.log(`${TEXT}${pkg}@${skill.name}${RESET}`);
-      console.log(`${DIM}\u2514 https://skills.sh/${skill.slug}${RESET}`);
-      console.log();
+      logger.log(`${pkg}@${skill.name}`);
+      logger.dim(`\u2514 https://skills.sh/${skill.slug}`);
+      logger.line();
     }
     return;
   }
 
   // Interactive mode - show tip only if running non-interactively (likely in a coding agent)
   if (isNonInteractive) {
-    console.log(agentTip);
-    console.log();
+    logger.log(agentTip);
+    logger.line();
   }
   const selected = await runSearchPrompt();
 
@@ -306,8 +300,8 @@ ${DIM}  2) npx synk add <owner/repo@skill>${RESET}`;
   });
 
   if (!selected) {
-    console.log(`${DIM}Search cancelled${RESET}`);
-    console.log();
+    logger.dim('Search cancelled');
+    logger.line();
     return;
   }
 
@@ -315,24 +309,22 @@ ${DIM}  2) npx synk add <owner/repo@skill>${RESET}`;
   const pkg = selected.source || selected.slug;
   const skillName = selected.name;
 
-  console.log();
-  console.log(`${TEXT}Installing ${BOLD}${skillName}${RESET} from ${DIM}${pkg}${RESET}...`);
-  console.log();
+  logger.line();
+  logger.log(`Installing ${pc.bold(skillName)} from ${pc.dim(pkg)}...`);
+  logger.line();
 
   // Run add directly since we're in the same CLI
   const { source, options } = parseAddOptions([pkg, '--skill', skillName]);
   await runAdd(source, options);
 
-  console.log();
+  logger.line();
 
   const info = getOwnerRepoFromString(pkg);
   if (info && (await isRepoPublic(info.owner, info.repo))) {
-    console.log(
-      `${DIM}View the skill at${RESET} ${TEXT}https://skills.sh/${selected.slug}${RESET}`
-    );
+    logger.log(`${pc.dim('View the skill at')} https://skills.sh/${selected.slug}`);
   } else {
-    console.log(`${DIM}Discover more skills at${RESET} ${TEXT}https://skills.sh${RESET}`);
+    logger.log(`${pc.dim('Discover more skills at')} https://skills.sh`);
   }
 
-  console.log();
+  logger.line();
 }

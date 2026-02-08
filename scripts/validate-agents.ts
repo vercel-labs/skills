@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { homedir } from 'os';
-import { agents } from '../src/agents.ts';
+import { agents } from '../src/services/registry/agents.ts';
 
 let hasErrors = false;
 

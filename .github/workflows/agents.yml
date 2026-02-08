@@ -3,11 +3,11 @@ name: Agents CI
 on:
   pull_request:
     paths:
-      - "src/agents.ts"
+      - "src/services/registry/agents.ts"
   push:
     branches: [main]
     paths:
-      - "src/agents.ts"
+      - "src/services/registry/agents.ts"
 
 concurrency:
   group: agents-${{ github.ref }}
@@ -19,9 +19,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-
-      - name: Enable Corepack
-        run: corepack enable
 
       - name: Enable Corepack
         run: corepack enable

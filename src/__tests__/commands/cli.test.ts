@@ -60,7 +60,7 @@ describe('skills CLI', () => {
     it('should show error for unknown command', () => {
       const output = runCliOutput(['unknown-command']);
       expect(output).toMatchInlineSnapshot(`
-        "Unknown command: unknown-command
+        "✖ Unknown command: unknown-command
         Run synk --help for usage.
         "
       `);

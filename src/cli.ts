@@ -3,6 +3,8 @@
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import pc from 'picocolors';
+import { logger } from './utils/logger.ts';
 import { runAdd, parseAddOptions, initTelemetry } from './commands/add.ts';
 import { runFind } from './commands/find.ts';
 import { runList } from './commands/list.ts';
@@ -10,7 +12,7 @@ import { removeCommand, parseRemoveOptions } from './commands/remove.ts';
 import { runInit } from './commands/init.ts';
 import { runCheck } from './commands/check.ts';
 import { runUpdate } from './commands/update.ts';
-import { showLogo, showBanner, showHelp, showRemoveHelp, BOLD, RESET } from './ui/banner.ts';
+import { showLogo, showBanner, showHelp, showRemoveHelp } from './ui/banner.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -44,12 +46,12 @@ async function main(): Promise<void> {
     case 'f':
     case 's':
       showLogo();
-      console.log();
+      logger.line();
       await runFind(restArgs);
       break;
     case 'init':
       showLogo();
-      console.log();
+      logger.line();
       runInit(restArgs);
       break;
     case 'i':
@@ -89,12 +91,12 @@ async function main(): Promise<void> {
       break;
     case '--version':
     case '-v':
-      console.log(VERSION);
+      logger.log(VERSION);
       break;
 
     default:
-      console.log(`Unknown command: ${command}`);
-      console.log(`Run ${BOLD}synk --help${RESET} for usage.`);
+      logger.error(`Unknown command: ${command}`);
+      logger.log(`Run ${pc.bold('synk --help')} for usage.`);
   }
 }
 

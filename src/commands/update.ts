@@ -2,12 +2,10 @@ import { spawnSync } from 'child_process';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import pc from 'picocolors';
+import { logger } from '../utils/logger.ts';
 import { fetchSkillFolderHash, getGitHubToken } from '../services/lock/lock-file.ts';
 import { track } from '../services/telemetry/index.ts';
-
-const RESET = '\x1b[0m';
-const DIM = '\x1b[38;5;102m'; // darker gray for secondary text
-const TEXT = '\x1b[38;5;145m'; // lighter gray for primary text
 
 const AGENTS_DIR = '.agents';
 const LOCK_FILE = '.skill-lock.json';
@@ -53,15 +51,15 @@ function readSkillLock(): SkillLockFile {
 }
 
 export async function runUpdate(): Promise<void> {
-  console.log(`${TEXT}Checking for skill updates...${RESET}`);
-  console.log();
+  logger.log('Checking for skill updates...');
+  logger.line();
 
   const lock = readSkillLock();
   const skillNames = Object.keys(lock.skills);
 
   if (skillNames.length === 0) {
-    console.log(`${DIM}No skills tracked in lock file.${RESET}`);
-    console.log(`${DIM}Install skills with${RESET} ${TEXT}npx synk add <package>${RESET}`);
+    logger.dim('No skills tracked in lock file.');
+    logger.log(`${pc.dim('Install skills with')} npx synk add <package>`);
     return;
   }
 
@@ -95,25 +93,25 @@ export async function runUpdate(): Promise<void> {
   }
 
   if (checkedCount === 0) {
-    console.log(`${DIM}No skills to check.${RESET}`);
+    logger.dim('No skills to check.');
     return;
   }
 
   if (updates.length === 0) {
-    console.log(`${TEXT}\u2713 All skills are up to date${RESET}`);
-    console.log();
+    logger.success('All skills are up to date');
+    logger.line();
     return;
   }
 
-  console.log(`${TEXT}Found ${updates.length} update(s)${RESET}`);
-  console.log();
+  logger.log(`Found ${updates.length} update(s)`);
+  logger.line();
 
   // Reinstall each skill that has an update
   let successCount = 0;
   let failCount = 0;
 
   for (const update of updates) {
-    console.log(`${TEXT}Updating ${update.name}...${RESET}`);
+    logger.log(`Updating ${update.name}...`);
 
     // Build the URL with subpath to target the specific skill directory
     // e.g., https://github.com/owner/repo/tree/main/skills/my-skill
@@ -143,19 +141,19 @@ export async function runUpdate(): Promise<void> {
 
     if (result.status === 0) {
       successCount++;
-      console.log(`  ${TEXT}\u2713${RESET} Updated ${update.name}`);
+      logger.success(`Updated ${update.name}`);
     } else {
       failCount++;
-      console.log(`  ${DIM}\u2717 Failed to update ${update.name}${RESET}`);
+      logger.dim(`\u2717 Failed to update ${update.name}`);
     }
   }
 
-  console.log();
+  logger.line();
   if (successCount > 0) {
-    console.log(`${TEXT}\u2713 Updated ${successCount} skill(s)${RESET}`);
+    logger.success(`Updated ${successCount} skill(s)`);
   }
   if (failCount > 0) {
-    console.log(`${DIM}Failed to update ${failCount} skill(s)${RESET}`);
+    logger.dim(`Failed to update ${failCount} skill(s)`);
   }
 
   // Track telemetry
@@ -166,5 +164,5 @@ export async function runUpdate(): Promise<void> {
     failCount: String(failCount),
   });
 
-  console.log();
+  logger.line();
 }

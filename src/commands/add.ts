@@ -2,6 +2,7 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { existsSync } from 'fs';
 import { sep } from 'path';
+import { logger, type Ora } from '../utils/logger.ts';
 import {
   parseSource,
   getOwnerRepo,
@@ -134,7 +135,7 @@ interface TelemetryData {
 
 async function selectTargetAgents(
   options: AddOptions,
-  spinner: ReturnType<typeof p.spinner>,
+  spinner: Ora,
   cleanup?: () => Promise<void>,
   /** Whether to use ensureUniversalAgents (true for remote/direct, false for well-known/legacy) */
   useUniversalAgents = false
@@ -144,15 +145,15 @@ async function selectTargetAgents(
 
   if (options.agent?.includes('*')) {
     const all = validAgents as AgentType[];
-    p.log.info(`Installing to all ${all.length} agents`);
+    logger.info(`Installing to all ${all.length} agents`);
     return all;
   }
 
   if (options.agent && options.agent.length > 0) {
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
     if (invalidAgents.length > 0) {
-      p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
-      p.log.info(`Valid agents: ${validAgents.join(', ')}`);
+      logger.error(`Invalid agents: ${invalidAgents.join(', ')}`);
+      logger.info(`Valid agents: ${validAgents.join(', ')}`);
       await cleanup?.();
       process.exit(1);
     }
@@ -165,30 +166,30 @@ async function selectTargetAgents(
   spinner.start('Loading agents...');
   const installedAgents = await detectInstalledAgents();
   const totalAgents = Object.keys(agents).length;
-  spinner.stop(`${totalAgents} agents`);
+  spinner.succeed(`${totalAgents} agents`);
 
   if (installedAgents.length === 0) {
     if (options.yes) {
       if (useUniversalAgents) {
-        p.log.info(`Installing to universal agents`);
+        logger.info(`Installing to universal agents`);
         return universalAgents;
       }
       const all = validAgents as AgentType[];
-      p.log.info('Installing to all agents');
+      logger.info('Installing to all agents');
       return all;
     }
 
     if (useUniversalAgents) {
       const selected = await selectAgentsInteractive({ global: options.global });
       if (p.isCancel(selected)) {
-        p.cancel('Installation cancelled');
+        logger.cancel('Installation cancelled');
         await cleanup?.();
         process.exit(0);
       }
       return selected as AgentType[];
     }
 
-    p.log.info('Select agents to install skills to');
+    logger.info('Select agents to install skills to');
     const allAgentChoices = Object.entries(agents).map(([key, config]) => ({
       value: key as AgentType,
       label: config.displayName,
@@ -198,7 +199,7 @@ async function selectTargetAgents(
       allAgentChoices
     );
     if (p.isCancel(selected)) {
-      p.cancel('Installation cancelled');
+      logger.cancel('Installation cancelled');
       await cleanup?.();
       process.exit(0);
     }
@@ -210,19 +211,19 @@ async function selectTargetAgents(
       const target = ensureUniversalAgents(installedAgents);
       const { universal, symlinked } = splitAgentsByType(target);
       if (symlinked.length > 0) {
-        p.log.info(
+        logger.info(
           `Installing to: ${pc.green('universal')} + ${symlinked.map((a) => pc.cyan(a)).join(', ')}`
         );
       } else {
-        p.log.info(`Installing to: ${pc.green('universal agents')}`);
+        logger.info(`Installing to: ${pc.green('universal agents')}`);
       }
       return target;
     }
     if (installedAgents.length === 1) {
       const firstAgent = installedAgents[0]!;
-      p.log.info(`Installing to: ${pc.cyan(agents[firstAgent].displayName)}`);
+      logger.info(`Installing to: ${pc.cyan(agents[firstAgent].displayName)}`);
     } else {
-      p.log.info(
+      logger.info(
         `Installing to: ${installedAgents.map((a) => pc.cyan(agents[a].displayName)).join(', ')}`
       );
     }
@@ -231,7 +232,7 @@ async function selectTargetAgents(
 
   const selected = await selectAgentsInteractive({ global: options.global });
   if (p.isCancel(selected)) {
-    p.cancel('Installation cancelled');
+    logger.cancel('Installation cancelled');
     await cleanup?.();
     process.exit(0);
   }
@@ -265,7 +266,7 @@ async function selectInstallScope(
       ],
     });
     if (p.isCancel(scope)) {
-      p.cancel('Installation cancelled');
+      logger.cancel('Installation cancelled');
       await cleanup?.();
       process.exit(0);
     }
@@ -295,7 +296,7 @@ async function selectInstallMode(
     ],
   });
   if (p.isCancel(modeChoice)) {
-    p.cancel('Installation cancelled');
+    logger.cancel('Installation cancelled');
     await cleanup?.();
     process.exit(0);
   }
@@ -315,7 +316,7 @@ async function isSourcePrivate(source: string): Promise<boolean | null> {
 async function executeInstallFlow(
   prepared: PreparedInstallation,
   options: AddOptions,
-  spinner: ReturnType<typeof p.spinner>,
+  spinner: Ora,
   cleanup?: () => Promise<void>
 ): Promise<void> {
   const { items, targetAgents, installGlobally, installMode, cognitiveType } = prepared;
@@ -367,14 +368,13 @@ async function executeInstallFlow(
     }
   }
 
-  console.log();
-  p.note(summaryLines.join('\n'), 'Installation Summary');
+  logger.note(summaryLines.join('\n'), 'Installation Summary');
 
   // 3. Confirm
   if (!options.yes) {
     const confirmed = await p.confirm({ message: 'Proceed with installation?' });
     if (p.isCancel(confirmed) || !confirmed) {
-      p.cancel('Installation cancelled');
+      logger.cancel('Installation cancelled');
       await cleanup?.();
       process.exit(0);
     }
@@ -406,9 +406,9 @@ async function executeInstallFlow(
     }
   }
 
-  spinner.stop('Installation complete');
+  spinner.succeed('Installation complete');
 
-  console.log();
+  logger.line();
   const successful = results.filter((r) => r.success);
   const failed = results.filter((r) => !r.success);
 
@@ -499,30 +499,27 @@ async function executeInstallFlow(
     }
 
     const title = pc.green(`Installed ${skillCount} skill${skillCount !== 1 ? 's' : ''}`);
-    p.note(resultLines.join('\n'), title);
+    logger.note(resultLines.join('\n'), title);
 
     const symlinkFailures = successful.filter((r) => r.mode === 'symlink' && r.symlinkFailed);
     if (symlinkFailures.length > 0) {
       const copiedAgentNames = symlinkFailures.map((r) => r.agent);
-      p.log.warn(pc.yellow(`Symlinks failed for: ${formatList(copiedAgentNames)}`));
-      p.log.message(
-        pc.dim(
-          '  Files were copied instead. On Windows, enable Developer Mode for symlink support.'
-        )
+      logger.warning(pc.yellow(`Symlinks failed for: ${formatList(copiedAgentNames)}`));
+      logger.message(
+        pc.dim('Files were copied instead. On Windows, enable Developer Mode for symlink support.')
       );
     }
   }
 
   if (failed.length > 0) {
-    console.log();
-    p.log.error(pc.red(`Failed to install ${failed.length}`));
+    logger.line();
+    logger.error(pc.red(`Failed to install ${failed.length}`));
     for (const r of failed) {
-      p.log.message(`  ${pc.red('✗')} ${r.skill} → ${r.agent}: ${pc.dim(r.error)}`);
+      logger.message(`${pc.red('✗')} ${r.skill} → ${r.agent}: ${pc.dim(r.error)}`);
     }
   }
 
-  console.log();
-  p.outro(
+  logger.outro(
     pc.green('Done!') + pc.dim('  Review skills before use; they run with full agent permissions.')
   );
 
@@ -535,7 +532,7 @@ async function selectSkillItems<
   T extends { installName?: string; name: string; description: string },
 >(items: T[], options: AddOptions, cleanup?: () => Promise<void>): Promise<T[]> {
   if (options.skill?.includes('*')) {
-    p.log.info(`Installing all ${items.length} skills`);
+    logger.info(`Installing all ${items.length} skills`);
     return items;
   }
 
@@ -549,17 +546,17 @@ async function selectSkillItems<
       )
     );
     if (selected.length === 0) {
-      p.log.error(`No matching skills found for: ${options.skill.join(', ')}`);
-      p.log.info('Available skills:');
+      logger.error(`No matching skills found for: ${options.skill.join(', ')}`);
+      logger.info('Available skills:');
       for (const s of items) {
-        p.log.message(
-          `  - ${'installName' in s ? (s as { installName: string }).installName : s.name}`
+        logger.message(
+          `- ${'installName' in s ? (s as { installName: string }).installName : s.name}`
         );
       }
       await cleanup?.();
       process.exit(1);
     }
-    p.log.info(
+    logger.info(
       `Selected ${selected.length} skill${selected.length !== 1 ? 's' : ''}: ${selected.map((s) => pc.cyan('installName' in s ? (s as { installName: string }).installName : s.name)).join(', ')}`
     );
     return selected;
@@ -567,14 +564,14 @@ async function selectSkillItems<
 
   if (items.length === 1) {
     const first = items[0]!;
-    p.log.info(
+    logger.info(
       `Skill: ${pc.cyan('installName' in first ? (first as { installName: string }).installName : first.name)}`
     );
     return items;
   }
 
   if (options.yes) {
-    p.log.info(`Installing all ${items.length} skills`);
+    logger.info(`Installing all ${items.length} skills`);
     return items;
   }
 
@@ -591,7 +588,7 @@ async function selectSkillItems<
   });
 
   if (p.isCancel(selected)) {
-    p.cancel('Installation cancelled');
+    logger.cancel('Installation cancelled');
     await cleanup?.();
     process.exit(0);
   }
@@ -605,7 +602,7 @@ async function resolveRemoteSkill(
   source: string,
   url: string,
   options: AddOptions,
-  spinner: ReturnType<typeof p.spinner>
+  spinner: Ora
 ): Promise<PreparedInstallation> {
   const provider = findProvider(url);
 
@@ -617,8 +614,8 @@ async function resolveRemoteSkill(
   const providerSkill = await provider.fetchSkill(url);
 
   if (!providerSkill) {
-    spinner.stop(pc.red('Invalid skill'));
-    p.outro(
+    spinner.fail('Invalid skill');
+    logger.outro(
       pc.red('Could not fetch skill.md or missing required frontmatter (name, description).')
     );
     process.exit(1);
@@ -635,20 +632,19 @@ async function resolveRemoteSkill(
     metadata: providerSkill.metadata,
   };
 
-  spinner.stop(`Found skill: ${pc.cyan(remoteSkill.installName)}`);
-  p.log.info(`Skill: ${pc.cyan(remoteSkill.name)}`);
-  p.log.message(pc.dim(remoteSkill.description));
-  p.log.message(pc.dim(`Source: ${remoteSkill.sourceIdentifier}`));
+  spinner.succeed(`Found skill: ${pc.cyan(remoteSkill.installName)}`);
+  logger.info(`Skill: ${pc.cyan(remoteSkill.name)}`);
+  logger.message(pc.dim(remoteSkill.description));
+  logger.message(pc.dim(`Source: ${remoteSkill.sourceIdentifier}`));
 
   if (options.list) {
-    console.log();
-    p.log.step(pc.bold('Skill Details'));
-    p.log.message(`  ${pc.cyan('Name:')} ${remoteSkill.name}`);
-    p.log.message(`  ${pc.cyan('Install as:')} ${remoteSkill.installName}`);
-    p.log.message(`  ${pc.cyan('Provider:')} ${provider.displayName}`);
-    p.log.message(`  ${pc.cyan('Description:')} ${remoteSkill.description}`);
-    console.log();
-    p.outro('Run without --list to install');
+    logger.line();
+    logger.step(pc.bold('Skill Details'));
+    logger.message(`${pc.cyan('Name:')} ${remoteSkill.name}`);
+    logger.message(`${pc.cyan('Install as:')} ${remoteSkill.installName}`);
+    logger.message(`${pc.cyan('Provider:')} ${provider.displayName}`);
+    logger.message(`${pc.cyan('Description:')} ${remoteSkill.description}`);
+    logger.outro('Run without --list to install');
     process.exit(0);
   }
 
@@ -698,14 +694,14 @@ async function resolveDirectUrlLegacy(
   source: string,
   url: string,
   options: AddOptions,
-  spinner: ReturnType<typeof p.spinner>
+  spinner: Ora
 ): Promise<PreparedInstallation> {
   spinner.start('Fetching skill.md...');
   const mintlifySkill = await fetchMintlifySkill(url);
 
   if (!mintlifySkill) {
-    spinner.stop(pc.red('Invalid skill'));
-    p.outro(
+    spinner.fail('Invalid skill');
+    logger.outro(
       pc.red(
         'Could not fetch skill.md or missing required frontmatter (name, description, mintlify-proj).'
       )
@@ -723,18 +719,17 @@ async function resolveDirectUrlLegacy(
     sourceIdentifier: 'mintlify/com',
   };
 
-  spinner.stop(`Found skill: ${pc.cyan(remoteSkill.installName)}`);
-  p.log.info(`Skill: ${pc.cyan(remoteSkill.name)}`);
-  p.log.message(pc.dim(remoteSkill.description));
+  spinner.succeed(`Found skill: ${pc.cyan(remoteSkill.installName)}`);
+  logger.info(`Skill: ${pc.cyan(remoteSkill.name)}`);
+  logger.message(pc.dim(remoteSkill.description));
 
   if (options.list) {
-    console.log();
-    p.log.step(pc.bold('Skill Details'));
-    p.log.message(`  ${pc.cyan('Name:')} ${remoteSkill.name}`);
-    p.log.message(`  ${pc.cyan('Site:')} ${remoteSkill.installName}`);
-    p.log.message(`  ${pc.cyan('Description:')} ${remoteSkill.description}`);
-    console.log();
-    p.outro('Run without --list to install');
+    logger.line();
+    logger.step(pc.bold('Skill Details'));
+    logger.message(`${pc.cyan('Name:')} ${remoteSkill.name}`);
+    logger.message(`${pc.cyan('Site:')} ${remoteSkill.installName}`);
+    logger.message(`${pc.cyan('Description:')} ${remoteSkill.description}`);
+    logger.outro('Run without --list to install');
     process.exit(0);
   }
 
@@ -785,14 +780,14 @@ async function resolveWellKnownSkills(
   source: string,
   url: string,
   options: AddOptions,
-  spinner: ReturnType<typeof p.spinner>
+  spinner: Ora
 ): Promise<PreparedInstallation> {
   spinner.start('Discovering skills from well-known endpoint...');
   const skills = await wellKnownProvider.fetchAllSkills(url);
 
   if (skills.length === 0) {
-    spinner.stop(pc.red('No skills found'));
-    p.outro(
+    spinner.fail('No skills found');
+    logger.outro(
       pc.red(
         'No skills found at this URL. Make sure the server has a /.well-known/skills/index.json file.'
       )
@@ -800,28 +795,27 @@ async function resolveWellKnownSkills(
     process.exit(1);
   }
 
-  spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
+  spinner.succeed(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
 
   for (const skill of skills) {
-    p.log.info(`Skill: ${pc.cyan(skill.installName)}`);
-    p.log.message(pc.dim(skill.description));
+    logger.info(`Skill: ${pc.cyan(skill.installName)}`);
+    logger.message(pc.dim(skill.description));
     if (skill.files.size > 1) {
-      p.log.message(pc.dim(`  Files: ${Array.from(skill.files.keys()).join(', ')}`));
+      logger.message(pc.dim(`  Files: ${Array.from(skill.files.keys()).join(', ')}`));
     }
   }
 
   if (options.list) {
-    console.log();
-    p.log.step(pc.bold('Available Skills'));
+    logger.line();
+    logger.step(pc.bold('Available Skills'));
     for (const skill of skills) {
-      p.log.message(`  ${pc.cyan(skill.installName)}`);
-      p.log.message(`    ${pc.dim(skill.description)}`);
+      logger.message(`${pc.cyan(skill.installName)}`);
+      logger.message(`  ${pc.dim(skill.description)}`);
       if (skill.files.size > 1) {
-        p.log.message(`    ${pc.dim(`Files: ${skill.files.size}`)}`);
+        logger.message(`  ${pc.dim(`Files: ${skill.files.size}`)}`);
       }
     }
-    console.log();
-    p.outro('Run without --list to install');
+    logger.outro('Run without --list to install');
     process.exit(0);
   }
 
@@ -881,7 +875,7 @@ async function resolveGitRepoSkills(
   source: string,
   parsed: ParsedSource,
   options: AddOptions,
-  spinner: ReturnType<typeof p.spinner>,
+  spinner: Ora,
   skillsDir: string,
   tempDir: string | null
 ): Promise<PreparedInstallation> {
@@ -908,8 +902,8 @@ async function resolveGitRepoSkills(
       });
 
   if (skills.length === 0) {
-    spinner.stop(pc.red(`No ${cognitiveLabel} found`));
-    p.outro(
+    spinner.fail(`No ${cognitiveLabel} found`);
+    logger.outro(
       pc.red(
         `No valid ${cognitiveLabel} found. They require a ${cognitiveFile} with name and description.`
       )
@@ -918,17 +912,16 @@ async function resolveGitRepoSkills(
     process.exit(1);
   }
 
-  spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
+  spinner.succeed(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
 
   if (options.list) {
-    console.log();
-    p.log.step(pc.bold('Available Skills'));
+    logger.line();
+    logger.step(pc.bold('Available Skills'));
     for (const skill of skills) {
-      p.log.message(`  ${pc.cyan(getSkillDisplayName(skill))}`);
-      p.log.message(`    ${pc.dim(skill.description)}`);
+      logger.message(`${pc.cyan(getSkillDisplayName(skill))}`);
+      logger.message(`  ${pc.dim(skill.description)}`);
     }
-    console.log();
-    p.outro('Use --skill <name> to install specific skills');
+    logger.outro('Use --skill <name> to install specific skills');
     await cleanupFn();
     process.exit(0);
   }
@@ -937,29 +930,29 @@ async function resolveGitRepoSkills(
   let selectedSkills: Skill[];
   if (options.skill?.includes('*')) {
     selectedSkills = skills;
-    p.log.info(`Installing all ${skills.length} skills`);
+    logger.info(`Installing all ${skills.length} skills`);
   } else if (options.skill && options.skill.length > 0) {
     selectedSkills = filterSkills(skills, options.skill);
     if (selectedSkills.length === 0) {
-      p.log.error(`No matching skills found for: ${options.skill.join(', ')}`);
-      p.log.info('Available skills:');
+      logger.error(`No matching skills found for: ${options.skill.join(', ')}`);
+      logger.info('Available skills:');
       for (const s of skills) {
-        p.log.message(`  - ${getSkillDisplayName(s)}`);
+        logger.message(`- ${getSkillDisplayName(s)}`);
       }
       await cleanupFn();
       process.exit(1);
     }
-    p.log.info(
+    logger.info(
       `Selected ${selectedSkills.length} skill${selectedSkills.length !== 1 ? 's' : ''}: ${selectedSkills.map((s) => pc.cyan(getSkillDisplayName(s))).join(', ')}`
     );
   } else if (skills.length === 1) {
     selectedSkills = skills;
     const firstSkill = skills[0]!;
-    p.log.info(`Skill: ${pc.cyan(getSkillDisplayName(firstSkill))}`);
-    p.log.message(pc.dim(firstSkill.description));
+    logger.info(`Skill: ${pc.cyan(getSkillDisplayName(firstSkill))}`);
+    logger.message(pc.dim(firstSkill.description));
   } else if (options.yes) {
     selectedSkills = skills;
-    p.log.info(`Installing all ${skills.length} skills`);
+    logger.info(`Installing all ${skills.length} skills`);
   } else {
     const skillChoices = skills.map((s) => ({
       value: s,
@@ -972,7 +965,7 @@ async function resolveGitRepoSkills(
       required: true,
     });
     if (p.isCancel(selected)) {
-      p.cancel('Installation cancelled');
+      logger.cancel('Installation cancelled');
       await cleanupFn();
       process.exit(0);
     }
@@ -1072,24 +1065,24 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
   const showInstallTip = (): void => {
     if (installTipShown) return;
-    p.log.message(
+    logger.message(
       pc.dim('Tip: use the --yes (-y) and --global (-g) flags to install without prompts.')
     );
     installTipShown = true;
   };
 
   if (!source) {
-    console.log();
-    console.log(
+    logger.line();
+    logger.log(
       pc.bgRed(pc.white(pc.bold(' ERROR '))) + ' ' + pc.red('Missing required argument: source')
     );
-    console.log();
-    console.log(pc.dim('  Usage:'));
-    console.log(`    ${pc.cyan('npx synk add')} ${pc.yellow('<source>')} ${pc.dim('[options]')}`);
-    console.log();
-    console.log(pc.dim('  Example:'));
-    console.log(`    ${pc.cyan('npx synk add')} ${pc.yellow('vercel-labs/agent-skills')}`);
-    console.log();
+    logger.line();
+    logger.dim('  Usage:');
+    logger.log(`    ${pc.cyan('npx synk add')} ${pc.yellow('<source>')} ${pc.dim('[options]')}`);
+    logger.line();
+    logger.dim('  Example:');
+    logger.log(`    ${pc.cyan('npx synk add')} ${pc.yellow('vercel-labs/agent-skills')}`);
+    logger.line();
     process.exit(1);
   }
 
@@ -1099,8 +1092,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     options.yes = true;
   }
 
-  console.log();
-  p.intro(pc.bgCyan(pc.black(' synk ')));
+  logger.intro(' synk ');
 
   if (!process.stdin.isTTY) {
     showInstallTip();
@@ -1109,11 +1101,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
   let tempDir: string | null = null;
 
   try {
-    const spinner = p.spinner();
+    const spinner = logger.spinner();
 
     spinner.start('Parsing source...');
     const parsed = parseSource(source);
-    spinner.stop(
+    spinner.succeed(
       `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
     );
 
@@ -1137,17 +1129,17 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     if (parsed.type === 'local') {
       spinner.start('Validating local path...');
       if (!existsSync(parsed.localPath!)) {
-        spinner.stop(pc.red('Path not found'));
-        p.outro(pc.red(`Local path does not exist: ${parsed.localPath}`));
+        spinner.fail('Path not found');
+        logger.outro(pc.red(`Local path does not exist: ${parsed.localPath}`));
         process.exit(1);
       }
       skillsDir = parsed.localPath!;
-      spinner.stop('Local path validated');
+      spinner.succeed('Local path validated');
     } else {
       spinner.start('Cloning repository...');
       tempDir = await cloneRepo(parsed.url, parsed.ref);
       skillsDir = tempDir;
-      spinner.stop('Repository cloned');
+      spinner.succeed('Repository cloned');
     }
 
     if (parsed.skillFilter) {
@@ -1171,15 +1163,15 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     await executeInstallFlow(prepared, options, spinner, cleanupFn);
   } catch (error) {
     if (error instanceof GitCloneError) {
-      p.log.error(pc.red('Failed to clone repository'));
+      logger.error(pc.red('Failed to clone repository'));
       for (const line of error.message.split('\n')) {
-        p.log.message(pc.dim(line));
+        logger.message(pc.dim(line));
       }
     } else {
-      p.log.error(error instanceof Error ? error.message : 'Unknown error occurred');
+      logger.error(error instanceof Error ? error.message : 'Unknown error occurred');
     }
     showInstallTip();
-    p.outro(pc.red('Installation failed'));
+    logger.outro(pc.red('Installation failed'));
     process.exit(1);
   } finally {
     await cleanupDir(tempDir);
@@ -1215,8 +1207,8 @@ async function promptForFindSkills(
       return;
     }
 
-    console.log();
-    p.log.message(pc.dim("One-time prompt - you won't be asked again if you dismiss."));
+    logger.line();
+    logger.message(pc.dim("One-time prompt - you won't be asked again if you dismiss."));
     const install = await p.confirm({
       message: `Install the ${pc.cyan('find-skills')} skill? It helps your agent discover and suggest skills.`,
     });
@@ -1231,8 +1223,8 @@ async function promptForFindSkills(
       const findSkillsAgents = targetAgents?.filter((a) => a !== 'replit');
       if (!findSkillsAgents || findSkillsAgents.length === 0) return;
 
-      console.log();
-      p.log.step('Installing find-skills skill...');
+      logger.line();
+      logger.step('Installing find-skills skill...');
 
       try {
         await runAdd(['vercel-labs/skills'], {
@@ -1242,12 +1234,12 @@ async function promptForFindSkills(
           agent: findSkillsAgents,
         });
       } catch {
-        p.log.warn('Failed to install find-skills. You can try again with:');
-        p.log.message(pc.dim('  npx synk add vercel-labs/skills@find-skills -g -y --all'));
+        logger.warning('Failed to install find-skills. You can try again with:');
+        logger.message(pc.dim('  npx synk add vercel-labs/skills@find-skills -g -y --all'));
       }
     } else {
       await dismissPrompt('findSkillsPrompt');
-      p.log.message(
+      logger.message(
         pc.dim('You can install it later with: npx synk add vercel-labs/skills@find-skills')
       );
     }

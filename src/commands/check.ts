@@ -1,12 +1,10 @@
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import pc from 'picocolors';
+import { logger } from '../utils/logger.ts';
 import { fetchSkillFolderHash, getGitHubToken } from '../services/lock/lock-file.ts';
 import { track } from '../services/telemetry/index.ts';
-
-const RESET = '\x1b[0m';
-const DIM = '\x1b[38;5;102m'; // darker gray for secondary text
-const TEXT = '\x1b[38;5;145m'; // lighter gray for primary text
 
 const AGENTS_DIR = '.agents';
 const LOCK_FILE = '.skill-lock.json';
@@ -52,15 +50,15 @@ function readSkillLock(): SkillLockFile {
 }
 
 export async function runCheck(args: string[] = []): Promise<void> {
-  console.log(`${TEXT}Checking for skill updates...${RESET}`);
-  console.log();
+  logger.log(`Checking for skill updates...`);
+  logger.line();
 
   const lock = readSkillLock();
   const skillNames = Object.keys(lock.skills);
 
   if (skillNames.length === 0) {
-    console.log(`${DIM}No skills tracked in lock file.${RESET}`);
-    console.log(`${DIM}Install skills with${RESET} ${TEXT}npx synk add <package>${RESET}`);
+    logger.dim('No skills tracked in lock file.');
+    logger.log(`${pc.dim('Install skills with')} npx synk add <package>`);
     return;
   }
 
@@ -88,11 +86,11 @@ export async function runCheck(args: string[] = []): Promise<void> {
 
   const totalSkills = skillNames.length - skippedCount;
   if (totalSkills === 0) {
-    console.log(`${DIM}No GitHub skills to check.${RESET}`);
+    logger.dim('No GitHub skills to check.');
     return;
   }
 
-  console.log(`${DIM}Checking ${totalSkills} skill(s) for updates...${RESET}`);
+  logger.dim(`Checking ${totalSkills} skill(s) for updates...`);
 
   const updates: Array<{ name: string; source: string }> = [];
   const errors: Array<{ name: string; source: string; error: string }> = [];
@@ -121,26 +119,24 @@ export async function runCheck(args: string[] = []): Promise<void> {
     }
   }
 
-  console.log();
+  logger.line();
 
   if (updates.length === 0) {
-    console.log(`${TEXT}\u2713 All skills are up to date${RESET}`);
+    logger.success('All skills are up to date');
   } else {
-    console.log(`${TEXT}${updates.length} update(s) available:${RESET}`);
-    console.log();
+    logger.log(`${updates.length} update(s) available:`);
+    logger.line();
     for (const update of updates) {
-      console.log(`  ${TEXT}\u2191${RESET} ${update.name}`);
-      console.log(`    ${DIM}source: ${update.source}${RESET}`);
+      logger.log(`  ${pc.cyan('\u2191')} ${update.name}`);
+      logger.dim(`    source: ${update.source}`);
     }
-    console.log();
-    console.log(
-      `${DIM}Run${RESET} ${TEXT}npx synk update${RESET} ${DIM}to update all skills${RESET}`
-    );
+    logger.line();
+    logger.log(`${pc.dim('Run')} npx synk update ${pc.dim('to update all skills')}`);
   }
 
   if (errors.length > 0) {
-    console.log();
-    console.log(`${DIM}Could not check ${errors.length} skill(s) (may need reinstall)${RESET}`);
+    logger.line();
+    logger.dim(`Could not check ${errors.length} skill(s) (may need reinstall)`);
   }
 
   // Track telemetry
@@ -150,5 +146,5 @@ export async function runCheck(args: string[] = []): Promise<void> {
     updatesAvailable: String(updates.length),
   });
 
-  console.log();
+  logger.line();
 }

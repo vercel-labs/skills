@@ -2,6 +2,7 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { readdir, rm, lstat } from 'fs/promises';
 import { join } from 'path';
+import { logger, type Ora } from '../utils/logger.ts';
 import { agents, detectInstalledAgents } from '../services/registry/index.ts';
 import { track } from '../services/telemetry/index.ts';
 import { removeSkillFromLock, getSkillFromLock } from '../services/lock/lock-file.ts';
@@ -26,9 +27,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   const isGlobal = options.global ?? false;
   const cwd = process.cwd();
 
-  const spinner = p.spinner();
-
-  spinner.start('Scanning for installed skills...');
+  const spinner = logger.spinner('Scanning for installed skills...');
   const skillNamesSet = new Set<string>();
 
   const scanDir = async (dir: string) => {
@@ -41,7 +40,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
       }
     } catch (err) {
       if (err instanceof Error && (err as { code?: string }).code !== 'ENOENT') {
-        p.log.warn(`Could not scan directory ${dir}: ${err.message}`);
+        logger.warning(`Could not scan directory ${dir}: ${err.message}`);
       }
     }
   };
@@ -80,10 +79,10 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   }
 
   const installedSkills = Array.from(skillNamesSet).sort();
-  spinner.stop(`Found ${installedSkills.length} unique installed skill(s)`);
+  spinner.succeed(`Found ${installedSkills.length} unique installed skill(s)`);
 
   if (installedSkills.length === 0) {
-    p.outro(pc.yellow('No skills found to remove.'));
+    logger.outro(pc.yellow('No skills found to remove.'));
     return;
   }
 
@@ -93,8 +92,8 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 
     if (invalidAgents.length > 0) {
-      p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
-      p.log.info(`Valid agents: ${validAgents.join(', ')}`);
+      logger.error(`Invalid agents: ${invalidAgents.join(', ')}`);
+      logger.info(`Valid agents: ${validAgents.join(', ')}`);
       process.exit(1);
     }
   }
@@ -109,7 +108,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     );
 
     if (selectedSkills.length === 0) {
-      p.log.error(`No matching skills found for: ${skillNames.join(', ')}`);
+      logger.error(`No matching skills found for: ${skillNames.join(', ')}`);
       return;
     }
   } else {
@@ -125,7 +124,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     });
 
     if (p.isCancel(selected)) {
-      p.cancel('Removal cancelled');
+      logger.cancel('Removal cancelled');
       process.exit(0);
     }
 
@@ -142,23 +141,23 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
       // Fallback to all agents if none detected, to ensure we can at least try to remove from defaults
       targetAgents = Object.keys(agents) as AgentType[];
     }
-    spinner.stop(`Targeting ${targetAgents.length} installed agent(s)`);
+    spinner.succeed(`Targeting ${targetAgents.length} installed agent(s)`);
   }
 
   if (!options.yes) {
-    console.log();
-    p.log.info('Skills to remove:');
+    logger.line();
+    logger.info('Skills to remove:');
     for (const skill of selectedSkills) {
-      p.log.message(`  ${pc.red('\u2022')} ${skill}`);
+      logger.message(`${pc.red('\u2022')} ${skill}`);
     }
-    console.log();
+    logger.line();
 
     const confirmed = await p.confirm({
       message: `Are you sure you want to uninstall ${selectedSkills.length} skill(s)?`,
     });
 
     if (p.isCancel(confirmed) || !confirmed) {
-      p.cancel('Removal cancelled');
+      logger.cancel('Removal cancelled');
       process.exit(0);
     }
   }
@@ -185,7 +184,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
             await rm(skillPath, { recursive: true, force: true });
           }
         } catch (err) {
-          p.log.warn(
+          logger.warning(
             `Could not remove skill from ${agent.displayName}: ${
               err instanceof Error ? err.message : String(err)
             }`
@@ -226,7 +225,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     }
   }
 
-  spinner.stop('Removal process complete');
+  spinner.succeed('Removal process complete');
 
   const successful = results.filter((r) => r.success);
   const failed = results.filter((r) => !r.success);
@@ -256,18 +255,18 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   }
 
   if (successful.length > 0) {
-    p.log.success(pc.green(`Successfully removed ${successful.length} skill(s)`));
+    logger.success(pc.green(`Successfully removed ${successful.length} skill(s)`));
   }
 
   if (failed.length > 0) {
-    p.log.error(pc.red(`Failed to remove ${failed.length} skill(s)`));
+    logger.error(pc.red(`Failed to remove ${failed.length} skill(s)`));
     for (const r of failed) {
-      p.log.message(`  ${pc.red('\u2717')} ${r.skill}: ${r.error}`);
+      logger.message(`${pc.red('\u2717')} ${r.skill}: ${r.error}`);
     }
   }
 
-  console.log();
-  p.outro(pc.green('Done!'));
+  logger.line();
+  logger.outro(pc.green('Done!'));
 }
 
 /**

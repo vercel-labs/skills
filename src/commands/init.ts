@@ -1,9 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { basename, join } from 'path';
-
-const RESET = '\x1b[0m';
-const DIM = '\x1b[38;5;102m'; // darker gray for secondary text
-const TEXT = '\x1b[38;5;145m'; // lighter gray for primary text
+import pc from 'picocolors';
+import { logger } from '../utils/logger.ts';
 
 export function runInit(args: string[]): void {
   const cwd = process.cwd();
@@ -39,7 +37,7 @@ export function runInit(args: string[]): void {
   const displayPath = hasName ? `${itemName}/${fileName}` : fileName;
 
   if (existsSync(itemFile)) {
-    console.log(`${TEXT}${cognitiveType} already exists at ${DIM}${displayPath}${RESET}`);
+    logger.log(`${cognitiveType} already exists at ${pc.dim(displayPath)}`);
     return;
   }
 
@@ -110,25 +108,21 @@ Describe when this skill should be used.
 
   writeFileSync(itemFile, content);
 
-  console.log(`${TEXT}Initialized ${cognitiveType}: ${DIM}${itemName}${RESET}`);
-  console.log();
-  console.log(`${DIM}Created:${RESET}`);
-  console.log(`  ${displayPath}`);
-  console.log();
-  console.log(`${DIM}Next steps:${RESET}`);
-  console.log(
-    `  1. Edit ${TEXT}${displayPath}${RESET} to define your ${cognitiveType} instructions`
+  logger.log(`Initialized ${cognitiveType}: ${pc.dim(itemName)}`);
+  logger.line();
+  logger.dim('Created:');
+  logger.log(`  ${displayPath}`);
+  logger.line();
+  logger.dim('Next steps:');
+  logger.log(`  1. Edit ${pc.cyan(displayPath)} to define your ${cognitiveType} instructions`);
+  logger.log(`  2. Update the ${pc.cyan('name')} and ${pc.cyan('description')} in the frontmatter`);
+  logger.line();
+  logger.dim('Publishing:');
+  logger.log(
+    `  ${pc.dim('GitHub:')}  Push to a repo, then ${pc.cyan(`npx synk add <owner>/<repo>`)}`
   );
-  console.log(
-    `  2. Update the ${TEXT}name${RESET} and ${TEXT}description${RESET} in the frontmatter`
+  logger.log(
+    `  ${pc.dim('URL:')}     Host the file, then ${pc.cyan(`npx synk add https://example.com/${displayPath}`)}`
   );
-  console.log();
-  console.log(`${DIM}Publishing:${RESET}`);
-  console.log(
-    `  ${DIM}GitHub:${RESET}  Push to a repo, then ${TEXT}npx synk add <owner>/<repo>${RESET}`
-  );
-  console.log(
-    `  ${DIM}URL:${RESET}     Host the file, then ${TEXT}npx synk add https://example.com/${displayPath}${RESET}`
-  );
-  console.log();
+  logger.line();
 }

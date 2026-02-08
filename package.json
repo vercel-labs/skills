@@ -1,6 +1,6 @@
 {
-  "name": "synk",
-  "version": "1.3.7",
+  "name": "@synapsync/synk",
+  "version": "1.0.0",
   "description": "The open cognitive ecosystem for AI agents",
   "type": "module",
   "bin": {
@@ -14,6 +14,9 @@
     "README.md",
     "ThirdPartyNoticeText.txt"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "node scripts/generate-licenses.ts && obuild",
     "generate-licenses": "node scripts/generate-licenses.ts",
@@ -37,6 +40,9 @@
     "agent-skills",
     "skills",
     "ai-agents",
+    "synk",
+    "cognitive",
+    "synapsync",
     "amp",
     "antigravity",
     "augment",
@@ -79,13 +85,13 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vercel-labs/skills.git"
+    "url": "git+https://github.com/SynapSync/synk.git"
   },
-  "homepage": "https://github.com/vercel-labs/skills#readme",
+  "homepage": "https://github.com/SynapSync/synk#readme",
   "bugs": {
-    "url": "https://github.com/vercel-labs/skills/issues"
+    "url": "https://github.com/SynapSync/synk/issues"
   },
-  "author": "",
+  "author": "SynapSync",
   "license": "MIT",
   "devDependencies": {
     "@clack/prompts": "^0.11.0",
@@ -95,6 +101,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
     "obuild": "^0.4.22",
+    "ora": "^9.3.0",
     "picocolors": "^1.1.1",
     "prettier": "^3.8.1",
     "simple-git": "^3.27.0",
