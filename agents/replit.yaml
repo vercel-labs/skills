@@ -1,0 +1,7 @@
+name: replit
+displayName: Replit
+localRoot: .agents
+globalRoot: ${XDG_CONFIG_HOME}/agents
+showInUniversalList: false
+detect:
+  - cwdDir: .agents

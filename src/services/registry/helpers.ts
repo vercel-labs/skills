@@ -1,6 +1,6 @@
 import type { AgentConfig, AgentType, CognitiveType } from '../../core/types.ts';
 import { COGNITIVE_SUBDIRS } from '../../core/constants.ts';
-import { agents } from './agents.ts';
+import { agents } from './__generated__/agents.ts';
 
 export function getAgentConfig(type: AgentType): AgentConfig {
   return agents[type];

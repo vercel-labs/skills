@@ -1,5 +1,5 @@
 import type { AgentType } from '../../core/types.ts';
-import { agents } from './agents.ts';
+import { agents } from './__generated__/agents.ts';
 
 export async function detectInstalledAgents(): Promise<AgentType[]> {
   const results = await Promise.all(

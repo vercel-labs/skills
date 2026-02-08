@@ -1,0 +1,6 @@
+name: pi
+displayName: Pi
+rootDir: .pi
+globalRoot: ~/.pi/agent
+detect:
+  - homeDir: .pi/agent

@@ -1,0 +1,6 @@
+name: crush
+displayName: Crush
+rootDir: .crush
+globalRoot: ~/.config/crush
+detect:
+  - homeDir: .config/crush

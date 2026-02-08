@@ -10,6 +10,8 @@ dist
 coverage
 *.lcov
 
+docs/
+
 # logs
 logs
 _.log

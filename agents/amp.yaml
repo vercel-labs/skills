@@ -1,0 +1,6 @@
+name: amp
+displayName: Amp
+localRoot: .agents
+globalRoot: ${XDG_CONFIG_HOME}/agents
+detect:
+  - xdgConfig: amp

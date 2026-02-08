@@ -1,0 +1,9 @@
+name: opencode
+displayName: OpenCode
+localRoot: .agents
+globalRoot: ${XDG_CONFIG_HOME}/opencode
+detect:
+  - xdgConfig: opencode
+  - envResolvedPath:
+      var: claudeHome
+      subpath: skills

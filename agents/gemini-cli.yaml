@@ -1,0 +1,6 @@
+name: gemini-cli
+displayName: Gemini CLI
+localRoot: .agents
+globalRoot: ~/.gemini
+detect:
+  - homeDir: .gemini

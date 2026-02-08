@@ -1,0 +1,6 @@
+name: goose
+displayName: Goose
+rootDir: .goose
+globalRoot: ${XDG_CONFIG_HOME}/goose
+detect:
+  - xdgConfig: goose

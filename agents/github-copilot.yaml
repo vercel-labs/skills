@@ -1,0 +1,7 @@
+name: github-copilot
+displayName: GitHub Copilot
+localRoot: .agents
+globalRoot: ~/.copilot
+detect:
+  - cwdDir: .github
+  - homeDir: .copilot

@@ -1,0 +1,6 @@
+name: codebuddy
+displayName: CodeBuddy
+rootDir: .codebuddy
+detect:
+  - cwdDir: .codebuddy
+  - homeDir: .codebuddy

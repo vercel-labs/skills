@@ -4,9 +4,9 @@
   "description": "The open cognitive ecosystem for AI agents",
   "type": "module",
   "bin": {
-    "synk": "./bin/cli.mjs",
-    "skills": "./bin/cli.mjs",
-    "add-skill": "./bin/cli.mjs"
+    "synk": "bin/cli.js",
+    "skills": "bin/cli.js",
+    "add-skill": "bin/cli.js"
   },
   "files": [
     "dist",
@@ -18,7 +18,8 @@
     "access": "public"
   },
   "scripts": {
-    "build": "node scripts/generate-licenses.ts && obuild",
+    "build": "node scripts/compile-agents.ts && node scripts/generate-licenses.ts && obuild",
+    "compile:agents": "node scripts/compile-agents.ts",
     "generate-licenses": "node scripts/generate-licenses.ts",
     "dev": "node src/cli.ts",
     "exec:test": "node scripts/execute-tests.ts",
@@ -33,7 +34,8 @@
   "lint-staged": {
     "src/**/*.ts": "prettier --write",
     "scripts/**/*.ts": "prettier --write",
-    "tests/**/*.ts": "prettier --write"
+    "tests/**/*.ts": "prettier --write",
+    "agents/*.yaml": "node scripts/compile-agents.ts"
   },
   "keywords": [
     "cli",
@@ -107,7 +109,8 @@
     "simple-git": "^3.27.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.17",
-    "xdg-basedir": "^5.1.0"
+    "xdg-basedir": "^5.1.0",
+    "yaml": "^2.8.2"
   },
   "engines": {
     "node": ">=18"

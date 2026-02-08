@@ -1,0 +1,6 @@
+name: trae-cn
+displayName: Trae CN
+localRoot: .trae
+globalRoot: ~/.trae-cn
+detect:
+  - homeDir: .trae-cn

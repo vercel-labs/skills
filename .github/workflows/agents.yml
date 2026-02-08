@@ -3,11 +3,13 @@ name: Agents CI
 on:
   pull_request:
     paths:
-      - "src/services/registry/agents.ts"
+      - "agents/*.yaml"
+      - "scripts/compile-agents.ts"
   push:
     branches: [main]
     paths:
-      - "src/services/registry/agents.ts"
+      - "agents/*.yaml"
+      - "scripts/compile-agents.ts"
 
 concurrency:
   group: agents-${{ github.ref }}
@@ -32,8 +34,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Validate agents
-        run: node scripts/validate-agents.ts
+      - name: Compile and validate agents
+        run: node scripts/compile-agents.ts
+
+      - name: Check generated files are fresh
+        run: git diff --exit-code src/core/__generated__/ src/services/registry/__generated__/
 
   sync-agents:
     needs: validate-agents
@@ -54,6 +59,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Compile agents
+        run: node scripts/compile-agents.ts
 
       - name: Sync agents
         run: pnpm exec node scripts/sync-agents.ts

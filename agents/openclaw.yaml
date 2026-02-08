@@ -1,0 +1,12 @@
+name: openclaw
+displayName: OpenClaw
+localRoot: ""
+globalRoot:
+  firstExists:
+    - ~/.openclaw
+    - ~/.clawdbot
+    - ~/.moltbot
+detect:
+  - homeDir: .openclaw
+  - homeDir: .clawdbot
+  - homeDir: .moltbot

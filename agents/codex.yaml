@@ -1,0 +1,7 @@
+name: codex
+displayName: Codex
+localRoot: .agents
+globalRoot: ${CODEX_HOME:~/.codex}
+detect:
+  - envResolved: codexHome
+  - absolutePath: /etc/codex

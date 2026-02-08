@@ -53,7 +53,6 @@ import {
 } from '../services/registry/index.ts';
 import { track, setVersion } from '../services/telemetry/index.ts';
 import { findProvider, wellKnownProvider, type WellKnownSkill } from '../providers/index.ts';
-import { fetchMintlifySkill } from '../services/source/mintlify.ts';
 import {
   addSkillToLock,
   addCognitiveToLock,
@@ -599,7 +598,6 @@ async function selectSkillItems<
 // ── Resolver: Remote Skill (provider-based) ─────────────────────────────
 
 async function resolveRemoteSkill(
-  source: string,
   url: string,
   options: AddOptions,
   spinner: Ora
@@ -607,7 +605,13 @@ async function resolveRemoteSkill(
   const provider = findProvider(url);
 
   if (!provider) {
-    return resolveDirectUrlLegacy(source, url, options, spinner);
+    spinner.fail('Unsupported skill host');
+    logger.outro(
+      pc.red(
+        'Could not find a provider for this URL. Supported hosts include Mintlify, HuggingFace, and well-known skill endpoints.'
+      )
+    );
+    process.exit(1);
   }
 
   spinner.start(`Fetching skill.md from ${provider.displayName}...`);
@@ -650,7 +654,7 @@ async function resolveRemoteSkill(
 
   const targetAgents = await selectTargetAgents(options, spinner, undefined, true);
   const installGlobally = await selectInstallScope(options, targetAgents);
-  const installMode = await selectInstallMode(options);
+  const installMode = provider.id === 'mintlify' ? 'symlink' : await selectInstallMode(options);
 
   const item: InstallItem = {
     installName: remoteSkill.installName,
@@ -684,92 +688,6 @@ async function resolveRemoteSkill(
       sourceType: remoteSkill.providerId,
       skillFiles: { [remoteSkill.installName]: url },
       checkPrivacy: true,
-    },
-  };
-}
-
-// ── Resolver: Direct URL Legacy (Mintlify) ──────────────────────────────
-
-async function resolveDirectUrlLegacy(
-  source: string,
-  url: string,
-  options: AddOptions,
-  spinner: Ora
-): Promise<PreparedInstallation> {
-  spinner.start('Fetching skill.md...');
-  const mintlifySkill = await fetchMintlifySkill(url);
-
-  if (!mintlifySkill) {
-    spinner.fail('Invalid skill');
-    logger.outro(
-      pc.red(
-        'Could not fetch skill.md or missing required frontmatter (name, description, mintlify-proj).'
-      )
-    );
-    process.exit(1);
-  }
-
-  const remoteSkill: RemoteSkill = {
-    name: mintlifySkill.name,
-    description: mintlifySkill.description,
-    content: mintlifySkill.content,
-    installName: mintlifySkill.mintlifySite,
-    sourceUrl: mintlifySkill.sourceUrl,
-    providerId: 'mintlify',
-    sourceIdentifier: 'mintlify/com',
-  };
-
-  spinner.succeed(`Found skill: ${pc.cyan(remoteSkill.installName)}`);
-  logger.info(`Skill: ${pc.cyan(remoteSkill.name)}`);
-  logger.message(pc.dim(remoteSkill.description));
-
-  if (options.list) {
-    logger.line();
-    logger.step(pc.bold('Skill Details'));
-    logger.message(`${pc.cyan('Name:')} ${remoteSkill.name}`);
-    logger.message(`${pc.cyan('Site:')} ${remoteSkill.installName}`);
-    logger.message(`${pc.cyan('Description:')} ${remoteSkill.description}`);
-    logger.outro('Run without --list to install');
-    process.exit(0);
-  }
-
-  const targetAgents = await selectTargetAgents(options, spinner);
-  const installGlobally = await selectInstallScope(options, targetAgents);
-  // Legacy mintlify always uses symlink mode
-  const installMode: InstallMode = 'symlink';
-
-  const item: InstallItem = {
-    installName: remoteSkill.installName,
-    displayName: remoteSkill.name,
-    description: remoteSkill.description,
-    sourceIdentifier: 'mintlify/com',
-    providerId: 'mintlify',
-    sourceUrl: url,
-    installFn: (agent, opts) => installRemoteSkillForAgent(remoteSkill, agent, opts),
-  };
-
-  return {
-    items: [item],
-    targetAgents,
-    installGlobally,
-    installMode,
-    cognitiveType: 'skill',
-    lockEntries: [
-      {
-        name: remoteSkill.installName,
-        source: `mintlify/${remoteSkill.installName}`,
-        sourceType: 'mintlify',
-        sourceUrl: url,
-        skillFolderHash: '',
-        cognitiveType: 'skill',
-        isCognitive: false,
-      },
-    ],
-    telemetry: {
-      source: 'mintlify/com',
-      sourceType: 'mintlify',
-      skillFiles: { [remoteSkill.installName]: url },
-      checkPrivacy: false,
     },
   };
 }
@@ -1111,7 +1029,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     // Direct URL skills (Mintlify, HuggingFace, etc.) via provider system
     if (parsed.type === 'direct-url') {
-      const prepared = await resolveRemoteSkill(source, parsed.url, options, spinner);
+      const prepared = await resolveRemoteSkill(parsed.url, options, spinner);
       await executeInstallFlow(prepared, options, spinner);
       return;
     }

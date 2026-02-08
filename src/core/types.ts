@@ -1,45 +1,6 @@
 export type CognitiveType = 'skill' | 'agent' | 'prompt';
 
-export type AgentType =
-  | 'amp'
-  | 'antigravity'
-  | 'augment'
-  | 'claude-code'
-  | 'openclaw'
-  | 'cline'
-  | 'codebuddy'
-  | 'codex'
-  | 'command-code'
-  | 'continue'
-  | 'crush'
-  | 'cursor'
-  | 'droid'
-  | 'gemini-cli'
-  | 'github-copilot'
-  | 'goose'
-  | 'iflow-cli'
-  | 'junie'
-  | 'kilo'
-  | 'kimi-cli'
-  | 'kiro-cli'
-  | 'kode'
-  | 'mcpjam'
-  | 'mistral-vibe'
-  | 'mux'
-  | 'neovate'
-  | 'opencode'
-  | 'openhands'
-  | 'pi'
-  | 'qoder'
-  | 'qwen-code'
-  | 'replit'
-  | 'roo'
-  | 'trae'
-  | 'trae-cn'
-  | 'windsurf'
-  | 'zencoder'
-  | 'pochi'
-  | 'adal';
+export type { AgentType } from './__generated__/agent-type.ts';
 
 export interface Skill {
   name: string;

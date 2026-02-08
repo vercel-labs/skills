@@ -1,0 +1,7 @@
+name: antigravity
+displayName: Antigravity
+localRoot: .agent
+globalRoot: ~/.gemini/antigravity
+detect:
+  - cwdDir: .agent
+  - homeDir: .gemini/antigravity

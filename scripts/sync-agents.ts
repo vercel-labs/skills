@@ -3,7 +3,7 @@
 import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
-import { agents } from '../src/services/registry/agents.ts';
+import { agents } from '../src/services/registry/__generated__/agents.ts';
 
 const ROOT = join(import.meta.dirname, '..');
 const README_PATH = join(ROOT, 'README.md');

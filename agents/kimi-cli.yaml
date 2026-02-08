@@ -1,0 +1,6 @@
+name: kimi-cli
+displayName: Kimi Code CLI
+localRoot: .agents
+globalRoot: ~/.config/agents
+detect:
+  - homeDir: .kimi

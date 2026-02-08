@@ -1,0 +1,6 @@
+name: windsurf
+displayName: Windsurf
+rootDir: .windsurf
+globalRoot: ~/.codeium/windsurf
+detect:
+  - homeDir: .codeium/windsurf

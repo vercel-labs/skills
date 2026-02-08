@@ -1,0 +1,6 @@
+name: claude-code
+displayName: Claude Code
+rootDir: .claude
+globalRoot: ${CLAUDE_CONFIG_DIR:~/.claude}
+detect:
+  - envResolved: claudeHome
