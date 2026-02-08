@@ -201,6 +201,16 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.kimi'));
     },
   },
+  jazz: {
+    name: 'jazz',
+    displayName: 'Jazz',
+    skillsDir: '.jazz/skills',
+    globalSkillsDir: join(home, '.jazz/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.jazz')) || existsSync(join(process.cwd(), '.jazz'));
+    },
+  },
+
   'kiro-cli': {
     name: 'kiro-cli',
     displayName: 'Kiro CLI',

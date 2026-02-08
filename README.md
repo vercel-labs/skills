@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [35 more](#available-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [36 more](#available-agents).
 <!-- agent-list:end -->
 
 ## Install a Skill
@@ -212,7 +212,7 @@ Skills can be installed to any of these agents:
 | Antigravity | `antigravity` | `.agent/skills/` | `~/.gemini/antigravity/skills/` |
 | Augment | `augment` | `.augment/skills/` | `~/.augment/skills/` |
 | Claude Code | `claude-code` | `.claude/skills/` | `~/.claude/skills/` |
-| OpenClaw | `openclaw` | `skills/` | `~/.moltbot/skills/` |
+| OpenClaw | `openclaw` | `skills/` | `~/.openclaw/skills/` |
 | Cline | `cline` | `.cline/skills/` | `~/.cline/skills/` |
 | CodeBuddy | `codebuddy` | `.codebuddy/skills/` | `~/.codebuddy/skills/` |
 | Codex | `codex` | `.agents/skills/` | `~/.codex/skills/` |
@@ -227,6 +227,7 @@ Skills can be installed to any of these agents:
 | Junie | `junie` | `.junie/skills/` | `~/.junie/skills/` |
 | iFlow CLI | `iflow-cli` | `.iflow/skills/` | `~/.iflow/skills/` |
 | Kilo Code | `kilo` | `.kilocode/skills/` | `~/.kilocode/skills/` |
+| Jazz | `jazz` | `.jazz/skills/` | `~/.jazz/skills/` |
 | Kiro CLI | `kiro-cli` | `.kiro/skills/` | `~/.kiro/skills/` |
 | Kode | `kode` | `.kode/skills/` | `~/.kode/skills/` |
 | MCPJam | `mcpjam` | `.mcpjam/skills/` | `~/.mcpjam/skills/` |
@@ -330,6 +331,7 @@ The CLI searches for skills in these locations within a repository:
 - `.junie/skills/`
 - `.iflow/skills/`
 - `.kilocode/skills/`
+- `.jazz/skills/`
 - `.kiro/skills/`
 - `.kode/skills/`
 - `.mcpjam/skills/`
