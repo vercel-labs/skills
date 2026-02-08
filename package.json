@@ -1,10 +1,10 @@
 {
-  "name": "skills",
-  "version": "1.3.7",
-  "description": "The open agent skills ecosystem",
+  "name": "skillsio",
+  "version": "1.0.1",
+  "description": "The SECURE open agent skills ecosystem",
   "type": "module",
   "bin": {
-    "skills": "./bin/cli.mjs",
+    "skillsio": "./bin/cli.mjs",
     "add-skill": "./bin/cli.mjs"
   },
   "files": [
@@ -14,10 +14,10 @@
     "ThirdPartyNoticeText.txt"
   ],
   "scripts": {
-    "build": "node scripts/generate-licenses.ts && obuild",
-    "generate-licenses": "node scripts/generate-licenses.ts",
-    "dev": "node src/cli.ts",
-    "exec:test": "node scripts/execute-tests.ts",
+    "build": "node --experimental-strip-types scripts/generate-licenses.ts && obuild",
+    "generate-licenses": "node --experimental-strip-types scripts/generate-licenses.ts",
+    "dev": "node --experimental-strip-types src/cli.ts",
+    "exec:test": "node --experimental-strip-types scripts/execute-tests.ts",
     "prepublishOnly": "npm run build",
     "format": "prettier --write 'src/**/*.ts' 'scripts/**/*.ts'",
     "format:check": "prettier --check 'src/**/*.ts' 'scripts/**/*.ts'",
@@ -78,13 +78,13 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vercel-labs/skills.git"
+    "url": "git+https://github.com/alonw0/secure-skills.git"
   },
-  "homepage": "https://github.com/vercel-labs/skills#readme",
+  "homepage": "https://github.com/alonw0/secure-skills#readme",
   "bugs": {
-    "url": "https://github.com/vercel-labs/skills/issues"
+    "url": "https://github.com/alonw0/secure-skills/issues"
   },
-  "author": "",
+  "author": "Alon Wolenitz",
   "license": "MIT",
   "devDependencies": {
     "@clack/prompts": "^0.11.0",

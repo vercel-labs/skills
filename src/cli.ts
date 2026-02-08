@@ -35,12 +35,12 @@ const DIM = '\x1b[38;5;102m'; // darker gray for secondary text
 const TEXT = '\x1b[38;5;145m'; // lighter gray for primary text
 
 const LOGO_LINES = [
-  '███████╗██╗  ██╗██╗██╗     ██╗     ███████╗',
-  '██╔════╝██║ ██╔╝██║██║     ██║     ██╔════╝',
-  '███████╗█████╔╝ ██║██║     ██║     ███████╗',
-  '╚════██║██╔═██╗ ██║██║     ██║     ╚════██║',
-  '███████║██║  ██╗██║███████╗███████╗███████║',
-  '╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝╚══════╝',
+  '███████╗██╗  ██╗██╗██╗     ██╗     ███████╗██╗ ██████╗ ',
+  '██╔════╝██║ ██╔╝██║██║     ██║     ██╔════╝██║██╔═══██╗',
+  '███████╗█████╔╝ ██║██║     ██║     ███████╗██║██║   ██║',
+  '╚════██║██╔═██╗ ██║██║     ██║     ╚════██║██║██║   ██║',
+  '███████║██║  ██╗██║███████╗███████╗███████║██║╚██████╔╝',
+  '╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝╚══════╝╚═╝ ╚═════╝ ',
 ];
 
 // 256-color middle grays - visible on both light and dark backgrounds
@@ -116,6 +116,8 @@ ${BOLD}Add Options:${RESET}
   -y, --yes              Skip confirmation prompts
   --all                  Shorthand for --skill '*' --agent '*' -y
   --full-depth           Search all subdirectories even when a root SKILL.md exists
+  --skip-scan            Skip security scan before installation
+  --vt-key <key>         VirusTotal API key for additional threat intelligence
 
 ${BOLD}Remove Options:${RESET}
   -g, --global           Remove from global scope

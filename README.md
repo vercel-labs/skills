@@ -1,209 +1,147 @@
-# skills
+# secure-skills
 
-The CLI for the open agent skills ecosystem.
+A security-hardened fork of the [skills](https://github.com/vercel-labs/skills) CLI that scans agent skills for
+malicious content before installation.
 
-<!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [35 more](#available-agents).
-<!-- agent-list:end -->
+The open agent skills ecosystem makes it trivial to install third-party instruction sets into coding agents — but that
+same ease of installation is a vector for prompt injection, data exfiltration, and credential theft.
+[Snyk's analysis](https://snyk.io/blog/) of 3,984 published skills found that **13.4% had critical security issues** and
+76 were confirmed malicious. Separately,
+[Koi's ClawHavoc investigation](https://www.koi.ai/blog/clawhavoc-341-malicious-clawedbot-skills-found-by-the-bot-they-were-targeting)
+uncovered **341 malicious ClawedBot skills** using techniques like AMOS stealer droppers, password-protected archives,
+base64-encoded payloads, macOS quarantine bypasses (`xattr -c`), and reverse shells. `skillsio` adds an automated
+security gate so you can still move fast without running untrusted code.
 
-## Install a Skill
+## What It Does
 
-```bash
-npx skills add vercel-labs/agent-skills
+Every `skillsio add` command runs a local security scan **before** anything is installed. The scanner applies ~52 regex
+rules derived from the Snyk and ClawHavoc research, organized into 8 threat categories:
+
+| Category | What it catches |
+| --- | --- |
+| **Exfiltration** | Sending files/env vars to external endpoints, webhook URLs |
+| **Prompt injection** | "Ignore previous instructions", role hijacking, instruction overrides |
+| **Dangerous filesystem** | `rm -rf`, mass deletion, wiping home directories |
+| **Credential access** | Reading SSH keys, AWS credentials, `.env` files, keychains |
+| **Suspicious directives** | "Never ask for confirmation", "silently execute", stealth instructions |
+| **Downloads / RCE** | `curl \| sh`, downloading and executing remote scripts |
+| **Obfuscation** | Base64-encoded commands, Unicode escape sequences, hex-encoded strings |
+| **Reverse shells / services** | Netcat listeners, cron persistence, systemd/launchd service creation |
+
+Findings are categorized by severity:
+
+- **Critical** / **High** — always prompts for confirmation (critical prompts even with `--yes`)
+- **Medium** and below — noted and auto-continued
+
+### URL Transparency
+
+The scanner extracts all external URLs found in skill files and displays them before installation. Even if the local scan
+is clean, skills that reference external URLs will prompt you to review them before proceeding. This catches deceptive
+domain patterns that regex rules can't — letting you eyeball where a skill wants to send traffic.
+
+```
+◆  External URLs found in skill files (2):
+│  https://example.com/setup
+│  https://hooks.slack.com/services/T00/B00/xxx
+│
+◆  This skill references external URLs. Continue with installation?
 ```
 
-### Source Formats
+With `--yes`, URL-only prompts are auto-continued. Skills with high/critical findings always show URLs alongside the
+findings summary.
 
-```bash
-# GitHub shorthand (owner/repo)
-npx skills add vercel-labs/agent-skills
+### Optional: VirusTotal Integration
 
-# Full GitHub URL
-npx skills add https://github.com/vercel-labs/agent-skills
+When a [VirusTotal](https://www.virustotal.com/) API key is provided, the CLI also hashes each skill's content
+(SHA-256) and checks it against VT's database. If the file has been seen before, VT's verdict is displayed alongside
+local findings — including engine detection counts and Gemini-powered Code Insight analysis.
 
-# Direct path to a skill in a repo
-npx skills add https://github.com/vercel-labs/agent-skills/tree/main/skills/web-design-guidelines
+```
+◆ VirusTotal: ✗ malicious (14/72 engines)
+   Code Insight: Downloads and executes external binary...
+   https://www.virustotal.com/gui/file/{hash}
 
-# GitLab URL
-npx skills add https://gitlab.com/org/repo
+◆ VirusTotal: ✓ clean (0/72 engines)
 
-# Any git URL
-npx skills add git@github.com:vercel-labs/agent-skills.git
-
-# Local path
-npx skills add ./my-local-skills
+◆ VirusTotal: not found (local scan only)
 ```
 
-### Options
+A VT malicious verdict escalates the scan to critical severity regardless of local findings.
 
-| Option                    | Description                                                                                                                                        |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `-g, --global`            | Install to user directory instead of project                                                                                                       |
-| `-a, --agent <agents...>` | <!-- agent-names:start -->Target specific agents (e.g., `claude-code`, `codex`). See [Available Agents](#available-agents)<!-- agent-names:end -->                  |
-| `-s, --skill <skills...>` | Install specific skills by name (use `'*'` for all skills)                                                                                         |
-| `-l, --list`              | List available skills without installing                                                                                                           |
-| `-y, --yes`               | Skip all confirmation prompts                                                                                                                      |
-| `--all`                   | Install all skills to all agents without prompts                                                                                                   |
-
-### Examples
+VT is purely additive — no key means no VT calls, and VT errors (rate limits, network issues) are handled gracefully
+without blocking installation.
 
 ```bash
-# List skills in a repository
-npx skills add vercel-labs/agent-skills --list
+# Via CLI flag
+npx skillsio add owner/repo --vt-key YOUR_API_KEY
 
-# Install specific skills
-npx skills add vercel-labs/agent-skills --skill frontend-design --skill skill-creator
-
-# Install a skill with spaces in the name (must be quoted)
-npx skills add owner/repo --skill "Convex Best Practices"
-
-# Install to specific agents
-npx skills add vercel-labs/agent-skills -a claude-code -a opencode
-
-# Non-interactive installation (CI/CD friendly)
-npx skills add vercel-labs/agent-skills --skill frontend-design -g -a claude-code -y
-
-# Install all skills from a repo to all agents
-npx skills add vercel-labs/agent-skills --all
-
-# Install all skills to specific agents
-npx skills add vercel-labs/agent-skills --skill '*' -a claude-code
-
-# Install specific skills to all agents
-npx skills add vercel-labs/agent-skills --agent '*' --skill frontend-design
+# Via environment variable
+VT_API_KEY=YOUR_API_KEY npx skillsio add owner/repo
 ```
+
+`--vt-key` flag takes precedence over `VT_API_KEY` env var.
+
+## Quick Start
+
+```bash
+# Install a skill (scanned automatically)
+npx skillsio add vercel-labs/agent-skills
+
+# Skip the scan if you trust the source
+npx skillsio add vercel-labs/agent-skills --skip-scan
+
+# Scan with VirusTotal threat intelligence
+VT_API_KEY=xxx npx skillsio add owner/repo
+```
+
+## CLI Reference
+
+### `add <source>`
+
+Install skills from GitHub, GitLab, git URLs, direct URLs, or local paths.
+
+```bash
+npx skillsio add vercel-labs/agent-skills           # GitHub shorthand
+npx skillsio add https://github.com/org/repo        # Full URL
+npx skillsio add git@github.com:org/repo.git        # Git URL
+npx skillsio add ./my-local-skills                   # Local path
+```
+
+| Option | Description |
+| --- | --- |
+| `-g, --global` | Install to user directory instead of project |
+| `-a, --agent <agents...>` | <!-- agent-names:start -->Target specific agents (e.g., `claude-code`, `codex`). See [Supported Agents](#supported-agents)<!-- agent-names:end --> |
+| `-s, --skill <skills...>` | Install specific skills by name (use `'*'` for all) |
+| `-l, --list` | List available skills without installing |
+| `-y, --yes` | Skip confirmation prompts |
+| `--all` | Install all skills to all agents without prompts |
+| `--skip-scan` | Skip the security scan before installation |
+| `--vt-key <key>` | VirusTotal API key for additional threat intelligence |
+| `--full-depth` | Search all subdirectories even when a root SKILL.md exists |
+
+### Other Commands
+
+| Command | Description |
+| --- | --- |
+| `list` (alias: `ls`) | List installed skills |
+| `find [query]` | Search for skills interactively or by keyword |
+| `remove [skills]` (alias: `rm`) | Remove installed skills from agents |
+| `check` | Check for available skill updates |
+| `update` | Update all installed skills to latest versions |
+| `init [name]` | Create a new SKILL.md template |
 
 ### Installation Scope
 
-| Scope       | Flag      | Location            | Use Case                                      |
-| ----------- | --------- | ------------------- | --------------------------------------------- |
-| **Project** | (default) | `./<agent>/skills/` | Committed with your project, shared with team |
-| **Global**  | `-g`      | `~/<agent>/skills/` | Available across all projects                 |
-
-### Installation Methods
-
-When installing interactively, you can choose:
-
-| Method                    | Description                                                                                 |
-| ------------------------- | ------------------------------------------------------------------------------------------- |
-| **Symlink** (Recommended) | Creates symlinks from each agent to a canonical copy. Single source of truth, easy updates. |
-| **Copy**                  | Creates independent copies for each agent. Use when symlinks aren't supported.              |
-
-## Other Commands
-
-| Command                      | Description                                             |
-| ---------------------------- | ------------------------------------------------------- |
-| `npx skills list`            | List installed skills (alias: `ls`)                     |
-| `npx skills find [query]`    | Search for skills interactively or by keyword           |
-| `npx skills remove [skills]` | Remove installed skills from agents                     |
-| `npx skills check`           | Check for available skill updates                       |
-| `npx skills update`          | Update all installed skills to latest versions          |
-| `npx skills init [name]`     | Create a new SKILL.md template                          |
-
-### `skills list`
-
-List all installed skills. Similar to `npm ls`.
-
-```bash
-# List all installed skills (project and global)
-npx skills list
-
-# List only global skills
-npx skills ls -g
-
-# Filter by specific agents
-npx skills ls -a claude-code -a cursor
-```
-
-### `skills find`
-
-Search for skills interactively or by keyword.
-
-```bash
-# Interactive search (fzf-style)
-npx skills find
-
-# Search by keyword
-npx skills find typescript
-```
-
-### `skills check` / `skills update`
-
-```bash
-# Check if any installed skills have updates
-npx skills check
-
-# Update all skills to latest versions
-npx skills update
-```
-
-### `skills init`
-
-```bash
-# Create SKILL.md in current directory
-npx skills init
-
-# Create a new skill in a subdirectory
-npx skills init my-skill
-```
-
-### `skills remove`
-
-Remove installed skills from agents.
-
-```bash
-# Remove interactively (select from installed skills)
-npx skills remove
-
-# Remove specific skill by name
-npx skills remove web-design-guidelines
-
-# Remove multiple skills
-npx skills remove frontend-design web-design-guidelines
-
-# Remove from global scope
-npx skills remove --global web-design-guidelines
-
-# Remove from specific agents only
-npx skills remove --agent claude-code cursor my-skill
-
-# Remove all installed skills without confirmation
-npx skills remove --all
-
-# Remove all skills from a specific agent
-npx skills remove --skill '*' -a cursor
-
-# Remove a specific skill from all agents
-npx skills remove my-skill --agent '*'
-
-# Use 'rm' alias
-npx skills rm my-skill
-```
-
-| Option              | Description                                          |
-| ------------------- | ---------------------------------------------------- |
-| `-g, --global`      | Remove from global scope (~/) instead of project      |
-| `-a, --agent`       | Remove from specific agents (use `'*'` for all)      |
-| `-s, --skill`       | Specify skills to remove (use `'*'` for all)         |
-| `-y, --yes`         | Skip confirmation prompts                            |
-| `--all`             | Shorthand for `--skill '*' --agent '*' -y`           |
-
-## What are Agent Skills?
-
-Agent skills are reusable instruction sets that extend your coding agent's capabilities. They're defined in `SKILL.md`
-files with YAML frontmatter containing a `name` and `description`.
-
-Skills let agents perform specialized tasks like:
-
-- Generating release notes from git history
-- Creating PRs following your team's conventions
-- Integrating with external tools (Linear, Notion, etc.)
-
-Discover skills at **[skills.sh](https://skills.sh)**
+| Scope | Flag | Location | Use Case |
+| --- | --- | --- | --- |
+| **Project** | (default) | `./<agent>/skills/` | Committed with your project |
+| **Global** | `-g` | `~/<agent>/skills/` | Available across all projects |
 
 ## Supported Agents
 
-Skills can be installed to any of these agents:
+<!-- agent-list:start -->
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [35 more](#supported-agents).
+<!-- agent-list:end -->
 
 <!-- supported-agents:start -->
 | Agent | `--agent` | Project Path | Global Path |
@@ -247,204 +185,58 @@ Skills can be installed to any of these agents:
 | AdaL | `adal` | `.adal/skills/` | `~/.adal/skills/` |
 <!-- supported-agents:end -->
 
-> [!NOTE]
-> **Kiro CLI users:** After installing skills, manually add them to your custom agent's `resources` in
-> `.kiro/agents/<agent>.json`:
->
-> ```json
-> {
->   "resources": ["skill://.kiro/skills/**/SKILL.md"]
-> }
-> ```
-
-The CLI automatically detects which coding agents you have installed. If none are detected, you'll be prompted to select
-which agents to install to.
-
-## Creating Skills
-
-Skills are directories containing a `SKILL.md` file with YAML frontmatter:
-
-```markdown
----
-name: my-skill
-description: What this skill does and when to use it
----
-
-# My Skill
-
-Instructions for the agent to follow when this skill is activated.
-
-## When to Use
-
-Describe the scenarios where this skill should be used.
-
-## Steps
-
-1. First, do this
-2. Then, do that
-```
-
-### Required Fields
-
-- `name`: Unique identifier (lowercase, hyphens allowed)
-- `description`: Brief explanation of what the skill does
-
-### Optional Fields
-
-- `metadata.internal`: Set to `true` to hide the skill from normal discovery. Internal skills are only visible and
-  installable when `INSTALL_INTERNAL_SKILLS=1` is set. Useful for work-in-progress skills or skills meant only for
-  internal tooling.
-
-```markdown
----
-name: my-internal-skill
-description: An internal skill not shown by default
-metadata:
-  internal: true
----
-```
-
-### Skill Discovery
-
-The CLI searches for skills in these locations within a repository:
-
-<!-- skill-discovery:start -->
-- Root directory (if it contains `SKILL.md`)
-- `skills/`
-- `skills/.curated/`
-- `skills/.experimental/`
-- `skills/.system/`
-- `.agents/skills/`
-- `.agent/skills/`
-- `.augment/skills/`
-- `.claude/skills/`
-- `./skills/`
-- `.cline/skills/`
-- `.codebuddy/skills/`
-- `.commandcode/skills/`
-- `.continue/skills/`
-- `.crush/skills/`
-- `.cursor/skills/`
-- `.factory/skills/`
-- `.goose/skills/`
-- `.junie/skills/`
-- `.iflow/skills/`
-- `.kilocode/skills/`
-- `.kiro/skills/`
-- `.kode/skills/`
-- `.mcpjam/skills/`
-- `.vibe/skills/`
-- `.mux/skills/`
-- `.openhands/skills/`
-- `.pi/skills/`
-- `.qoder/skills/`
-- `.qwen/skills/`
-- `.roo/skills/`
-- `.trae/skills/`
-- `.windsurf/skills/`
-- `.zencoder/skills/`
-- `.neovate/skills/`
-- `.pochi/skills/`
-- `.adal/skills/`
-<!-- skill-discovery:end -->
-
-### Plugin Manifest Discovery
-
-If `.claude-plugin/marketplace.json` or `.claude-plugin/plugin.json` exists, skills declared in those files are also discovered:
-
-```json
-// .claude-plugin/marketplace.json
-{
-  "metadata": { "pluginRoot": "./plugins" },
-  "plugins": [{
-    "name": "my-plugin",
-    "source": "my-plugin",
-    "skills": ["./skills/review", "./skills/test"]
-  }]
-}
-```
-
-This enables compatibility with the [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-marketplaces) ecosystem.
-
-If no skills are found in standard locations, a recursive search is performed.
-
-## Compatibility
-
-Skills are generally compatible across agents since they follow a
-shared [Agent Skills specification](https://agentskills.io). However, some features may be agent-specific:
-
-| Feature         | OpenCode | OpenHands | Claude Code | Cline | CodeBuddy | Codex | Command Code | Kiro CLI | Cursor | Antigravity | Roo Code | Github Copilot | Amp | Clawdbot | Neovate | Pi  | Qoder | Zencoder |
-| --------------- | -------- | --------- | ----------- | ----- | --------- | ----- | ------------ | -------- | ------ | ----------- | -------- | -------------- | --- | -------- | ------- | --- | ----- | -------- |
-| Basic skills    | Yes      | Yes       | Yes         | Yes   | Yes       | Yes   | Yes          | Yes      | Yes    | Yes         | Yes      | Yes            | Yes | Yes      | Yes     | Yes | Yes   | Yes      |
-| `allowed-tools` | Yes      | Yes       | Yes         | Yes   | Yes       | Yes   | Yes          | No       | Yes    | Yes         | Yes      | Yes            | Yes | Yes      | Yes     | Yes | Yes   | No       |
-| `context: fork` | No       | No        | Yes         | No    | No        | No    | No           | No       | No     | No          | No       | No             | No  | No       | No      | No  | No    | No       |
-| Hooks           | No       | No        | Yes         | Yes   | No        | No    | No           | No       | No     | No          | No       | No             | No  | No       | No      | No  | No    | No       |
-
-## Troubleshooting
-
-### "No skills found"
-
-Ensure the repository contains valid `SKILL.md` files with both `name` and `description` in the frontmatter.
-
-### Skill not loading in agent
-
-- Verify the skill was installed to the correct path
-- Check the agent's documentation for skill loading requirements
-- Ensure the `SKILL.md` frontmatter is valid YAML
-
-### Permission errors
-
-Ensure you have write access to the target directory.
+The CLI automatically detects which coding agents you have installed.
 
 ## Environment Variables
 
-| Variable                  | Description                                                                |
-| ------------------------- | -------------------------------------------------------------------------- |
-| `INSTALL_INTERNAL_SKILLS` | Set to `1` or `true` to show and install skills marked as `internal: true` |
-| `DISABLE_TELEMETRY`       | Set to disable anonymous usage telemetry                                   |
-| `DO_NOT_TRACK`            | Alternative way to disable telemetry                                       |
+| Variable | Description |
+| --- | --- |
+| `VT_API_KEY` | VirusTotal API key for optional threat intelligence during security scans |
+| `INSTALL_INTERNAL_SKILLS` | Set to `1` to show and install skills marked as `internal: true` |
+| `DISABLE_TELEMETRY` | Disable anonymous usage telemetry |
+| `DO_NOT_TRACK` | Alternative way to disable telemetry |
+
+## Development
 
 ```bash
-# Install internal skills
-INSTALL_INTERNAL_SKILLS=1 npx skills add vercel-labs/agent-skills --list
+pnpm install          # Install dependencies
+pnpm build            # Build
+pnpm dev <cmd>        # Run CLI in dev mode (e.g., pnpm dev add owner/repo)
+pnpm test             # Run all tests
+pnpm type-check       # TypeScript type checking
+pnpm format           # Format code with Prettier
 ```
 
-## Telemetry
+### Scanner Architecture
 
-This CLI collects anonymous usage data to help improve the tool. No personal information is collected.
+- `src/scanner.ts` — Rules engine. Defines ~52 regex rules across 8 threat categories, runs them against all skill
+  files (.md, .txt, .yaml, .json, .sh, .py, .js, .ts, .ps1, .bat, .cmd).
+- `src/scanner-ui.ts` — Presentation layer. Displays findings by severity, runs optional VT lookups, handles
+  escalation logic and user confirmation prompts.
+- `src/vt.ts` — VirusTotal API client. SHA-256 hashing, `GET /api/v3/files/{hash}` lookup, verdict mapping, graceful
+  error handling.
+- `src/add.ts` — Integration point. The scanner is wired into all 4 install paths (GitHub/git repos, remote providers,
+  well-known endpoints, legacy Mintlify).
 
-Telemetry is automatically disabled in CI environments.
+## Changelog
 
-## Related Links
+### 1.0.1
 
-- [Agent Skills Specification](https://agentskills.io)
-- [Skills Directory](https://skills.sh)
-- [Amp Skills Documentation](https://ampcode.com/manual#agent-skills)
-- [Antigravity Skills Documentation](https://antigravity.google/docs/skills)
-- [Factory AI / Droid Skills Documentation](https://docs.factory.ai/cli/configuration/skills)
-- [Claude Code Skills Documentation](https://code.claude.com/docs/en/skills)
-- [Clawdbot Skills Documentation](https://docs.clawd.bot/tools/skills)
-- [Cline Skills Documentation](https://docs.cline.bot/features/skills)
-- [CodeBuddy Skills Documentation](https://www.codebuddy.ai/docs/ide/Features/Skills)
-- [Codex Skills Documentation](https://developers.openai.com/codex/skills)
-- [Command Code Skills Documentation](https://commandcode.ai/docs/skills)
-- [Crush Skills Documentation](https://github.com/charmbracelet/crush?tab=readme-ov-file#agent-skills)
-- [Cursor Skills Documentation](https://cursor.com/docs/context/skills)
-- [Gemini CLI Skills Documentation](https://geminicli.com/docs/cli/skills/)
-- [GitHub Copilot Agent Skills](https://docs.github.com/en/copilot/concepts/agents/about-agent-skills)
-- [iFlow CLI Skills Documentation](https://platform.iflow.cn/en/cli/examples/skill)
-- [Kimi Code CLI Skills Documentation](https://moonshotai.github.io/kimi-cli/en/customization/skills.html)
-- [Kiro CLI Skills Documentation](https://kiro.dev/docs/cli/custom-agents/configuration-reference/#skill-resources)
-- [Kode Skills Documentation](https://github.com/shareAI-lab/kode/blob/main/docs/skills.md)
-- [OpenCode Skills Documentation](https://opencode.ai/docs/skills)
-- [Qwen Code Skills Documentation](https://qwenlm.github.io/qwen-code-docs/en/users/features/skills/)
-- [OpenHands Skills Documentation](https://docs.openhands.ai/modules/usage/how-to/using-skills)
-- [Pi Skills Documentation](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/skills.md)
-- [Qoder Skills Documentation](https://docs.qoder.com/cli/Skills)
-- [Replit Skills Documentation](https://docs.replit.com/replitai/skills)
-- [Roo Code Skills Documentation](https://docs.roocode.com/features/skills)
-- [Trae Skills Documentation](https://docs.trae.ai/ide/skills)
-- [Vercel Agent Skills Repository](https://github.com/vercel-labs/agent-skills)
+- Critical security prompts now default to **No** — users must explicitly confirm to install skills flagged as malicious
+
+### 1.0.0
+
+- Initial release with ~52 regex security rules across 8 threat categories
+- VirusTotal integration for optional secondary threat intelligence
+- URL transparency: all external URLs in skill files are shown before installation
+- Scanner rules informed by Snyk and ClawHavoc research
+
+## Acknowledgments
+
+This project is a fork of [skills](https://github.com/vercel-labs/skills) by
+[Vercel Labs](https://github.com/vercel-labs). All upstream CLI functionality — skill discovery, installation, agent
+support, update checking — comes from the original project. The security scanning layer, VirusTotal integration, and
+related tests are additions by this fork.
 
 ## License
 

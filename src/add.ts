@@ -51,6 +51,13 @@ import {
   saveSelectedAgents,
 } from './skill-lock.ts';
 import type { Skill, AgentType, RemoteSkill } from './types.ts';
+import {
+  scanSkillContent,
+  extractSkillFiles,
+  extractRemoteSkillFiles,
+  extractWellKnownSkillFiles,
+} from './scanner.ts';
+import { presentScanResults } from './scanner-ui.ts';
 import packageJson from '../package.json' with { type: 'json' };
 export function initTelemetry(version: string): void {
   setVersion(version);
@@ -325,6 +332,8 @@ export interface AddOptions {
   list?: boolean;
   all?: boolean;
   fullDepth?: boolean;
+  skipScan?: boolean;
+  vtKey?: string;
 }
 
 /**
@@ -539,6 +548,19 @@ async function handleRemoteSkill(
 
   console.log();
   p.note(summaryLines.join('\n'), 'Installation Summary');
+
+  if (!options.skipScan) {
+    const files = extractRemoteSkillFiles(remoteSkill);
+    const scanResult = scanSkillContent(remoteSkill.installName, files);
+    const vtKey = options.vtKey || process.env.VT_API_KEY;
+    const skillContents = vtKey
+      ? new Map([[remoteSkill.installName, remoteSkill.content]])
+      : undefined;
+    if (!(await presentScanResults([scanResult], { yes: options.yes, vtKey, skillContents }))) {
+      p.cancel('Installation cancelled due to security concerns');
+      process.exit(0);
+    }
+  }
 
   if (!options.yes) {
     const confirmed = await p.confirm({
@@ -954,6 +976,24 @@ async function handleWellKnownSkills(
   console.log();
   p.note(summaryLines.join('\n'), 'Installation Summary');
 
+  if (!options.skipScan) {
+    spinner.start('Scanning skills for security issues...');
+    const scanResults = [];
+    for (const skill of selectedSkills) {
+      const files = extractWellKnownSkillFiles(skill);
+      scanResults.push(scanSkillContent(skill.installName, files));
+    }
+    spinner.stop('Security scan complete');
+    const vtKey = options.vtKey || process.env.VT_API_KEY;
+    const skillContents = vtKey
+      ? new Map(selectedSkills.map((s) => [s.installName, s.content]))
+      : undefined;
+    if (!(await presentScanResults(scanResults, { yes: options.yes, vtKey, skillContents }))) {
+      p.cancel('Installation cancelled due to security concerns');
+      process.exit(0);
+    }
+  }
+
   if (!options.yes) {
     const confirmed = await p.confirm({ message: 'Proceed with installation?' });
 
@@ -1291,6 +1331,19 @@ async function handleDirectUrlSkillLegacy(
 
   console.log();
   p.note(summaryLines.join('\n'), 'Installation Summary');
+
+  if (!options.skipScan) {
+    const files = extractRemoteSkillFiles(remoteSkill);
+    const scanResult = scanSkillContent(remoteSkill.installName, files);
+    const vtKey = options.vtKey || process.env.VT_API_KEY;
+    const skillContents = vtKey
+      ? new Map([[remoteSkill.installName, remoteSkill.content]])
+      : undefined;
+    if (!(await presentScanResults([scanResult], { yes: options.yes, vtKey, skillContents }))) {
+      p.cancel('Installation cancelled due to security concerns');
+      process.exit(0);
+    }
+  }
 
   if (!options.yes) {
     const confirmed = await p.confirm({
@@ -1760,6 +1813,30 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     console.log();
     p.note(summaryLines.join('\n'), 'Installation Summary');
 
+    if (!options.skipScan) {
+      spinner.start('Scanning skills for security issues...');
+      const scanResults = [];
+      const vtKey = options.vtKey || process.env.VT_API_KEY;
+      const skillContents = vtKey ? new Map<string, string>() : undefined;
+      for (const skill of selectedSkills) {
+        const files = await extractSkillFiles(skill);
+        const displayName = getSkillDisplayName(skill);
+        scanResults.push(scanSkillContent(displayName, files));
+        if (skillContents) {
+          const mainContent = files.get('SKILL.md');
+          if (mainContent) {
+            skillContents.set(displayName, mainContent);
+          }
+        }
+      }
+      spinner.stop('Security scan complete');
+      if (!(await presentScanResults(scanResults, { yes: options.yes, vtKey, skillContents }))) {
+        p.cancel('Installation cancelled due to security concerns');
+        await cleanup(tempDir);
+        process.exit(0);
+      }
+    }
+
     if (!options.yes) {
       const confirmed = await p.confirm({ message: 'Proceed with installation?' });
 
@@ -2103,6 +2180,11 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       i--; // Back up one since the loop will increment
     } else if (arg === '--full-depth') {
       options.fullDepth = true;
+    } else if (arg === '--skip-scan') {
+      options.skipScan = true;
+    } else if (arg === '--vt-key') {
+      i++;
+      options.vtKey = args[i];
     } else if (arg && !arg.startsWith('-')) {
       source.push(arg);
     }
