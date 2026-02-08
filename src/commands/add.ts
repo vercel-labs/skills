@@ -33,7 +33,6 @@ import {
   filterSkills,
 } from '../services/discovery/index.ts';
 import {
-  installSkillForAgent,
   installCognitiveForAgent,
   isSkillInstalled,
   isCognitiveInstalled,
@@ -52,7 +51,7 @@ import {
   isUniversalAgent,
 } from '../services/registry/index.ts';
 import { track, setVersion } from '../services/telemetry/index.ts';
-import { findProvider, wellKnownProvider, type WellKnownSkill } from '../providers/index.ts';
+import { findProvider, wellKnownProvider, type WellKnownCognitive } from '../providers/index.ts';
 import {
   addSkillToLock,
   addCognitiveToLock,
@@ -63,6 +62,7 @@ import {
   saveSelectedAgents,
 } from '../services/lock/lock-file.ts';
 import type { Skill, AgentType, RemoteSkill, CognitiveType, ParsedSource } from '../core/types.ts';
+import { COGNITIVE_FILE_NAMES } from '../core/types.ts';
 import packageJson from '../../package.json' with { type: 'json' };
 
 export function initTelemetry(version: string): void {
@@ -117,8 +117,8 @@ interface LockEntry {
   source: string;
   sourceType: string;
   sourceUrl: string;
-  skillPath?: string;
-  skillFolderHash: string;
+  cognitivePath?: string;
+  cognitiveFolderHash: string;
   cognitiveType: CognitiveType;
   isCognitive: boolean;
 }
@@ -246,7 +246,8 @@ async function selectInstallScope(
   cleanup?: () => Promise<void>
 ): Promise<boolean> {
   let installGlobally = options.global ?? false;
-  const supportsGlobal = targetAgents.some((a) => agents[a].globalSkillsDir !== undefined);
+  const cogType = options.type ?? 'skill';
+  const supportsGlobal = targetAgents.some((a) => agents[a].dirs[cogType]?.global !== undefined);
 
   if (options.global === undefined && !options.yes && supportsGlobal) {
     const scope = await p.select({
@@ -380,7 +381,8 @@ async function executeInstallFlow(
   }
 
   // 4. Install
-  const label = items.length === 1 ? 'Installing skill...' : 'Installing skills...';
+  const label =
+    items.length === 1 ? `Installing ${cognitiveType}...` : `Installing ${cognitiveType}s...`;
   spinner.start(label);
 
   const results: {
@@ -438,25 +440,25 @@ async function executeInstallFlow(
     for (const entry of prepared.lockEntries) {
       if (successfulSkillNames.has(entry.name)) {
         try {
-          let skillFolderHash = entry.skillFolderHash;
-          if (!skillFolderHash && entry.sourceType === 'github' && entry.skillPath) {
-            const hash = await fetchSkillFolderHash(entry.source, entry.skillPath);
-            if (hash) skillFolderHash = hash;
+          let cognitiveFolderHash = entry.cognitiveFolderHash;
+          if (!cognitiveFolderHash && entry.sourceType === 'github' && entry.cognitivePath) {
+            const hash = await fetchSkillFolderHash(entry.source, entry.cognitivePath);
+            if (hash) cognitiveFolderHash = hash;
           }
           if (entry.isCognitive) {
             await addCognitiveToLock(entry.name, entry.cognitiveType, {
               source: entry.source,
               sourceType: entry.sourceType,
               sourceUrl: entry.sourceUrl,
-              skillPath: entry.skillPath,
-              skillFolderHash,
+              cognitivePath: entry.cognitivePath,
+              cognitiveFolderHash,
             });
           } else {
             await addSkillToLock(entry.name, {
               source: entry.source,
               sourceType: entry.sourceType,
               sourceUrl: entry.sourceUrl,
-              skillFolderHash,
+              cognitiveFolderHash,
             });
           }
         } catch {
@@ -497,7 +499,9 @@ async function executeInstallFlow(
       }
     }
 
-    const title = pc.green(`Installed ${skillCount} skill${skillCount !== 1 ? 's' : ''}`);
+    const title = pc.green(
+      `Installed ${skillCount} ${cognitiveType}${skillCount !== 1 ? 's' : ''}`
+    );
     logger.note(resultLines.join('\n'), title);
 
     const symlinkFailures = successful.filter((r) => r.mode === 'symlink' && r.symlinkFailed);
@@ -519,7 +523,8 @@ async function executeInstallFlow(
   }
 
   logger.outro(
-    pc.green('Done!') + pc.dim('  Review skills before use; they run with full agent permissions.')
+    pc.green('Done!') +
+      pc.dim('  Review cognitives before use; they run with full agent permissions.')
   );
 
   await promptForFindSkills(options, targetAgents);
@@ -615,7 +620,7 @@ async function resolveRemoteSkill(
   }
 
   spinner.start(`Fetching skill.md from ${provider.displayName}...`);
-  const providerSkill = await provider.fetchSkill(url);
+  const providerSkill = await provider.fetchCognitive(url);
 
   if (!providerSkill) {
     spinner.fail('Invalid skill');
@@ -624,6 +629,8 @@ async function resolveRemoteSkill(
     );
     process.exit(1);
   }
+
+  const cognitiveType = providerSkill.cognitiveType ?? 'skill';
 
   const remoteSkill: RemoteSkill = {
     name: providerSkill.name,
@@ -634,6 +641,7 @@ async function resolveRemoteSkill(
     providerId: provider.id,
     sourceIdentifier: provider.getSourceIdentifier(url),
     metadata: providerSkill.metadata,
+    cognitiveType,
   };
 
   spinner.succeed(`Found skill: ${pc.cyan(remoteSkill.installName)}`);
@@ -663,7 +671,8 @@ async function resolveRemoteSkill(
     sourceIdentifier: remoteSkill.sourceIdentifier,
     providerId: remoteSkill.providerId,
     sourceUrl: url,
-    installFn: (agent, opts) => installRemoteSkillForAgent(remoteSkill, agent, opts),
+    installFn: (agent, opts) =>
+      installRemoteSkillForAgent(remoteSkill, agent, { ...opts, cognitiveType }),
   };
 
   return {
@@ -671,16 +680,16 @@ async function resolveRemoteSkill(
     targetAgents,
     installGlobally,
     installMode,
-    cognitiveType: 'skill',
+    cognitiveType,
     lockEntries: [
       {
         name: remoteSkill.installName,
         source: remoteSkill.sourceIdentifier,
         sourceType: remoteSkill.providerId,
         sourceUrl: url,
-        skillFolderHash: '',
-        cognitiveType: 'skill',
-        isCognitive: false,
+        cognitiveFolderHash: '',
+        cognitiveType,
+        isCognitive: cognitiveType !== 'skill',
       },
     ],
     telemetry: {
@@ -765,18 +774,20 @@ async function resolveWellKnownSkills(
       source: sourceIdentifier,
       sourceType: 'well-known',
       sourceUrl: skill.sourceUrl,
-      skillFolderHash: '',
-      cognitiveType: 'skill',
-      isCognitive: false,
+      cognitiveFolderHash: '',
+      cognitiveType: skill.cognitiveType ?? 'skill',
+      isCognitive: (skill.cognitiveType ?? 'skill') !== 'skill',
     });
   }
+
+  const resolvedCognitiveType = selectedSkills[0]?.cognitiveType ?? 'skill';
 
   return {
     items,
     targetAgents,
     installGlobally,
     installMode,
-    cognitiveType: 'skill',
+    cognitiveType: resolvedCognitiveType,
     lockEntries,
     telemetry: {
       source: sourceIdentifier,
@@ -802,8 +813,7 @@ async function resolveGitRepoSkills(
   };
   const cognitiveType = options.type ?? 'skill';
   const cognitiveLabel = cognitiveType === 'skill' ? 'skills' : `${cognitiveType}s`;
-  const cognitiveFile =
-    cognitiveType === 'skill' ? 'SKILL.md' : cognitiveType === 'agent' ? 'AGENT.md' : 'PROMPT.md';
+  const cognitiveFile = COGNITIVE_FILE_NAMES[cognitiveType];
 
   const includeInternal = !!(options.skill && options.skill.length > 0);
 
@@ -933,8 +943,8 @@ async function resolveGitRepoSkills(
         source: normalizedSource,
         sourceType: parsed.type,
         sourceUrl: parsed.url,
-        skillPath: skillFiles[skill.name],
-        skillFolderHash: '',
+        cognitivePath: skillFiles[skill.name],
+        cognitiveFolderHash: '',
         cognitiveType,
         isCognitive: true,
       });
@@ -1204,7 +1214,7 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
     } else if (arg === '-t' || arg === '--type') {
       i++;
       const typeVal = args[i];
-      if (typeVal === 'skill' || typeVal === 'agent' || typeVal === 'prompt') {
+      if (typeVal && (Object.keys(COGNITIVE_FILE_NAMES) as string[]).includes(typeVal)) {
         options.type = typeVal as CognitiveType;
       }
     } else if (arg === '--full-depth') {

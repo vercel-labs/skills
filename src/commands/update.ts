@@ -6,94 +6,94 @@ import pc from 'picocolors';
 import { logger } from '../utils/logger.ts';
 import { fetchSkillFolderHash, getGitHubToken } from '../services/lock/lock-file.ts';
 import { track } from '../services/telemetry/index.ts';
+import { COGNITIVE_FILE_NAMES } from '../core/types.ts';
 
 const AGENTS_DIR = '.agents';
-const LOCK_FILE = '.skill-lock.json';
+const LOCK_FILE = '.synk-lock.json';
 const CURRENT_LOCK_VERSION = 4; // Bumped from 3 to 4 for cognitiveType support
 
-interface SkillLockEntry {
+interface CognitiveLockEntry {
   source: string;
   sourceType: string;
   sourceUrl: string;
-  skillPath?: string;
-  /** GitHub tree SHA for the entire skill folder (v3) */
-  skillFolderHash: string;
+  cognitivePath?: string;
+  /** GitHub tree SHA for the entire cognitive folder */
+  cognitiveFolderHash: string;
   installedAt: string;
   updatedAt: string;
 }
 
-interface SkillLockFile {
+interface CognitiveLockFile {
   version: number;
-  skills: Record<string, SkillLockEntry>;
+  cognitives: Record<string, CognitiveLockEntry>;
 }
 
-function getSkillLockPath(): string {
+function getLockFilePath(): string {
   return join(homedir(), AGENTS_DIR, LOCK_FILE);
 }
 
-function readSkillLock(): SkillLockFile {
-  const lockPath = getSkillLockPath();
+function readLockFile(): CognitiveLockFile {
+  const lockPath = getLockFilePath();
   try {
     const content = readFileSync(lockPath, 'utf-8');
-    const parsed = JSON.parse(content) as SkillLockFile;
-    if (typeof parsed.version !== 'number' || !parsed.skills) {
-      return { version: CURRENT_LOCK_VERSION, skills: {} };
+    const parsed = JSON.parse(content) as CognitiveLockFile;
+    if (typeof parsed.version !== 'number' || !parsed.cognitives) {
+      return { version: CURRENT_LOCK_VERSION, cognitives: {} };
     }
     // If old version, wipe and start fresh (backwards incompatible change)
-    // v3 adds skillFolderHash - we want fresh installs to populate it
     if (parsed.version < CURRENT_LOCK_VERSION) {
-      return { version: CURRENT_LOCK_VERSION, skills: {} };
+      return { version: CURRENT_LOCK_VERSION, cognitives: {} };
     }
     return parsed;
   } catch {
-    return { version: CURRENT_LOCK_VERSION, skills: {} };
+    return { version: CURRENT_LOCK_VERSION, cognitives: {} };
   }
 }
 
 export async function runUpdate(): Promise<void> {
-  logger.log('Checking for skill updates...');
+  logger.log('Checking for updates...');
   logger.line();
 
-  const lock = readSkillLock();
-  const skillNames = Object.keys(lock.skills);
+  const lock = readLockFile();
+  const cognitiveNames = Object.keys(lock.cognitives);
 
-  if (skillNames.length === 0) {
-    logger.dim('No skills tracked in lock file.');
-    logger.log(`${pc.dim('Install skills with')} npx synk add <package>`);
+  if (cognitiveNames.length === 0) {
+    logger.dim('No cognitives tracked in lock file.');
+    logger.log(`${pc.dim('Install cognitives with')} npx synk add <package>`);
     return;
   }
 
   // Get GitHub token from user's environment for higher rate limits
   const token = getGitHubToken();
 
-  // Find skills that need updates by checking GitHub directly
-  const updates: Array<{ name: string; source: string; entry: SkillLockEntry }> = [];
+  // Find cognitives that need updates by checking GitHub directly
+  const updates: Array<{ name: string; source: string; entry: CognitiveLockEntry }> = [];
   let checkedCount = 0;
 
-  for (const skillName of skillNames) {
-    const entry = lock.skills[skillName];
+  for (const name of cognitiveNames) {
+    const entry = lock.cognitives[name];
     if (!entry) continue;
 
-    // Only check GitHub-sourced skills with folder hash
-    if (entry.sourceType !== 'github' || !entry.skillFolderHash || !entry.skillPath) {
+    // Only check GitHub-sourced cognitives with folder hash
+    if (entry.sourceType !== 'github' || !entry.cognitiveFolderHash || !entry.cognitivePath) {
       continue;
     }
 
     checkedCount++;
 
     try {
-      const latestHash = await fetchSkillFolderHash(entry.source, entry.skillPath, token);
+      const latestHash = await fetchSkillFolderHash(entry.source, entry.cognitivePath, token);
 
-      if (latestHash && latestHash !== entry.skillFolderHash) {
-        updates.push({ name: skillName, source: entry.source, entry });
+      if (latestHash && latestHash !== entry.cognitiveFolderHash) {
+        updates.push({ name, source: entry.source, entry });
       }
     } catch {
-      // Skip skills that fail to check
+      // Skip cognitives that fail to check
     }
   }
 
   if (checkedCount === 0) {
-    logger.dim('No skills to check.');
+    logger.dim('No cognitives to check.');
     return;
   }
 
@@ -116,13 +116,17 @@ export async function runUpdate(): Promise<void> {
     // Build the URL with subpath to target the specific skill directory
     // e.g., https://github.com/owner/repo/tree/main/skills/my-skill
     let installUrl = update.entry.sourceUrl;
-    if (update.entry.skillPath) {
-      // Extract the skill folder path (remove /SKILL.md suffix)
-      let skillFolder = update.entry.skillPath;
-      if (skillFolder.endsWith('/SKILL.md')) {
-        skillFolder = skillFolder.slice(0, -9);
-      } else if (skillFolder.endsWith('SKILL.md')) {
-        skillFolder = skillFolder.slice(0, -8);
+    if (update.entry.cognitivePath) {
+      // Extract the cognitive folder path (remove cognitive file name suffix)
+      let skillFolder = update.entry.cognitivePath;
+      for (const fileName of Object.values(COGNITIVE_FILE_NAMES)) {
+        if (skillFolder.endsWith('/' + fileName)) {
+          skillFolder = skillFolder.slice(0, -(fileName.length + 1));
+          break;
+        } else if (skillFolder.endsWith(fileName)) {
+          skillFolder = skillFolder.slice(0, -fileName.length);
+          break;
+        }
       }
       if (skillFolder.endsWith('/')) {
         skillFolder = skillFolder.slice(0, -1);
@@ -134,8 +138,8 @@ export async function runUpdate(): Promise<void> {
       installUrl = `${installUrl}/tree/main/${skillFolder}`;
     }
 
-    // Use skills CLI to reinstall with -g -y flags
-    const result = spawnSync('npx', ['-y', 'skills', 'add', installUrl, '-g', '-y'], {
+    // Use synk CLI to reinstall with -g -y flags
+    const result = spawnSync('npx', ['-y', 'synk', 'add', installUrl, '-g', '-y'], {
       stdio: ['inherit', 'pipe', 'pipe'],
     });
 
@@ -150,10 +154,10 @@ export async function runUpdate(): Promise<void> {
 
   logger.line();
   if (successCount > 0) {
-    logger.success(`Updated ${successCount} skill(s)`);
+    logger.success(`Updated ${successCount} cognitive(s)`);
   }
   if (failCount > 0) {
-    logger.dim(`Failed to update ${failCount} skill(s)`);
+    logger.dim(`Failed to update ${failCount} cognitive(s)`);
   }
 
   // Track telemetry

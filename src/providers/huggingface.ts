@@ -1,14 +1,47 @@
 import matter from 'gray-matter';
-import type { HostProvider, ProviderMatch, RemoteSkill } from './types.ts';
+import type { CognitiveType } from '../core/types.ts';
+import { COGNITIVE_FILE_NAMES } from '../core/types.ts';
+import type { HostProvider, ProviderMatch, RemoteCognitive } from './types.ts';
+
+/** Map lowercase file names to their cognitive type. */
+const FILE_NAME_TO_TYPE = new Map<string, CognitiveType>(
+  (Object.entries(COGNITIVE_FILE_NAMES) as [CognitiveType, string][]).map(([type, name]) => [
+    name.toLowerCase(),
+    type,
+  ])
+);
 
 /**
- * HuggingFace Spaces skills provider.
+ * Check whether a URL ends with any known cognitive file name.
+ */
+function matchesCognitiveFile(url: string): boolean {
+  const lower = url.toLowerCase();
+  for (const fileName of FILE_NAME_TO_TYPE.keys()) {
+    if (lower.endsWith('/' + fileName)) return true;
+  }
+  return false;
+}
+
+/**
+ * Detect the cognitive type from a URL based on the trailing file name.
+ */
+function detectCognitiveType(url: string): CognitiveType {
+  const lower = url.toLowerCase();
+  for (const [fileName, type] of FILE_NAME_TO_TYPE) {
+    if (lower.endsWith('/' + fileName)) return type;
+  }
+  return 'skill';
+}
+
+/**
+ * HuggingFace Spaces cognitive provider.
  *
- * HuggingFace skills are hosted in HuggingFace Spaces repositories.
+ * HuggingFace cognitives are hosted in HuggingFace Spaces repositories.
  *
  * URL formats supported:
  * - https://huggingface.co/spaces/{owner}/{repo}/blob/main/SKILL.md (web view)
  * - https://huggingface.co/spaces/{owner}/{repo}/raw/main/SKILL.md (raw content)
+ * - Also matches AGENT.md and PROMPT.md
  *
  * The source identifier is "huggingface/{owner}/{repo}".
  * The install name defaults to the repo name, but can be overridden with
@@ -36,8 +69,8 @@ export class HuggingFaceProvider implements HostProvider {
       return { matches: false };
     }
 
-    // Must end with SKILL.md (case insensitive)
-    if (!url.toLowerCase().endsWith('/skill.md')) {
+    // Must end with a known cognitive file name (case insensitive)
+    if (!matchesCognitiveFile(url)) {
       return { matches: false };
     }
 
@@ -49,7 +82,7 @@ export class HuggingFaceProvider implements HostProvider {
     return { matches: true };
   }
 
-  async fetchSkill(url: string): Promise<RemoteSkill | null> {
+  async fetchCognitive(url: string): Promise<RemoteCognitive | null> {
     try {
       // Convert to raw URL
       const rawUrl = this.toRawUrl(url);
@@ -84,6 +117,7 @@ export class HuggingFaceProvider implements HostProvider {
         installName,
         sourceUrl: url,
         metadata: data.metadata,
+        cognitiveType: detectCognitiveType(url),
       };
     } catch {
       return null;
@@ -103,6 +137,11 @@ export class HuggingFaceProvider implements HostProvider {
       return 'huggingface/unknown';
     }
     return `huggingface/${parsed.owner}/${parsed.repo}`;
+  }
+
+  /** @deprecated Use fetchCognitive */
+  async fetchSkill(url: string): Promise<RemoteCognitive | null> {
+    return this.fetchCognitive(url);
   }
 
   /**

@@ -39,14 +39,14 @@ function checkDuplicateDisplayNames() {
 }
 
 /**
- * Checks for duplicate `skillsDir` and `globalSkillsDir` values among agents.
+ * Checks for duplicate `dirs.skill.local` and `dirs.skill.global` values among agents.
  *
- * Iterates through the `agents` object, collecting all `skillsDir` and normalized `globalSkillsDir`
+ * Iterates through the `agents` object, collecting all `dirs.skill.local` and normalized `dirs.skill.global`
  * paths. If any directory is associated with more than one agent, an error is reported listing the
  * conflicting agents.
  *
  * @remarks
- * - The `globalSkillsDir` path is normalized by replacing the user's home directory with `~`.
+ * - The `dirs.skill.global` path is normalized by replacing the user's home directory with `~`.
  * - Errors are reported using the `error` function.
  *
  * @throws Will call `error` if duplicate directories are found.
@@ -57,12 +57,13 @@ function checkDuplicateSkillsDirs() {
   const globalSkillsDirs = new Map<string, string[]>();
 
   for (const [key, config] of Object.entries(agents)) {
-    if (!skillsDirs.has(config.skillsDir)) {
-      skillsDirs.set(config.skillsDir, []);
+    const localSkills = config.dirs.skill.local;
+    if (!skillsDirs.has(localSkills)) {
+      skillsDirs.set(localSkills, []);
     }
-    skillsDirs.get(config.skillsDir)!.push(key);
+    skillsDirs.get(localSkills)!.push(key);
 
-    const globalPath = config.globalSkillsDir.replace(homedir(), '~');
+    const globalPath = (config.dirs.skill.global ?? '').replace(homedir(), '~');
     if (!globalSkillsDirs.has(globalPath)) {
       globalSkillsDirs.set(globalPath, []);
     }
@@ -71,13 +72,13 @@ function checkDuplicateSkillsDirs() {
 
   for (const [dir, keys] of skillsDirs) {
     if (keys.length > 1) {
-      error(`Duplicate skillsDir "${dir}" found in agents: ${keys.join(', ')}`);
+      error(`Duplicate dirs.skill.local "${dir}" found in agents: ${keys.join(', ')}`);
     }
   }
 
   for (const [dir, keys] of globalSkillsDirs) {
     if (keys.length > 1) {
-      error(`Duplicate globalSkillsDir "${dir}" found in agents: ${keys.join(', ')}`);
+      error(`Duplicate dirs.skill.global "${dir}" found in agents: ${keys.join(', ')}`);
     }
   }
 }

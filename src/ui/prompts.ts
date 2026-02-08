@@ -1,6 +1,7 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
-import type { AgentType } from '../core/types.ts';
+import type { AgentType, CognitiveType } from '../core/types.ts';
+import { COGNITIVE_SUBDIRS } from '../core/types.ts';
 import { agents, getUniversalAgents, getNonUniversalAgents } from '../services/registry/index.ts';
 import { getLastSelectedAgents, saveSelectedAgents } from '../services/lock/lock-file.ts';
 import { searchMultiselect } from './search-multiselect.ts';
@@ -86,27 +87,33 @@ export async function promptForAgents(
  */
 export async function selectAgentsInteractive(options: {
   global?: boolean;
+  cognitiveType?: CognitiveType;
 }): Promise<AgentType[] | symbol> {
+  const cognitiveType: CognitiveType = options.cognitiveType ?? 'skill';
+
   // Filter out agents that don't support global installation when --global is used
-  const supportsGlobalFilter = (a: AgentType) => !options.global || agents[a].globalSkillsDir;
+  const supportsGlobalFilter = (a: AgentType) =>
+    !options.global || agents[a].dirs[cognitiveType]?.global;
 
   const universalAgents = getUniversalAgents().filter(supportsGlobalFilter);
   const otherAgents = getNonUniversalAgents().filter(supportsGlobalFilter);
 
   // Universal agents shown as locked section
   const universalSection = {
-    title: 'Universal (.agents/skills)',
+    title: `Universal (.agents/${COGNITIVE_SUBDIRS[cognitiveType]})`,
     items: universalAgents.map((a) => ({
       value: a,
       label: agents[a].displayName,
     })),
   };
 
-  // Other agents are selectable with their skillsDir as hint
+  // Other agents are selectable with their dirs[cognitiveType].local as hint
   const otherChoices = otherAgents.map((a) => ({
     value: a,
     label: agents[a].displayName,
-    hint: options.global ? agents[a].globalSkillsDir! : agents[a].skillsDir,
+    hint: options.global
+      ? agents[a].dirs[cognitiveType]!.global!
+      : agents[a].dirs[cognitiveType]!.local,
   }));
 
   // Get last selected agents (filter to only non-universal ones for initial selection)

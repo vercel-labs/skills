@@ -1,12 +1,12 @@
 import { access, readdir, stat } from 'fs/promises';
 import { join } from 'path';
 import type { AgentType, CognitiveType } from '../../core/types.ts';
-import { COGNITIVE_FILE_NAMES } from '../../core/constants.ts';
+import { COGNITIVE_FILE_NAMES } from '../../core/types.ts';
 import { agents, detectInstalledAgents, getCognitiveDir } from '../registry/index.ts';
-import { parseSkillMd, parseCognitiveMd } from '../discovery/index.ts';
+import { parseCognitiveMd } from '../discovery/index.ts';
 import { sanitizeName, getCanonicalDir, isPathSafe } from './paths.ts';
 
-export interface InstalledSkill {
+export interface InstalledCognitive {
   name: string;
   description: string;
   path: string;
@@ -15,6 +15,9 @@ export interface InstalledSkill {
   agents: AgentType[];
   cognitiveType: CognitiveType;
 }
+
+/** @deprecated Use InstalledCognitive */
+export type InstalledSkill = InstalledCognitive;
 
 /**
  * Lists all installed cognitives (skills, agents, prompts) from canonical locations.
@@ -30,11 +33,12 @@ export async function listInstalledCognitives(
     agentFilter?: AgentType[];
     typeFilter?: CognitiveType[];
   } = {}
-): Promise<InstalledSkill[]> {
+): Promise<InstalledCognitive[]> {
   const cwd = options.cwd || process.cwd();
-  const typesToScan: CognitiveType[] = options.typeFilter ?? ['skill', 'agent', 'prompt'];
+  const typesToScan: CognitiveType[] =
+    options.typeFilter ?? (Object.keys(COGNITIVE_FILE_NAMES) as CognitiveType[]);
   // Use a Map to deduplicate by scope:type:name
-  const cognitivesMap: Map<string, InstalledSkill> = new Map();
+  const cognitivesMap: Map<string, InstalledCognitive> = new Map();
 
   // Detect which agents are actually installed
   const detectedAgents = await detectInstalledAgents();
@@ -113,11 +117,8 @@ export async function listInstalledCognitives(
             continue;
           }
 
-          // Parse the cognitive - use parseCognitiveMd for agent/prompt types, parseSkillMd for skills
-          const parsed =
-            cognitiveType === 'skill'
-              ? await parseSkillMd(mdPath)
-              : await parseCognitiveMd(mdPath, cognitiveType);
+          // Parse the cognitive file
+          const parsed = await parseCognitiveMd(mdPath, cognitiveType);
           if (!parsed) {
             continue;
           }
@@ -200,10 +201,7 @@ export async function listInstalledCognitives(
                   try {
                     const candidateMdPath = join(candidateDir, fileName);
                     await stat(candidateMdPath);
-                    const candidateParsed =
-                      cognitiveType === 'skill'
-                        ? await parseSkillMd(candidateMdPath)
-                        : await parseCognitiveMd(candidateMdPath, cognitiveType);
+                    const candidateParsed = await parseCognitiveMd(candidateMdPath, cognitiveType);
                     if (candidateParsed && candidateParsed.name === parsed.name) {
                       found = true;
                       break;

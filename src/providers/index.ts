@@ -1,5 +1,11 @@
 // Export types
-export type { HostProvider, ProviderMatch, ProviderRegistry, RemoteSkill } from './types.ts';
+export type {
+  HostProvider,
+  ProviderMatch,
+  ProviderRegistry,
+  RemoteCognitive,
+  RemoteSkill,
+} from './types.ts';
 
 // Export registry functions
 export { registry, registerProvider, findProvider, getProviders } from './registry.ts';
@@ -11,7 +17,11 @@ export {
   WellKnownProvider,
   wellKnownProvider,
   type WellKnownIndex,
+  type WellKnownCognitiveEntry,
+  type WellKnownCognitive,
+  /** @deprecated Use WellKnownCognitiveEntry */
   type WellKnownSkillEntry,
+  /** @deprecated Use WellKnownCognitive */
   type WellKnownSkill,
 } from './wellknown.ts';
 

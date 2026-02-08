@@ -1,28 +1,32 @@
-export type CognitiveType = 'skill' | 'agent' | 'prompt';
+import type { CognitiveType as _CognitiveType } from './__generated__/cognitive-types.ts';
+
+export type { CognitiveType } from './__generated__/cognitive-types.ts';
+export {
+  COGNITIVE_SUBDIRS,
+  COGNITIVE_FILE_NAMES,
+  AGENTS_DIR,
+} from './__generated__/cognitive-types.ts';
 
 export type { AgentType } from './__generated__/agent-type.ts';
 
-export interface Skill {
+export interface Cognitive {
   name: string;
   description: string;
   path: string;
   /** Raw SKILL.md/AGENT.md/PROMPT.md content for hashing */
   rawContent?: string;
   metadata?: Record<string, unknown>;
-  /** The cognitive type of this skill. Defaults to 'skill'. */
-  cognitiveType?: CognitiveType;
+  /** The cognitive type of this cognitive. Defaults to 'skill'. */
+  cognitiveType?: _CognitiveType;
 }
+
+/** @deprecated Use Cognitive */
+export type Skill = Cognitive;
 
 export interface AgentConfig {
   name: string;
   displayName: string;
-  skillsDir: string;
-  /** Global skills directory. Set to undefined if the agent doesn't support global installation. */
-  globalSkillsDir: string | undefined;
-  agentsDir: string;
-  globalAgentsDir: string | undefined;
-  promptsDir: string;
-  globalPromptsDir: string | undefined;
+  dirs: Record<_CognitiveType, { local: string; global: string | undefined }>;
   detectInstalled: () => Promise<boolean>;
   /** Whether to show this agent in the universal agents list. Defaults to true. */
   showInUniversalList?: boolean;
@@ -34,13 +38,15 @@ export interface ParsedSource {
   subpath?: string;
   localPath?: string;
   ref?: string;
-  /** Skill name extracted from @skill syntax (e.g., owner/repo@skill-name) */
+  /** Name extracted from @name syntax (e.g., owner/repo@cognitive-name) */
+  nameFilter?: string;
+  /** @deprecated Use nameFilter */
   skillFilter?: string;
   /** Filter by cognitive type (--type flag) */
-  cognitiveFilter?: CognitiveType;
+  cognitiveFilter?: _CognitiveType;
 }
 
-export interface MintlifySkill {
+export interface MintlifyCognitive {
   name: string;
   description: string;
   content: string;
@@ -48,13 +54,16 @@ export interface MintlifySkill {
   sourceUrl: string;
 }
 
+/** @deprecated Use MintlifyCognitive */
+export type MintlifySkill = MintlifyCognitive;
+
 /**
- * Represents a skill fetched from a remote host provider.
+ * Represents a cognitive fetched from a remote host provider.
  */
-export interface RemoteSkill {
-  /** Display name of the skill (from frontmatter) */
+export interface RemoteCognitive {
+  /** Display name of the cognitive (from frontmatter) */
   name: string;
-  /** Description of the skill (from frontmatter) */
+  /** Description of the cognitive (from frontmatter) */
   description: string;
   /** Full markdown content including frontmatter */
   content: string;
@@ -62,12 +71,15 @@ export interface RemoteSkill {
   installName: string;
   /** The original source URL */
   sourceUrl: string;
-  /** The provider that fetched this skill */
+  /** The provider that fetched this cognitive */
   providerId: string;
   /** Source identifier for telemetry (e.g., "mintlify/bun.com") */
   sourceIdentifier: string;
   /** Any additional metadata from frontmatter */
   metadata?: Record<string, unknown>;
-  /** The cognitive type of this remote skill */
-  cognitiveType?: CognitiveType;
+  /** The cognitive type of this remote cognitive */
+  cognitiveType?: _CognitiveType;
 }
+
+/** @deprecated Use RemoteCognitive */
+export type RemoteSkill = RemoteCognitive;

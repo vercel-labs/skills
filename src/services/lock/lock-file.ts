@@ -1,39 +1,44 @@
-import { readFile, writeFile, mkdir } from 'fs/promises';
+import { readFile, writeFile, mkdir, rename, stat } from 'fs/promises';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
 import { execSync } from 'child_process';
 import type { CognitiveType } from '../../core/types.ts';
+import { COGNITIVE_FILE_NAMES } from '../../core/types.ts';
 
 const AGENTS_DIR = '.agents';
-const LOCK_FILE = '.skill-lock.json';
+const LOCK_FILE = '.synk-lock.json';
+const OLD_LOCK_FILE = '.skill-lock.json';
 const CURRENT_VERSION = 4; // Bumped from 3 to 4 for cognitiveType support
 
 /**
- * Represents a single installed skill entry in the lock file.
+ * Represents a single installed cognitive entry in the lock file.
  */
-export interface SkillLockEntry {
+export interface CognitiveLockEntry {
   /** Normalized source identifier (e.g., "owner/repo", "mintlify/bun.com") */
   source: string;
   /** The provider/source type (e.g., "github", "mintlify", "huggingface", "local") */
   sourceType: string;
-  /** The original URL used to install the skill (for re-fetching updates) */
+  /** The original URL used to install the cognitive (for re-fetching updates) */
   sourceUrl: string;
   /** Subpath within the source repo, if applicable */
-  skillPath?: string;
+  cognitivePath?: string;
   /**
-   * GitHub tree SHA for the entire skill folder.
-   * This hash changes when ANY file in the skill folder changes.
+   * GitHub tree SHA for the entire cognitive folder.
+   * This hash changes when ANY file in the cognitive folder changes.
    * Fetched via GitHub Trees API by the telemetry server.
    */
-  skillFolderHash: string;
-  /** ISO timestamp when the skill was first installed */
+  cognitiveFolderHash: string;
+  /** ISO timestamp when the cognitive was first installed */
   installedAt: string;
-  /** ISO timestamp when the skill was last updated */
+  /** ISO timestamp when the cognitive was last updated */
   updatedAt: string;
   /** The cognitive type of this entry. Defaults to 'skill' when absent. */
   cognitiveType?: CognitiveType;
 }
+
+/** @deprecated Use CognitiveLockEntry */
+export type SkillLockEntry = CognitiveLockEntry;
 
 /**
  * Tracks dismissed prompts so they're not shown again.
@@ -44,63 +49,123 @@ export interface DismissedPrompts {
 }
 
 /**
- * The structure of the skill lock file.
+ * The structure of the lock file.
  */
-export interface SkillLockFile {
+export interface CognitiveLockFile {
   /** Schema version for future migrations */
   version: number;
-  /** Map of skill name to its lock entry */
-  skills: Record<string, SkillLockEntry>;
+  /** Map of cognitive name to its lock entry */
+  cognitives: Record<string, CognitiveLockEntry>;
   /** Tracks dismissed prompts */
   dismissed?: DismissedPrompts;
   /** Last selected agents for installation */
   lastSelectedAgents?: string[];
 }
 
+/** @deprecated Use CognitiveLockFile */
+export type SkillLockFile = CognitiveLockFile;
+
 /**
- * Get the path to the global skill lock file.
- * Located at ~/.agents/.skill-lock.json
+ * Get the path to the global lock file.
+ * Located at ~/.agents/.synk-lock.json
  */
-export function getSkillLockPath(): string {
+export function getLockFilePath(): string {
   return join(homedir(), AGENTS_DIR, LOCK_FILE);
 }
 
+/** @deprecated Use getLockFilePath */
+export const getSkillLockPath = getLockFilePath;
+
 /**
- * Read the skill lock file.
+ * Migrate old .skill-lock.json to .synk-lock.json if needed.
+ */
+async function migrateLockFileIfNeeded(): Promise<void> {
+  const newPath = join(homedir(), AGENTS_DIR, LOCK_FILE);
+  const oldPath = join(homedir(), AGENTS_DIR, OLD_LOCK_FILE);
+
+  try {
+    await stat(newPath);
+    // New file already exists, no migration needed
+    return;
+  } catch {
+    // New file doesn't exist, check for old file
+  }
+
+  try {
+    await stat(oldPath);
+    // Old file exists, rename it
+    await rename(oldPath, newPath);
+  } catch {
+    // Old file doesn't exist either, nothing to migrate
+  }
+}
+
+/**
+ * Read the lock file.
  * Returns an empty lock file structure if the file doesn't exist.
  * Wipes the lock file if it's an old format (version < CURRENT_VERSION).
+ * Handles migration from old .skill-lock.json and old field names.
  */
-export async function readSkillLock(): Promise<SkillLockFile> {
-  const lockPath = getSkillLockPath();
+export async function readLockFile(): Promise<CognitiveLockFile> {
+  await migrateLockFileIfNeeded();
+  const lockPath = getLockFilePath();
 
   try {
     const content = await readFile(lockPath, 'utf-8');
-    const parsed = JSON.parse(content) as SkillLockFile;
+    const parsed = JSON.parse(content) as Record<string, unknown>;
 
-    // Validate version - wipe if old format
-    if (typeof parsed.version !== 'number' || !parsed.skills) {
+    // Validate version
+    if (typeof parsed.version !== 'number') {
       return createEmptyLockFile();
     }
 
     // If old version, wipe and start fresh (backwards incompatible change)
-    // v3 adds skillFolderHash, v4 adds cognitiveType - we want fresh installs to populate them
-    if (parsed.version < CURRENT_VERSION) {
+    if ((parsed.version as number) < CURRENT_VERSION) {
       return createEmptyLockFile();
     }
 
-    return parsed;
+    // Migration: accept old 'skills' key if 'cognitives' is absent
+    const cognitives = (parsed.cognitives ?? parsed.skills ?? {}) as Record<
+      string,
+      Record<string, unknown>
+    >;
+
+    // Migrate individual entry fields: skillPath -> cognitivePath, skillFolderHash -> cognitiveFolderHash
+    const migratedCognitives: Record<string, CognitiveLockEntry> = {};
+    for (const [name, entry] of Object.entries(cognitives)) {
+      migratedCognitives[name] = {
+        source: entry.source as string,
+        sourceType: entry.sourceType as string,
+        sourceUrl: entry.sourceUrl as string,
+        cognitivePath: (entry.cognitivePath ?? entry.skillPath) as string | undefined,
+        cognitiveFolderHash: (entry.cognitiveFolderHash ?? entry.skillFolderHash) as string,
+        installedAt: entry.installedAt as string,
+        updatedAt: entry.updatedAt as string,
+        cognitiveType: entry.cognitiveType as CognitiveType | undefined,
+      };
+    }
+
+    return {
+      version: parsed.version as number,
+      cognitives: migratedCognitives,
+      dismissed: parsed.dismissed as DismissedPrompts | undefined,
+      lastSelectedAgents: parsed.lastSelectedAgents as string[] | undefined,
+    };
   } catch (error) {
     // File doesn't exist or is invalid - return empty
     return createEmptyLockFile();
   }
 }
 
+/** @deprecated Use readLockFile */
+export const readSkillLock = readLockFile;
+
 /**
- * Write the skill lock file.
+ * Write the lock file.
  * Creates the directory if it doesn't exist.
  */
-export async function writeSkillLock(lock: SkillLockFile): Promise<void> {
-  const lockPath = getSkillLockPath();
+export async function writeLockFile(lock: CognitiveLockFile): Promise<void> {
+  const lockPath = getLockFilePath();
 
   // Ensure directory exists
   await mkdir(dirname(lockPath), { recursive: true });
@@ -109,6 +174,9 @@ export async function writeSkillLock(lock: SkillLockFile): Promise<void> {
   const content = JSON.stringify(lock, null, 2);
   await writeFile(lockPath, content, 'utf-8');
 }
+
+/** @deprecated Use writeLockFile */
+export const writeSkillLock = writeLockFile;
 
 /**
  * Compute SHA-256 hash of content.
@@ -152,28 +220,32 @@ export function getGitHubToken(): string | null {
 }
 
 /**
- * Fetch the tree SHA (folder hash) for a skill folder using GitHub's Trees API.
+ * Fetch the tree SHA (folder hash) for a cognitive folder using GitHub's Trees API.
  * This makes ONE API call to get the entire repo tree, then extracts the SHA
- * for the specific skill folder.
+ * for the specific cognitive folder.
  *
  * @param ownerRepo - GitHub owner/repo (e.g., "vercel-labs/agent-skills")
- * @param skillPath - Path to skill folder or SKILL.md (e.g., "skills/react-best-practices/SKILL.md")
+ * @param cognitivePath - Path to cognitive folder or file (e.g., "skills/react-best-practices/SKILL.md")
  * @param token - Optional GitHub token for authenticated requests (higher rate limits)
- * @returns The tree SHA for the skill folder, or null if not found
+ * @returns The tree SHA for the cognitive folder, or null if not found
  */
-export async function fetchSkillFolderHash(
+export async function fetchCognitiveFolderHash(
   ownerRepo: string,
-  skillPath: string,
+  cognitivePath: string,
   token?: string | null
 ): Promise<string | null> {
   // Normalize to forward slashes first (for GitHub API compatibility)
-  let folderPath = skillPath.replace(/\\/g, '/');
+  let folderPath = cognitivePath.replace(/\\/g, '/');
 
-  // Remove SKILL.md suffix to get folder path
-  if (folderPath.endsWith('/SKILL.md')) {
-    folderPath = folderPath.slice(0, -9);
-  } else if (folderPath.endsWith('SKILL.md')) {
-    folderPath = folderPath.slice(0, -8);
+  // Remove cognitive file name suffix to get folder path
+  for (const fileName of Object.values(COGNITIVE_FILE_NAMES)) {
+    if (folderPath.endsWith('/' + fileName)) {
+      folderPath = folderPath.slice(0, -(fileName.length + 1));
+      break;
+    } else if (folderPath.endsWith(fileName)) {
+      folderPath = folderPath.slice(0, -fileName.length);
+      break;
+    }
   }
 
   // Remove trailing slash
@@ -188,7 +260,7 @@ export async function fetchSkillFolderHash(
       const url = `https://api.github.com/repos/${ownerRepo}/git/trees/${branch}?recursive=1`;
       const headers: Record<string, string> = {
         Accept: 'application/vnd.github.v3+json',
-        'User-Agent': 'skills-cli',
+        'User-Agent': 'synk-cli',
       };
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
@@ -203,12 +275,12 @@ export async function fetchSkillFolderHash(
         tree: Array<{ path: string; type: string; sha: string }>;
       };
 
-      // If folderPath is empty, this is a root-level skill - use the root tree SHA
+      // If folderPath is empty, this is a root-level cognitive - use the root tree SHA
       if (!folderPath) {
         return data.sha;
       }
 
-      // Find the tree entry for the skill folder
+      // Find the tree entry for the cognitive folder
       const folderEntry = data.tree.find(
         (entry) => entry.type === 'tree' && entry.path === folderPath
       );
@@ -224,27 +296,30 @@ export async function fetchSkillFolderHash(
   return null;
 }
 
+/** @deprecated Use fetchCognitiveFolderHash */
+export const fetchSkillFolderHash = fetchCognitiveFolderHash;
+
 /**
  * Add or update a cognitive entry in the lock file with an explicit cognitive type.
  */
 export async function addCognitiveToLock(
   name: string,
   cognitiveType: CognitiveType,
-  entry: Omit<SkillLockEntry, 'installedAt' | 'updatedAt' | 'cognitiveType'>
+  entry: Omit<CognitiveLockEntry, 'installedAt' | 'updatedAt' | 'cognitiveType'>
 ): Promise<void> {
-  const lock = await readSkillLock();
+  const lock = await readLockFile();
   const now = new Date().toISOString();
 
-  const existingEntry = lock.skills[name];
+  const existingEntry = lock.cognitives[name];
 
-  lock.skills[name] = {
+  lock.cognitives[name] = {
     ...entry,
     cognitiveType,
     installedAt: existingEntry?.installedAt ?? now,
     updatedAt: now,
   };
 
-  await writeSkillLock(lock);
+  await writeLockFile(lock);
 }
 
 /**
@@ -253,70 +328,82 @@ export async function addCognitiveToLock(
  */
 export async function addSkillToLock(
   skillName: string,
-  entry: Omit<SkillLockEntry, 'installedAt' | 'updatedAt' | 'cognitiveType'>
+  entry: Omit<CognitiveLockEntry, 'installedAt' | 'updatedAt' | 'cognitiveType'>
 ): Promise<void> {
   return addCognitiveToLock(skillName, 'skill', entry);
 }
 
 /**
- * Remove a skill from the lock file.
+ * Remove a cognitive from the lock file.
  */
-export async function removeSkillFromLock(skillName: string): Promise<boolean> {
-  const lock = await readSkillLock();
+export async function removeCognitiveFromLock(name: string): Promise<boolean> {
+  const lock = await readLockFile();
 
-  if (!(skillName in lock.skills)) {
+  if (!(name in lock.cognitives)) {
     return false;
   }
 
-  delete lock.skills[skillName];
-  await writeSkillLock(lock);
+  delete lock.cognitives[name];
+  await writeLockFile(lock);
   return true;
 }
 
-/**
- * Get a skill entry from the lock file.
- */
-export async function getSkillFromLock(skillName: string): Promise<SkillLockEntry | null> {
-  const lock = await readSkillLock();
-  return lock.skills[skillName] ?? null;
-}
+/** @deprecated Use removeCognitiveFromLock */
+export const removeSkillFromLock = removeCognitiveFromLock;
 
 /**
- * Get all skills from the lock file.
+ * Get a cognitive entry from the lock file.
  */
-export async function getAllLockedSkills(): Promise<Record<string, SkillLockEntry>> {
-  const lock = await readSkillLock();
-  return lock.skills;
+export async function getCognitiveFromLock(name: string): Promise<CognitiveLockEntry | null> {
+  const lock = await readLockFile();
+  return lock.cognitives[name] ?? null;
 }
 
+/** @deprecated Use getCognitiveFromLock */
+export const getSkillFromLock = getCognitiveFromLock;
+
 /**
- * Get skills grouped by source for batch update operations.
+ * Get all cognitives from the lock file.
  */
-export async function getSkillsBySource(): Promise<
-  Map<string, { skills: string[]; entry: SkillLockEntry }>
+export async function getAllLockedCognitives(): Promise<Record<string, CognitiveLockEntry>> {
+  const lock = await readLockFile();
+  return lock.cognitives;
+}
+
+/** @deprecated Use getAllLockedCognitives */
+export const getAllLockedSkills = getAllLockedCognitives;
+
+/**
+ * Get cognitives grouped by source for batch update operations.
+ */
+export async function getCognitivesBySource(): Promise<
+  Map<string, { skills: string[]; entry: CognitiveLockEntry }>
 > {
-  const lock = await readSkillLock();
-  const bySource = new Map<string, { skills: string[]; entry: SkillLockEntry }>();
+  const lock = await readLockFile();
+  const bySource = new Map<string, { skills: string[]; entry: CognitiveLockEntry }>();
 
-  for (const [skillName, entry] of Object.entries(lock.skills)) {
+  for (const [name, entry] of Object.entries(lock.cognitives)) {
     const existing = bySource.get(entry.source);
     if (existing) {
-      existing.skills.push(skillName);
+      existing.skills.push(name);
     } else {
-      bySource.set(entry.source, { skills: [skillName], entry });
+      bySource.set(entry.source, { skills: [name], entry });
     }
   }
 
   return bySource;
 }
 
+/** @deprecated Use getCognitivesBySource */
+export const getSkillsBySource = getCognitivesBySource;
+
 /**
  * Create an empty lock file structure.
  */
-function createEmptyLockFile(): SkillLockFile {
+function createEmptyLockFile(): CognitiveLockFile {
   return {
     version: CURRENT_VERSION,
-    skills: {},
+    cognitives: {},
     dismissed: {},
   };
 }
@@ -325,7 +412,7 @@ function createEmptyLockFile(): SkillLockFile {
  * Check if a prompt has been dismissed.
  */
 export async function isPromptDismissed(promptKey: keyof DismissedPrompts): Promise<boolean> {
-  const lock = await readSkillLock();
+  const lock = await readLockFile();
   return lock.dismissed?.[promptKey] === true;
 }
 
@@ -333,19 +420,19 @@ export async function isPromptDismissed(promptKey: keyof DismissedPrompts): Prom
  * Mark a prompt as dismissed.
  */
 export async function dismissPrompt(promptKey: keyof DismissedPrompts): Promise<void> {
-  const lock = await readSkillLock();
+  const lock = await readLockFile();
   if (!lock.dismissed) {
     lock.dismissed = {};
   }
   lock.dismissed[promptKey] = true;
-  await writeSkillLock(lock);
+  await writeLockFile(lock);
 }
 
 /**
  * Get the last selected agents.
  */
 export async function getLastSelectedAgents(): Promise<string[] | undefined> {
-  const lock = await readSkillLock();
+  const lock = await readLockFile();
   return lock.lastSelectedAgents;
 }
 
@@ -353,7 +440,7 @@ export async function getLastSelectedAgents(): Promise<string[] | undefined> {
  * Save the selected agents to the lock file.
  */
 export async function saveSelectedAgents(agents: string[]): Promise<void> {
-  const lock = await readSkillLock();
+  const lock = await readLockFile();
   lock.lastSelectedAgents = agents;
-  await writeSkillLock(lock);
+  await writeLockFile(lock);
 }

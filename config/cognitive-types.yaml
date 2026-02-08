@@ -1,0 +1,11 @@
+skill:
+  subdir: skills
+  fileName: SKILL.md
+
+agent:
+  subdir: agents
+  fileName: AGENT.md
+
+prompt:
+  subdir: prompts
+  fileName: PROMPT.md

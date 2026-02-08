@@ -1,4 +1,5 @@
 import { isAbsolute, resolve } from 'path';
+import { COGNITIVE_FILE_NAMES } from '../../core/types.ts';
 import type { ParsedSource } from '../../core/types.ts';
 
 /**
@@ -84,28 +85,43 @@ function isLocalPath(input: string): boolean {
 }
 
 /**
- * Check if a URL is a direct link to a skill.md file.
+ * Build a set of lowercase cognitive file names for matching.
+ */
+const cognitiveFileNamesLower = new Set(
+  Object.values(COGNITIVE_FILE_NAMES).map((n) => n.toLowerCase())
+);
+
+/**
+ * Check if a URL path ends with a known cognitive file name (case insensitive).
+ */
+function endsWithCognitiveFile(input: string): boolean {
+  const lower = input.toLowerCase();
+  return [...cognitiveFileNamesLower].some((f) => lower.endsWith('/' + f));
+}
+
+/**
+ * Check if a URL is a direct link to a cognitive file (SKILL.md, AGENT.md, PROMPT.md).
  * Supports various hosts: Mintlify docs, HuggingFace Spaces, etc.
- * e.g., https://docs.bun.com/docs/skill.md
- * e.g., https://huggingface.co/spaces/owner/repo/blob/main/SKILL.md
+ * e.g., https://docs.bun.com/docs/SKILL.md
+ * e.g., https://huggingface.co/spaces/owner/repo/blob/main/AGENT.md
  *
  * Note: GitHub and GitLab URLs are excluded as they have their own handling
  * for cloning repositories.
  */
-function isDirectSkillUrl(input: string): boolean {
+function isDirectCognitiveUrl(input: string): boolean {
   if (!input.startsWith('http://') && !input.startsWith('https://')) {
     return false;
   }
 
-  // Must end with skill.md (case insensitive)
-  if (!input.toLowerCase().endsWith('/skill.md')) {
+  // Must end with a known cognitive file name (case insensitive)
+  if (!endsWithCognitiveFile(input)) {
     return false;
   }
 
   // Exclude GitHub and GitLab repository URLs - they have their own handling
   // (but allow raw.githubusercontent.com if someone wants to use it directly)
   if (input.includes('github.com/') && !input.includes('raw.githubusercontent.com')) {
-    // Check if it's a blob/raw URL to SKILL.md (these should be handled by providers)
+    // Check if it's a blob/raw URL to a cognitive file (these should be handled by providers)
     // vs a tree/repo URL (these should be cloned)
     if (!input.includes('/blob/') && !input.includes('/raw/')) {
       return false;
@@ -134,8 +150,8 @@ export function parseSource(input: string): ParsedSource {
     };
   }
 
-  // Direct skill.md URL (non-GitHub/GitLab): https://docs.bun.com/docs/skill.md
-  if (isDirectSkillUrl(input)) {
+  // Direct cognitive file URL (non-GitHub/GitLab): https://docs.bun.com/docs/SKILL.md
+  if (isDirectCognitiveUrl(input)) {
     return {
       type: 'direct-url',
       url: input,
@@ -285,8 +301,8 @@ function isWellKnownUrl(input: string): boolean {
       return false;
     }
 
-    // Don't match URLs that look like direct skill.md links (handled by direct-url type)
-    if (input.toLowerCase().endsWith('/skill.md')) {
+    // Don't match URLs that look like direct cognitive file links (handled by direct-url type)
+    if (endsWithCognitiveFile(input)) {
       return false;
     }
 

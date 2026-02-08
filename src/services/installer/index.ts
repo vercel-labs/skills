@@ -18,13 +18,14 @@ export {
   type InstallMode,
   type InstallResult,
   installCognitiveForAgent,
-  installSkillForAgent,
+  installRemoteCognitiveForAgent,
   installRemoteSkillForAgent,
-  installMintlifySkillForAgent,
+  installWellKnownCognitiveForAgent,
   installWellKnownSkillForAgent,
 } from './orchestrator.ts';
 
 export {
+  type InstalledCognitive,
   type InstalledSkill,
   listInstalledCognitives,
   listInstalledSkills,

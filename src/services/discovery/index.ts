@@ -7,7 +7,9 @@ export {
 export {
   discoverCognitives,
   discoverSkills,
+  getCognitiveDisplayName,
   getSkillDisplayName,
+  filterCognitives,
   filterSkills,
 } from './scanner.ts';
 export type { DiscoverSkillsOptions } from './scanner.ts';

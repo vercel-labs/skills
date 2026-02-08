@@ -16,7 +16,7 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { installSkillForAgent } from '../src/services/installer/index.ts';
+import { installCognitiveForAgent } from '../src/services/installer/index.ts';
 
 async function makeSkillSource(root: string, name: string): Promise<string> {
   const dir = join(root, 'source-skill');
@@ -36,7 +36,7 @@ describe('installer symlink regression', () => {
     const skillDir = await makeSkillSource(root, skillName);
 
     try {
-      const result = await installSkillForAgent(
+      const result = await installCognitiveForAgent(
         { name: skillName, description: 'test', path: skillDir },
         'amp',
         { cwd: projectDir, mode: 'symlink', global: false }
@@ -72,7 +72,7 @@ describe('installer symlink regression', () => {
       const preStats = await lstat(canonicalDir);
       expect(preStats.isSymbolicLink()).toBe(true);
 
-      const result = await installSkillForAgent(
+      const result = await installCognitiveForAgent(
         { name: skillName, description: 'test', path: skillDir },
         'amp',
         { cwd: projectDir, mode: 'symlink', global: false }
@@ -109,7 +109,7 @@ describe('installer symlink regression', () => {
 
     try {
       // Install for claude-code, which has skillsDir: '.claude/skills'
-      const result = await installSkillForAgent(
+      const result = await installCognitiveForAgent(
         { name: skillName, description: 'test', path: skillDir },
         'claude-code',
         { cwd: projectDir, mode: 'symlink', global: false }
@@ -159,7 +159,7 @@ describe('installer symlink regression', () => {
     // For testing, we use a project-level install to avoid writing to actual home dir.
     // But the bug only manifests with global: true.
     // We can't safely test with global: true in unit tests (it would write to ~/.copilot/skills).
-    // Instead, we verify that the installSkillForAgent function returns the canonical path
+    // Instead, we verify that the installCognitiveForAgent function returns the canonical path
     // as both path and canonicalPath for universal agents with global install.
 
     // For a project-level install, universal agents have matching canonical and agent dirs,
@@ -168,7 +168,7 @@ describe('installer symlink regression', () => {
     await mkdir(projectDir, { recursive: true });
 
     try {
-      const result = await installSkillForAgent(
+      const result = await installCognitiveForAgent(
         { name: skillName, description: 'test', path: skillDir },
         'github-copilot', // Universal agent
         { cwd: projectDir, mode: 'symlink', global: false }

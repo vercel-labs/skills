@@ -1,8 +1,8 @@
-import { readdir, readFile, stat } from 'fs/promises';
+import { readFile, stat } from 'fs/promises';
 import { join, dirname } from 'path';
 import matter from 'gray-matter';
 import type { Skill, CognitiveType } from '../../core/types.ts';
-import { COGNITIVE_FILE_NAMES } from '../../core/constants.ts';
+import { COGNITIVE_FILE_NAMES } from '../../core/types.ts';
 
 /**
  * Check if internal skills should be installed.
@@ -74,14 +74,6 @@ export async function parseCognitiveMd(
 // ---------------------------------------------------------------------------
 
 /**
- * Check if a directory contains a SKILL.md file.
- * @deprecated Use `hasCognitiveMd(dir, 'skill')` instead.
- */
-async function hasSkillMd(dir: string): Promise<boolean> {
-  return hasCognitiveMd(dir, 'skill');
-}
-
-/**
  * Parse a SKILL.md file and return a Skill object.
  * @deprecated Use `parseCognitiveMd(path, 'skill', options)` instead.
  */
@@ -90,31 +82,4 @@ export async function parseSkillMd(
   options?: { includeInternal?: boolean }
 ): Promise<Skill | null> {
   return parseCognitiveMd(skillMdPath, 'skill', options);
-}
-
-/**
- * Recursively find directories containing a SKILL.md file.
- * @deprecated Use `findCognitiveDirs(dir, ['skill'])` from scanner instead.
- */
-async function findSkillDirs(dir: string, depth = 0, maxDepth = 5): Promise<string[]> {
-  // Inline implementation to avoid circular dependency with scanner.ts
-  if (depth > maxDepth) return [];
-
-  try {
-    const found = await hasCognitiveMd(dir, 'skill');
-    const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
-
-    const currentDir = found ? [dir] : [];
-
-    const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
-    const subDirResults = await Promise.all(
-      entries
-        .filter((entry) => entry.isDirectory() && !SKIP_DIRS.includes(entry.name))
-        .map((entry) => findSkillDirs(join(dir, entry.name), depth + 1, maxDepth))
-    );
-
-    return [...currentDir, ...subDirResults.flat()];
-  } catch {
-    return [];
-  }
 }

@@ -1,11 +1,13 @@
+import type { CognitiveType } from '../core/types.ts';
+
 /**
- * Represents a parsed skill from a remote host.
- * Different hosts may have different ways of identifying skills.
+ * Represents a parsed cognitive (skill, agent, prompt) from a remote host.
+ * Different hosts may have different ways of identifying cognitives.
  */
-export interface RemoteSkill {
-  /** Display name of the skill (from frontmatter) */
+export interface RemoteCognitive {
+  /** Display name of the cognitive (from frontmatter) */
   name: string;
-  /** Description of the skill (from frontmatter) */
+  /** Description of the cognitive (from frontmatter) */
   description: string;
   /** Full markdown content including frontmatter */
   content: string;
@@ -15,7 +17,12 @@ export interface RemoteSkill {
   sourceUrl: string;
   /** Any additional metadata from frontmatter */
   metadata?: Record<string, unknown>;
+  /** The cognitive type of this remote resource */
+  cognitiveType?: CognitiveType;
 }
+
+/** @deprecated Use RemoteCognitive */
+export type RemoteSkill = RemoteCognitive;
 
 /**
  * Result of attempting to match a URL to a provider.
@@ -28,10 +35,10 @@ export interface ProviderMatch {
 }
 
 /**
- * Interface for remote SKILL.md host providers.
+ * Interface for remote cognitive file host providers.
  * Each provider knows how to:
  * - Detect if a URL belongs to it
- * - Fetch and parse SKILL.md files
+ * - Fetch and parse cognitive files (SKILL.md, AGENT.md, PROMPT.md)
  * - Convert URLs to raw content URLs
  * - Provide source identifiers for telemetry
  */
@@ -50,11 +57,14 @@ export interface HostProvider {
   match(url: string): ProviderMatch;
 
   /**
-   * Fetch and parse a SKILL.md file from the given URL.
-   * @param url - The URL to the SKILL.md file
-   * @returns The parsed skill or null if invalid/not found
+   * Fetch and parse a cognitive file from the given URL.
+   * @param url - The URL to the cognitive file (SKILL.md, AGENT.md, PROMPT.md)
+   * @returns The parsed cognitive or null if invalid/not found
    */
-  fetchSkill(url: string): Promise<RemoteSkill | null>;
+  fetchCognitive(url: string): Promise<RemoteCognitive | null>;
+
+  /** @deprecated Use fetchCognitive */
+  fetchSkill(url: string): Promise<RemoteCognitive | null>;
 
   /**
    * Convert a user-facing URL to a raw content URL.

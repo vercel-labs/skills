@@ -17,12 +17,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'adal': {
     name: 'adal',
     displayName: 'AdaL',
-    skillsDir: '.adal/skills',
-    globalSkillsDir: join(join(home, '.adal'), 'skills'),
-    agentsDir: '.adal/agents',
-    globalAgentsDir: join(join(home, '.adal'), 'agents'),
-    promptsDir: '.adal/prompts',
-    globalPromptsDir: join(join(home, '.adal'), 'prompts'),
+    dirs: {
+      skill: { local: '.adal/skills', global: join(join(home, '.adal'), 'skills') },
+      agent: { local: '.adal/agents', global: join(join(home, '.adal'), 'agents') },
+      prompt: { local: '.adal/prompts', global: join(join(home, '.adal'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.adal'));
     },
@@ -30,12 +29,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'amp': {
     name: 'amp',
     displayName: 'Amp',
-    skillsDir: '.agents/skills',
-    globalSkillsDir: join(join(configHome, 'agents'), 'skills'),
-    agentsDir: '.agents/agents',
-    globalAgentsDir: join(join(configHome, 'agents'), 'agents'),
-    promptsDir: '.agents/prompts',
-    globalPromptsDir: join(join(configHome, 'agents'), 'prompts'),
+    dirs: {
+      skill: { local: '.agents/skills', global: join(join(configHome, 'agents'), 'skills') },
+      agent: { local: '.agents/agents', global: join(join(configHome, 'agents'), 'agents') },
+      prompt: { local: '.agents/prompts', global: join(join(configHome, 'agents'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(configHome, 'amp'));
     },
@@ -43,12 +41,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'antigravity': {
     name: 'antigravity',
     displayName: 'Antigravity',
-    skillsDir: '.agent/skills',
-    globalSkillsDir: join(join(home, '.gemini/antigravity'), 'skills'),
-    agentsDir: '.agent/agents',
-    globalAgentsDir: join(join(home, '.gemini/antigravity'), 'agents'),
-    promptsDir: '.agent/prompts',
-    globalPromptsDir: join(join(home, '.gemini/antigravity'), 'prompts'),
+    dirs: {
+      skill: { local: '.agent/skills', global: join(join(home, '.gemini/antigravity'), 'skills') },
+      agent: { local: '.agent/agents', global: join(join(home, '.gemini/antigravity'), 'agents') },
+      prompt: { local: '.agent/prompts', global: join(join(home, '.gemini/antigravity'), 'prompts') },
+    },
     detectInstalled: async () => {
       return (
         existsSync(join(process.cwd(), '.agent')) ||
@@ -59,12 +56,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'augment': {
     name: 'augment',
     displayName: 'Augment',
-    skillsDir: '.augment/skills',
-    globalSkillsDir: join(join(home, '.augment'), 'skills'),
-    agentsDir: '.augment/agents',
-    globalAgentsDir: join(join(home, '.augment'), 'agents'),
-    promptsDir: '.augment/prompts',
-    globalPromptsDir: join(join(home, '.augment'), 'prompts'),
+    dirs: {
+      skill: { local: '.augment/skills', global: join(join(home, '.augment'), 'skills') },
+      agent: { local: '.augment/agents', global: join(join(home, '.augment'), 'agents') },
+      prompt: { local: '.augment/prompts', global: join(join(home, '.augment'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.augment'));
     },
@@ -72,12 +68,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'claude-code': {
     name: 'claude-code',
     displayName: 'Claude Code',
-    skillsDir: '.claude/skills',
-    globalSkillsDir: join(claudeHome, 'skills'),
-    agentsDir: '.claude/agents',
-    globalAgentsDir: join(claudeHome, 'agents'),
-    promptsDir: '.claude/prompts',
-    globalPromptsDir: join(claudeHome, 'prompts'),
+    dirs: {
+      skill: { local: '.claude/skills', global: join(claudeHome, 'skills') },
+      agent: { local: '.claude/agents', global: join(claudeHome, 'agents') },
+      prompt: { local: '.claude/prompts', global: join(claudeHome, 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(claudeHome);
     },
@@ -85,12 +80,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'cline': {
     name: 'cline',
     displayName: 'Cline',
-    skillsDir: '.cline/skills',
-    globalSkillsDir: join(join(home, '.cline'), 'skills'),
-    agentsDir: '.cline/agents',
-    globalAgentsDir: join(join(home, '.cline'), 'agents'),
-    promptsDir: '.cline/prompts',
-    globalPromptsDir: join(join(home, '.cline'), 'prompts'),
+    dirs: {
+      skill: { local: '.cline/skills', global: join(join(home, '.cline'), 'skills') },
+      agent: { local: '.cline/agents', global: join(join(home, '.cline'), 'agents') },
+      prompt: { local: '.cline/prompts', global: join(join(home, '.cline'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.cline'));
     },
@@ -98,12 +92,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'codebuddy': {
     name: 'codebuddy',
     displayName: 'CodeBuddy',
-    skillsDir: '.codebuddy/skills',
-    globalSkillsDir: join(join(home, '.codebuddy'), 'skills'),
-    agentsDir: '.codebuddy/agents',
-    globalAgentsDir: join(join(home, '.codebuddy'), 'agents'),
-    promptsDir: '.codebuddy/prompts',
-    globalPromptsDir: join(join(home, '.codebuddy'), 'prompts'),
+    dirs: {
+      skill: { local: '.codebuddy/skills', global: join(join(home, '.codebuddy'), 'skills') },
+      agent: { local: '.codebuddy/agents', global: join(join(home, '.codebuddy'), 'agents') },
+      prompt: { local: '.codebuddy/prompts', global: join(join(home, '.codebuddy'), 'prompts') },
+    },
     detectInstalled: async () => {
       return (
         existsSync(join(process.cwd(), '.codebuddy')) ||
@@ -114,12 +107,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'codex': {
     name: 'codex',
     displayName: 'Codex',
-    skillsDir: '.agents/skills',
-    globalSkillsDir: join(codexHome, 'skills'),
-    agentsDir: '.agents/agents',
-    globalAgentsDir: join(codexHome, 'agents'),
-    promptsDir: '.agents/prompts',
-    globalPromptsDir: join(codexHome, 'prompts'),
+    dirs: {
+      skill: { local: '.agents/skills', global: join(codexHome, 'skills') },
+      agent: { local: '.agents/agents', global: join(codexHome, 'agents') },
+      prompt: { local: '.agents/prompts', global: join(codexHome, 'prompts') },
+    },
     detectInstalled: async () => {
       return (
         existsSync(codexHome) ||
@@ -130,12 +122,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'command-code': {
     name: 'command-code',
     displayName: 'Command Code',
-    skillsDir: '.commandcode/skills',
-    globalSkillsDir: join(join(home, '.commandcode'), 'skills'),
-    agentsDir: '.commandcode/agents',
-    globalAgentsDir: join(join(home, '.commandcode'), 'agents'),
-    promptsDir: '.commandcode/prompts',
-    globalPromptsDir: join(join(home, '.commandcode'), 'prompts'),
+    dirs: {
+      skill: { local: '.commandcode/skills', global: join(join(home, '.commandcode'), 'skills') },
+      agent: { local: '.commandcode/agents', global: join(join(home, '.commandcode'), 'agents') },
+      prompt: { local: '.commandcode/prompts', global: join(join(home, '.commandcode'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.commandcode'));
     },
@@ -143,12 +134,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'continue': {
     name: 'continue',
     displayName: 'Continue',
-    skillsDir: '.continue/skills',
-    globalSkillsDir: join(join(home, '.continue'), 'skills'),
-    agentsDir: '.continue/agents',
-    globalAgentsDir: join(join(home, '.continue'), 'agents'),
-    promptsDir: '.continue/prompts',
-    globalPromptsDir: join(join(home, '.continue'), 'prompts'),
+    dirs: {
+      skill: { local: '.continue/skills', global: join(join(home, '.continue'), 'skills') },
+      agent: { local: '.continue/agents', global: join(join(home, '.continue'), 'agents') },
+      prompt: { local: '.continue/prompts', global: join(join(home, '.continue'), 'prompts') },
+    },
     detectInstalled: async () => {
       return (
         existsSync(join(process.cwd(), '.continue')) ||
@@ -159,12 +149,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'crush': {
     name: 'crush',
     displayName: 'Crush',
-    skillsDir: '.crush/skills',
-    globalSkillsDir: join(join(home, '.config/crush'), 'skills'),
-    agentsDir: '.crush/agents',
-    globalAgentsDir: join(join(home, '.config/crush'), 'agents'),
-    promptsDir: '.crush/prompts',
-    globalPromptsDir: join(join(home, '.config/crush'), 'prompts'),
+    dirs: {
+      skill: { local: '.crush/skills', global: join(join(home, '.config/crush'), 'skills') },
+      agent: { local: '.crush/agents', global: join(join(home, '.config/crush'), 'agents') },
+      prompt: { local: '.crush/prompts', global: join(join(home, '.config/crush'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.config/crush'));
     },
@@ -172,12 +161,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'cursor': {
     name: 'cursor',
     displayName: 'Cursor',
-    skillsDir: '.cursor/skills',
-    globalSkillsDir: join(join(home, '.cursor'), 'skills'),
-    agentsDir: '.cursor/agents',
-    globalAgentsDir: join(join(home, '.cursor'), 'agents'),
-    promptsDir: '.cursor/prompts',
-    globalPromptsDir: join(join(home, '.cursor'), 'prompts'),
+    dirs: {
+      skill: { local: '.cursor/skills', global: join(join(home, '.cursor'), 'skills') },
+      agent: { local: '.cursor/agents', global: join(join(home, '.cursor'), 'agents') },
+      prompt: { local: '.cursor/prompts', global: join(join(home, '.cursor'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.cursor'));
     },
@@ -185,12 +173,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'droid': {
     name: 'droid',
     displayName: 'Droid',
-    skillsDir: '.factory/skills',
-    globalSkillsDir: join(join(home, '.factory'), 'skills'),
-    agentsDir: '.factory/agents',
-    globalAgentsDir: join(join(home, '.factory'), 'agents'),
-    promptsDir: '.factory/prompts',
-    globalPromptsDir: join(join(home, '.factory'), 'prompts'),
+    dirs: {
+      skill: { local: '.factory/skills', global: join(join(home, '.factory'), 'skills') },
+      agent: { local: '.factory/agents', global: join(join(home, '.factory'), 'agents') },
+      prompt: { local: '.factory/prompts', global: join(join(home, '.factory'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.factory'));
     },
@@ -198,12 +185,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'gemini-cli': {
     name: 'gemini-cli',
     displayName: 'Gemini CLI',
-    skillsDir: '.agents/skills',
-    globalSkillsDir: join(join(home, '.gemini'), 'skills'),
-    agentsDir: '.agents/agents',
-    globalAgentsDir: join(join(home, '.gemini'), 'agents'),
-    promptsDir: '.agents/prompts',
-    globalPromptsDir: join(join(home, '.gemini'), 'prompts'),
+    dirs: {
+      skill: { local: '.agents/skills', global: join(join(home, '.gemini'), 'skills') },
+      agent: { local: '.agents/agents', global: join(join(home, '.gemini'), 'agents') },
+      prompt: { local: '.agents/prompts', global: join(join(home, '.gemini'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.gemini'));
     },
@@ -211,12 +197,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'github-copilot': {
     name: 'github-copilot',
     displayName: 'GitHub Copilot',
-    skillsDir: '.agents/skills',
-    globalSkillsDir: join(join(home, '.copilot'), 'skills'),
-    agentsDir: '.agents/agents',
-    globalAgentsDir: join(join(home, '.copilot'), 'agents'),
-    promptsDir: '.agents/prompts',
-    globalPromptsDir: join(join(home, '.copilot'), 'prompts'),
+    dirs: {
+      skill: { local: '.agents/skills', global: join(join(home, '.copilot'), 'skills') },
+      agent: { local: '.agents/agents', global: join(join(home, '.copilot'), 'agents') },
+      prompt: { local: '.agents/prompts', global: join(join(home, '.copilot'), 'prompts') },
+    },
     detectInstalled: async () => {
       return (
         existsSync(join(process.cwd(), '.github')) ||
@@ -227,12 +212,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'goose': {
     name: 'goose',
     displayName: 'Goose',
-    skillsDir: '.goose/skills',
-    globalSkillsDir: join(join(configHome, 'goose'), 'skills'),
-    agentsDir: '.goose/agents',
-    globalAgentsDir: join(join(configHome, 'goose'), 'agents'),
-    promptsDir: '.goose/prompts',
-    globalPromptsDir: join(join(configHome, 'goose'), 'prompts'),
+    dirs: {
+      skill: { local: '.goose/skills', global: join(join(configHome, 'goose'), 'skills') },
+      agent: { local: '.goose/agents', global: join(join(configHome, 'goose'), 'agents') },
+      prompt: { local: '.goose/prompts', global: join(join(configHome, 'goose'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(configHome, 'goose'));
     },
@@ -240,12 +224,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'iflow-cli': {
     name: 'iflow-cli',
     displayName: 'iFlow CLI',
-    skillsDir: '.iflow/skills',
-    globalSkillsDir: join(join(home, '.iflow'), 'skills'),
-    agentsDir: '.iflow/agents',
-    globalAgentsDir: join(join(home, '.iflow'), 'agents'),
-    promptsDir: '.iflow/prompts',
-    globalPromptsDir: join(join(home, '.iflow'), 'prompts'),
+    dirs: {
+      skill: { local: '.iflow/skills', global: join(join(home, '.iflow'), 'skills') },
+      agent: { local: '.iflow/agents', global: join(join(home, '.iflow'), 'agents') },
+      prompt: { local: '.iflow/prompts', global: join(join(home, '.iflow'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.iflow'));
     },
@@ -253,12 +236,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'junie': {
     name: 'junie',
     displayName: 'Junie',
-    skillsDir: '.junie/skills',
-    globalSkillsDir: join(join(home, '.junie'), 'skills'),
-    agentsDir: '.junie/agents',
-    globalAgentsDir: join(join(home, '.junie'), 'agents'),
-    promptsDir: '.junie/prompts',
-    globalPromptsDir: join(join(home, '.junie'), 'prompts'),
+    dirs: {
+      skill: { local: '.junie/skills', global: join(join(home, '.junie'), 'skills') },
+      agent: { local: '.junie/agents', global: join(join(home, '.junie'), 'agents') },
+      prompt: { local: '.junie/prompts', global: join(join(home, '.junie'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.junie'));
     },
@@ -266,12 +248,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'kilo': {
     name: 'kilo',
     displayName: 'Kilo Code',
-    skillsDir: '.kilocode/skills',
-    globalSkillsDir: join(join(home, '.kilocode'), 'skills'),
-    agentsDir: '.kilocode/agents',
-    globalAgentsDir: join(join(home, '.kilocode'), 'agents'),
-    promptsDir: '.kilocode/prompts',
-    globalPromptsDir: join(join(home, '.kilocode'), 'prompts'),
+    dirs: {
+      skill: { local: '.kilocode/skills', global: join(join(home, '.kilocode'), 'skills') },
+      agent: { local: '.kilocode/agents', global: join(join(home, '.kilocode'), 'agents') },
+      prompt: { local: '.kilocode/prompts', global: join(join(home, '.kilocode'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.kilocode'));
     },
@@ -279,12 +260,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'kimi-cli': {
     name: 'kimi-cli',
     displayName: 'Kimi Code CLI',
-    skillsDir: '.agents/skills',
-    globalSkillsDir: join(join(home, '.config/agents'), 'skills'),
-    agentsDir: '.agents/agents',
-    globalAgentsDir: join(join(home, '.config/agents'), 'agents'),
-    promptsDir: '.agents/prompts',
-    globalPromptsDir: join(join(home, '.config/agents'), 'prompts'),
+    dirs: {
+      skill: { local: '.agents/skills', global: join(join(home, '.config/agents'), 'skills') },
+      agent: { local: '.agents/agents', global: join(join(home, '.config/agents'), 'agents') },
+      prompt: { local: '.agents/prompts', global: join(join(home, '.config/agents'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.kimi'));
     },
@@ -292,12 +272,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'kiro-cli': {
     name: 'kiro-cli',
     displayName: 'Kiro CLI',
-    skillsDir: '.kiro/skills',
-    globalSkillsDir: join(join(home, '.kiro'), 'skills'),
-    agentsDir: '.kiro/agents',
-    globalAgentsDir: join(join(home, '.kiro'), 'agents'),
-    promptsDir: '.kiro/prompts',
-    globalPromptsDir: join(join(home, '.kiro'), 'prompts'),
+    dirs: {
+      skill: { local: '.kiro/skills', global: join(join(home, '.kiro'), 'skills') },
+      agent: { local: '.kiro/agents', global: join(join(home, '.kiro'), 'agents') },
+      prompt: { local: '.kiro/prompts', global: join(join(home, '.kiro'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.kiro'));
     },
@@ -305,12 +284,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'kode': {
     name: 'kode',
     displayName: 'Kode',
-    skillsDir: '.kode/skills',
-    globalSkillsDir: join(join(home, '.kode'), 'skills'),
-    agentsDir: '.kode/agents',
-    globalAgentsDir: join(join(home, '.kode'), 'agents'),
-    promptsDir: '.kode/prompts',
-    globalPromptsDir: join(join(home, '.kode'), 'prompts'),
+    dirs: {
+      skill: { local: '.kode/skills', global: join(join(home, '.kode'), 'skills') },
+      agent: { local: '.kode/agents', global: join(join(home, '.kode'), 'agents') },
+      prompt: { local: '.kode/prompts', global: join(join(home, '.kode'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.kode'));
     },
@@ -318,12 +296,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'mcpjam': {
     name: 'mcpjam',
     displayName: 'MCPJam',
-    skillsDir: '.mcpjam/skills',
-    globalSkillsDir: join(join(home, '.mcpjam'), 'skills'),
-    agentsDir: '.mcpjam/agents',
-    globalAgentsDir: join(join(home, '.mcpjam'), 'agents'),
-    promptsDir: '.mcpjam/prompts',
-    globalPromptsDir: join(join(home, '.mcpjam'), 'prompts'),
+    dirs: {
+      skill: { local: '.mcpjam/skills', global: join(join(home, '.mcpjam'), 'skills') },
+      agent: { local: '.mcpjam/agents', global: join(join(home, '.mcpjam'), 'agents') },
+      prompt: { local: '.mcpjam/prompts', global: join(join(home, '.mcpjam'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.mcpjam'));
     },
@@ -331,12 +308,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'mistral-vibe': {
     name: 'mistral-vibe',
     displayName: 'Mistral Vibe',
-    skillsDir: '.vibe/skills',
-    globalSkillsDir: join(join(home, '.vibe'), 'skills'),
-    agentsDir: '.vibe/agents',
-    globalAgentsDir: join(join(home, '.vibe'), 'agents'),
-    promptsDir: '.vibe/prompts',
-    globalPromptsDir: join(join(home, '.vibe'), 'prompts'),
+    dirs: {
+      skill: { local: '.vibe/skills', global: join(join(home, '.vibe'), 'skills') },
+      agent: { local: '.vibe/agents', global: join(join(home, '.vibe'), 'agents') },
+      prompt: { local: '.vibe/prompts', global: join(join(home, '.vibe'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.vibe'));
     },
@@ -344,12 +320,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'mux': {
     name: 'mux',
     displayName: 'Mux',
-    skillsDir: '.mux/skills',
-    globalSkillsDir: join(join(home, '.mux'), 'skills'),
-    agentsDir: '.mux/agents',
-    globalAgentsDir: join(join(home, '.mux'), 'agents'),
-    promptsDir: '.mux/prompts',
-    globalPromptsDir: join(join(home, '.mux'), 'prompts'),
+    dirs: {
+      skill: { local: '.mux/skills', global: join(join(home, '.mux'), 'skills') },
+      agent: { local: '.mux/agents', global: join(join(home, '.mux'), 'agents') },
+      prompt: { local: '.mux/prompts', global: join(join(home, '.mux'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.mux'));
     },
@@ -357,12 +332,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'neovate': {
     name: 'neovate',
     displayName: 'Neovate',
-    skillsDir: '.neovate/skills',
-    globalSkillsDir: join(join(home, '.neovate'), 'skills'),
-    agentsDir: '.neovate/agents',
-    globalAgentsDir: join(join(home, '.neovate'), 'agents'),
-    promptsDir: '.neovate/prompts',
-    globalPromptsDir: join(join(home, '.neovate'), 'prompts'),
+    dirs: {
+      skill: { local: '.neovate/skills', global: join(join(home, '.neovate'), 'skills') },
+      agent: { local: '.neovate/agents', global: join(join(home, '.neovate'), 'agents') },
+      prompt: { local: '.neovate/prompts', global: join(join(home, '.neovate'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.neovate'));
     },
@@ -370,24 +344,23 @@ export const agents: Record<AgentType, AgentConfig> = {
   'openclaw': {
     name: 'openclaw',
     displayName: 'OpenClaw',
-    skillsDir: 'skills',
-    globalSkillsDir: existsSync(join(home, '.openclaw'))
+    dirs: {
+      skill: { local: 'skills', global: existsSync(join(home, '.openclaw'))
         ? join(join(home, '.openclaw'), 'skills')
         : existsSync(join(home, '.clawdbot'))
         ? join(join(home, '.clawdbot'), 'skills')
-        : join(join(home, '.moltbot'), 'skills'),
-    agentsDir: 'agents',
-    globalAgentsDir: existsSync(join(home, '.openclaw'))
+        : join(join(home, '.moltbot'), 'skills') },
+      agent: { local: 'agents', global: existsSync(join(home, '.openclaw'))
         ? join(join(home, '.openclaw'), 'agents')
         : existsSync(join(home, '.clawdbot'))
         ? join(join(home, '.clawdbot'), 'agents')
-        : join(join(home, '.moltbot'), 'agents'),
-    promptsDir: 'prompts',
-    globalPromptsDir: existsSync(join(home, '.openclaw'))
+        : join(join(home, '.moltbot'), 'agents') },
+      prompt: { local: 'prompts', global: existsSync(join(home, '.openclaw'))
         ? join(join(home, '.openclaw'), 'prompts')
         : existsSync(join(home, '.clawdbot'))
         ? join(join(home, '.clawdbot'), 'prompts')
-        : join(join(home, '.moltbot'), 'prompts'),
+        : join(join(home, '.moltbot'), 'prompts') },
+    },
     detectInstalled: async () => {
       return (
         existsSync(join(home, '.openclaw')) ||
@@ -399,12 +372,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'opencode': {
     name: 'opencode',
     displayName: 'OpenCode',
-    skillsDir: '.agents/skills',
-    globalSkillsDir: join(join(configHome, 'opencode'), 'skills'),
-    agentsDir: '.agents/agents',
-    globalAgentsDir: join(join(configHome, 'opencode'), 'agents'),
-    promptsDir: '.agents/prompts',
-    globalPromptsDir: join(join(configHome, 'opencode'), 'prompts'),
+    dirs: {
+      skill: { local: '.agents/skills', global: join(join(configHome, 'opencode'), 'skills') },
+      agent: { local: '.agents/agents', global: join(join(configHome, 'opencode'), 'agents') },
+      prompt: { local: '.agents/prompts', global: join(join(configHome, 'opencode'), 'prompts') },
+    },
     detectInstalled: async () => {
       return (
         existsSync(join(configHome, 'opencode')) ||
@@ -415,12 +387,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'openhands': {
     name: 'openhands',
     displayName: 'OpenHands',
-    skillsDir: '.openhands/skills',
-    globalSkillsDir: join(join(home, '.openhands'), 'skills'),
-    agentsDir: '.openhands/agents',
-    globalAgentsDir: join(join(home, '.openhands'), 'agents'),
-    promptsDir: '.openhands/prompts',
-    globalPromptsDir: join(join(home, '.openhands'), 'prompts'),
+    dirs: {
+      skill: { local: '.openhands/skills', global: join(join(home, '.openhands'), 'skills') },
+      agent: { local: '.openhands/agents', global: join(join(home, '.openhands'), 'agents') },
+      prompt: { local: '.openhands/prompts', global: join(join(home, '.openhands'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.openhands'));
     },
@@ -428,12 +399,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'pi': {
     name: 'pi',
     displayName: 'Pi',
-    skillsDir: '.pi/skills',
-    globalSkillsDir: join(join(home, '.pi/agent'), 'skills'),
-    agentsDir: '.pi/agents',
-    globalAgentsDir: join(join(home, '.pi/agent'), 'agents'),
-    promptsDir: '.pi/prompts',
-    globalPromptsDir: join(join(home, '.pi/agent'), 'prompts'),
+    dirs: {
+      skill: { local: '.pi/skills', global: join(join(home, '.pi/agent'), 'skills') },
+      agent: { local: '.pi/agents', global: join(join(home, '.pi/agent'), 'agents') },
+      prompt: { local: '.pi/prompts', global: join(join(home, '.pi/agent'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.pi/agent'));
     },
@@ -441,12 +411,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'pochi': {
     name: 'pochi',
     displayName: 'Pochi',
-    skillsDir: '.pochi/skills',
-    globalSkillsDir: join(join(home, '.pochi'), 'skills'),
-    agentsDir: '.pochi/agents',
-    globalAgentsDir: join(join(home, '.pochi'), 'agents'),
-    promptsDir: '.pochi/prompts',
-    globalPromptsDir: join(join(home, '.pochi'), 'prompts'),
+    dirs: {
+      skill: { local: '.pochi/skills', global: join(join(home, '.pochi'), 'skills') },
+      agent: { local: '.pochi/agents', global: join(join(home, '.pochi'), 'agents') },
+      prompt: { local: '.pochi/prompts', global: join(join(home, '.pochi'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.pochi'));
     },
@@ -454,12 +423,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'qoder': {
     name: 'qoder',
     displayName: 'Qoder',
-    skillsDir: '.qoder/skills',
-    globalSkillsDir: join(join(home, '.qoder'), 'skills'),
-    agentsDir: '.qoder/agents',
-    globalAgentsDir: join(join(home, '.qoder'), 'agents'),
-    promptsDir: '.qoder/prompts',
-    globalPromptsDir: join(join(home, '.qoder'), 'prompts'),
+    dirs: {
+      skill: { local: '.qoder/skills', global: join(join(home, '.qoder'), 'skills') },
+      agent: { local: '.qoder/agents', global: join(join(home, '.qoder'), 'agents') },
+      prompt: { local: '.qoder/prompts', global: join(join(home, '.qoder'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.qoder'));
     },
@@ -467,12 +435,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'qwen-code': {
     name: 'qwen-code',
     displayName: 'Qwen Code',
-    skillsDir: '.qwen/skills',
-    globalSkillsDir: join(join(home, '.qwen'), 'skills'),
-    agentsDir: '.qwen/agents',
-    globalAgentsDir: join(join(home, '.qwen'), 'agents'),
-    promptsDir: '.qwen/prompts',
-    globalPromptsDir: join(join(home, '.qwen'), 'prompts'),
+    dirs: {
+      skill: { local: '.qwen/skills', global: join(join(home, '.qwen'), 'skills') },
+      agent: { local: '.qwen/agents', global: join(join(home, '.qwen'), 'agents') },
+      prompt: { local: '.qwen/prompts', global: join(join(home, '.qwen'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.qwen'));
     },
@@ -480,12 +447,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'replit': {
     name: 'replit',
     displayName: 'Replit',
-    skillsDir: '.agents/skills',
-    globalSkillsDir: join(join(configHome, 'agents'), 'skills'),
-    agentsDir: '.agents/agents',
-    globalAgentsDir: join(join(configHome, 'agents'), 'agents'),
-    promptsDir: '.agents/prompts',
-    globalPromptsDir: join(join(configHome, 'agents'), 'prompts'),
+    dirs: {
+      skill: { local: '.agents/skills', global: join(join(configHome, 'agents'), 'skills') },
+      agent: { local: '.agents/agents', global: join(join(configHome, 'agents'), 'agents') },
+      prompt: { local: '.agents/prompts', global: join(join(configHome, 'agents'), 'prompts') },
+    },
     showInUniversalList: false,
     detectInstalled: async () => {
       return existsSync(join(process.cwd(), '.agents'));
@@ -494,12 +460,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'roo': {
     name: 'roo',
     displayName: 'Roo Code',
-    skillsDir: '.roo/skills',
-    globalSkillsDir: join(join(home, '.roo'), 'skills'),
-    agentsDir: '.roo/agents',
-    globalAgentsDir: join(join(home, '.roo'), 'agents'),
-    promptsDir: '.roo/prompts',
-    globalPromptsDir: join(join(home, '.roo'), 'prompts'),
+    dirs: {
+      skill: { local: '.roo/skills', global: join(join(home, '.roo'), 'skills') },
+      agent: { local: '.roo/agents', global: join(join(home, '.roo'), 'agents') },
+      prompt: { local: '.roo/prompts', global: join(join(home, '.roo'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.roo'));
     },
@@ -507,12 +472,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'trae-cn': {
     name: 'trae-cn',
     displayName: 'Trae CN',
-    skillsDir: '.trae/skills',
-    globalSkillsDir: join(join(home, '.trae-cn'), 'skills'),
-    agentsDir: '.trae/agents',
-    globalAgentsDir: join(join(home, '.trae-cn'), 'agents'),
-    promptsDir: '.trae/prompts',
-    globalPromptsDir: join(join(home, '.trae-cn'), 'prompts'),
+    dirs: {
+      skill: { local: '.trae/skills', global: join(join(home, '.trae-cn'), 'skills') },
+      agent: { local: '.trae/agents', global: join(join(home, '.trae-cn'), 'agents') },
+      prompt: { local: '.trae/prompts', global: join(join(home, '.trae-cn'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.trae-cn'));
     },
@@ -520,12 +484,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'trae': {
     name: 'trae',
     displayName: 'Trae',
-    skillsDir: '.trae/skills',
-    globalSkillsDir: join(join(home, '.trae'), 'skills'),
-    agentsDir: '.trae/agents',
-    globalAgentsDir: join(join(home, '.trae'), 'agents'),
-    promptsDir: '.trae/prompts',
-    globalPromptsDir: join(join(home, '.trae'), 'prompts'),
+    dirs: {
+      skill: { local: '.trae/skills', global: join(join(home, '.trae'), 'skills') },
+      agent: { local: '.trae/agents', global: join(join(home, '.trae'), 'agents') },
+      prompt: { local: '.trae/prompts', global: join(join(home, '.trae'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.trae'));
     },
@@ -533,12 +496,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'windsurf': {
     name: 'windsurf',
     displayName: 'Windsurf',
-    skillsDir: '.windsurf/skills',
-    globalSkillsDir: join(join(home, '.codeium/windsurf'), 'skills'),
-    agentsDir: '.windsurf/agents',
-    globalAgentsDir: join(join(home, '.codeium/windsurf'), 'agents'),
-    promptsDir: '.windsurf/prompts',
-    globalPromptsDir: join(join(home, '.codeium/windsurf'), 'prompts'),
+    dirs: {
+      skill: { local: '.windsurf/skills', global: join(join(home, '.codeium/windsurf'), 'skills') },
+      agent: { local: '.windsurf/agents', global: join(join(home, '.codeium/windsurf'), 'agents') },
+      prompt: { local: '.windsurf/prompts', global: join(join(home, '.codeium/windsurf'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.codeium/windsurf'));
     },
@@ -546,12 +508,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   'zencoder': {
     name: 'zencoder',
     displayName: 'Zencoder',
-    skillsDir: '.zencoder/skills',
-    globalSkillsDir: join(join(home, '.zencoder'), 'skills'),
-    agentsDir: '.zencoder/agents',
-    globalAgentsDir: join(join(home, '.zencoder'), 'agents'),
-    promptsDir: '.zencoder/prompts',
-    globalPromptsDir: join(join(home, '.zencoder'), 'prompts'),
+    dirs: {
+      skill: { local: '.zencoder/skills', global: join(join(home, '.zencoder'), 'skills') },
+      agent: { local: '.zencoder/agents', global: join(join(home, '.zencoder'), 'agents') },
+      prompt: { local: '.zencoder/prompts', global: join(join(home, '.zencoder'), 'prompts') },
+    },
     detectInstalled: async () => {
       return existsSync(join(home, '.zencoder'));
     },

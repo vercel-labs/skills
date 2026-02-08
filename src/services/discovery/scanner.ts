@@ -1,14 +1,14 @@
 import { readdir } from 'fs/promises';
 import { join, basename } from 'path';
 import type { Skill, CognitiveType } from '../../core/types.ts';
-import { COGNITIVE_FILE_NAMES, COGNITIVE_SUBDIRS } from '../../core/constants.ts';
+import { COGNITIVE_FILE_NAMES, COGNITIVE_SUBDIRS } from '../../core/types.ts';
 import { hasCognitiveMd, parseCognitiveMd } from './parser.ts';
 import { getPluginSkillPaths } from './plugin-manifest.ts';
 
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
 
 /** All cognitive types in standard iteration order. */
-const ALL_COGNITIVE_TYPES: CognitiveType[] = ['skill', 'agent', 'prompt'];
+const ALL_COGNITIVE_TYPES = Object.keys(COGNITIVE_FILE_NAMES) as CognitiveType[];
 
 /**
  * The agent directory prefixes used for priority search paths.
@@ -229,21 +229,27 @@ export async function discoverSkills(
   return discoverCognitives(basePath, subpath, { ...options, types: options?.types ?? ['skill'] });
 }
 
-export function getSkillDisplayName(skill: Skill): string {
-  return skill.name || basename(skill.path);
+export function getCognitiveDisplayName(cognitive: Skill): string {
+  return cognitive.name || basename(cognitive.path);
 }
 
+/** @deprecated Use getCognitiveDisplayName */
+export const getSkillDisplayName = getCognitiveDisplayName;
+
 /**
- * Filter skills based on user input (case-insensitive direct matching).
- * Multi-word skill names must be quoted on the command line.
+ * Filter cognitives based on user input (case-insensitive direct matching).
+ * Multi-word names must be quoted on the command line.
  */
-export function filterSkills(skills: Skill[], inputNames: string[]): Skill[] {
+export function filterCognitives(cognitives: Skill[], inputNames: string[]): Skill[] {
   const normalizedInputs = inputNames.map((n) => n.toLowerCase());
 
-  return skills.filter((skill) => {
-    const name = skill.name.toLowerCase();
-    const displayName = getSkillDisplayName(skill).toLowerCase();
+  return cognitives.filter((cognitive) => {
+    const name = cognitive.name.toLowerCase();
+    const displayName = getCognitiveDisplayName(cognitive).toLowerCase();
 
     return normalizedInputs.some((input) => input === name || input === displayName);
   });
 }
+
+/** @deprecated Use filterCognitives */
+export const filterSkills = filterCognitives;

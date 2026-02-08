@@ -1,5 +1,5 @@
 import type { AgentConfig, AgentType, CognitiveType } from '../../core/types.ts';
-import { COGNITIVE_SUBDIRS } from '../../core/constants.ts';
+import { COGNITIVE_SUBDIRS } from '../../core/types.ts';
 import { agents } from './__generated__/agents.ts';
 
 export function getAgentConfig(type: AgentType): AgentConfig {
@@ -7,38 +7,43 @@ export function getAgentConfig(type: AgentType): AgentConfig {
 }
 
 /**
- * Returns agents that use the universal .agents/skills directory.
- * These agents share a common skill location and don't need symlinks.
+ * Returns agents that use the universal .agents/<type> directory.
+ * These agents share a common cognitive location and don't need symlinks.
  * Agents with showInUniversalList: false are excluded.
  */
-export function getUniversalAgents(): AgentType[] {
+export function getUniversalAgents(cognitiveType: CognitiveType = 'skill'): AgentType[] {
   return (Object.entries(agents) as [AgentType, AgentConfig][])
     .filter(
-      ([_, config]) => config.skillsDir === '.agents/skills' && config.showInUniversalList !== false
+      ([_, config]) =>
+        config.dirs[cognitiveType].local === `.agents/${COGNITIVE_SUBDIRS[cognitiveType]}` &&
+        config.showInUniversalList !== false
     )
     .map(([type]) => type);
 }
 
 /**
- * Returns agents that use agent-specific skill directories (not universal).
- * These agents need symlinks from the canonical .agents/skills location.
+ * Returns agents that use agent-specific directories (not universal) for a cognitive type.
+ * These agents need symlinks from the canonical .agents/<type> location.
  */
-export function getNonUniversalAgents(): AgentType[] {
+export function getNonUniversalAgents(cognitiveType: CognitiveType = 'skill'): AgentType[] {
   return (Object.entries(agents) as [AgentType, AgentConfig][])
-    .filter(([_, config]) => config.skillsDir !== '.agents/skills')
+    .filter(
+      ([_, config]) =>
+        config.dirs[cognitiveType].local !== `.agents/${COGNITIVE_SUBDIRS[cognitiveType]}`
+    )
     .map(([type]) => type);
 }
 
 /**
- * Check if an agent uses the universal .agents/skills directory.
+ * Check if an agent uses the universal .agents/<type> directory.
  */
-export function isUniversalAgent(type: AgentType): boolean {
-  return agents[type].skillsDir === '.agents/skills';
+export function isUniversalAgent(type: AgentType, cognitiveType: CognitiveType = 'skill'): boolean {
+  return agents[type].dirs[cognitiveType].local === `.agents/${COGNITIVE_SUBDIRS[cognitiveType]}`;
 }
 
 /**
  * Get the cognitive-specific directory for an agent.
- * Returns the appropriate dir (skillsDir/agentsDir/promptsDir) based on cognitive type.
+ * Returns the appropriate dir based on cognitive type and scope.
  */
 export function getCognitiveDir(
   agentType: AgentType,
@@ -46,25 +51,8 @@ export function getCognitiveDir(
   scope: 'local' | 'global'
 ): string | undefined {
   const agent = agents[agentType];
-  if (scope === 'global') {
-    switch (cognitiveType) {
-      case 'skill':
-        return agent.globalSkillsDir;
-      case 'agent':
-        return agent.globalAgentsDir;
-      case 'prompt':
-        return agent.globalPromptsDir;
-    }
-  } else {
-    switch (cognitiveType) {
-      case 'skill':
-        return agent.skillsDir;
-      case 'agent':
-        return agent.agentsDir;
-      case 'prompt':
-        return agent.promptsDir;
-    }
-  }
+  const dirEntry = agent.dirs[cognitiveType]!;
+  return scope === 'global' ? dirEntry.global : dirEntry.local;
 }
 
 /**
@@ -72,13 +60,5 @@ export function getCognitiveDir(
  */
 export function isUniversalForType(agentType: AgentType, cognitiveType: CognitiveType): boolean {
   const agent = agents[agentType];
-  const universalDir = `.agents/${COGNITIVE_SUBDIRS[cognitiveType]}`;
-  switch (cognitiveType) {
-    case 'skill':
-      return agent.skillsDir === universalDir;
-    case 'agent':
-      return agent.agentsDir === universalDir;
-    case 'prompt':
-      return agent.promptsDir === universalDir;
-  }
+  return agent.dirs[cognitiveType]!.local === `.agents/${COGNITIVE_SUBDIRS[cognitiveType]}`;
 }

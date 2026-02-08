@@ -62,14 +62,14 @@ This is a test skill.
   describe('with no skills installed', () => {
     it('should show message when no skills found', () => {
       const result = runCli(['remove', '-y'], testDir);
-      expect(result.stdout).toContain('No skills found');
+      expect(result.stdout).toContain('No cognitives found');
       expect(result.stdout).toContain('to remove');
       expect(result.exitCode).toBe(0);
     });
 
     it('should show error for non-existent skill name', () => {
       const result = runCli(['remove', 'non-existent-skill', '-y'], testDir);
-      expect(result.stdout).toContain('No skills found');
+      expect(result.stdout).toContain('No cognitives found');
       expect(result.exitCode).toBe(0);
     });
   });
@@ -94,7 +94,7 @@ This is a test skill.
       const result = runCli(['remove', 'skill-one', '-y'], testDir);
 
       expect(result.stdout).toContain('Successfully removed');
-      expect(result.stdout).toContain('1 skill');
+      expect(result.stdout).toContain('1 cognitive');
 
       // Verify skill was removed from canonical location
       expect(existsSync(join(skillsDir, 'skill-one'))).toBe(false);
@@ -108,7 +108,7 @@ This is a test skill.
       const result = runCli(['remove', 'skill-one', 'skill-two', '-y'], testDir);
 
       expect(result.stdout).toContain('Successfully removed');
-      expect(result.stdout).toContain('2 skill');
+      expect(result.stdout).toContain('2 cognitive');
 
       expect(existsSync(join(skillsDir, 'skill-one'))).toBe(false);
       expect(existsSync(join(skillsDir, 'skill-two'))).toBe(false);
@@ -119,7 +119,7 @@ This is a test skill.
       const result = runCli(['remove', '--all', '-y'], testDir);
 
       expect(result.stdout).toContain('Successfully removed');
-      expect(result.stdout).toContain('3 skill');
+      expect(result.stdout).toContain('3 cognitive');
 
       // All skills removed
       expect(existsSync(join(skillsDir, 'skill-one'))).toBe(false);
@@ -157,7 +157,7 @@ This is a test skill.
       const result = runCliWithInput(['remove', 'skill-one', 'skill-two'], 'n', testDir);
 
       // Should show the skills that will be removed
-      expect(result.stdout).toContain('Skills to remove');
+      expect(result.stdout).toContain('Cognitives to remove');
       expect(result.stdout).toContain('skill-one');
       expect(result.stdout).toContain('skill-two');
       expect(result.stdout).toContain('uninstall');
@@ -245,7 +245,7 @@ This is a test skill.
 
       const result = runCli(['remove', 'last-skill', '-y'], testDir);
       expect(result.stdout).toContain('Successfully removed');
-      expect(result.stdout).toContain('1 skill');
+      expect(result.stdout).toContain('1 cognitive');
 
       // Directory should be empty or removed
       const remaining = readdirSync(skillsDir);

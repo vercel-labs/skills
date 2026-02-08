@@ -1,58 +1,70 @@
 import matter from 'gray-matter';
-import type { HostProvider, ProviderMatch, RemoteSkill } from './types.ts';
+import type { CognitiveType } from '../core/types.ts';
+import { COGNITIVE_FILE_NAMES } from '../core/types.ts';
+import type { HostProvider, ProviderMatch, RemoteCognitive } from './types.ts';
 
 /**
- * Represents the index.json structure for well-known skills.
+ * Represents the index.json structure for well-known cognitives.
  */
 export interface WellKnownIndex {
-  skills: WellKnownSkillEntry[];
+  cognitives: WellKnownCognitiveEntry[];
+  /** @deprecated Use cognitives */
+  skills?: WellKnownCognitiveEntry[];
 }
 
 /**
- * Represents a skill entry in the index.json.
+ * Represents a cognitive entry in the index.json.
  */
-export interface WellKnownSkillEntry {
-  /** Skill identifier. Must match the directory name. */
+export interface WellKnownCognitiveEntry {
+  /** Cognitive identifier. Must match the directory name. */
   name: string;
-  /** Brief description of what the skill does. */
+  /** Brief description of what the cognitive does. */
   description: string;
-  /** Array of all files in the skill directory. */
+  /** Array of all files in the cognitive directory. */
   files: string[];
 }
 
-/**
- * Represents a skill with all its files fetched from a well-known endpoint.
- */
-export interface WellKnownSkill extends RemoteSkill {
-  /** All files in the skill, keyed by relative path */
-  files: Map<string, string>;
-  /** The entry from the index.json */
-  indexEntry: WellKnownSkillEntry;
-}
+/** @deprecated Use WellKnownCognitiveEntry */
+export type WellKnownSkillEntry = WellKnownCognitiveEntry;
 
 /**
- * Well-known skills provider using RFC 8615 well-known URIs.
+ * Represents a cognitive with all its files fetched from a well-known endpoint.
+ */
+export interface WellKnownCognitive extends RemoteCognitive {
+  /** All files in the cognitive, keyed by relative path */
+  files: Map<string, string>;
+  /** The entry from the index.json */
+  indexEntry: WellKnownCognitiveEntry;
+}
+
+/** @deprecated Use WellKnownCognitive */
+export type WellKnownSkill = WellKnownCognitive;
+
+/**
+ * Well-known cognitives provider using RFC 8615 well-known URIs.
  *
- * Organizations can publish skills at:
- * https://example.com/.well-known/skills/
+ * Organizations can publish cognitives at:
+ * https://example.com/.well-known/cognitives/
  *
  * URL formats supported:
- * - https://example.com (discovers all skills from root)
- * - https://example.com/docs (discovers from /docs/.well-known/skills/)
- * - https://example.com/.well-known/skills (discovers all skills)
- * - https://example.com/.well-known/skills/skill-name (specific skill)
+ * - https://example.com (discovers all cognitives from root)
+ * - https://example.com/docs (discovers from /docs/.well-known/cognitives/)
+ * - https://example.com/.well-known/cognitives (discovers all cognitives)
+ * - https://example.com/.well-known/cognitives/cognitive-name (specific cognitive)
  *
  * The source identifier is "wellknown/{hostname}" or "wellknown/{hostname}/path".
  */
 export class WellKnownProvider implements HostProvider {
   readonly id = 'well-known';
-  readonly displayName = 'Well-Known Skills';
+  readonly displayName = 'Well-Known Cognitives';
 
-  private readonly WELL_KNOWN_PATH = '.well-known/skills';
+  private readonly WELL_KNOWN_PATH = '.well-known/cognitives';
+  /** @deprecated Fallback path for backward compatibility */
+  private readonly WELL_KNOWN_PATH_LEGACY = '.well-known/skills';
   private readonly INDEX_FILE = 'index.json';
 
   /**
-   * Check if a URL could be a well-known skills endpoint.
+   * Check if a URL could be a well-known cognitives endpoint.
    * This is a fallback provider - it matches any HTTP(S) URL that is not
    * a recognized pattern (GitHub, GitLab, owner/repo shorthand, etc.)
    */
@@ -82,8 +94,9 @@ export class WellKnownProvider implements HostProvider {
   }
 
   /**
-   * Fetch the skills index from a well-known endpoint.
+   * Fetch the cognitives index from a well-known endpoint.
    * Tries both the path-relative .well-known and the root .well-known.
+   * Also falls back from .well-known/cognitives to .well-known/skills for backward compat.
    */
   async fetchIndex(
     baseUrl: string
@@ -92,54 +105,62 @@ export class WellKnownProvider implements HostProvider {
       const parsed = new URL(baseUrl);
       const basePath = parsed.pathname.replace(/\/$/, ''); // Remove trailing slash
 
-      // Try path-relative .well-known first (e.g., /docs/.well-known/skills/)
-      // then fall back to root .well-known
-      const urlsToTry = [
-        // Path-relative: https://example.com/docs/.well-known/skills/index.json
-        {
-          indexUrl: `${parsed.protocol}//${parsed.host}${basePath}/${this.WELL_KNOWN_PATH}/${this.INDEX_FILE}`,
-          baseUrl: `${parsed.protocol}//${parsed.host}${basePath}`,
-        },
-      ];
+      // Try new path first (.well-known/cognitives), then legacy (.well-known/skills)
+      const wellKnownPaths = [this.WELL_KNOWN_PATH, this.WELL_KNOWN_PATH_LEGACY];
 
-      // Also try root if we have a path
-      if (basePath && basePath !== '') {
-        urlsToTry.push({
-          indexUrl: `${parsed.protocol}//${parsed.host}/${this.WELL_KNOWN_PATH}/${this.INDEX_FILE}`,
-          baseUrl: `${parsed.protocol}//${parsed.host}`,
-        });
-      }
+      for (const wkPath of wellKnownPaths) {
+        // Try path-relative .well-known first (e.g., /docs/.well-known/cognitives/)
+        // then fall back to root .well-known
+        const urlsToTry = [
+          // Path-relative
+          {
+            indexUrl: `${parsed.protocol}//${parsed.host}${basePath}/${wkPath}/${this.INDEX_FILE}`,
+            baseUrl: `${parsed.protocol}//${parsed.host}${basePath}`,
+          },
+        ];
 
-      for (const { indexUrl, baseUrl: resolvedBase } of urlsToTry) {
-        try {
-          const response = await fetch(indexUrl);
+        // Also try root if we have a path
+        if (basePath && basePath !== '') {
+          urlsToTry.push({
+            indexUrl: `${parsed.protocol}//${parsed.host}/${wkPath}/${this.INDEX_FILE}`,
+            baseUrl: `${parsed.protocol}//${parsed.host}`,
+          });
+        }
 
-          if (!response.ok) {
-            continue;
-          }
+        for (const { indexUrl, baseUrl: resolvedBase } of urlsToTry) {
+          try {
+            const response = await fetch(indexUrl);
 
-          const index = (await response.json()) as WellKnownIndex;
-
-          // Validate index structure
-          if (!index.skills || !Array.isArray(index.skills)) {
-            continue;
-          }
-
-          // Validate each skill entry
-          let allValid = true;
-          for (const entry of index.skills) {
-            if (!this.isValidSkillEntry(entry)) {
-              allValid = false;
-              break;
+            if (!response.ok) {
+              continue;
             }
-          }
 
-          if (allValid) {
-            return { index, resolvedBaseUrl: resolvedBase };
+            const raw = (await response.json()) as Record<string, unknown>;
+
+            // Accept both 'cognitives' and 'skills' keys for backward compat
+            const entries = (raw.cognitives ?? raw.skills) as WellKnownCognitiveEntry[] | undefined;
+
+            if (!entries || !Array.isArray(entries)) {
+              continue;
+            }
+
+            // Validate each entry
+            let allValid = true;
+            for (const entry of entries) {
+              if (!this.isValidCognitiveEntry(entry)) {
+                allValid = false;
+                break;
+              }
+            }
+
+            if (allValid) {
+              const index: WellKnownIndex = { cognitives: entries };
+              return { index, resolvedBaseUrl: resolvedBase };
+            }
+          } catch {
+            // Try next URL
+            continue;
           }
-        } catch {
-          // Try next URL
-          continue;
         }
       }
 
@@ -150,9 +171,9 @@ export class WellKnownProvider implements HostProvider {
   }
 
   /**
-   * Validate a skill entry from the index.
+   * Validate a cognitive entry from the index.
    */
-  private isValidSkillEntry(entry: unknown): entry is WellKnownSkillEntry {
+  private isValidCognitiveEntry(entry: unknown): entry is WellKnownCognitiveEntry {
     if (!entry || typeof entry !== 'object') return false;
 
     const e = entry as Record<string, unknown>;
@@ -178,21 +199,26 @@ export class WellKnownProvider implements HostProvider {
       if (file.startsWith('/') || file.startsWith('\\') || file.includes('..')) return false;
     }
 
-    // Must include SKILL.md
-    const hasSkillMd = e.files.some((f) => typeof f === 'string' && f.toLowerCase() === 'skill.md');
-    if (!hasSkillMd) return false;
+    // Must include at least one recognized cognitive file (SKILL.md, AGENT.md, PROMPT.md)
+    const cognitiveFileNames = new Set(
+      Object.values(COGNITIVE_FILE_NAMES).map((n) => n.toLowerCase())
+    );
+    const hasCognitiveFile = e.files.some(
+      (f) => typeof f === 'string' && cognitiveFileNames.has(f.toLowerCase())
+    );
+    if (!hasCognitiveFile) return false;
 
     return true;
   }
 
   /**
-   * Fetch a single skill and all its files from a well-known endpoint.
+   * Fetch a single cognitive and all its files from a well-known endpoint.
    */
-  async fetchSkill(url: string): Promise<RemoteSkill | null> {
+  async fetchCognitive(url: string): Promise<RemoteCognitive | null> {
     try {
       const parsed = new URL(url);
 
-      // First, fetch the index to get skill metadata
+      // First, fetch the index to get cognitive metadata
       const result = await this.fetchIndex(url);
       if (!result) {
         return null;
@@ -200,51 +226,74 @@ export class WellKnownProvider implements HostProvider {
 
       const { index, resolvedBaseUrl } = result;
 
-      // Determine which skill to fetch
-      let skillName: string | null = null;
+      // Determine which cognitive to fetch
+      let cognitiveName: string | null = null;
 
-      // Check if URL specifies a specific skill
-      const pathMatch = parsed.pathname.match(/\/.well-known\/skills\/([^/]+)\/?$/);
+      // Check if URL specifies a specific cognitive
+      // Try new path first, then legacy
+      const pathMatch =
+        parsed.pathname.match(/\/.well-known\/cognitives\/([^/]+)\/?$/) ??
+        parsed.pathname.match(/\/.well-known\/skills\/([^/]+)\/?$/);
       if (pathMatch && pathMatch[1] && pathMatch[1] !== 'index.json') {
-        skillName = pathMatch[1];
-      } else if (index.skills.length === 1) {
-        // If only one skill in index, use that
-        skillName = index.skills[0]!.name;
+        cognitiveName = pathMatch[1];
+      } else if (index.cognitives.length === 1) {
+        // If only one cognitive in index, use that
+        cognitiveName = index.cognitives[0]!.name;
       }
 
-      if (!skillName) {
-        // Multiple skills available, return null - caller should use fetchAllSkills
+      if (!cognitiveName) {
+        // Multiple cognitives available, return null - caller should use fetchAllCognitives
         return null;
       }
 
-      // Find the skill in the index
-      const skillEntry = index.skills.find((s: WellKnownSkillEntry) => s.name === skillName);
-      if (!skillEntry) {
+      // Find the cognitive in the index
+      const cognitiveEntry = index.cognitives.find(
+        (s: WellKnownCognitiveEntry) => s.name === cognitiveName
+      );
+      if (!cognitiveEntry) {
         return null;
       }
 
-      return this.fetchSkillByEntry(resolvedBaseUrl, skillEntry);
+      return this.fetchCognitiveByEntry(resolvedBaseUrl, cognitiveEntry);
     } catch {
       return null;
     }
   }
 
   /**
-   * Fetch a skill by its index entry.
+   * Fetch a cognitive by its index entry.
    * @param baseUrl - The base URL (e.g., https://example.com or https://example.com/docs)
-   * @param entry - The skill entry from index.json
+   * @param entry - The cognitive entry from index.json
    */
-  async fetchSkillByEntry(
+  async fetchCognitiveByEntry(
     baseUrl: string,
-    entry: WellKnownSkillEntry
-  ): Promise<WellKnownSkill | null> {
+    entry: WellKnownCognitiveEntry
+  ): Promise<WellKnownCognitive | null> {
     try {
-      // Build the skill base URL: {baseUrl}/.well-known/skills/{skill-name}
-      const skillBaseUrl = `${baseUrl.replace(/\/$/, '')}/${this.WELL_KNOWN_PATH}/${entry.name}`;
+      // Build the cognitive base URL: {baseUrl}/.well-known/cognitives/{cognitive-name}
+      const cognitiveBaseUrl = `${baseUrl.replace(/\/$/, '')}/${this.WELL_KNOWN_PATH}/${entry.name}`;
 
-      // Fetch SKILL.md first (required)
-      const skillMdUrl = `${skillBaseUrl}/SKILL.md`;
-      const response = await fetch(skillMdUrl);
+      // Detect which cognitive file to use as the primary file
+      const cognitiveFileNames = Object.values(COGNITIVE_FILE_NAMES).map((n) => n.toLowerCase());
+      const primaryFile = entry.files.find((f) => cognitiveFileNames.includes(f.toLowerCase()));
+      if (!primaryFile) return null;
+
+      // Determine cognitive type from the primary file
+      const cognitiveType =
+        (Object.entries(COGNITIVE_FILE_NAMES) as [CognitiveType, string][]).find(
+          ([_, name]) => name.toLowerCase() === primaryFile.toLowerCase()
+        )?.[0] ?? 'skill';
+
+      // Fetch primary cognitive file
+      const primaryUrl = `${cognitiveBaseUrl}/${primaryFile}`;
+      let response = await fetch(primaryUrl);
+
+      // If new path fails, try legacy path
+      if (!response.ok) {
+        const legacyBaseUrl = `${baseUrl.replace(/\/$/, '')}/${this.WELL_KNOWN_PATH_LEGACY}/${entry.name}`;
+        const legacyPrimaryUrl = `${legacyBaseUrl}/${primaryFile}`;
+        response = await fetch(legacyPrimaryUrl);
+      }
 
       if (!response.ok) {
         return null;
@@ -260,13 +309,13 @@ export class WellKnownProvider implements HostProvider {
 
       // Fetch all other files
       const files = new Map<string, string>();
-      files.set('SKILL.md', content);
+      files.set(primaryFile, content);
 
       // Fetch remaining files in parallel
-      const otherFiles = entry.files.filter((f) => f.toLowerCase() !== 'skill.md');
+      const otherFiles = entry.files.filter((f) => f.toLowerCase() !== primaryFile.toLowerCase());
       const filePromises = otherFiles.map(async (filePath) => {
         try {
-          const fileUrl = `${skillBaseUrl}/${filePath}`;
+          const fileUrl = `${cognitiveBaseUrl}/${filePath}`;
           const fileResponse = await fetch(fileUrl);
           if (fileResponse.ok) {
             const fileContent = await fileResponse.text();
@@ -290,8 +339,9 @@ export class WellKnownProvider implements HostProvider {
         description: data.description,
         content,
         installName: entry.name,
-        sourceUrl: skillMdUrl,
+        sourceUrl: primaryUrl,
         metadata: data.metadata,
+        cognitiveType,
         files,
         indexEntry: entry,
       };
@@ -301,9 +351,9 @@ export class WellKnownProvider implements HostProvider {
   }
 
   /**
-   * Fetch all skills from a well-known endpoint.
+   * Fetch all cognitives from a well-known endpoint.
    */
-  async fetchAllSkills(url: string): Promise<WellKnownSkill[]> {
+  async fetchAllCognitives(url: string): Promise<WellKnownCognitive[]> {
     try {
       const result = await this.fetchIndex(url);
       if (!result) {
@@ -312,35 +362,48 @@ export class WellKnownProvider implements HostProvider {
 
       const { index, resolvedBaseUrl } = result;
 
-      // Fetch all skills in parallel
-      const skillPromises = index.skills.map((entry: WellKnownSkillEntry) =>
-        this.fetchSkillByEntry(resolvedBaseUrl, entry)
+      // Fetch all cognitives in parallel
+      const cognitivePromises = index.cognitives.map((entry: WellKnownCognitiveEntry) =>
+        this.fetchCognitiveByEntry(resolvedBaseUrl, entry)
       );
-      const results = await Promise.all(skillPromises);
+      const results = await Promise.all(cognitivePromises);
 
-      return results.filter((s: WellKnownSkill | null): s is WellKnownSkill => s !== null);
+      return results.filter((s: WellKnownCognitive | null): s is WellKnownCognitive => s !== null);
     } catch {
       return [];
     }
   }
 
   /**
-   * Convert a user-facing URL to a skill URL.
+   * Convert a user-facing URL to a cognitive URL.
    * For well-known, this extracts the base domain and constructs the proper path.
    */
   toRawUrl(url: string): string {
     try {
       const parsed = new URL(url);
-      // If already pointing to a SKILL.md, return as-is
-      if (url.toLowerCase().endsWith('/skill.md')) {
+      // If already pointing to a cognitive file, return as-is
+      const cognitiveFileNames = Object.values(COGNITIVE_FILE_NAMES).map((n) => n.toLowerCase());
+      const lower = url.toLowerCase();
+      if (cognitiveFileNames.some((f) => lower.endsWith('/' + f))) {
         return url;
       }
 
-      // Check if URL specifies a skill path
-      const pathMatch = parsed.pathname.match(/\/.well-known\/skills\/([^/]+)\/?$/);
+      // Check if URL specifies a cognitive path (with or without a cognitive file)
+      // Matches both new and legacy paths
+      const pathMatch =
+        parsed.pathname.match(/\/.well-known\/cognitives\/([^/]+?)(?:\/([^/]+))?\/?$/) ??
+        parsed.pathname.match(/\/.well-known\/skills\/([^/]+?)(?:\/([^/]+))?\/?$/);
       if (pathMatch && pathMatch[1]) {
-        const basePath = parsed.pathname.replace(/\/.well-known\/skills\/.*$/, '');
-        return `${parsed.protocol}//${parsed.host}${basePath}/${this.WELL_KNOWN_PATH}/${pathMatch[1]}/SKILL.md`;
+        const matchedWkPath = parsed.pathname.includes('.well-known/cognitives')
+          ? this.WELL_KNOWN_PATH
+          : this.WELL_KNOWN_PATH_LEGACY;
+        const basePath = parsed.pathname.replace(/\/.well-known\/(?:cognitives|skills)\/.*$/, '');
+        // If the URL already ends with a known cognitive file name, preserve it
+        const trailingFile = pathMatch[2]?.toLowerCase();
+        const cognitiveFile = cognitiveFileNames.find((f) => f === trailingFile)
+          ? pathMatch[2]!
+          : COGNITIVE_FILE_NAMES.skill; // Default to SKILL.md for backward compat
+        return `${parsed.protocol}//${parsed.host}${basePath}/${matchedWkPath}/${pathMatch[1]}/${cognitiveFile}`;
       }
 
       // Otherwise, return the index URL
@@ -354,7 +417,7 @@ export class WellKnownProvider implements HostProvider {
   /**
    * Get the source identifier for telemetry/storage.
    * Returns the domain in owner/repo format: second-level-domain/top-level-domain.
-   * e.g., "mintlify.com" → "mintlify/com", "lovable.dev" → "lovable/dev"
+   * e.g., "mintlify.com" -> "mintlify/com", "lovable.dev" -> "lovable/dev"
    * This matches the owner/repo pattern used by GitHub sources for consistency in the leaderboard.
    */
   getSourceIdentifier(url: string): string {
@@ -364,9 +427,9 @@ export class WellKnownProvider implements HostProvider {
       const hostParts = parsed.hostname.split('.');
 
       // Handle common cases:
-      // - example.com → example/com
-      // - docs.example.com → example/com (strip subdomain)
-      // - example.co.uk → example/co.uk (keep compound TLD)
+      // - example.com -> example/com
+      // - docs.example.com -> example/com (strip subdomain)
+      // - example.co.uk -> example/co.uk (keep compound TLD)
 
       if (hostParts.length >= 2) {
         // Get the last two parts as the main domain
@@ -383,11 +446,34 @@ export class WellKnownProvider implements HostProvider {
   }
 
   /**
-   * Check if a URL has a well-known skills index.
+   * Check if a URL has a well-known cognitives index.
    */
-  async hasSkillsIndex(url: string): Promise<boolean> {
+  async hasCognitivesIndex(url: string): Promise<boolean> {
     const result = await this.fetchIndex(url);
     return result !== null;
+  }
+
+  /** @deprecated Use hasCognitivesIndex */
+  async hasSkillsIndex(url: string): Promise<boolean> {
+    return this.hasCognitivesIndex(url);
+  }
+
+  /** @deprecated Use fetchCognitive */
+  async fetchSkill(url: string): Promise<RemoteCognitive | null> {
+    return this.fetchCognitive(url);
+  }
+
+  /** @deprecated Use fetchCognitiveByEntry */
+  async fetchSkillByEntry(
+    baseUrl: string,
+    entry: WellKnownCognitiveEntry
+  ): Promise<WellKnownCognitive | null> {
+    return this.fetchCognitiveByEntry(baseUrl, entry);
+  }
+
+  /** @deprecated Use fetchAllCognitives */
+  async fetchAllSkills(url: string): Promise<WellKnownCognitive[]> {
+    return this.fetchAllCognitives(url);
   }
 }
 

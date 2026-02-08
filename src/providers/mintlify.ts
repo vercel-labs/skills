@@ -1,25 +1,49 @@
 import matter from 'gray-matter';
-import type { HostProvider, ProviderMatch, RemoteSkill } from './types.ts';
+import type { CognitiveType } from '../core/types.ts';
+import { COGNITIVE_FILE_NAMES } from '../core/types.ts';
+import type { HostProvider, ProviderMatch, RemoteCognitive } from './types.ts';
+
+/** Map lowercase file names to their cognitive type. */
+const FILE_NAME_TO_TYPE = new Map<string, CognitiveType>(
+  (Object.entries(COGNITIVE_FILE_NAMES) as [CognitiveType, string][]).map(([type, name]) => [
+    name.toLowerCase(),
+    type,
+  ])
+);
 
 /**
- * Mintlify-hosted skills provider.
+ * Detect the cognitive type from a URL based on the trailing file name.
+ * Returns 'skill' as fallback.
+ */
+function detectCognitiveType(url: string): CognitiveType {
+  const lower = url.toLowerCase();
+  for (const [fileName, type] of FILE_NAME_TO_TYPE) {
+    if (lower.endsWith('/' + fileName)) return type;
+  }
+  return 'skill';
+}
+
+/**
+ * Check whether a URL ends with any known cognitive file name.
+ */
+function matchesCognitiveFile(url: string): boolean {
+  const lower = url.toLowerCase();
+  for (const fileName of FILE_NAME_TO_TYPE.keys()) {
+    if (lower.endsWith('/' + fileName)) return true;
+  }
+  return false;
+}
+
+/**
+ * Mintlify-hosted cognitive provider.
  *
- * Mintlify skills are identified by:
- * 1. URL ending in /skill.md (case insensitive)
+ * Mintlify cognitives are identified by:
+ * 1. URL ending in /SKILL.md, /AGENT.md, or /PROMPT.md (case insensitive)
  * 2. Frontmatter containing `metadata.mintlify-proj`
  *
  * The `mintlify-proj` value is used as:
- * - The skill's installation directory name
+ * - The cognitive's installation directory name
  * - Part of the source identifier for telemetry
- *
- * Example URL: https://mintlify.com/docs/skill.md
- * Example frontmatter:
- * ```yaml
- * name: Mintlify Development
- * description: Build documentation with Mintlify
- * metadata:
- *   mintlify-proj: mintlify.com
- * ```
  */
 export class MintlifyProvider implements HostProvider {
   readonly id = 'mintlify';
@@ -31,8 +55,8 @@ export class MintlifyProvider implements HostProvider {
       return { matches: false };
     }
 
-    // Must end with /skill.md (case insensitive)
-    if (!url.toLowerCase().endsWith('/skill.md')) {
+    // Must end with a known cognitive file name (case insensitive)
+    if (!matchesCognitiveFile(url)) {
       return { matches: false };
     }
 
@@ -49,7 +73,7 @@ export class MintlifyProvider implements HostProvider {
     return { matches: true };
   }
 
-  async fetchSkill(url: string): Promise<RemoteSkill | null> {
+  async fetchCognitive(url: string): Promise<RemoteCognitive | null> {
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(30000) });
 
@@ -78,10 +102,16 @@ export class MintlifyProvider implements HostProvider {
         installName: mintlifySite,
         sourceUrl: url,
         metadata: data.metadata,
+        cognitiveType: detectCognitiveType(url),
       };
     } catch {
       return null;
     }
+  }
+
+  /** @deprecated Use fetchCognitive */
+  async fetchSkill(url: string): Promise<RemoteCognitive | null> {
+    return this.fetchCognitive(url);
   }
 
   toRawUrl(url: string): string {

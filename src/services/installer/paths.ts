@@ -1,7 +1,7 @@
 import { join, normalize, resolve, sep } from 'path';
 import { homedir } from 'os';
 import type { AgentType, CognitiveType } from '../../core/types.ts';
-import { AGENTS_DIR, COGNITIVE_SUBDIRS } from '../../core/constants.ts';
+import { AGENTS_DIR, COGNITIVE_SUBDIRS } from '../../core/types.ts';
 import { getCognitiveDir } from '../registry/index.ts';
 
 /**

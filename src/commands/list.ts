@@ -2,8 +2,9 @@ import { homedir } from 'os';
 import pc from 'picocolors';
 import { logger } from '../utils/logger.ts';
 import type { AgentType, CognitiveType } from '../core/types.ts';
+import { COGNITIVE_FILE_NAMES } from '../core/types.ts';
 import { agents } from '../services/registry/index.ts';
-import { listInstalledSkills, type InstalledSkill } from '../services/installer/index.ts';
+import { listInstalledCognitives, type InstalledCognitive } from '../services/installer/index.ts';
 
 interface ListOptions {
   global?: boolean;
@@ -53,7 +54,7 @@ export function parseListOptions(args: string[]): ListOptions {
     } else if (arg === '-t' || arg === '--type') {
       i++;
       const typeVal = args[i];
-      if (typeVal === 'skill' || typeVal === 'agent' || typeVal === 'prompt') {
+      if (typeVal && (Object.keys(COGNITIVE_FILE_NAMES) as string[]).includes(typeVal)) {
         options.type = typeVal as CognitiveType;
       }
     }
@@ -83,21 +84,21 @@ export async function runList(args: string[]): Promise<void> {
     agentFilter = options.agent as AgentType[];
   }
 
-  const installedSkills = await listInstalledSkills({
+  const installedCognitives = await listInstalledCognitives({
     global: scope,
     agentFilter,
   });
 
   // Filter by cognitive type if --type is specified
-  const filteredSkills = options.type
-    ? installedSkills.filter((s) => (s.cognitiveType || 'skill') === options.type)
-    : installedSkills;
+  const filteredCognitives = options.type
+    ? installedCognitives.filter((s) => (s.cognitiveType || 'skill') === options.type)
+    : installedCognitives;
 
   const cwd = process.cwd();
   const scopeLabel = scope ? 'Global' : 'Project';
   const typeLabel = options.type ? ` ${options.type}s` : '';
 
-  if (filteredSkills.length === 0) {
+  if (filteredCognitives.length === 0) {
     logger.dim(`No ${scopeLabel.toLowerCase()}${typeLabel} found.`);
     if (scope) {
       logger.dim('Try listing project cognitives without -g');
@@ -107,14 +108,14 @@ export async function runList(args: string[]): Promise<void> {
     return;
   }
 
-  function getTypeLabel(skill: InstalledSkill): string {
+  function getTypeLabel(skill: InstalledCognitive): string {
     const ct = skill.cognitiveType || 'skill';
     if (ct === 'agent') return ` ${pc.dim('[AGENT]')}`;
     if (ct === 'prompt') return ` ${pc.dim('[PROMPT]')}`;
     return '';
   }
 
-  function printSkill(skill: InstalledSkill): void {
+  function printSkill(skill: InstalledCognitive): void {
     const shortPath = shortenPath(skill.canonicalPath, cwd);
     const agentNames = skill.agents.map((a) => agents[a].displayName);
     const agentInfo = skill.agents.length > 0 ? formatList(agentNames) : pc.yellow('not linked');
@@ -126,7 +127,7 @@ export async function runList(args: string[]): Promise<void> {
     `${scopeLabel}${typeLabel ? typeLabel.charAt(0).toUpperCase() + typeLabel.slice(1) : ' Cognitives'}`
   );
   logger.line();
-  for (const skill of filteredSkills) {
+  for (const skill of filteredCognitives) {
     printSkill(skill);
   }
   logger.line();

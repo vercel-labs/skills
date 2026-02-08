@@ -56,12 +56,12 @@ describe('WellKnownProvider', () => {
   describe('toRawUrl', () => {
     it('should return index.json URL for base URLs', () => {
       const result = provider.toRawUrl('https://example.com');
-      expect(result).toBe('https://example.com/.well-known/skills/index.json');
+      expect(result).toBe('https://example.com/.well-known/cognitives/index.json');
     });
 
     it('should return index.json URL with path', () => {
       const result = provider.toRawUrl('https://example.com/docs');
-      expect(result).toBe('https://example.com/docs/.well-known/skills/index.json');
+      expect(result).toBe('https://example.com/docs/.well-known/cognitives/index.json');
     });
 
     it('should return SKILL.md URL if already pointing to skill.md', () => {
@@ -78,7 +78,7 @@ describe('WellKnownProvider', () => {
     });
 
     it('provider should have display name "Well-Known Skills"', () => {
-      expect(provider.displayName).toBe('Well-Known Skills');
+      expect(provider.displayName).toBe('Well-Known Cognitives');
     });
   });
 });

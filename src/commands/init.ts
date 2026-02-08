@@ -2,19 +2,21 @@ import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { basename, join } from 'path';
 import pc from 'picocolors';
 import { logger } from '../utils/logger.ts';
+import type { CognitiveType } from '../core/types.ts';
+import { COGNITIVE_FILE_NAMES } from '../core/types.ts';
 
 export function runInit(args: string[]): void {
   const cwd = process.cwd();
 
   // Parse --type flag
-  let cognitiveType: 'skill' | 'agent' | 'prompt' = 'skill';
+  let cognitiveType: CognitiveType = 'skill';
   const filteredArgs: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if ((arg === '-t' || arg === '--type') && i + 1 < args.length) {
       const typeVal = args[i + 1]!;
-      if (typeVal === 'skill' || typeVal === 'agent' || typeVal === 'prompt') {
-        cognitiveType = typeVal;
+      if (typeVal && (Object.keys(COGNITIVE_FILE_NAMES) as string[]).includes(typeVal)) {
+        cognitiveType = typeVal as CognitiveType;
       }
       i++;
     } else if (arg && !arg.startsWith('-')) {
@@ -25,12 +27,7 @@ export function runInit(args: string[]): void {
   const itemName = filteredArgs[0] || basename(cwd);
   const hasName = filteredArgs[0] !== undefined;
 
-  const fileNames: Record<string, string> = {
-    skill: 'SKILL.md',
-    agent: 'AGENT.md',
-    prompt: 'PROMPT.md',
-  };
-  const fileName = fileNames[cognitiveType]!;
+  const fileName = COGNITIVE_FILE_NAMES[cognitiveType];
 
   const itemDir = hasName ? join(cwd, itemName) : cwd;
   const itemFile = join(itemDir, fileName);

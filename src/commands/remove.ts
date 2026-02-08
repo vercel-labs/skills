@@ -5,15 +5,10 @@ import { join } from 'path';
 import { logger, type Ora } from '../utils/logger.ts';
 import { agents, detectInstalledAgents } from '../services/registry/index.ts';
 import { track } from '../services/telemetry/index.ts';
-import { removeSkillFromLock, getSkillFromLock } from '../services/lock/lock-file.ts';
+import { removeCognitiveFromLock, getCognitiveFromLock } from '../services/lock/lock-file.ts';
 import type { AgentType, CognitiveType } from '../core/types.ts';
-import {
-  getInstallPath,
-  getCanonicalPath,
-  getCanonicalSkillsDir,
-  getCanonicalDir,
-} from '../services/installer/index.ts';
-import { COGNITIVE_SUBDIRS } from '../core/constants.ts';
+import { COGNITIVE_FILE_NAMES } from '../core/types.ts';
+import { getInstallPath, getCanonicalPath, getCanonicalDir } from '../services/installer/index.ts';
 
 export interface RemoveOptions {
   global?: boolean;
@@ -27,7 +22,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   const isGlobal = options.global ?? false;
   const cwd = process.cwd();
 
-  const spinner = logger.spinner('Scanning for installed skills...');
+  const spinner = logger.spinner('Scanning for installed cognitives...');
   const skillNamesSet = new Set<string>();
 
   const scanDir = async (dir: string) => {
@@ -46,20 +41,15 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   };
 
   // Determine which cognitive types to scan
-  const typesToScan: Array<'skill' | 'agent' | 'prompt'> = options.type
+  const typesToScan: CognitiveType[] = options.type
     ? [options.type]
-    : ['skill', 'agent', 'prompt'];
+    : (Object.keys(COGNITIVE_FILE_NAMES) as CognitiveType[]);
 
   for (const cogType of typesToScan) {
     if (isGlobal) {
       await scanDir(getCanonicalDir(cogType, true, cwd));
       for (const agent of Object.values(agents)) {
-        const dir =
-          cogType === 'skill'
-            ? agent.globalSkillsDir
-            : cogType === 'agent'
-              ? agent.globalAgentsDir
-              : agent.globalPromptsDir;
+        const dir = agent.dirs[cogType]!.global;
         if (dir !== undefined) {
           await scanDir(dir);
         }
@@ -67,22 +57,17 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     } else {
       await scanDir(getCanonicalDir(cogType, false, cwd));
       for (const agent of Object.values(agents)) {
-        const dir =
-          cogType === 'skill'
-            ? agent.skillsDir
-            : cogType === 'agent'
-              ? agent.agentsDir
-              : agent.promptsDir;
+        const dir = agent.dirs[cogType]!.local;
         await scanDir(join(cwd, dir));
       }
     }
   }
 
   const installedSkills = Array.from(skillNamesSet).sort();
-  spinner.succeed(`Found ${installedSkills.length} unique installed skill(s)`);
+  spinner.succeed(`Found ${installedSkills.length} unique installed cognitive(s)`);
 
   if (installedSkills.length === 0) {
-    logger.outro(pc.yellow('No skills found to remove.'));
+    logger.outro(pc.yellow('No cognitives found to remove.'));
     return;
   }
 
@@ -118,7 +103,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     }));
 
     const selected = await p.multiselect({
-      message: `Select skills to remove ${pc.dim('(space to toggle)')}`,
+      message: `Select cognitives to remove ${pc.dim('(space to toggle)')}`,
       options: choices,
       required: true,
     });
@@ -146,14 +131,14 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
   if (!options.yes) {
     logger.line();
-    logger.info('Skills to remove:');
+    logger.info('Cognitives to remove:');
     for (const skill of selectedSkills) {
       logger.message(`${pc.red('\u2022')} ${skill}`);
     }
     logger.line();
 
     const confirmed = await p.confirm({
-      message: `Are you sure you want to uninstall ${selectedSkills.length} skill(s)?`,
+      message: `Are you sure you want to uninstall ${selectedSkills.length} cognitive(s)?`,
     });
 
     if (p.isCancel(confirmed) || !confirmed) {
@@ -162,7 +147,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     }
   }
 
-  spinner.start('Removing skills...');
+  spinner.start('Removing cognitives...');
 
   const results: {
     skill: string;
@@ -202,12 +187,12 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
         await rm(canonicalPath, { recursive: true, force: true });
       }
 
-      const lockEntry = isGlobal ? await getSkillFromLock(skillName) : null;
+      const lockEntry = isGlobal ? await getCognitiveFromLock(skillName) : null;
       const effectiveSource = lockEntry?.source || 'local';
       const effectiveSourceType = lockEntry?.sourceType || 'local';
 
       if (isGlobal) {
-        await removeSkillFromLock(skillName);
+        await removeCognitiveFromLock(skillName);
       }
 
       results.push({
@@ -255,11 +240,11 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   }
 
   if (successful.length > 0) {
-    logger.success(pc.green(`Successfully removed ${successful.length} skill(s)`));
+    logger.success(pc.green(`Successfully removed ${successful.length} cognitive(s)`));
   }
 
   if (failed.length > 0) {
-    logger.error(pc.red(`Failed to remove ${failed.length} skill(s)`));
+    logger.error(pc.red(`Failed to remove ${failed.length} cognitive(s)`));
     for (const r of failed) {
       logger.message(`${pc.red('\u2717')} ${r.skill}: ${r.error}`);
     }
@@ -299,7 +284,7 @@ export function parseRemoveOptions(args: string[]): { skills: string[]; options:
     } else if (arg === '-t' || arg === '--type') {
       i++;
       const typeVal = args[i];
-      if (typeVal === 'skill' || typeVal === 'agent' || typeVal === 'prompt') {
+      if (typeVal && (Object.keys(COGNITIVE_FILE_NAMES) as string[]).includes(typeVal)) {
         options.type = typeVal as CognitiveType;
       }
     } else if (arg && !arg.startsWith('-')) {

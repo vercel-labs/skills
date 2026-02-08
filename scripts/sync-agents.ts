@@ -32,13 +32,13 @@ function generateAvailableAgentsTable(): string {
   >();
 
   for (const [key, a] of Object.entries(agents)) {
-    const pathKey = `${a.skillsDir}|${a.globalSkillsDir}`;
+    const pathKey = `${a.dirs.skill.local}|${a.dirs.skill.global}`;
     if (!pathGroups.has(pathKey)) {
       pathGroups.set(pathKey, {
         keys: [],
         displayNames: [],
-        skillsDir: a.skillsDir,
-        globalSkillsDir: a.globalSkillsDir,
+        skillsDir: a.dirs.skill.local,
+        globalSkillsDir: a.dirs.skill.global,
       });
     }
     const group = pathGroups.get(pathKey)!;
@@ -70,7 +70,7 @@ function generateSkillDiscoveryPaths(): string {
     '- `skills/.system/`',
   ];
 
-  const agentPaths = [...new Set(Object.values(agents).map((a) => a.skillsDir))].map(
+  const agentPaths = [...new Set(Object.values(agents).map((a) => a.dirs.skill.local))].map(
     (p) => `- \`.${p.startsWith('.') ? p.slice(1) : '/' + p}/\``
   );
 
