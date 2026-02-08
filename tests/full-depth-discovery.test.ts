@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { discoverSkills } from '../src/skills.ts';
+import { discoverSkills } from '../src/services/discovery/index.ts';
 
 describe('discoverSkills with fullDepth option', () => {
   let testDir: string;

@@ -1,5 +1,5 @@
 import { isAbsolute, resolve } from 'path';
-import type { ParsedSource } from './types.ts';
+import type { ParsedSource } from '../../core/types.ts';
 
 /**
  * Extract owner/repo (or group/subgroup/repo for GitLab) from a parsed source

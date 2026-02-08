@@ -1,7 +1,7 @@
 import * as readline from 'readline';
 import { runAdd, parseAddOptions } from './add.ts';
-import { track } from './telemetry.ts';
-import { isRepoPrivate, parseOwnerRepo } from './source-parser.ts';
+import { track } from '../services/telemetry/index.ts';
+import { isRepoPrivate, parseOwnerRepo } from '../services/source/parser.ts';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -284,7 +284,7 @@ ${DIM}  2) npx synk add <owner/repo@skill>${RESET}`;
     for (const skill of results.slice(0, 6)) {
       const pkg = skill.source || skill.slug;
       console.log(`${TEXT}${pkg}@${skill.name}${RESET}`);
-      console.log(`${DIM}└ https://skills.sh/${skill.slug}${RESET}`);
+      console.log(`${DIM}\u2514 https://skills.sh/${skill.slug}${RESET}`);
       console.log();
     }
     return;

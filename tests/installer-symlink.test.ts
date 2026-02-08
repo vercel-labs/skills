@@ -16,7 +16,7 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { installSkillForAgent } from '../src/installer.ts';
+import { installSkillForAgent } from '../src/services/installer/index.ts';
 
 async function makeSkillSource(root: string, name: string): Promise<string> {
   const dir = join(root, 'source-skill');

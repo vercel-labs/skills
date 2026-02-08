@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdir, writeFile, rm } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { listInstalledSkills } from '../src/installer.ts';
-import * as agentsModule from '../src/agents.ts';
+import { listInstalledSkills } from '../src/services/installer/index.ts';
+import * as agentsModule from '../src/services/registry/index.ts';
 
 describe('listInstalledSkills', () => {
   let testDir: string;

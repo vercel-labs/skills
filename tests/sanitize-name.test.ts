@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { sanitizeName } from '../src/installer.ts';
+import { sanitizeName } from '../src/services/installer/index.ts';
 
 describe('sanitizeName', () => {
   describe('basic transformations', () => {

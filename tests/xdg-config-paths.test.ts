@@ -16,7 +16,7 @@
 import { describe, it, expect } from 'vitest';
 import { homedir } from 'os';
 import { join } from 'path';
-import { agents } from '../src/agents.ts';
+import { agents } from '../src/services/registry/index.ts';
 
 describe('XDG config paths', () => {
   const home = homedir();

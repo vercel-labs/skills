@@ -6,8 +6,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { filterSkills } from '../src/skills.ts';
-import type { Skill } from '../src/types.ts';
+import { filterSkills } from '../src/services/discovery/index.ts';
+import type { Skill } from '../src/core/types.ts';
 
 // Mock skill factory
 function makeSkill(name: string, path: string = '/tmp/skill'): Skill {

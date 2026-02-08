@@ -2,17 +2,17 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { readdir, rm, lstat } from 'fs/promises';
 import { join } from 'path';
-import { agents, detectInstalledAgents } from './agents.ts';
-import { track } from './telemetry.ts';
-import { removeSkillFromLock, getSkillFromLock } from './skill-lock.ts';
-import type { AgentType, CognitiveType } from './types.ts';
+import { agents, detectInstalledAgents } from '../services/registry/index.ts';
+import { track } from '../services/telemetry/index.ts';
+import { removeSkillFromLock, getSkillFromLock } from '../services/lock/lock-file.ts';
+import type { AgentType, CognitiveType } from '../core/types.ts';
 import {
   getInstallPath,
   getCanonicalPath,
   getCanonicalSkillsDir,
   getCanonicalDir,
-} from './installer.ts';
-import { COGNITIVE_SUBDIRS } from './constants.ts';
+} from '../services/installer/index.ts';
+import { COGNITIVE_SUBDIRS } from '../core/constants.ts';
 
 export interface RemoveOptions {
   global?: boolean;
@@ -149,7 +149,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     console.log();
     p.log.info('Skills to remove:');
     for (const skill of selectedSkills) {
-      p.log.message(`  ${pc.red('•')} ${skill}`);
+      p.log.message(`  ${pc.red('\u2022')} ${skill}`);
     }
     console.log();
 
@@ -262,7 +262,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   if (failed.length > 0) {
     p.log.error(pc.red(`Failed to remove ${failed.length} skill(s)`));
     for (const r of failed) {
-      p.log.message(`  ${pc.red('✗')} ${r.skill}: ${r.error}`);
+      p.log.message(`  ${pc.red('\u2717')} ${r.skill}: ${r.error}`);
     }
   }
 

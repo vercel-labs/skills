@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { existsSync, rmSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir, homedir } from 'os';
-import { runCli } from './test-utils.ts';
-import { parseListOptions } from './list.ts';
+import { runCli } from '../test-utils.ts';
+import { parseListOptions } from '../../commands/list.ts';
 
 describe('list command', () => {
   let testDir: string;

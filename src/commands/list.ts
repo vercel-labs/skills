@@ -1,7 +1,7 @@
 import { homedir } from 'os';
-import type { AgentType, CognitiveType } from './types.ts';
-import { agents } from './agents.ts';
-import { listInstalledSkills, type InstalledSkill } from './installer.ts';
+import type { AgentType, CognitiveType } from '../core/types.ts';
+import { agents } from '../services/registry/index.ts';
+import { listInstalledSkills, type InstalledSkill } from '../services/installer/index.ts';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';

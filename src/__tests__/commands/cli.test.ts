@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { runCliOutput, stripLogo, hasLogo } from './test-utils.ts';
+import { runCliOutput, stripLogo, hasLogo } from '../test-utils.ts';
 
 describe('skills CLI', () => {
   describe('--help', () => {
@@ -38,7 +38,7 @@ describe('skills CLI', () => {
     it('should match package.json version', () => {
       const output = runCliOutput(['--version']);
       const pkg = JSON.parse(
-        readFileSync(join(import.meta.dirname, '..', 'package.json'), 'utf-8')
+        readFileSync(join(import.meta.dirname, '..', '..', '..', 'package.json'), 'utf-8')
       );
       expect(output.trim()).toBe(pkg.version);
     });

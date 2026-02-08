@@ -3,7 +3,7 @@ import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
 import { execSync } from 'child_process';
-import type { CognitiveType } from './types.ts';
+import type { CognitiveType } from '../../core/types.ts';
 
 const AGENTS_DIR = '.agents';
 const LOCK_FILE = '.skill-lock.json';

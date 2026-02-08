@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseSource } from './source-parser.js';
+import { parseSource } from '../../services/source/parser.js';
 
 describe('source-parser', () => {
   describe('GitLab Custom Domains & Subgroups', () => {
