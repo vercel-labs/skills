@@ -1,9 +1,10 @@
 {
-  "name": "skills",
+  "name": "synk",
   "version": "1.3.7",
-  "description": "The open agent skills ecosystem",
+  "description": "The open cognitive ecosystem for AI agents",
   "type": "module",
   "bin": {
+    "synk": "./bin/cli.mjs",
     "skills": "./bin/cli.mjs",
     "add-skill": "./bin/cli.mjs"
   },

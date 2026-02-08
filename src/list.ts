@@ -1,5 +1,5 @@
 import { homedir } from 'os';
-import type { AgentType } from './types.ts';
+import type { AgentType, CognitiveType } from './types.ts';
 import { agents } from './agents.ts';
 import { listInstalledSkills, type InstalledSkill } from './installer.ts';
 
@@ -13,6 +13,7 @@ const YELLOW = '\x1b[33m';
 interface ListOptions {
   global?: boolean;
   agent?: string[];
+  type?: CognitiveType;
 }
 
 /**
@@ -54,6 +55,12 @@ export function parseListOptions(args: string[]): ListOptions {
       while (i + 1 < args.length && !args[i + 1]!.startsWith('-')) {
         options.agent.push(args[++i]!);
       }
+    } else if (arg === '-t' || arg === '--type') {
+      i++;
+      const typeVal = args[i];
+      if (typeVal === 'skill' || typeVal === 'agent' || typeVal === 'prompt') {
+        options.type = typeVal as CognitiveType;
+      }
     }
   }
 
@@ -86,17 +93,30 @@ export async function runList(args: string[]): Promise<void> {
     agentFilter,
   });
 
+  // Filter by cognitive type if --type is specified
+  const filteredSkills = options.type
+    ? installedSkills.filter((s) => (s.cognitiveType || 'skill') === options.type)
+    : installedSkills;
+
   const cwd = process.cwd();
   const scopeLabel = scope ? 'Global' : 'Project';
+  const typeLabel = options.type ? ` ${options.type}s` : '';
 
-  if (installedSkills.length === 0) {
-    console.log(`${DIM}No ${scopeLabel.toLowerCase()} skills found.${RESET}`);
+  if (filteredSkills.length === 0) {
+    console.log(`${DIM}No ${scopeLabel.toLowerCase()}${typeLabel} found.${RESET}`);
     if (scope) {
-      console.log(`${DIM}Try listing project skills without -g${RESET}`);
+      console.log(`${DIM}Try listing project cognitives without -g${RESET}`);
     } else {
-      console.log(`${DIM}Try listing global skills with -g${RESET}`);
+      console.log(`${DIM}Try listing global cognitives with -g${RESET}`);
     }
     return;
+  }
+
+  function getTypeLabel(skill: InstalledSkill): string {
+    const ct = skill.cognitiveType || 'skill';
+    if (ct === 'agent') return ` ${DIM}[AGENT]${RESET}`;
+    if (ct === 'prompt') return ` ${DIM}[PROMPT]${RESET}`;
+    return '';
   }
 
   function printSkill(skill: InstalledSkill): void {
@@ -104,13 +124,15 @@ export async function runList(args: string[]): Promise<void> {
     const agentNames = skill.agents.map((a) => agents[a].displayName);
     const agentInfo =
       skill.agents.length > 0 ? formatList(agentNames) : `${YELLOW}not linked${RESET}`;
-    console.log(`${CYAN}${skill.name}${RESET} ${DIM}${shortPath}${RESET}`);
+    console.log(`${CYAN}${skill.name}${RESET}${getTypeLabel(skill)} ${DIM}${shortPath}${RESET}`);
     console.log(`  ${DIM}Agents:${RESET} ${agentInfo}`);
   }
 
-  console.log(`${BOLD}${scopeLabel} Skills${RESET}`);
+  console.log(
+    `${BOLD}${scopeLabel}${typeLabel ? typeLabel.charAt(0).toUpperCase() + typeLabel.slice(1) : ' Cognitives'}${RESET}`
+  );
   console.log();
-  for (const skill of installedSkills) {
+  for (const skill of filteredSkills) {
     printSkill(skill);
   }
   console.log();

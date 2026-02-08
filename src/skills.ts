@@ -1,10 +1,46 @@
 import { readdir, readFile, stat } from 'fs/promises';
 import { join, basename, dirname } from 'path';
 import matter from 'gray-matter';
-import type { Skill } from './types.ts';
+import type { Skill, CognitiveType } from './types.ts';
+import { COGNITIVE_FILE_NAMES, COGNITIVE_SUBDIRS } from './constants.ts';
 import { getPluginSkillPaths } from './plugin-manifest.ts';
 
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
+
+/** All cognitive types in standard iteration order. */
+const ALL_COGNITIVE_TYPES: CognitiveType[] = ['skill', 'agent', 'prompt'];
+
+/**
+ * The agent directory prefixes used for priority search paths.
+ * Each entry produces paths like `.agent/<subdir>`, `.agents/<subdir>`, etc.
+ */
+const AGENT_DIR_PREFIXES = [
+  '.agent',
+  '.agents',
+  '.claude',
+  '.cline',
+  '.codebuddy',
+  '.codex',
+  '.commandcode',
+  '.continue',
+  '.cursor',
+  '.github',
+  '.goose',
+  '.iflow',
+  '.junie',
+  '.kilocode',
+  '.kiro',
+  '.mux',
+  '.neovate',
+  '.opencode',
+  '.openhands',
+  '.pi',
+  '.qoder',
+  '.roo',
+  '.trae',
+  '.windsurf',
+  '.zencoder',
+];
 
 /**
  * Check if internal skills should be installed.
@@ -15,31 +51,44 @@ export function shouldInstallInternalSkills(): boolean {
   return envValue === '1' || envValue === 'true';
 }
 
-async function hasSkillMd(dir: string): Promise<boolean> {
+// ---------------------------------------------------------------------------
+// Generalized cognitive discovery helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Check if a directory contains a cognitive file (SKILL.md, AGENT.md, or PROMPT.md).
+ */
+export async function hasCognitiveMd(dir: string, cognitiveType: CognitiveType): Promise<boolean> {
   try {
-    const skillPath = join(dir, 'SKILL.md');
-    const stats = await stat(skillPath);
+    const fileName = COGNITIVE_FILE_NAMES[cognitiveType];
+    const filePath = join(dir, fileName);
+    const stats = await stat(filePath);
     return stats.isFile();
   } catch {
     return false;
   }
 }
 
-export async function parseSkillMd(
-  skillMdPath: string,
+/**
+ * Parse a cognitive markdown file (SKILL.md, AGENT.md, or PROMPT.md) and return
+ * a Skill object with the appropriate `cognitiveType` set.
+ */
+export async function parseCognitiveMd(
+  mdPath: string,
+  cognitiveType: CognitiveType,
   options?: { includeInternal?: boolean }
 ): Promise<Skill | null> {
   try {
-    const content = await readFile(skillMdPath, 'utf-8');
+    const content = await readFile(mdPath, 'utf-8');
     const { data } = matter(content);
 
     if (!data.name || !data.description) {
       return null;
     }
 
-    // Skip internal skills unless:
+    // Skip internal entries unless:
     // 1. INSTALL_INTERNAL_SKILLS=1 is set, OR
-    // 2. includeInternal option is true (e.g., when user explicitly requests a skill)
+    // 2. includeInternal option is true (e.g., when user explicitly requests by name)
     const isInternal = data.metadata?.internal === true;
     if (isInternal && !shouldInstallInternalSkills() && !options?.includeInternal) {
       return null;
@@ -48,31 +97,45 @@ export async function parseSkillMd(
     return {
       name: data.name,
       description: data.description,
-      path: dirname(skillMdPath),
+      path: dirname(mdPath),
       rawContent: content,
       metadata: data.metadata,
+      cognitiveType,
     };
   } catch {
     return null;
   }
 }
 
-async function findSkillDirs(dir: string, depth = 0, maxDepth = 5): Promise<string[]> {
+/**
+ * Recursively find directories that contain any of the specified cognitive files.
+ */
+async function findCognitiveDirs(
+  dir: string,
+  types: CognitiveType[] = ALL_COGNITIVE_TYPES,
+  depth = 0,
+  maxDepth = 5
+): Promise<{ dir: string; cognitiveType: CognitiveType }[]> {
   if (depth > maxDepth) return [];
 
   try {
-    const [hasSkill, entries] = await Promise.all([
-      hasSkillMd(dir),
+    const checks = types.map(async (ct) => ({
+      type: ct,
+      found: await hasCognitiveMd(dir, ct),
+    }));
+
+    const [results, entries] = await Promise.all([
+      Promise.all(checks),
       readdir(dir, { withFileTypes: true }).catch(() => []),
     ]);
 
-    const currentDir = hasSkill ? [dir] : [];
+    const currentDir = results.filter((r) => r.found).map((r) => ({ dir, cognitiveType: r.type }));
 
     // Search subdirectories in parallel
     const subDirResults = await Promise.all(
       entries
         .filter((entry) => entry.isDirectory() && !SKIP_DIRS.includes(entry.name))
-        .map((entry) => findSkillDirs(join(dir, entry.name), depth + 1, maxDepth))
+        .map((entry) => findCognitiveDirs(join(dir, entry.name), types, depth + 1, maxDepth))
     );
 
     return [...currentDir, ...subDirResults.flat()];
@@ -84,81 +147,116 @@ async function findSkillDirs(dir: string, depth = 0, maxDepth = 5): Promise<stri
 export interface DiscoverSkillsOptions {
   /** Include internal skills (e.g., when user explicitly requests a skill by name) */
   includeInternal?: boolean;
-  /** Search all subdirectories even when a root SKILL.md exists */
+  /** Search all subdirectories even when a root cognitive file exists */
   fullDepth?: boolean;
+  /** Cognitive types to discover. Defaults to ['skill'] for backward compatibility. */
+  types?: CognitiveType[];
 }
 
-export async function discoverSkills(
+/**
+ * Build priority search directories for a given cognitive type.
+ */
+function buildPrioritySearchDirs(searchPath: string, cognitiveType: CognitiveType): string[] {
+  const subdir = COGNITIVE_SUBDIRS[cognitiveType];
+
+  const dirs = [
+    searchPath,
+    join(searchPath, subdir),
+    join(searchPath, `${subdir}/.curated`),
+    join(searchPath, `${subdir}/.experimental`),
+    join(searchPath, `${subdir}/.system`),
+  ];
+
+  for (const prefix of AGENT_DIR_PREFIXES) {
+    dirs.push(join(searchPath, prefix, subdir));
+  }
+
+  return dirs;
+}
+
+/**
+ * Discover cognitives (skills, agents, prompts) at the given path.
+ *
+ * When `options.types` is not specified, defaults to `['skill']` for backward
+ * compatibility with `discoverSkills`.
+ */
+export async function discoverCognitives(
   basePath: string,
   subpath?: string,
   options?: DiscoverSkillsOptions
 ): Promise<Skill[]> {
-  const skills: Skill[] = [];
-  const seenNames = new Set<string>();
+  const types = options?.types ?? ['skill'];
+  const results: Skill[] = [];
+  const seenKeys = new Set<string>();
   const searchPath = subpath ? join(basePath, subpath) : basePath;
 
-  // If pointing directly at a skill, add it (and return early unless fullDepth is set)
-  if (await hasSkillMd(searchPath)) {
-    const skill = await parseSkillMd(join(searchPath, 'SKILL.md'), options);
-    if (skill) {
-      skills.push(skill);
-      seenNames.add(skill.name);
-      // Only return early if fullDepth is not set
-      if (!options?.fullDepth) {
-        return skills;
+  /** Deduplicated key: cognitive type + name */
+  const makeKey = (cognitiveType: CognitiveType, name: string) => `${cognitiveType}::${name}`;
+
+  const addResult = (skill: Skill): boolean => {
+    const key = makeKey(skill.cognitiveType ?? 'skill', skill.name);
+    if (seenKeys.has(key)) return false;
+    seenKeys.add(key);
+    results.push(skill);
+    return true;
+  };
+
+  // If pointing directly at a cognitive file, add it (and return early unless fullDepth)
+  for (const ct of types) {
+    if (await hasCognitiveMd(searchPath, ct)) {
+      const fileName = COGNITIVE_FILE_NAMES[ct];
+      const cognitive = await parseCognitiveMd(join(searchPath, fileName), ct, options);
+      if (cognitive) {
+        addResult(cognitive);
       }
     }
   }
 
-  // Search common skill locations first
-  const prioritySearchDirs = [
-    searchPath,
-    join(searchPath, 'skills'),
-    join(searchPath, 'skills/.curated'),
-    join(searchPath, 'skills/.experimental'),
-    join(searchPath, 'skills/.system'),
-    join(searchPath, '.agent/skills'),
-    join(searchPath, '.agents/skills'),
-    join(searchPath, '.claude/skills'),
-    join(searchPath, '.cline/skills'),
-    join(searchPath, '.codebuddy/skills'),
-    join(searchPath, '.codex/skills'),
-    join(searchPath, '.commandcode/skills'),
-    join(searchPath, '.continue/skills'),
-    join(searchPath, '.cursor/skills'),
-    join(searchPath, '.github/skills'),
-    join(searchPath, '.goose/skills'),
-    join(searchPath, '.iflow/skills'),
-    join(searchPath, '.junie/skills'),
-    join(searchPath, '.kilocode/skills'),
-    join(searchPath, '.kiro/skills'),
-    join(searchPath, '.mux/skills'),
-    join(searchPath, '.neovate/skills'),
-    join(searchPath, '.opencode/skills'),
-    join(searchPath, '.openhands/skills'),
-    join(searchPath, '.pi/skills'),
-    join(searchPath, '.qoder/skills'),
-    join(searchPath, '.roo/skills'),
-    join(searchPath, '.trae/skills'),
-    join(searchPath, '.windsurf/skills'),
-    join(searchPath, '.zencoder/skills'),
-  ];
+  // Return early if we found a direct match and fullDepth is not set
+  if (results.length > 0 && !options?.fullDepth) {
+    return results;
+  }
 
-  // Add skill paths declared in plugin manifests
-  prioritySearchDirs.push(...(await getPluginSkillPaths(searchPath)));
+  // Collect all unique priority search dirs across all requested types
+  const allPriorityDirs = new Set<string>();
+  /** Maps directory path -> set of cognitive types to check in that directory */
+  const dirTypeMap = new Map<string, Set<CognitiveType>>();
 
-  for (const dir of prioritySearchDirs) {
+  for (const ct of types) {
+    const dirs = buildPrioritySearchDirs(searchPath, ct);
+
+    // For skills, also add plugin manifest paths
+    if (ct === 'skill') {
+      dirs.push(...(await getPluginSkillPaths(searchPath)));
+    }
+
+    for (const dir of dirs) {
+      allPriorityDirs.add(dir);
+      if (!dirTypeMap.has(dir)) {
+        dirTypeMap.set(dir, new Set());
+      }
+      dirTypeMap.get(dir)!.add(ct);
+    }
+  }
+
+  // Search priority directories
+  for (const dir of allPriorityDirs) {
+    const typesForDir = dirTypeMap.get(dir)!;
+
     try {
       const entries = await readdir(dir, { withFileTypes: true });
 
       for (const entry of entries) {
         if (entry.isDirectory()) {
-          const skillDir = join(dir, entry.name);
-          if (await hasSkillMd(skillDir)) {
-            const skill = await parseSkillMd(join(skillDir, 'SKILL.md'), options);
-            if (skill && !seenNames.has(skill.name)) {
-              skills.push(skill);
-              seenNames.add(skill.name);
+          const subDir = join(dir, entry.name);
+
+          for (const ct of typesForDir) {
+            if (await hasCognitiveMd(subDir, ct)) {
+              const fileName = COGNITIVE_FILE_NAMES[ct];
+              const cognitive = await parseCognitiveMd(join(subDir, fileName), ct, options);
+              if (cognitive) {
+                addResult(cognitive);
+              }
             }
           }
         }
@@ -169,19 +267,63 @@ export async function discoverSkills(
   }
 
   // Fall back to recursive search if nothing found, or if fullDepth is set
-  if (skills.length === 0 || options?.fullDepth) {
-    const allSkillDirs = await findSkillDirs(searchPath);
+  if (results.length === 0 || options?.fullDepth) {
+    const allCognitiveDirs = await findCognitiveDirs(searchPath, types);
 
-    for (const skillDir of allSkillDirs) {
-      const skill = await parseSkillMd(join(skillDir, 'SKILL.md'), options);
-      if (skill && !seenNames.has(skill.name)) {
-        skills.push(skill);
-        seenNames.add(skill.name);
+    for (const { dir: cogDir, cognitiveType: ct } of allCognitiveDirs) {
+      const fileName = COGNITIVE_FILE_NAMES[ct];
+      const cognitive = await parseCognitiveMd(join(cogDir, fileName), ct, options);
+      if (cognitive) {
+        addResult(cognitive);
       }
     }
   }
 
-  return skills;
+  return results;
+}
+
+// ---------------------------------------------------------------------------
+// Backward-compatible wrappers
+// ---------------------------------------------------------------------------
+
+/**
+ * Check if a directory contains a SKILL.md file.
+ * @deprecated Use `hasCognitiveMd(dir, 'skill')` instead.
+ */
+async function hasSkillMd(dir: string): Promise<boolean> {
+  return hasCognitiveMd(dir, 'skill');
+}
+
+/**
+ * Parse a SKILL.md file and return a Skill object.
+ * @deprecated Use `parseCognitiveMd(path, 'skill', options)` instead.
+ */
+export async function parseSkillMd(
+  skillMdPath: string,
+  options?: { includeInternal?: boolean }
+): Promise<Skill | null> {
+  return parseCognitiveMd(skillMdPath, 'skill', options);
+}
+
+/**
+ * Recursively find directories containing a SKILL.md file.
+ * @deprecated Use `findCognitiveDirs(dir, ['skill'])` instead.
+ */
+async function findSkillDirs(dir: string, depth = 0, maxDepth = 5): Promise<string[]> {
+  const results = await findCognitiveDirs(dir, ['skill'], depth, maxDepth);
+  return results.map((r) => r.dir);
+}
+
+/**
+ * Discover skills at the given path.
+ * This is a backward-compatible wrapper around `discoverCognitives`.
+ */
+export async function discoverSkills(
+  basePath: string,
+  subpath?: string,
+  options?: DiscoverSkillsOptions
+): Promise<Skill[]> {
+  return discoverCognitives(basePath, subpath, { ...options, types: options?.types ?? ['skill'] });
 }
 
 export function getSkillDisplayName(skill: Skill): string {

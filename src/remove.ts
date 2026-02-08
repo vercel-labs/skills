@@ -5,14 +5,21 @@ import { join } from 'path';
 import { agents, detectInstalledAgents } from './agents.ts';
 import { track } from './telemetry.ts';
 import { removeSkillFromLock, getSkillFromLock } from './skill-lock.ts';
-import type { AgentType } from './types.ts';
-import { getInstallPath, getCanonicalPath, getCanonicalSkillsDir } from './installer.ts';
+import type { AgentType, CognitiveType } from './types.ts';
+import {
+  getInstallPath,
+  getCanonicalPath,
+  getCanonicalSkillsDir,
+  getCanonicalDir,
+} from './installer.ts';
+import { COGNITIVE_SUBDIRS } from './constants.ts';
 
 export interface RemoveOptions {
   global?: boolean;
   agent?: string[];
   yes?: boolean;
   all?: boolean;
+  type?: CognitiveType;
 }
 
 export async function removeCommand(skillNames: string[], options: RemoveOptions) {
@@ -39,17 +46,36 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     }
   };
 
-  if (isGlobal) {
-    await scanDir(getCanonicalSkillsDir(true, cwd));
-    for (const agent of Object.values(agents)) {
-      if (agent.globalSkillsDir !== undefined) {
-        await scanDir(agent.globalSkillsDir);
+  // Determine which cognitive types to scan
+  const typesToScan: Array<'skill' | 'agent' | 'prompt'> = options.type
+    ? [options.type]
+    : ['skill', 'agent', 'prompt'];
+
+  for (const cogType of typesToScan) {
+    if (isGlobal) {
+      await scanDir(getCanonicalDir(cogType, true, cwd));
+      for (const agent of Object.values(agents)) {
+        const dir =
+          cogType === 'skill'
+            ? agent.globalSkillsDir
+            : cogType === 'agent'
+              ? agent.globalAgentsDir
+              : agent.globalPromptsDir;
+        if (dir !== undefined) {
+          await scanDir(dir);
+        }
       }
-    }
-  } else {
-    await scanDir(getCanonicalSkillsDir(false, cwd));
-    for (const agent of Object.values(agents)) {
-      await scanDir(join(cwd, agent.skillsDir));
+    } else {
+      await scanDir(getCanonicalDir(cogType, false, cwd));
+      for (const agent of Object.values(agents)) {
+        const dir =
+          cogType === 'skill'
+            ? agent.skillsDir
+            : cogType === 'agent'
+              ? agent.agentsDir
+              : agent.promptsDir;
+        await scanDir(join(cwd, dir));
+      }
     }
   }
 
@@ -167,8 +193,15 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
         }
       }
 
-      const canonicalPath = getCanonicalPath(skillName, { global: isGlobal, cwd });
-      await rm(canonicalPath, { recursive: true, force: true });
+      // Remove from all cognitive type canonical dirs
+      for (const cogType of typesToScan) {
+        const canonicalPath = getCanonicalPath(skillName, {
+          global: isGlobal,
+          cwd,
+          cognitiveType: cogType,
+        });
+        await rm(canonicalPath, { recursive: true, force: true });
+      }
 
       const lockEntry = isGlobal ? await getSkillFromLock(skillName) : null;
       const effectiveSource = lockEntry?.source || 'local';
@@ -264,6 +297,12 @@ export function parseRemoveOptions(args: string[]): { skills: string[]; options:
         nextArg = args[i];
       }
       i--; // Back up one since the loop will increment
+    } else if (arg === '-t' || arg === '--type') {
+      i++;
+      const typeVal = args[i];
+      if (typeVal === 'skill' || typeVal === 'agent' || typeVal === 'prompt') {
+        options.type = typeVal as CognitiveType;
+      }
     } else if (arg && !arg.startsWith('-')) {
       skills.push(arg);
     }

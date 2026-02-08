@@ -7,7 +7,7 @@ describe('skills CLI', () => {
   describe('--help', () => {
     it('should display help message', () => {
       const output = runCliOutput(['--help']);
-      expect(output).toContain('Usage: skills <command> [options]');
+      expect(output).toContain('Usage: synk <command> [options]');
       expect(output).toContain('Commands:');
       expect(output).toContain('init [name]');
       expect(output).toContain('add <package>');
@@ -47,12 +47,12 @@ describe('skills CLI', () => {
   describe('no arguments', () => {
     it('should display banner', () => {
       const output = stripLogo(runCliOutput([]));
-      expect(output).toContain('The open agent skills ecosystem');
-      expect(output).toContain('npx skills add');
-      expect(output).toContain('npx skills check');
-      expect(output).toContain('npx skills update');
-      expect(output).toContain('npx skills init');
-      expect(output).toContain('skills.sh');
+      expect(output).toContain('The open cognitive ecosystem for AI agents');
+      expect(output).toContain('npx synk add');
+      expect(output).toContain('npx synk check');
+      expect(output).toContain('npx synk update');
+      expect(output).toContain('npx synk init');
+      expect(output).toContain('vercel-labs/agent-skills');
     });
   });
 
@@ -61,7 +61,7 @@ describe('skills CLI', () => {
       const output = runCliOutput(['unknown-command']);
       expect(output).toMatchInlineSnapshot(`
         "Unknown command: unknown-command
-        Run skills --help for usage.
+        Run synk --help for usage.
         "
       `);
     });

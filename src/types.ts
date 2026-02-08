@@ -1,3 +1,5 @@
+export type CognitiveType = 'skill' | 'agent' | 'prompt';
+
 export type AgentType =
   | 'amp'
   | 'antigravity'
@@ -43,9 +45,11 @@ export interface Skill {
   name: string;
   description: string;
   path: string;
-  /** Raw SKILL.md content for hashing */
+  /** Raw SKILL.md/AGENT.md/PROMPT.md content for hashing */
   rawContent?: string;
   metadata?: Record<string, unknown>;
+  /** The cognitive type of this skill. Defaults to 'skill'. */
+  cognitiveType?: CognitiveType;
 }
 
 export interface AgentConfig {
@@ -54,6 +58,10 @@ export interface AgentConfig {
   skillsDir: string;
   /** Global skills directory. Set to undefined if the agent doesn't support global installation. */
   globalSkillsDir: string | undefined;
+  agentsDir: string;
+  globalAgentsDir: string | undefined;
+  promptsDir: string;
+  globalPromptsDir: string | undefined;
   detectInstalled: () => Promise<boolean>;
   /** Whether to show this agent in the universal agents list. Defaults to true. */
   showInUniversalList?: boolean;
@@ -67,6 +75,8 @@ export interface ParsedSource {
   ref?: string;
   /** Skill name extracted from @skill syntax (e.g., owner/repo@skill-name) */
   skillFilter?: string;
+  /** Filter by cognitive type (--type flag) */
+  cognitiveFilter?: CognitiveType;
 }
 
 export interface MintlifySkill {
@@ -97,4 +107,6 @@ export interface RemoteSkill {
   sourceIdentifier: string;
   /** Any additional metadata from frontmatter */
   metadata?: Record<string, unknown>;
+  /** The cognitive type of this remote skill */
+  cognitiveType?: CognitiveType;
 }

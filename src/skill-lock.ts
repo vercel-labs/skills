@@ -3,10 +3,11 @@ import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
 import { execSync } from 'child_process';
+import type { CognitiveType } from './types.ts';
 
 const AGENTS_DIR = '.agents';
 const LOCK_FILE = '.skill-lock.json';
-const CURRENT_VERSION = 3; // Bumped from 2 to 3 for folder hash support (GitHub tree SHA)
+const CURRENT_VERSION = 4; // Bumped from 3 to 4 for cognitiveType support
 
 /**
  * Represents a single installed skill entry in the lock file.
@@ -30,6 +31,8 @@ export interface SkillLockEntry {
   installedAt: string;
   /** ISO timestamp when the skill was last updated */
   updatedAt: string;
+  /** The cognitive type of this entry. Defaults to 'skill' when absent. */
+  cognitiveType?: CognitiveType;
 }
 
 /**
@@ -80,7 +83,7 @@ export async function readSkillLock(): Promise<SkillLockFile> {
     }
 
     // If old version, wipe and start fresh (backwards incompatible change)
-    // v3 adds skillFolderHash - we want fresh installs to populate it
+    // v3 adds skillFolderHash, v4 adds cognitiveType - we want fresh installs to populate them
     if (parsed.version < CURRENT_VERSION) {
       return createEmptyLockFile();
     }
@@ -222,24 +225,37 @@ export async function fetchSkillFolderHash(
 }
 
 /**
- * Add or update a skill entry in the lock file.
+ * Add or update a cognitive entry in the lock file with an explicit cognitive type.
  */
-export async function addSkillToLock(
-  skillName: string,
-  entry: Omit<SkillLockEntry, 'installedAt' | 'updatedAt'>
+export async function addCognitiveToLock(
+  name: string,
+  cognitiveType: CognitiveType,
+  entry: Omit<SkillLockEntry, 'installedAt' | 'updatedAt' | 'cognitiveType'>
 ): Promise<void> {
   const lock = await readSkillLock();
   const now = new Date().toISOString();
 
-  const existingEntry = lock.skills[skillName];
+  const existingEntry = lock.skills[name];
 
-  lock.skills[skillName] = {
+  lock.skills[name] = {
     ...entry,
+    cognitiveType,
     installedAt: existingEntry?.installedAt ?? now,
     updatedAt: now,
   };
 
   await writeSkillLock(lock);
+}
+
+/**
+ * Add or update a skill entry in the lock file.
+ * Convenience wrapper around addCognitiveToLock with cognitiveType 'skill'.
+ */
+export async function addSkillToLock(
+  skillName: string,
+  entry: Omit<SkillLockEntry, 'installedAt' | 'updatedAt' | 'cognitiveType'>
+): Promise<void> {
+  return addCognitiveToLock(skillName, 'skill', entry);
 }
 
 /**

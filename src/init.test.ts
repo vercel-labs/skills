@@ -31,10 +31,8 @@ describe('init command', () => {
         2. Update the name and description in the frontmatter
 
       Publishing:
-        GitHub:  Push to a repo, then npx skills add <owner>/<repo>
-        URL:     Host the file, then npx skills add https://example.com/my-test-skill/SKILL.md
-
-      Browse existing skills for inspiration at https://skills.sh/
+        GitHub:  Push to a repo, then npx synk add <owner>/<repo>
+        URL:     Host the file, then npx synk add https://example.com/my-test-skill/SKILL.md
 
       "
     `);
@@ -78,12 +76,13 @@ describe('init command', () => {
     const output = stripLogo(runCliOutput(['init'], testDir));
 
     expect(output).toContain('Initialized skill:');
-    expect(output).toContain('Created:\n  SKILL.md'); // directly in cwd, not in a subfolder
+    expect(output).toContain('Created:');
+    expect(output).toContain('SKILL.md');
     expect(output).toContain('Publishing:');
     expect(output).toContain('GitHub:');
-    expect(output).toContain('npx skills add <owner>/<repo>');
+    expect(output).toContain('npx synk add <owner>/<repo>');
     expect(output).toContain('URL:');
-    expect(output).toContain('npx skills add https://example.com/SKILL.md');
+    expect(output).toContain('npx synk add https://example.com/SKILL.md');
     expect(existsSync(join(testDir, 'SKILL.md'))).toBe(true);
   });
 
@@ -91,9 +90,9 @@ describe('init command', () => {
     const output = stripLogo(runCliOutput(['init', 'my-skill'], testDir));
 
     expect(output).toContain('Publishing:');
-    expect(output).toContain('GitHub:  Push to a repo, then npx skills add <owner>/<repo>');
+    expect(output).toContain('GitHub:  Push to a repo, then npx synk add <owner>/<repo>');
     expect(output).toContain(
-      'URL:     Host the file, then npx skills add https://example.com/my-skill/SKILL.md'
+      'URL:     Host the file, then npx synk add https://example.com/my-skill/SKILL.md'
     );
   });
 
@@ -101,7 +100,7 @@ describe('init command', () => {
     runCliOutput(['init', 'existing-skill'], testDir);
     const output = stripLogo(runCliOutput(['init', 'existing-skill'], testDir));
     expect(output).toMatchInlineSnapshot(`
-      "Skill already exists at existing-skill/SKILL.md
+      "skill already exists at existing-skill/SKILL.md
       "
     `);
   });

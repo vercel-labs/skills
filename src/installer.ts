@@ -13,11 +13,17 @@ import {
 } from 'fs/promises';
 import { join, basename, normalize, resolve, sep, relative, dirname } from 'path';
 import { homedir, platform } from 'os';
-import type { Skill, AgentType, MintlifySkill, RemoteSkill } from './types.ts';
+import type { Skill, AgentType, MintlifySkill, RemoteSkill, CognitiveType } from './types.ts';
 import type { WellKnownSkill } from './providers/wellknown.ts';
-import { agents, detectInstalledAgents, isUniversalAgent } from './agents.ts';
-import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
-import { parseSkillMd } from './skills.ts';
+import {
+  agents,
+  detectInstalledAgents,
+  isUniversalAgent,
+  getCognitiveDir,
+  isUniversalForType,
+} from './agents.ts';
+import { AGENTS_DIR, SKILLS_SUBDIR, COGNITIVE_SUBDIRS, COGNITIVE_FILE_NAMES } from './constants.ts';
+import { parseSkillMd, parseCognitiveMd } from './skills.ts';
 
 export type InstallMode = 'symlink' | 'copy';
 
@@ -67,13 +73,27 @@ function isPathSafe(basePath: string, targetPath: string): boolean {
 }
 
 /**
+ * Gets the canonical .agents/<type> directory path for any cognitive type
+ * @param cognitiveType - The cognitive type ('skill', 'agent', 'prompt')
+ * @param global - Whether to use global (home) or project-level location
+ * @param cwd - Current working directory for project-level installs
+ */
+export function getCanonicalDir(
+  cognitiveType: CognitiveType,
+  global: boolean,
+  cwd?: string
+): string {
+  const baseDir = global ? homedir() : cwd || process.cwd();
+  return join(baseDir, AGENTS_DIR, COGNITIVE_SUBDIRS[cognitiveType]);
+}
+
+/**
  * Gets the canonical .agents/skills directory path
  * @param global - Whether to use global (home) or project-level location
  * @param cwd - Current working directory for project-level installs
  */
 export function getCanonicalSkillsDir(global: boolean, cwd?: string): string {
-  const baseDir = global ? homedir() : cwd || process.cwd();
-  return join(baseDir, AGENTS_DIR, SKILLS_SUBDIR);
+  return getCanonicalDir('skill', global, cwd);
 }
 
 function resolveSymlinkTarget(linkPath: string, linkTarget: string): string {
@@ -181,36 +201,49 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
   }
 }
 
-export async function installSkillForAgent(
-  skill: Skill,
+/**
+ * Install a cognitive (skill, agent, or prompt) for a specific agent.
+ * Copies files to the canonical .agents/<type>/<name> location and symlinks
+ * to the agent-specific directory.
+ */
+export async function installCognitiveForAgent(
+  cognitive: Skill,
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
+  options: {
+    global?: boolean;
+    cwd?: string;
+    mode?: InstallMode;
+    cognitiveType?: CognitiveType;
+  } = {}
 ): Promise<InstallResult> {
+  const cognitiveType = options.cognitiveType ?? 'skill';
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
   const cwd = options.cwd || process.cwd();
 
-  // Check if agent supports global installation
-  if (isGlobal && agent.globalSkillsDir === undefined) {
+  // Check if agent supports global installation for this cognitive type
+  const globalDir = getCognitiveDir(agentType, cognitiveType, 'global');
+  if (isGlobal && globalDir === undefined) {
     return {
       success: false,
       path: '',
       mode: options.mode ?? 'symlink',
-      error: `${agent.displayName} does not support global skill installation`,
+      error: `${agent.displayName} does not support global ${cognitiveType} installation`,
     };
   }
 
-  // Sanitize skill name to prevent directory traversal
-  const rawSkillName = skill.name || basename(skill.path);
-  const skillName = sanitizeName(rawSkillName);
+  // Sanitize name to prevent directory traversal
+  const rawName = cognitive.name || basename(cognitive.path);
+  const safeName = sanitizeName(rawName);
 
-  // Canonical location: .agents/skills/<skill-name>
-  const canonicalBase = getCanonicalSkillsDir(isGlobal, cwd);
-  const canonicalDir = join(canonicalBase, skillName);
+  // Canonical location: .agents/<type>/<name>
+  const canonicalBase = getCanonicalDir(cognitiveType, isGlobal, cwd);
+  const canonicalDir = join(canonicalBase, safeName);
 
   // Agent-specific location (for symlink)
-  const agentBase = isGlobal ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
-  const agentDir = join(agentBase, skillName);
+  const localDir = getCognitiveDir(agentType, cognitiveType, 'local')!;
+  const agentBase = isGlobal ? globalDir! : join(cwd, localDir);
+  const agentDir = join(agentBase, safeName);
 
   const installMode = options.mode ?? 'symlink';
 
@@ -220,7 +253,7 @@ export async function installSkillForAgent(
       success: false,
       path: agentDir,
       mode: installMode,
-      error: 'Invalid skill name: potential path traversal detected',
+      error: `Invalid ${cognitiveType} name: potential path traversal detected`,
     };
   }
 
@@ -229,7 +262,7 @@ export async function installSkillForAgent(
       success: false,
       path: agentDir,
       mode: installMode,
-      error: 'Invalid skill name: potential path traversal detected',
+      error: `Invalid ${cognitiveType} name: potential path traversal detected`,
     };
   }
 
@@ -237,7 +270,7 @@ export async function installSkillForAgent(
     // For copy mode, skip canonical directory and copy directly to agent location
     if (installMode === 'copy') {
       await cleanAndCreateDirectory(agentDir);
-      await copyDirectory(skill.path, agentDir);
+      await copyDirectory(cognitive.path, agentDir);
 
       return {
         success: true,
@@ -248,12 +281,11 @@ export async function installSkillForAgent(
 
     // Symlink mode: copy to canonical location and symlink to agent location
     await cleanAndCreateDirectory(canonicalDir);
-    await copyDirectory(skill.path, canonicalDir);
+    await copyDirectory(cognitive.path, canonicalDir);
 
-    // For universal agents with global install, the skill is already in the canonical
-    // ~/.agents/skills directory. Skip creating a symlink to the agent-specific global dir
-    // (e.g. ~/.copilot/skills) to avoid duplicates.
-    if (isGlobal && isUniversalAgent(agentType)) {
+    // For universal agents with global install, the cognitive is already in the canonical
+    // ~/.agents/<type> directory. Skip creating a symlink to avoid duplicates.
+    if (isGlobal && isUniversalForType(agentType, cognitiveType)) {
       return {
         success: true,
         path: canonicalDir,
@@ -267,7 +299,7 @@ export async function installSkillForAgent(
     if (!symlinkCreated) {
       // Symlink failed, fall back to copy
       await cleanAndCreateDirectory(agentDir);
-      await copyDirectory(skill.path, agentDir);
+      await copyDirectory(cognitive.path, agentDir);
 
       return {
         success: true,
@@ -292,6 +324,17 @@ export async function installSkillForAgent(
       error: error instanceof Error ? error.message : 'Unknown error',
     };
   }
+}
+
+/**
+ * Install a skill for a specific agent (backward-compatible wrapper).
+ */
+export async function installSkillForAgent(
+  skill: Skill,
+  agentType: AgentType,
+  options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
+): Promise<InstallResult> {
+  return installCognitiveForAgent(skill, agentType, { ...options, cognitiveType: 'skill' });
 }
 
 const EXCLUDE_FILES = new Set(['README.md', 'metadata.json']);
@@ -333,74 +376,89 @@ async function copyDirectory(src: string, dest: string): Promise<void> {
   );
 }
 
-export async function isSkillInstalled(
-  skillName: string,
+/**
+ * Check if a cognitive (skill, agent, or prompt) is installed for a specific agent.
+ */
+export async function isCognitiveInstalled(
+  name: string,
   agentType: AgentType,
+  cognitiveType: CognitiveType,
   options: { global?: boolean; cwd?: string } = {}
 ): Promise<boolean> {
-  const agent = agents[agentType];
-  const sanitized = sanitizeName(skillName);
+  const sanitized = sanitizeName(name);
 
-  // Agent doesn't support global installation
-  if (options.global && agent.globalSkillsDir === undefined) {
+  // Check if agent supports global installation for this cognitive type
+  const globalDir = getCognitiveDir(agentType, cognitiveType, 'global');
+  if (options.global && globalDir === undefined) {
     return false;
   }
 
-  const targetBase = options.global
-    ? agent.globalSkillsDir!
-    : join(options.cwd || process.cwd(), agent.skillsDir);
+  const localDir = getCognitiveDir(agentType, cognitiveType, 'local')!;
+  const targetBase = options.global ? globalDir! : join(options.cwd || process.cwd(), localDir);
 
-  const skillDir = join(targetBase, sanitized);
+  const cognitiveDir = join(targetBase, sanitized);
 
-  if (!isPathSafe(targetBase, skillDir)) {
+  if (!isPathSafe(targetBase, cognitiveDir)) {
     return false;
   }
 
   try {
-    await access(skillDir);
+    await access(cognitiveDir);
     return true;
   } catch {
     return false;
   }
 }
 
+/**
+ * Check if a skill is installed for a specific agent (backward-compatible wrapper).
+ */
+export async function isSkillInstalled(
+  skillName: string,
+  agentType: AgentType,
+  options: { global?: boolean; cwd?: string; cognitiveType?: CognitiveType } = {}
+): Promise<boolean> {
+  return isCognitiveInstalled(skillName, agentType, options.cognitiveType ?? 'skill', options);
+}
+
 export function getInstallPath(
   skillName: string,
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string } = {}
+  options: { global?: boolean; cwd?: string; cognitiveType?: CognitiveType } = {}
 ): string {
-  const agent = agents[agentType];
+  const cognitiveType = options.cognitiveType ?? 'skill';
   const cwd = options.cwd || process.cwd();
   const sanitized = sanitizeName(skillName);
 
+  const globalDir = getCognitiveDir(agentType, cognitiveType, 'global');
+  const localDir = getCognitiveDir(agentType, cognitiveType, 'local')!;
+
   // Agent doesn't support global installation, fall back to project path
-  const targetBase =
-    options.global && agent.globalSkillsDir !== undefined
-      ? agent.globalSkillsDir
-      : join(cwd, agent.skillsDir);
+  const targetBase = options.global && globalDir !== undefined ? globalDir : join(cwd, localDir);
 
   const installPath = join(targetBase, sanitized);
 
   if (!isPathSafe(targetBase, installPath)) {
-    throw new Error('Invalid skill name: potential path traversal detected');
+    throw new Error(`Invalid ${cognitiveType} name: potential path traversal detected`);
   }
 
   return installPath;
 }
 
 /**
- * Gets the canonical .agents/skills/<skill> path
+ * Gets the canonical .agents/<type>/<name> path
  */
 export function getCanonicalPath(
   skillName: string,
-  options: { global?: boolean; cwd?: string } = {}
+  options: { global?: boolean; cwd?: string; cognitiveType?: CognitiveType } = {}
 ): string {
+  const cognitiveType = options.cognitiveType ?? 'skill';
   const sanitized = sanitizeName(skillName);
-  const canonicalBase = getCanonicalSkillsDir(options.global ?? false, options.cwd);
+  const canonicalBase = getCanonicalDir(cognitiveType, options.global ?? false, options.cwd);
   const canonicalPath = join(canonicalBase, sanitized);
 
   if (!isPathSafe(canonicalBase, canonicalPath)) {
-    throw new Error('Invalid skill name: potential path traversal detected');
+    throw new Error(`Invalid ${cognitiveType} name: potential path traversal detected`);
   }
 
   return canonicalPath;
@@ -534,32 +592,41 @@ export async function installMintlifySkillForAgent(
 export async function installRemoteSkillForAgent(
   skill: RemoteSkill,
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
+  options: {
+    global?: boolean;
+    cwd?: string;
+    mode?: InstallMode;
+    cognitiveType?: CognitiveType;
+  } = {}
 ): Promise<InstallResult> {
+  const cognitiveType = options.cognitiveType ?? skill.cognitiveType ?? 'skill';
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
   const cwd = options.cwd || process.cwd();
   const installMode = options.mode ?? 'symlink';
+  const fileName = COGNITIVE_FILE_NAMES[cognitiveType];
 
-  // Check if agent supports global installation
-  if (isGlobal && agent.globalSkillsDir === undefined) {
+  // Check if agent supports global installation for this cognitive type
+  const globalDir = getCognitiveDir(agentType, cognitiveType, 'global');
+  if (isGlobal && globalDir === undefined) {
     return {
       success: false,
       path: '',
       mode: installMode,
-      error: `${agent.displayName} does not support global skill installation`,
+      error: `${agent.displayName} does not support global ${cognitiveType} installation`,
     };
   }
 
   // Use installName as the skill directory name
   const skillName = sanitizeName(skill.installName);
 
-  // Canonical location: .agents/skills/<skill-name>
-  const canonicalBase = getCanonicalSkillsDir(isGlobal, cwd);
+  // Canonical location: .agents/<type>/<skill-name>
+  const canonicalBase = getCanonicalDir(cognitiveType, isGlobal, cwd);
   const canonicalDir = join(canonicalBase, skillName);
 
   // Agent-specific location (for symlink)
-  const agentBase = isGlobal ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
+  const localDir = getCognitiveDir(agentType, cognitiveType, 'local')!;
+  const agentBase = isGlobal ? globalDir! : join(cwd, localDir);
   const agentDir = join(agentBase, skillName);
 
   // Validate paths
@@ -568,7 +635,7 @@ export async function installRemoteSkillForAgent(
       success: false,
       path: agentDir,
       mode: installMode,
-      error: 'Invalid skill name: potential path traversal detected',
+      error: `Invalid ${cognitiveType} name: potential path traversal detected`,
     };
   }
 
@@ -577,7 +644,7 @@ export async function installRemoteSkillForAgent(
       success: false,
       path: agentDir,
       mode: installMode,
-      error: 'Invalid skill name: potential path traversal detected',
+      error: `Invalid ${cognitiveType} name: potential path traversal detected`,
     };
   }
 
@@ -585,8 +652,8 @@ export async function installRemoteSkillForAgent(
     // For copy mode, write directly to agent location
     if (installMode === 'copy') {
       await cleanAndCreateDirectory(agentDir);
-      const skillMdPath = join(agentDir, 'SKILL.md');
-      await writeFile(skillMdPath, skill.content, 'utf-8');
+      const mdPath = join(agentDir, fileName);
+      await writeFile(mdPath, skill.content, 'utf-8');
 
       return {
         success: true,
@@ -597,11 +664,11 @@ export async function installRemoteSkillForAgent(
 
     // Symlink mode: write to canonical location and symlink to agent location
     await cleanAndCreateDirectory(canonicalDir);
-    const skillMdPath = join(canonicalDir, 'SKILL.md');
-    await writeFile(skillMdPath, skill.content, 'utf-8');
+    const mdPath = join(canonicalDir, fileName);
+    await writeFile(mdPath, skill.content, 'utf-8');
 
     // For universal agents with global install, skip creating agent-specific symlink
-    if (isGlobal && isUniversalAgent(agentType)) {
+    if (isGlobal && isUniversalForType(agentType, cognitiveType)) {
       return {
         success: true,
         path: canonicalDir,
@@ -615,8 +682,8 @@ export async function installRemoteSkillForAgent(
     if (!symlinkCreated) {
       // Symlink failed, fall back to copy
       await cleanAndCreateDirectory(agentDir);
-      const agentSkillMdPath = join(agentDir, 'SKILL.md');
-      await writeFile(agentSkillMdPath, skill.content, 'utf-8');
+      const agentMdPath = join(agentDir, fileName);
+      await writeFile(agentMdPath, skill.content, 'utf-8');
 
       return {
         success: true,
@@ -653,32 +720,40 @@ export async function installRemoteSkillForAgent(
 export async function installWellKnownSkillForAgent(
   skill: WellKnownSkill,
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
+  options: {
+    global?: boolean;
+    cwd?: string;
+    mode?: InstallMode;
+    cognitiveType?: CognitiveType;
+  } = {}
 ): Promise<InstallResult> {
+  const cognitiveType = options.cognitiveType ?? 'skill';
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
   const cwd = options.cwd || process.cwd();
   const installMode = options.mode ?? 'symlink';
 
-  // Check if agent supports global installation
-  if (isGlobal && agent.globalSkillsDir === undefined) {
+  // Check if agent supports global installation for this cognitive type
+  const globalDir = getCognitiveDir(agentType, cognitiveType, 'global');
+  if (isGlobal && globalDir === undefined) {
     return {
       success: false,
       path: '',
       mode: installMode,
-      error: `${agent.displayName} does not support global skill installation`,
+      error: `${agent.displayName} does not support global ${cognitiveType} installation`,
     };
   }
 
   // Use installName as the skill directory name
   const skillName = sanitizeName(skill.installName);
 
-  // Canonical location: .agents/skills/<skill-name>
-  const canonicalBase = getCanonicalSkillsDir(isGlobal, cwd);
+  // Canonical location: .agents/<type>/<skill-name>
+  const canonicalBase = getCanonicalDir(cognitiveType, isGlobal, cwd);
   const canonicalDir = join(canonicalBase, skillName);
 
   // Agent-specific location (for symlink)
-  const agentBase = isGlobal ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
+  const localDir = getCognitiveDir(agentType, cognitiveType, 'local')!;
+  const agentBase = isGlobal ? globalDir! : join(cwd, localDir);
   const agentDir = join(agentBase, skillName);
 
   // Validate paths
@@ -687,7 +762,7 @@ export async function installWellKnownSkillForAgent(
       success: false,
       path: agentDir,
       mode: installMode,
-      error: 'Invalid skill name: potential path traversal detected',
+      error: `Invalid ${cognitiveType} name: potential path traversal detected`,
     };
   }
 
@@ -696,7 +771,7 @@ export async function installWellKnownSkillForAgent(
       success: false,
       path: agentDir,
       mode: installMode,
-      error: 'Invalid skill name: potential path traversal detected',
+      error: `Invalid ${cognitiveType} name: potential path traversal detected`,
     };
   }
 
@@ -739,7 +814,7 @@ export async function installWellKnownSkillForAgent(
     await writeSkillFiles(canonicalDir);
 
     // For universal agents with global install, skip creating agent-specific symlink
-    if (isGlobal && isUniversalAgent(agentType)) {
+    if (isGlobal && isUniversalForType(agentType, cognitiveType)) {
       return {
         success: true,
         path: canonicalDir,
@@ -787,24 +862,28 @@ export interface InstalledSkill {
   canonicalPath: string;
   scope: 'project' | 'global';
   agents: AgentType[];
+  cognitiveType: CognitiveType;
 }
 
 /**
- * Lists all installed skills from canonical locations
- * @param options - Options for listing skills
- * @returns Array of installed skills with metadata
+ * Lists all installed cognitives (skills, agents, prompts) from canonical locations.
+ * Scans .agents/skills/, .agents/agents/, .agents/prompts/ directories and
+ * looks for the corresponding file (SKILL.md, AGENT.md, PROMPT.md) in each.
+ * @param options - Options for listing cognitives
+ * @returns Array of installed cognitives with metadata
  */
-export async function listInstalledSkills(
+export async function listInstalledCognitives(
   options: {
     global?: boolean;
     cwd?: string;
     agentFilter?: AgentType[];
+    typeFilter?: CognitiveType[];
   } = {}
 ): Promise<InstalledSkill[]> {
   const cwd = options.cwd || process.cwd();
-  // Use a Map to deduplicate skills by scope:name
-  const skillsMap: Map<string, InstalledSkill> = new Map();
-  const scopes: Array<{ global: boolean; path: string; agentType?: AgentType }> = [];
+  const typesToScan: CognitiveType[] = options.typeFilter ?? ['skill', 'agent', 'prompt'];
+  // Use a Map to deduplicate by scope:type:name
+  const cognitivesMap: Map<string, InstalledSkill> = new Map();
 
   // Detect which agents are actually installed
   const detectedAgents = await detectInstalledAgents();
@@ -821,187 +900,215 @@ export async function listInstalledSkills(
     scopeTypes.push({ global: options.global });
   }
 
-  // Build list of directories to scan: canonical + each installed agent's directory
-  //
-  // Scanning workflow:
-  //
-  //   detectInstalledAgents()
-  //            │
-  //            ▼
-  //   for each scope (project / global)
-  //            │
-  //            ├──▶ scan canonical dir ──▶ .agents/skills, ~/.agents/skills
-  //            │
-  //            ├──▶ scan each installed agent's dir ──▶ .cursor/skills, .claude/skills, ...
-  //            │
-  //            ▼
-  //   deduplicate by skill name
-  //
-  // Trade-off: More readdir() calls, but most non-existent dirs fail fast.
-  // Skills in agent-specific dirs skip the expensive "check all agents" loop.
-  //
-  for (const { global: isGlobal } of scopeTypes) {
-    // Add canonical directory
-    scopes.push({ global: isGlobal, path: getCanonicalSkillsDir(isGlobal, cwd) });
+  for (const cognitiveType of typesToScan) {
+    const fileName = COGNITIVE_FILE_NAMES[cognitiveType];
+    const scopes: Array<{ global: boolean; path: string; agentType?: AgentType }> = [];
 
-    // Add each installed agent's skills directory
-    for (const agentType of agentsToCheck) {
-      const agent = agents[agentType];
-      if (isGlobal && agent.globalSkillsDir === undefined) {
-        continue;
-      }
-      const agentDir = isGlobal ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
-      // Avoid duplicate paths
-      if (!scopes.some((s) => s.path === agentDir && s.global === isGlobal)) {
-        scopes.push({ global: isGlobal, path: agentDir, agentType });
+    // Build list of directories to scan: canonical + each installed agent's directory
+    //
+    // Scanning workflow:
+    //
+    //   detectInstalledAgents()
+    //            |
+    //            v
+    //   for each scope (project / global)
+    //            |
+    //            +-->  scan canonical dir -->  .agents/<type>, ~/.agents/<type>
+    //            |
+    //            +-->  scan each installed agent's dir -->  .cursor/<type>, .claude/<type>, ...
+    //            |
+    //            v
+    //   deduplicate by cognitive name
+    //
+    // Trade-off: More readdir() calls, but most non-existent dirs fail fast.
+    // Cognitives in agent-specific dirs skip the expensive "check all agents" loop.
+    //
+    for (const { global: isGlobal } of scopeTypes) {
+      // Add canonical directory
+      scopes.push({ global: isGlobal, path: getCanonicalDir(cognitiveType, isGlobal, cwd) });
+
+      // Add each installed agent's directory for this cognitive type
+      for (const agentType of agentsToCheck) {
+        const globalDir = getCognitiveDir(agentType, cognitiveType, 'global');
+        if (isGlobal && globalDir === undefined) {
+          continue;
+        }
+        const localDir = getCognitiveDir(agentType, cognitiveType, 'local')!;
+        const agentDir = isGlobal ? globalDir! : join(cwd, localDir);
+        // Avoid duplicate paths
+        if (!scopes.some((s) => s.path === agentDir && s.global === isGlobal)) {
+          scopes.push({ global: isGlobal, path: agentDir, agentType });
+        }
       }
     }
-  }
 
-  for (const scope of scopes) {
-    try {
-      const entries = await readdir(scope.path, { withFileTypes: true });
+    for (const scope of scopes) {
+      try {
+        const entries = await readdir(scope.path, { withFileTypes: true });
 
-      for (const entry of entries) {
-        if (!entry.isDirectory()) {
-          continue;
-        }
-
-        const skillDir = join(scope.path, entry.name);
-        const skillMdPath = join(skillDir, 'SKILL.md');
-
-        // Check if SKILL.md exists
-        try {
-          await stat(skillMdPath);
-        } catch {
-          // SKILL.md doesn't exist, skip this directory
-          continue;
-        }
-
-        // Parse the skill
-        const skill = await parseSkillMd(skillMdPath);
-        if (!skill) {
-          continue;
-        }
-
-        const scopeKey = scope.global ? 'global' : 'project';
-        const skillKey = `${scopeKey}:${skill.name}`;
-
-        // If scanning an agent-specific directory, attribute directly to that agent
-        if (scope.agentType) {
-          if (skillsMap.has(skillKey)) {
-            const existing = skillsMap.get(skillKey)!;
-            if (!existing.agents.includes(scope.agentType)) {
-              existing.agents.push(scope.agentType);
-            }
-          } else {
-            skillsMap.set(skillKey, {
-              name: skill.name,
-              description: skill.description,
-              path: skillDir,
-              canonicalPath: skillDir,
-              scope: scopeKey,
-              agents: [scope.agentType],
-            });
-          }
-          continue;
-        }
-
-        // For canonical directory, check which agents have this skill
-        const sanitizedSkillName = sanitizeName(skill.name);
-        const installedAgents: AgentType[] = [];
-
-        for (const agentType of agentsToCheck) {
-          const agent = agents[agentType];
-
-          if (scope.global && agent.globalSkillsDir === undefined) {
+        for (const entry of entries) {
+          if (!entry.isDirectory()) {
             continue;
           }
 
-          const agentBase = scope.global ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
-          let found = false;
+          const cognitiveDir = join(scope.path, entry.name);
+          const mdPath = join(cognitiveDir, fileName);
 
-          // Try exact directory name matches
-          const possibleNames = Array.from(
-            new Set([
-              entry.name,
-              sanitizedSkillName,
-              skill.name
-                .toLowerCase()
-                .replace(/\s+/g, '-')
-                .replace(/[\/\\:\0]/g, ''),
-            ])
-          );
-
-          for (const possibleName of possibleNames) {
-            const agentSkillDir = join(agentBase, possibleName);
-            if (!isPathSafe(agentBase, agentSkillDir)) continue;
-
-            try {
-              await access(agentSkillDir);
-              found = true;
-              break;
-            } catch {
-              // Try next name
-            }
+          // Check if the cognitive file exists
+          try {
+            await stat(mdPath);
+          } catch {
+            // Cognitive file doesn't exist, skip this directory
+            continue;
           }
 
-          // Fallback: scan all directories and check SKILL.md files
-          // Handles cases where directory names don't match (e.g., "git-review" vs "Git Review Before Commit")
-          if (!found) {
-            try {
-              const agentEntries = await readdir(agentBase, { withFileTypes: true });
-              for (const agentEntry of agentEntries) {
-                if (!agentEntry.isDirectory()) continue;
+          // Parse the cognitive - use parseCognitiveMd for agent/prompt types, parseSkillMd for skills
+          const parsed =
+            cognitiveType === 'skill' ? await parseSkillMd(mdPath) : await parseCognitiveMd(mdPath);
+          if (!parsed) {
+            continue;
+          }
 
-                const candidateDir = join(agentBase, agentEntry.name);
-                if (!isPathSafe(agentBase, candidateDir)) continue;
+          const scopeKey = scope.global ? 'global' : 'project';
+          const cognitiveKey = `${scopeKey}:${cognitiveType}:${parsed.name}`;
 
-                try {
-                  const candidateSkillMd = join(candidateDir, 'SKILL.md');
-                  await stat(candidateSkillMd);
-                  const candidateSkill = await parseSkillMd(candidateSkillMd);
-                  if (candidateSkill && candidateSkill.name === skill.name) {
-                    found = true;
-                    break;
-                  }
-                } catch {
-                  // Not a valid skill directory
-                }
+          // If scanning an agent-specific directory, attribute directly to that agent
+          if (scope.agentType) {
+            if (cognitivesMap.has(cognitiveKey)) {
+              const existing = cognitivesMap.get(cognitiveKey)!;
+              if (!existing.agents.includes(scope.agentType)) {
+                existing.agents.push(scope.agentType);
               }
-            } catch {
-              // Agent base directory doesn't exist
+            } else {
+              cognitivesMap.set(cognitiveKey, {
+                name: parsed.name,
+                description: parsed.description,
+                path: cognitiveDir,
+                canonicalPath: cognitiveDir,
+                scope: scopeKey,
+                agents: [scope.agentType],
+                cognitiveType,
+              });
+            }
+            continue;
+          }
+
+          // For canonical directory, check which agents have this cognitive
+          const sanitizedName = sanitizeName(parsed.name);
+          const installedAgents: AgentType[] = [];
+
+          for (const agentType of agentsToCheck) {
+            const globalDir = getCognitiveDir(agentType, cognitiveType, 'global');
+
+            if (scope.global && globalDir === undefined) {
+              continue;
+            }
+
+            const localDir = getCognitiveDir(agentType, cognitiveType, 'local')!;
+            const agentBase = scope.global ? globalDir! : join(cwd, localDir);
+            let found = false;
+
+            // Try exact directory name matches
+            const possibleNames = Array.from(
+              new Set([
+                entry.name,
+                sanitizedName,
+                parsed.name
+                  .toLowerCase()
+                  .replace(/\s+/g, '-')
+                  .replace(/[\/\\:\0]/g, ''),
+              ])
+            );
+
+            for (const possibleName of possibleNames) {
+              const agentCognitiveDir = join(agentBase, possibleName);
+              if (!isPathSafe(agentBase, agentCognitiveDir)) continue;
+
+              try {
+                await access(agentCognitiveDir);
+                found = true;
+                break;
+              } catch {
+                // Try next name
+              }
+            }
+
+            // Fallback: scan all directories and check cognitive files
+            // Handles cases where directory names don't match
+            if (!found) {
+              try {
+                const agentEntries = await readdir(agentBase, { withFileTypes: true });
+                for (const agentEntry of agentEntries) {
+                  if (!agentEntry.isDirectory()) continue;
+
+                  const candidateDir = join(agentBase, agentEntry.name);
+                  if (!isPathSafe(agentBase, candidateDir)) continue;
+
+                  try {
+                    const candidateMdPath = join(candidateDir, fileName);
+                    await stat(candidateMdPath);
+                    const candidateParsed =
+                      cognitiveType === 'skill'
+                        ? await parseSkillMd(candidateMdPath)
+                        : await parseCognitiveMd(candidateMdPath);
+                    if (candidateParsed && candidateParsed.name === parsed.name) {
+                      found = true;
+                      break;
+                    }
+                  } catch {
+                    // Not a valid cognitive directory
+                  }
+                }
+              } catch {
+                // Agent base directory doesn't exist
+              }
+            }
+
+            if (found) {
+              installedAgents.push(agentType);
             }
           }
 
-          if (found) {
-            installedAgents.push(agentType);
-          }
-        }
-
-        if (skillsMap.has(skillKey)) {
-          // Merge agents
-          const existing = skillsMap.get(skillKey)!;
-          for (const agent of installedAgents) {
-            if (!existing.agents.includes(agent)) {
-              existing.agents.push(agent);
+          if (cognitivesMap.has(cognitiveKey)) {
+            // Merge agents
+            const existing = cognitivesMap.get(cognitiveKey)!;
+            for (const agent of installedAgents) {
+              if (!existing.agents.includes(agent)) {
+                existing.agents.push(agent);
+              }
             }
+          } else {
+            cognitivesMap.set(cognitiveKey, {
+              name: parsed.name,
+              description: parsed.description,
+              path: cognitiveDir,
+              canonicalPath: cognitiveDir,
+              scope: scopeKey,
+              agents: installedAgents,
+              cognitiveType,
+            });
           }
-        } else {
-          skillsMap.set(skillKey, {
-            name: skill.name,
-            description: skill.description,
-            path: skillDir,
-            canonicalPath: skillDir,
-            scope: scopeKey,
-            agents: installedAgents,
-          });
         }
+      } catch {
+        // Directory doesn't exist, skip
       }
-    } catch {
-      // Directory doesn't exist, skip
     }
   }
 
-  return Array.from(skillsMap.values());
+  return Array.from(cognitivesMap.values());
+}
+
+/**
+ * Lists all installed skills from canonical locations (backward-compatible wrapper).
+ * @param options - Options for listing skills
+ * @returns Array of installed skills with metadata
+ */
+export async function listInstalledSkills(
+  options: {
+    global?: boolean;
+    cwd?: string;
+    agentFilter?: AgentType[];
+  } = {}
+): Promise<InstalledSkill[]> {
+  return listInstalledCognitives({ ...options, typeFilter: ['skill'] });
 }

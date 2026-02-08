@@ -22,10 +22,12 @@ async function isSourcePrivate(source: string): Promise<boolean | null> {
   return isRepoPrivate(ownerRepo.owner, ownerRepo.repo);
 }
 import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
-import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
+import { discoverSkills, discoverCognitives, getSkillDisplayName, filterSkills } from './skills.ts';
 import {
   installSkillForAgent,
+  installCognitiveForAgent,
   isSkillInstalled,
+  isCognitiveInstalled,
   getInstallPath,
   getCanonicalPath,
   installRemoteSkillForAgent,
@@ -44,13 +46,14 @@ import { findProvider, wellKnownProvider, type WellKnownSkill } from './provider
 import { fetchMintlifySkill } from './mintlify.ts';
 import {
   addSkillToLock,
+  addCognitiveToLock,
   fetchSkillFolderHash,
   isPromptDismissed,
   dismissPrompt,
   getLastSelectedAgents,
   saveSelectedAgents,
 } from './skill-lock.ts';
-import type { Skill, AgentType, RemoteSkill } from './types.ts';
+import type { Skill, AgentType, RemoteSkill, CognitiveType } from './types.ts';
 import packageJson from '../package.json' with { type: 'json' };
 export function initTelemetry(version: string): void {
   setVersion(version);
@@ -325,6 +328,7 @@ export interface AddOptions {
   list?: boolean;
   all?: boolean;
   fullDepth?: boolean;
+  type?: CognitiveType;
 }
 
 /**
@@ -1426,10 +1430,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     );
     console.log();
     console.log(pc.dim('  Usage:'));
-    console.log(`    ${pc.cyan('npx skills add')} ${pc.yellow('<source>')} ${pc.dim('[options]')}`);
+    console.log(`    ${pc.cyan('npx synk add')} ${pc.yellow('<source>')} ${pc.dim('[options]')}`);
     console.log();
     console.log(pc.dim('  Example:'));
-    console.log(`    ${pc.cyan('npx skills add')} ${pc.yellow('vercel-labs/agent-skills')}`);
+    console.log(`    ${pc.cyan('npx synk add')} ${pc.yellow('vercel-labs/agent-skills')}`);
     console.log();
     process.exit(1);
   }
@@ -1442,7 +1446,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
   }
 
   console.log();
-  p.intro(pc.bgCyan(pc.black(' skills ')));
+  p.intro(pc.bgCyan(pc.black(' synk ')));
 
   if (!process.stdin.isTTY) {
     showInstallTip();
@@ -1504,16 +1508,29 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // (via --skill or @skill syntax)
     const includeInternal = !!(options.skill && options.skill.length > 0);
 
-    spinner.start('Discovering skills...');
-    const skills = await discoverSkills(skillsDir, parsed.subpath, {
-      includeInternal,
-      fullDepth: options.fullDepth,
-    });
+    const cognitiveType = options.type ?? 'skill';
+    const cognitiveLabel = cognitiveType === 'skill' ? 'skills' : `${cognitiveType}s`;
+    const cognitiveFile =
+      cognitiveType === 'skill' ? 'SKILL.md' : cognitiveType === 'agent' ? 'AGENT.md' : 'PROMPT.md';
+
+    spinner.start(`Discovering ${cognitiveLabel}...`);
+    const skills = options.type
+      ? await discoverCognitives(skillsDir, parsed.subpath, {
+          includeInternal,
+          fullDepth: options.fullDepth,
+          types: [options.type],
+        })
+      : await discoverSkills(skillsDir, parsed.subpath, {
+          includeInternal,
+          fullDepth: options.fullDepth,
+        });
 
     if (skills.length === 0) {
-      spinner.stop(pc.red('No skills found'));
+      spinner.stop(pc.red(`No ${cognitiveLabel} found`));
       p.outro(
-        pc.red('No valid skills found. Skills require a SKILL.md with name and description.')
+        pc.red(
+          `No valid ${cognitiveLabel} found. They require a ${cognitiveFile} with name and description.`
+        )
       );
       await cleanup(tempDir);
       process.exit(1);
@@ -1727,7 +1744,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         targetAgents.map(async (agent) => ({
           skillName: skill.name,
           agent,
-          installed: await isSkillInstalled(skill.name, agent, { global: installGlobally }),
+          installed: await isCognitiveInstalled(skill.name, agent, cognitiveType, {
+            global: installGlobally,
+          }),
         }))
       )
     );
@@ -1742,7 +1761,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     for (const skill of selectedSkills) {
       if (summaryLines.length > 0) summaryLines.push('');
 
-      const canonicalPath = getCanonicalPath(skill.name, { global: installGlobally });
+      const canonicalPath = getCanonicalPath(skill.name, {
+        global: installGlobally,
+        cognitiveType,
+      });
       const shortCanonical = shortenPath(canonicalPath, cwd);
       summaryLines.push(`${pc.cyan(shortCanonical)}`);
       summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
@@ -1785,9 +1807,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     for (const skill of selectedSkills) {
       for (const agent of targetAgents) {
-        const result = await installSkillForAgent(skill, agent, {
+        const result = await installCognitiveForAgent(skill, agent, {
           global: installGlobally,
           mode: installMode,
+          cognitiveType,
         });
         results.push({
           skill: getSkillDisplayName(skill),
@@ -1804,14 +1827,14 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     const failed = results.filter((r) => !r.success);
 
     // Track installation result
-    // Build skillFiles map: { skillName: relative path to SKILL.md from repo root }
+    // Build skillFiles map: { skillName: relative path to cognitive file from repo root }
     const skillFiles: Record<string, string> = {};
     for (const skill of selectedSkills) {
       // skill.path is absolute, compute relative from tempDir (repo root)
       let relativePath: string;
       if (tempDir && skill.path === tempDir) {
         // Skill is at root level of repo
-        relativePath = 'SKILL.md';
+        relativePath = cognitiveFile;
       } else if (tempDir && skill.path.startsWith(tempDir + sep)) {
         // Compute path relative to repo root (tempDir), not search path
         // Use forward slashes for telemetry (URL-style paths)
@@ -1819,7 +1842,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           skill.path
             .slice(tempDir.length + 1)
             .split(sep)
-            .join('/') + '/SKILL.md';
+            .join('/') + `/${cognitiveFile}`;
       } else {
         // Local path - skip telemetry for local installs
         continue;
@@ -1876,7 +1899,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               if (hash) skillFolderHash = hash;
             }
 
-            await addSkillToLock(skill.name, {
+            await addCognitiveToLock(skill.name, cognitiveType, {
               source: normalizedSource,
               sourceType: parsed.type,
               sourceUrl: parsed.url,
@@ -2051,13 +2074,13 @@ async function promptForFindSkills(
         });
       } catch {
         p.log.warn('Failed to install find-skills. You can try again with:');
-        p.log.message(pc.dim('  npx skills add vercel-labs/skills@find-skills -g -y --all'));
+        p.log.message(pc.dim('  npx synk add vercel-labs/skills@find-skills -g -y --all'));
       }
     } else {
       // User declined - dismiss the prompt
       await dismissPrompt('findSkillsPrompt');
       p.log.message(
-        pc.dim('You can install it later with: npx skills add vercel-labs/skills@find-skills')
+        pc.dim('You can install it later with: npx synk add vercel-labs/skills@find-skills')
       );
     }
   } catch {
@@ -2101,6 +2124,12 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
         nextArg = args[i];
       }
       i--; // Back up one since the loop will increment
+    } else if (arg === '-t' || arg === '--type') {
+      i++;
+      const typeVal = args[i];
+      if (typeVal === 'skill' || typeVal === 'agent' || typeVal === 'prompt') {
+        options.type = typeVal as CognitiveType;
+      }
     } else if (arg === '--full-depth') {
       options.fullDepth = true;
     } else if (arg && !arg.startsWith('-')) {

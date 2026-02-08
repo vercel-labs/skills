@@ -66,21 +66,21 @@ describe('list command', () => {
   describe('CLI integration', () => {
     it('should run list command', () => {
       const result = runCli(['list'], testDir);
-      // Empty project dir shows "No project skills found"
-      expect(result.stdout).toContain('No project skills found');
+      // Empty project dir shows "No project found."
+      expect(result.stdout).toContain('No project found.');
       expect(result.exitCode).toBe(0);
     });
 
     it('should run ls alias', () => {
       const result = runCli(['ls'], testDir);
-      expect(result.stdout).toContain('No project skills found');
+      expect(result.stdout).toContain('No project found.');
       expect(result.exitCode).toBe(0);
     });
 
     it('should show message when no project skills found', () => {
       const result = runCli(['list'], testDir);
-      expect(result.stdout).toContain('No project skills found');
-      expect(result.stdout).toContain('Try listing global skills with -g');
+      expect(result.stdout).toContain('No project found.');
+      expect(result.stdout).toContain('Try listing global cognitives with -g');
       expect(result.exitCode).toBe(0);
     });
 
@@ -103,7 +103,7 @@ This is a test skill.
 
       const result = runCli(['list'], testDir);
       expect(result.stdout).toContain('test-skill');
-      expect(result.stdout).toContain('Project Skills');
+      expect(result.stdout).toContain('Project Cognitives');
       // Description should not be shown
       expect(result.stdout).not.toContain('A test skill for listing');
       expect(result.exitCode).toBe(0);
@@ -139,7 +139,7 @@ description: Second skill
       const result = runCli(['list'], testDir);
       expect(result.stdout).toContain('skill-one');
       expect(result.stdout).toContain('skill-two');
-      expect(result.stdout).toContain('Project Skills');
+      expect(result.stdout).toContain('Project Cognitives');
       expect(result.exitCode).toBe(0);
     });
 
@@ -160,7 +160,7 @@ description: A project skill
       const result = runCli(['list', '-g'], testDir);
       // Should not show project skill when -g is specified
       expect(result.stdout).not.toContain('project-skill');
-      expect(result.stdout).toContain('Global Skills');
+      expect(result.stdout).toContain('Global Cognitives');
     });
 
     it('should show error for invalid agent filter', () => {
@@ -262,7 +262,7 @@ description: A test skill
     it('should include list command in help', () => {
       const result = runCli(['--help']);
       expect(result.stdout).toContain('list, ls');
-      expect(result.stdout).toContain('List installed skills');
+      expect(result.stdout).toContain('List installed cognitives');
     });
 
     it('should include list options in help', () => {
@@ -274,17 +274,16 @@ description: A test skill
 
     it('should include list examples in help', () => {
       const result = runCli(['--help']);
-      expect(result.stdout).toContain('skills list');
-      expect(result.stdout).toContain('skills ls -g');
-      expect(result.stdout).toContain('skills ls -a claude-code');
+      expect(result.stdout).toContain('synk list');
+      expect(result.stdout).toContain('synk ls -g');
     });
   });
 
   describe('banner', () => {
     it('should include list command in banner', () => {
       const result = runCli([]);
-      expect(result.stdout).toContain('npx skills list');
-      expect(result.stdout).toContain('List installed skills');
+      expect(result.stdout).toContain('npx synk list');
+      expect(result.stdout).toContain('List installed cognitives');
     });
   });
 });
