@@ -46,9 +46,9 @@ function main() {
   const allLicenses: Record<string, LicenseInfo> = JSON.parse(output);
 
   const lines: string[] = [
-    '/*!----------------- Skills CLI ThirdPartyNotices -------------------------------------------------------',
+    '/*!----------------- Cognit ThirdPartyNotices -------------------------------------------------------',
     '',
-    'The Skills CLI incorporates third party material from the projects listed below.',
+    'Cognit incorporates third party material from the projects listed below.',
     'The original copyright notice and the license under which this material was received',
     'are set forth below. These licenses and notices are provided for informational purposes only.',
     '',

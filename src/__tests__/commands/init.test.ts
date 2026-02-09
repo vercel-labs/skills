@@ -31,8 +31,8 @@ describe('init command', () => {
         2. Update the name and description in the frontmatter
 
       Publishing:
-        GitHub:  Push to a repo, then npx synk add <owner>/<repo>
-        URL:     Host the file, then npx synk add https://example.com/my-test-skill/SKILL.md
+        GitHub:  Push to a repo, then npx cognit add <owner>/<repo>
+        URL:     Host the file, then npx cognit add https://example.com/my-test-skill/SKILL.md
 
       "
     `);
@@ -80,9 +80,9 @@ describe('init command', () => {
     expect(output).toContain('SKILL.md');
     expect(output).toContain('Publishing:');
     expect(output).toContain('GitHub:');
-    expect(output).toContain('npx synk add <owner>/<repo>');
+    expect(output).toContain('npx cognit add <owner>/<repo>');
     expect(output).toContain('URL:');
-    expect(output).toContain('npx synk add https://example.com/SKILL.md');
+    expect(output).toContain('npx cognit add https://example.com/SKILL.md');
     expect(existsSync(join(testDir, 'SKILL.md'))).toBe(true);
   });
 
@@ -90,9 +90,9 @@ describe('init command', () => {
     const output = stripLogo(runCliOutput(['init', 'my-skill'], testDir));
 
     expect(output).toContain('Publishing:');
-    expect(output).toContain('GitHub:  Push to a repo, then npx synk add <owner>/<repo>');
+    expect(output).toContain('GitHub:  Push to a repo, then npx cognit add <owner>/<repo>');
     expect(output).toContain(
-      'URL:     Host the file, then npx synk add https://example.com/my-skill/SKILL.md'
+      'URL:     Host the file, then npx cognit add https://example.com/my-skill/SKILL.md'
     );
   });
 

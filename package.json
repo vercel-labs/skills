@@ -1,10 +1,10 @@
 {
-  "name": "@synapsync/synk",
-  "version": "1.1.0",
+  "name": "@synapsync/cognit",
+  "version": "1.2.0",
   "description": "The open cognitive ecosystem for AI agents",
   "type": "module",
   "bin": {
-    "synk": "bin/cli.js",
+    "cognit": "bin/cli.js",
     "skills": "bin/cli.js",
     "add-skill": "bin/cli.js"
   },
@@ -42,7 +42,7 @@
     "agent-skills",
     "skills",
     "ai-agents",
-    "synk",
+    "cognit",
     "cognitive",
     "synapsync",
     "amp",
@@ -87,11 +87,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/SynapSync/synk.git"
+    "url": "git+https://github.com/SynapSync/cognit.git"
   },
-  "homepage": "https://github.com/SynapSync/synk#readme",
+  "homepage": "https://github.com/SynapSync/cognit#readme",
   "bugs": {
-    "url": "https://github.com/SynapSync/synk/issues"
+    "url": "https://github.com/SynapSync/cognit/issues"
   },
   "author": "SynapSync",
   "license": "MIT",

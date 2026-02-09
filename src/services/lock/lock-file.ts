@@ -7,8 +7,8 @@ import type { CognitiveType } from '../../core/types.ts';
 import { COGNITIVE_FILE_NAMES } from '../../core/types.ts';
 
 const AGENTS_DIR = '.agents';
-const LOCK_FILE = '.synk-lock.json';
-const OLD_LOCK_FILE = '.skill-lock.json';
+const LOCK_FILE = '.cognit-lock.json';
+const OLD_LOCK_FILES = ['.synk-lock.json', '.skill-lock.json'];
 const CURRENT_VERSION = 4; // Bumped from 3 to 4 for cognitiveType support
 
 /**
@@ -67,7 +67,7 @@ export type SkillLockFile = CognitiveLockFile;
 
 /**
  * Get the path to the global lock file.
- * Located at ~/.agents/.synk-lock.json
+ * Located at ~/.agents/.cognit-lock.json
  */
 export function getLockFilePath(): string {
   return join(homedir(), AGENTS_DIR, LOCK_FILE);
@@ -77,26 +77,29 @@ export function getLockFilePath(): string {
 export const getSkillLockPath = getLockFilePath;
 
 /**
- * Migrate old .skill-lock.json to .synk-lock.json if needed.
+ * Migrate old .skill-lock.json or .synk-lock.json to .cognit-lock.json if needed.
  */
 async function migrateLockFileIfNeeded(): Promise<void> {
   const newPath = join(homedir(), AGENTS_DIR, LOCK_FILE);
-  const oldPath = join(homedir(), AGENTS_DIR, OLD_LOCK_FILE);
 
   try {
     await stat(newPath);
     // New file already exists, no migration needed
     return;
   } catch {
-    // New file doesn't exist, check for old file
+    // New file doesn't exist, check for old files
   }
 
-  try {
-    await stat(oldPath);
-    // Old file exists, rename it
-    await rename(oldPath, newPath);
-  } catch {
-    // Old file doesn't exist either, nothing to migrate
+  for (const oldFile of OLD_LOCK_FILES) {
+    const oldPath = join(homedir(), AGENTS_DIR, oldFile);
+    try {
+      await stat(oldPath);
+      // Old file exists, rename it
+      await rename(oldPath, newPath);
+      return;
+    } catch {
+      // Old file doesn't exist, try next
+    }
   }
 }
 
@@ -260,7 +263,7 @@ export async function fetchCognitiveFolderHash(
       const url = `https://api.github.com/repos/${ownerRepo}/git/trees/${branch}?recursive=1`;
       const headers: Record<string, string> = {
         Accept: 'application/vnd.github.v3+json',
-        'User-Agent': 'synk-cli',
+        'User-Agent': 'cognit-cli',
       };
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;

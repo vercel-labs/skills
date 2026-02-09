@@ -253,8 +253,8 @@ export async function runFind(args: string[]): Promise<void> {
   const query = args.join(' ');
   const isNonInteractive = !process.stdin.isTTY;
   const agentTip = `${pc.dim('Tip: if running in a coding agent, follow these steps:')}
-${pc.dim('  1) npx synk find [query]')}
-${pc.dim('  2) npx synk add <owner/repo@skill>')}`;
+${pc.dim('  1) npx cognit find [query]')}
+${pc.dim('  2) npx cognit add <owner/repo@skill>')}`;
 
   // Non-interactive mode: just print results and exit
   if (query) {
@@ -272,7 +272,7 @@ ${pc.dim('  2) npx synk add <owner/repo@skill>')}`;
       return;
     }
 
-    logger.log(`${pc.dim('Install with')} npx synk add <owner/repo@skill>`);
+    logger.log(`${pc.dim('Install with')} npx cognit add <owner/repo@skill>`);
     logger.line();
 
     for (const skill of results.slice(0, 6)) {

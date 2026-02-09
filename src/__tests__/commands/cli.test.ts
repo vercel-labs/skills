@@ -7,7 +7,7 @@ describe('skills CLI', () => {
   describe('--help', () => {
     it('should display help message', () => {
       const output = runCliOutput(['--help']);
-      expect(output).toContain('Usage: synk <command> [options]');
+      expect(output).toContain('Usage: cognit <command> [options]');
       expect(output).toContain('Commands:');
       expect(output).toContain('init [name]');
       expect(output).toContain('add <package>');
@@ -48,10 +48,10 @@ describe('skills CLI', () => {
     it('should display banner', () => {
       const output = stripLogo(runCliOutput([]));
       expect(output).toContain('The open cognitive ecosystem for AI agents');
-      expect(output).toContain('npx synk add');
-      expect(output).toContain('npx synk check');
-      expect(output).toContain('npx synk update');
-      expect(output).toContain('npx synk init');
+      expect(output).toContain('npx cognit add');
+      expect(output).toContain('npx cognit check');
+      expect(output).toContain('npx cognit update');
+      expect(output).toContain('npx cognit init');
       expect(output).toContain('vercel-labs/agent-skills');
     });
   });
@@ -61,7 +61,7 @@ describe('skills CLI', () => {
       const output = runCliOutput(['unknown-command']);
       expect(output).toMatchInlineSnapshot(`
         "✖ Unknown command: unknown-command
-        Run synk --help for usage.
+        Run cognit --help for usage.
         "
       `);
     });

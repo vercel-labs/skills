@@ -1,25 +1,25 @@
 # AGENTS.md
 
-This file provides guidance to AI coding agents working on the `synk` CLI codebase.
+This file provides guidance to AI coding agents working on the `cognit` CLI codebase.
 
 ## Project Overview
 
-`synk` is the CLI for the open agent cognitive ecosystem. It supports multiple cognitive types: skills, agents, and prompts.
+`cognit` is the CLI for the open agent cognitive ecosystem. It supports multiple cognitive types: skills, agents, and prompts.
 
 ## Commands
 
 | Command              | Description                                              |
 | -------------------- | -------------------------------------------------------- |
-| `synk`               | Show banner with available commands                      |
-| `synk init [name]`   | Create a new cognitive template                          |
-| `synk add <pkg>`     | Install cognitives from git repos, URLs, or local paths  |
-| `synk list`          | List installed cognitives (alias: `ls`)                  |
-| `synk find`          | Search cognitives                                        |
-| `synk remove`        | Remove cognitives                                        |
-| `synk check`         | Check for available cognitive updates                    |
-| `synk update`        | Update all cognitives to latest versions                 |
+| `cognit`               | Show banner with available commands                      |
+| `cognit init [name]`  | Create a new cognitive template                          |
+| `cognit add <pkg>`    | Install cognitives from git repos, URLs, or local paths  |
+| `cognit list`         | List installed cognitives (alias: `ls`)                  |
+| `cognit find`         | Search cognitives                                        |
+| `cognit remove`       | Remove cognitives                                        |
+| `cognit check`        | Check for available cognitive updates                    |
+| `cognit update`       | Update all cognitives to latest versions                 |
 
-Aliases: `synk a`, `synk i`, `synk install` all work for `add`. `synk ls` works for `list`.
+Aliases: `cognit a`, `cognit i`, `cognit install` all work for `add`. `cognit ls` works for `list`.
 
 ## Architecture
 
@@ -112,7 +112,7 @@ tests/                              # Integration tests
 
 ## Update Checking System
 
-### How `synk check` and `synk update` Work
+### How `cognit check` and `cognit update` Work
 
 1. Read `~/.agents/.skill-lock.json` for installed cognitives
 2. For each cognitive, get `skillFolderHash` from lock file
@@ -144,11 +144,11 @@ If reading an older lock file version, it's wiped. Users must reinstall cognitiv
 
 | Feature          | Implementation                                    |
 | ---------------- | ------------------------------------------------- |
-| `synk add`       | `src/commands/add.ts` - full implementation       |
-| `synk find`      | `src/commands/find.ts` - search cognitives        |
-| `synk remove`    | `src/commands/remove.ts` - remove cognitives      |
-| `synk check`     | `POST /check-updates` API                         |
-| `synk update`    | `POST /check-updates` + reinstall per cognitive   |
+| `cognit add`      | `src/commands/add.ts` - full implementation       |
+| `cognit find`     | `src/commands/find.ts` - search cognitives        |
+| `cognit remove`   | `src/commands/remove.ts` - remove cognitives      |
+| `cognit check`    | `POST /check-updates` API                         |
+| `cognit update`   | `POST /check-updates` + reinstall per cognitive   |
 
 ## Development
 

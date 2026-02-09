@@ -96,7 +96,7 @@ async function main(): Promise<void> {
 
     default:
       logger.error(`Unknown command: ${command}`);
-      logger.log(`Run ${pc.bold('synk --help')} for usage.`);
+      logger.log(`Run ${pc.bold('cognit --help')} for usage.`);
   }
 }
 

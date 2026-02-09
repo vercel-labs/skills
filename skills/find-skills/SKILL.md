@@ -20,14 +20,14 @@ Use this skill when the user:
 
 ## What is the Skills CLI?
 
-The Skills CLI (`npx synk`) is the package manager for the open agent skills ecosystem. Skills are modular packages that extend agent capabilities with specialized knowledge, workflows, and tools.
+The Skills CLI (`npx cognit`) is the package manager for the open agent skills ecosystem. Skills are modular packages that extend agent capabilities with specialized knowledge, workflows, and tools.
 
 **Key commands:**
 
-- `npx synk find [query]` - Search for skills interactively or by keyword
-- `npx synk add <package>` - Install a skill from GitHub or other sources
-- `npx synk check` - Check for skill updates
-- `npx synk update` - Update all installed skills
+- `npx cognit find [query]` - Search for skills interactively or by keyword
+- `npx cognit add <package>` - Install a skill from GitHub or other sources
+- `npx cognit check` - Check for skill updates
+- `npx cognit update` - Update all installed skills
 
 **Browse skills at:** https://skills.sh/
 
@@ -46,19 +46,19 @@ When a user asks for help with something, identify:
 Run the find command with a relevant query:
 
 ```bash
-npx synk find [query]
+npx cognit find [query]
 ```
 
 For example:
 
-- User asks "how do I make my React app faster?" → `npx synk find react performance`
-- User asks "can you help me with PR reviews?" → `npx synk find pr review`
-- User asks "I need to create a changelog" → `npx synk find changelog`
+- User asks "how do I make my React app faster?" → `npx cognit find react performance`
+- User asks "can you help me with PR reviews?" → `npx cognit find pr review`
+- User asks "I need to create a changelog" → `npx cognit find changelog`
 
 The command will return results like:
 
 ```
-Install with npx synk add <owner/repo@skill>
+Install with npx cognit add <owner/repo@skill>
 
 vercel-labs/agent-skills@vercel-react-best-practices
 └ https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practices
@@ -79,7 +79,7 @@ I found a skill that might help! The "vercel-react-best-practices" skill provide
 React and Next.js performance optimization guidelines from Vercel Engineering.
 
 To install it:
-npx synk add vercel-labs/agent-skills@vercel-react-best-practices
+npx cognit add vercel-labs/agent-skills@vercel-react-best-practices
 
 Learn more: https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practices
 ```
@@ -89,7 +89,7 @@ Learn more: https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practic
 If the user wants to proceed, you can install the skill for them:
 
 ```bash
-npx synk add <owner/repo@skill> -g -y
+npx cognit add <owner/repo@skill> -g -y
 ```
 
 The `-g` flag installs globally (user-level) and `-y` skips confirmation prompts.
@@ -120,7 +120,7 @@ If no relevant skills exist:
 
 1. Acknowledge that no existing skill was found
 2. Offer to help with the task directly using your general capabilities
-3. Suggest the user could create their own skill with `npx synk init`
+3. Suggest the user could create their own skill with `npx cognit init`
 
 Example:
 
@@ -129,5 +129,5 @@ I searched for skills related to "xyz" but didn't find any matches.
 I can still help you with this task directly! Would you like me to proceed?
 
 If this is something you do often, you could create your own skill:
-npx synk init my-xyz-skill
+npx cognit init my-xyz-skill
 ```

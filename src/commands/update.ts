@@ -19,7 +19,7 @@ export async function runUpdate(): Promise<void> {
 
   if (cognitiveNames.length === 0) {
     logger.dim('No cognitives tracked in lock file.');
-    logger.log(`${pc.dim('Install cognitives with')} npx synk add <package>`);
+    logger.log(`${pc.dim('Install cognitives with')} npx cognit add <package>`);
     return;
   }
 
@@ -98,8 +98,8 @@ export async function runUpdate(): Promise<void> {
       installUrl = `${installUrl}/tree/main/${skillFolder}`;
     }
 
-    // Use synk CLI to reinstall with -g -y flags
-    const result = spawnSync('npx', ['-y', 'synk', 'add', installUrl, '-g', '-y'], {
+    // Use cognit CLI to reinstall with -g -y flags
+    const result = spawnSync('npx', ['-y', 'cognit', 'add', installUrl, '-g', '-y'], {
       stdio: ['inherit', 'pipe', 'pipe'],
     });
 

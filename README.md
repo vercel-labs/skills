@@ -9,7 +9,7 @@
 
 The CLI for the open cognitive ecosystem for AI agents.
 
-synk is a fork/extension of the [skills](https://github.com/vercel-labs/skills) ecosystem that adds support for **cognitive types**: skills, agents, and prompts -- defined via `SKILL.md`, `AGENT.md`, and `PROMPT.md` files.
+cognit is a fork/extension of the [skills](https://github.com/vercel-labs/skills) ecosystem that adds support for **cognitive types**: skills, agents, and prompts -- defined via `SKILL.md`, `AGENT.md`, and `PROMPT.md` files.
 
 <!-- agent-list:start -->
 
@@ -20,29 +20,29 @@ Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [35 more](#av
 ## Install a Cognitive
 
 ```bash
-npx synk add vercel-labs/agent-skills
+npx cognit add vercel-labs/agent-skills
 ```
 
 ### Source Formats
 
 ```bash
 # GitHub shorthand (owner/repo)
-npx synk add vercel-labs/agent-skills
+npx cognit add vercel-labs/agent-skills
 
 # Full GitHub URL
-npx synk add https://github.com/vercel-labs/agent-skills
+npx cognit add https://github.com/vercel-labs/agent-skills
 
 # Direct path to a skill in a repo
-npx synk add https://github.com/vercel-labs/agent-skills/tree/main/skills/web-design-guidelines
+npx cognit add https://github.com/vercel-labs/agent-skills/tree/main/skills/web-design-guidelines
 
 # GitLab URL
-npx synk add https://gitlab.com/org/repo
+npx cognit add https://gitlab.com/org/repo
 
 # Any git URL
-npx synk add git@github.com:vercel-labs/agent-skills.git
+npx cognit add git@github.com:vercel-labs/agent-skills.git
 
 # Local path
-npx synk add ./my-local-skills
+npx cognit add ./my-local-skills
 ```
 
 ### Options
@@ -62,28 +62,28 @@ npx synk add ./my-local-skills
 
 ```bash
 # List cognitives in a repository
-npx synk add vercel-labs/agent-skills --list
+npx cognit add vercel-labs/agent-skills --list
 
 # Install specific cognitives
-npx synk add vercel-labs/agent-skills --skill frontend-design --skill skill-creator
+npx cognit add vercel-labs/agent-skills --skill frontend-design --skill skill-creator
 
 # Install a cognitive with spaces in the name (must be quoted)
-npx synk add owner/repo --skill "Convex Best Practices"
+npx cognit add owner/repo --skill "Convex Best Practices"
 
 # Install to specific agents
-npx synk add vercel-labs/agent-skills -a claude-code -a opencode
+npx cognit add vercel-labs/agent-skills -a claude-code -a opencode
 
 # Non-interactive installation (CI/CD friendly)
-npx synk add vercel-labs/agent-skills --skill frontend-design -g -a claude-code -y
+npx cognit add vercel-labs/agent-skills --skill frontend-design -g -a claude-code -y
 
 # Install all cognitives from a repo to all agents
-npx synk add vercel-labs/agent-skills --all
+npx cognit add vercel-labs/agent-skills --all
 
 # Install all cognitives to specific agents
-npx synk add vercel-labs/agent-skills --skill '*' -a claude-code
+npx cognit add vercel-labs/agent-skills --skill '*' -a claude-code
 
 # Install specific cognitives to all agents
-npx synk add vercel-labs/agent-skills --agent '*' --skill frontend-design
+npx cognit add vercel-labs/agent-skills --agent '*' --skill frontend-design
 ```
 
 ### Installation Scope
@@ -106,95 +106,95 @@ When installing interactively, you can choose:
 
 | Command                   | Description                                            |
 | ------------------------- | ------------------------------------------------------ |
-| `npx synk list`           | List installed cognitives (alias: `ls`)                |
-| `npx synk find [query]`   | Search for cognitives interactively or by keyword      |
-| `npx synk remove [names]` | Remove installed cognitives from agents                |
-| `npx synk check`          | Check for available cognitive updates                  |
-| `npx synk update`         | Update all installed cognitives to latest versions     |
-| `npx synk init [name]`    | Create a new SKILL.md, AGENT.md, or PROMPT.md template |
+| `npx cognit list`           | List installed cognitives (alias: `ls`)                |
+| `npx cognit find [query]`   | Search for cognitives interactively or by keyword      |
+| `npx cognit remove [names]` | Remove installed cognitives from agents                |
+| `npx cognit check`          | Check for available cognitive updates                  |
+| `npx cognit update`         | Update all installed cognitives to latest versions     |
+| `npx cognit init [name]`    | Create a new SKILL.md, AGENT.md, or PROMPT.md template |
 
-### `synk list`
+### `cognit list`
 
 List all installed cognitives. Similar to `npm ls`.
 
 ```bash
 # List all installed cognitives (project and global)
-npx synk list
+npx cognit list
 
 # List only global cognitives
-npx synk ls -g
+npx cognit ls -g
 
 # Filter by specific agents
-npx synk ls -a claude-code -a cursor
+npx cognit ls -a claude-code -a cursor
 ```
 
-### `synk find`
+### `cognit find`
 
 Search for cognitives interactively or by keyword.
 
 ```bash
 # Interactive search (fzf-style)
-npx synk find
+npx cognit find
 
 # Search by keyword
-npx synk find typescript
+npx cognit find typescript
 ```
 
-### `synk check` / `synk update`
+### `cognit check` / `cognit update`
 
 ```bash
 # Check if any installed cognitives have updates
-npx synk check
+npx cognit check
 
 # Update all cognitives to latest versions
-npx synk update
+npx cognit update
 ```
 
-### `synk init`
+### `cognit init`
 
 ```bash
 # Create SKILL.md in current directory
-npx synk init
+npx cognit init
 
 # Create a new skill in a subdirectory
-npx synk init my-skill
+npx cognit init my-skill
 
 # Create an AGENT.md or PROMPT.md instead
-npx synk init my-agent -t agent
-npx synk init my-prompt -t prompt
+npx cognit init my-agent -t agent
+npx cognit init my-prompt -t prompt
 ```
 
-### `synk remove`
+### `cognit remove`
 
 Remove installed cognitives from agents.
 
 ```bash
 # Remove interactively (select from installed cognitives)
-npx synk remove
+npx cognit remove
 
 # Remove specific cognitive by name
-npx synk remove web-design-guidelines
+npx cognit remove web-design-guidelines
 
 # Remove multiple cognitives
-npx synk remove frontend-design web-design-guidelines
+npx cognit remove frontend-design web-design-guidelines
 
 # Remove from global scope
-npx synk remove --global web-design-guidelines
+npx cognit remove --global web-design-guidelines
 
 # Remove from specific agents only
-npx synk remove --agent claude-code cursor my-skill
+npx cognit remove --agent claude-code cursor my-skill
 
 # Remove all installed cognitives without confirmation
-npx synk remove --all
+npx cognit remove --all
 
 # Remove all cognitives from a specific agent
-npx synk remove --skill '*' -a cursor
+npx cognit remove --skill '*' -a cursor
 
 # Remove a specific cognitive from all agents
-npx synk remove my-skill --agent '*'
+npx cognit remove my-skill --agent '*'
 
 # Use 'rm' alias
-npx synk rm my-skill
+npx cognit rm my-skill
 ```
 
 | Option         | Description                                      |
@@ -207,7 +207,7 @@ npx synk rm my-skill
 
 ## What are Cognitives?
 
-Cognitives are reusable instruction sets that extend your coding agent's capabilities. synk supports three cognitive types:
+Cognitives are reusable instruction sets that extend your coding agent's capabilities. cognit supports three cognitive types:
 
 - **Skills** (`SKILL.md`) -- Task-oriented instructions that teach agents how to perform specific tasks
 - **Agents** (`AGENT.md`) -- Persona and behavior definitions that shape how an agent operates
@@ -221,7 +221,7 @@ Cognitives let agents perform specialized tasks like:
 - Creating PRs following your team's conventions
 - Integrating with external tools (Linear, Notion, etc.)
 
-Discover skills at **[skills.sh](https://skills.sh)** (compatible with synk)
+Discover skills at **[skills.sh](https://skills.sh)** (compatible with cognit)
 
 ## Supported Agents
 
@@ -433,7 +433,7 @@ Ensure you have write access to the target directory.
 
 ```bash
 # Install internal cognitives
-INSTALL_INTERNAL_SKILLS=1 npx synk add vercel-labs/agent-skills --list
+INSTALL_INTERNAL_SKILLS=1 npx cognit add vercel-labs/agent-skills --list
 ```
 
 ## Telemetry
@@ -444,7 +444,7 @@ Telemetry is automatically disabled in CI environments.
 
 ## Related Links
 
-> **Note:** synk is a fork/extension of the [Vercel Agent Skills](https://github.com/vercel-labs/skills) ecosystem, adding support for multiple cognitive types (skills, agents, prompts). All skills-compatible repositories work with synk.
+> **Note:** cognit is a fork/extension of the [Vercel Agent Skills](https://github.com/vercel-labs/skills) ecosystem, adding support for multiple cognitive types (skills, agents, prompts). All skills-compatible repositories work with cognit.
 
 - [Agent Skills Specification](https://agentskills.io)
 - [Skills Directory](https://skills.sh)

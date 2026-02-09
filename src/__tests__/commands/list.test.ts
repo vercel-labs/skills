@@ -274,15 +274,15 @@ description: A test skill
 
     it('should include list examples in help', () => {
       const result = runCli(['--help']);
-      expect(result.stdout).toContain('synk list');
-      expect(result.stdout).toContain('synk ls -g');
+      expect(result.stdout).toContain('cognit list');
+      expect(result.stdout).toContain('cognit ls -g');
     });
   });
 
   describe('banner', () => {
     it('should include list command in banner', () => {
       const result = runCli([]);
-      expect(result.stdout).toContain('npx synk list');
+      expect(result.stdout).toContain('npx cognit list');
       expect(result.stdout).toContain('List installed cognitives');
     });
   });

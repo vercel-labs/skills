@@ -1021,10 +1021,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     );
     logger.line();
     logger.dim('  Usage:');
-    logger.log(`    ${pc.cyan('npx synk add')} ${pc.yellow('<source>')} ${pc.dim('[options]')}`);
+    logger.log(`    ${pc.cyan('npx cognit add')} ${pc.yellow('<source>')} ${pc.dim('[options]')}`);
     logger.line();
     logger.dim('  Example:');
-    logger.log(`    ${pc.cyan('npx synk add')} ${pc.yellow('vercel-labs/agent-skills')}`);
+    logger.log(`    ${pc.cyan('npx cognit add')} ${pc.yellow('vercel-labs/agent-skills')}`);
     logger.line();
     process.exit(1);
   }
@@ -1035,7 +1035,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     options.yes = true;
   }
 
-  logger.intro(' synk ');
+  logger.intro(' cognit ');
 
   if (!process.stdin.isTTY) {
     showInstallTip();
@@ -1178,12 +1178,12 @@ async function promptForFindSkills(
         });
       } catch {
         logger.warning('Failed to install find-skills. You can try again with:');
-        logger.message(pc.dim('  npx synk add vercel-labs/skills@find-skills -g -y --all'));
+        logger.message(pc.dim('  npx cognit add vercel-labs/skills@find-skills -g -y --all'));
       }
     } else {
       await dismissPrompt('findSkillsPrompt');
       logger.message(
-        pc.dim('You can install it later with: npx synk add vercel-labs/skills@find-skills')
+        pc.dim('You can install it later with: npx cognit add vercel-labs/skills@find-skills')
       );
     }
   } catch {

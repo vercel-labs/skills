@@ -116,10 +116,10 @@ Describe when this skill should be used.
   logger.line();
   logger.dim('Publishing:');
   logger.log(
-    `  ${pc.dim('GitHub:')}  Push to a repo, then ${pc.cyan(`npx synk add <owner>/<repo>`)}`
+    `  ${pc.dim('GitHub:')}  Push to a repo, then ${pc.cyan(`npx cognit add <owner>/<repo>`)}`
   );
   logger.log(
-    `  ${pc.dim('URL:')}     Host the file, then ${pc.cyan(`npx synk add https://example.com/${displayPath}`)}`
+    `  ${pc.dim('URL:')}     Host the file, then ${pc.cyan(`npx cognit add https://example.com/${displayPath}`)}`
   );
   logger.line();
 }

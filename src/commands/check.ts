@@ -17,7 +17,7 @@ export async function runCheck(args: string[] = []): Promise<void> {
 
   if (cognitiveNames.length === 0) {
     logger.dim('No cognitives tracked in lock file.');
-    logger.log(`${pc.dim('Install cognitives with')} npx synk add <package>`);
+    logger.log(`${pc.dim('Install cognitives with')} npx cognit add <package>`);
     return;
   }
 
@@ -90,7 +90,7 @@ export async function runCheck(args: string[] = []): Promise<void> {
       logger.dim(`    source: ${update.source}`);
     }
     logger.line();
-    logger.log(`${pc.dim('Run')} npx synk update ${pc.dim('to update all cognitives')}`);
+    logger.log(`${pc.dim('Run')} npx cognit update ${pc.dim('to update all cognitives')}`);
   }
 
   if (errors.length > 0) {
