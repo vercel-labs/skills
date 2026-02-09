@@ -1,41 +1,16 @@
-import { homedir } from 'os';
 import pc from 'picocolors';
 import { logger } from '../utils/logger.ts';
 import type { AgentType, CognitiveType } from '../core/types.ts';
 import { COGNITIVE_FILE_NAMES } from '../core/types.ts';
 import { agents } from '../services/registry/index.ts';
 import { listInstalledCognitives, type InstalledCognitive } from '../services/installer/index.ts';
+import { shortenPath, formatList } from '../ui/formatters.ts';
+import { validateAgentNames } from './shared.ts';
 
 interface ListOptions {
   global?: boolean;
   agent?: string[];
   type?: CognitiveType;
-}
-
-/**
- * Shortens a path for display: replaces homedir with ~ and cwd with .
- */
-function shortenPath(fullPath: string, cwd: string): string {
-  const home = homedir();
-  if (fullPath.startsWith(home)) {
-    return fullPath.replace(home, '~');
-  }
-  if (fullPath.startsWith(cwd)) {
-    return '.' + fullPath.slice(cwd.length);
-  }
-  return fullPath;
-}
-
-/**
- * Formats a list of items, truncating if too many
- */
-function formatList(items: string[], maxShow: number = 5): string {
-  if (items.length <= maxShow) {
-    return items.join(', ');
-  }
-  const shown = items.slice(0, maxShow);
-  const remaining = items.length - maxShow;
-  return `${shown.join(', ')} +${remaining} more`;
 }
 
 export function parseListOptions(args: string[]): ListOptions {
@@ -72,16 +47,7 @@ export async function runList(args: string[]): Promise<void> {
   // Validate agent filter if provided
   let agentFilter: AgentType[] | undefined;
   if (options.agent && options.agent.length > 0) {
-    const validAgents = Object.keys(agents);
-    const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
-
-    if (invalidAgents.length > 0) {
-      logger.warning(`Invalid agents: ${invalidAgents.join(', ')}`);
-      logger.dim(`Valid agents: ${validAgents.join(', ')}`);
-      process.exit(1);
-    }
-
-    agentFilter = options.agent as AgentType[];
+    agentFilter = validateAgentNames(options.agent);
   }
 
   const installedCognitives = await listInstalledCognitives({

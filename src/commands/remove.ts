@@ -9,6 +9,7 @@ import { removeCognitiveFromLock, getCognitiveFromLock } from '../services/lock/
 import type { AgentType, CognitiveType } from '../core/types.ts';
 import { COGNITIVE_FILE_NAMES } from '../core/types.ts';
 import { getInstallPath, getCanonicalPath, getCanonicalDir } from '../services/installer/index.ts';
+import { assertNotCancelled, validateAgentNames } from './shared.ts';
 
 export interface RemoveOptions {
   global?: boolean;
@@ -73,14 +74,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
   // Validate agent options BEFORE prompting for skill selection
   if (options.agent && options.agent.length > 0) {
-    const validAgents = Object.keys(agents);
-    const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
-
-    if (invalidAgents.length > 0) {
-      logger.error(`Invalid agents: ${invalidAgents.join(', ')}`);
-      logger.info(`Valid agents: ${validAgents.join(', ')}`);
-      process.exit(1);
-    }
+    validateAgentNames(options.agent);
   }
 
   let selectedSkills: string[] = [];
@@ -108,10 +102,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
       required: true,
     });
 
-    if (p.isCancel(selected)) {
-      logger.cancel('Removal cancelled');
-      process.exit(0);
-    }
+    assertNotCancelled(selected);
 
     selectedSkills = selected as string[];
   }
@@ -141,7 +132,9 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
       message: `Are you sure you want to uninstall ${selectedSkills.length} cognitive(s)?`,
     });
 
-    if (p.isCancel(confirmed) || !confirmed) {
+    assertNotCancelled(confirmed);
+
+    if (!confirmed) {
       logger.cancel('Removal cancelled');
       process.exit(0);
     }

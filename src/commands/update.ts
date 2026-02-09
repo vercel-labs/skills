@@ -1,60 +1,20 @@
 import { spawnSync } from 'child_process';
-import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
-import { join } from 'path';
-import { homedir } from 'os';
 import pc from 'picocolors';
 import { logger } from '../utils/logger.ts';
-import { fetchSkillFolderHash, getGitHubToken } from '../services/lock/lock-file.ts';
+import {
+  readLockFile,
+  fetchCognitiveFolderHash,
+  getGitHubToken,
+  type CognitiveLockEntry,
+} from '../services/lock/lock-file.ts';
 import { track } from '../services/telemetry/index.ts';
 import { COGNITIVE_FILE_NAMES } from '../core/types.ts';
-
-const AGENTS_DIR = '.agents';
-const LOCK_FILE = '.synk-lock.json';
-const CURRENT_LOCK_VERSION = 4; // Bumped from 3 to 4 for cognitiveType support
-
-interface CognitiveLockEntry {
-  source: string;
-  sourceType: string;
-  sourceUrl: string;
-  cognitivePath?: string;
-  /** GitHub tree SHA for the entire cognitive folder */
-  cognitiveFolderHash: string;
-  installedAt: string;
-  updatedAt: string;
-}
-
-interface CognitiveLockFile {
-  version: number;
-  cognitives: Record<string, CognitiveLockEntry>;
-}
-
-function getLockFilePath(): string {
-  return join(homedir(), AGENTS_DIR, LOCK_FILE);
-}
-
-function readLockFile(): CognitiveLockFile {
-  const lockPath = getLockFilePath();
-  try {
-    const content = readFileSync(lockPath, 'utf-8');
-    const parsed = JSON.parse(content) as CognitiveLockFile;
-    if (typeof parsed.version !== 'number' || !parsed.cognitives) {
-      return { version: CURRENT_LOCK_VERSION, cognitives: {} };
-    }
-    // If old version, wipe and start fresh (backwards incompatible change)
-    if (parsed.version < CURRENT_LOCK_VERSION) {
-      return { version: CURRENT_LOCK_VERSION, cognitives: {} };
-    }
-    return parsed;
-  } catch {
-    return { version: CURRENT_LOCK_VERSION, cognitives: {} };
-  }
-}
 
 export async function runUpdate(): Promise<void> {
   logger.log('Checking for updates...');
   logger.line();
 
-  const lock = readLockFile();
+  const lock = await readLockFile();
   const cognitiveNames = Object.keys(lock.cognitives);
 
   if (cognitiveNames.length === 0) {
@@ -82,7 +42,7 @@ export async function runUpdate(): Promise<void> {
     checkedCount++;
 
     try {
-      const latestHash = await fetchSkillFolderHash(entry.source, entry.cognitivePath, token);
+      const latestHash = await fetchCognitiveFolderHash(entry.source, entry.cognitivePath, token);
 
       if (latestHash && latestHash !== entry.cognitiveFolderHash) {
         updates.push({ name, source: entry.source, entry });

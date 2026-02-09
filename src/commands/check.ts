@@ -1,58 +1,18 @@
-import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
-import { join } from 'path';
-import { homedir } from 'os';
 import pc from 'picocolors';
 import { logger } from '../utils/logger.ts';
-import { fetchSkillFolderHash, getGitHubToken } from '../services/lock/lock-file.ts';
+import {
+  readLockFile,
+  fetchCognitiveFolderHash,
+  getGitHubToken,
+  type CognitiveLockEntry,
+} from '../services/lock/lock-file.ts';
 import { track } from '../services/telemetry/index.ts';
-
-const AGENTS_DIR = '.agents';
-const LOCK_FILE = '.synk-lock.json';
-const CURRENT_LOCK_VERSION = 4; // Bumped from 3 to 4 for cognitiveType support
-
-interface CognitiveLockEntry {
-  source: string;
-  sourceType: string;
-  sourceUrl: string;
-  cognitivePath?: string;
-  /** GitHub tree SHA for the entire cognitive folder */
-  cognitiveFolderHash: string;
-  installedAt: string;
-  updatedAt: string;
-}
-
-interface CognitiveLockFile {
-  version: number;
-  cognitives: Record<string, CognitiveLockEntry>;
-}
-
-function getLockFilePath(): string {
-  return join(homedir(), AGENTS_DIR, LOCK_FILE);
-}
-
-function readLockFile(): CognitiveLockFile {
-  const lockPath = getLockFilePath();
-  try {
-    const content = readFileSync(lockPath, 'utf-8');
-    const parsed = JSON.parse(content) as CognitiveLockFile;
-    if (typeof parsed.version !== 'number' || !parsed.cognitives) {
-      return { version: CURRENT_LOCK_VERSION, cognitives: {} };
-    }
-    // If old version, wipe and start fresh (backwards incompatible change)
-    if (parsed.version < CURRENT_LOCK_VERSION) {
-      return { version: CURRENT_LOCK_VERSION, cognitives: {} };
-    }
-    return parsed;
-  } catch {
-    return { version: CURRENT_LOCK_VERSION, cognitives: {} };
-  }
-}
 
 export async function runCheck(args: string[] = []): Promise<void> {
   logger.log('Checking for updates...');
   logger.line();
 
-  const lock = readLockFile();
+  const lock = await readLockFile();
   const cognitiveNames = Object.keys(lock.cognitives);
 
   if (cognitiveNames.length === 0) {
@@ -98,7 +58,7 @@ export async function runCheck(args: string[] = []): Promise<void> {
   for (const [source, cognitives] of cognitivesBySource) {
     for (const { name, entry } of cognitives) {
       try {
-        const latestHash = await fetchSkillFolderHash(source, entry.cognitivePath!, token);
+        const latestHash = await fetchCognitiveFolderHash(source, entry.cognitivePath!, token);
 
         if (!latestHash) {
           errors.push({ name, source, error: 'Could not fetch from GitHub' });

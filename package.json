@@ -1,6 +1,6 @@
 {
   "name": "@synapsync/synk",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "The open cognitive ecosystem for AI agents",
   "type": "module",
   "bin": {

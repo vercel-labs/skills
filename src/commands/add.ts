@@ -17,53 +17,43 @@ import {
   ensureUniversalAgents,
   buildResultLines,
 } from '../ui/formatters.ts';
-import {
-  isCancelled,
-  multiselect,
-  promptForAgents,
-  selectAgentsInteractive,
-} from '../ui/prompts.ts';
+import { multiselect, promptForAgents, selectAgentsInteractive } from '../ui/prompts.ts';
 export { promptForAgents } from '../ui/prompts.ts';
 
 import { cloneRepo, cleanupTempDir, GitCloneError } from '../services/source/git.ts';
 import {
-  discoverSkills,
   discoverCognitives,
-  getSkillDisplayName,
-  filterSkills,
+  getCognitiveDisplayName,
+  filterCognitives,
 } from '../services/discovery/index.ts';
 import {
   installCognitiveForAgent,
-  isSkillInstalled,
   isCognitiveInstalled,
-  getInstallPath,
   getCanonicalPath,
-  installRemoteSkillForAgent,
-  installWellKnownSkillForAgent,
+  installRemoteCognitiveForAgent,
+  installWellKnownCognitiveForAgent,
   type InstallMode,
   type InstallResult,
 } from '../services/installer/index.ts';
-import {
-  detectInstalledAgents,
-  agents,
-  getUniversalAgents,
-  getNonUniversalAgents,
-  isUniversalAgent,
-} from '../services/registry/index.ts';
+import { detectInstalledAgents, agents, getUniversalAgents } from '../services/registry/index.ts';
 import { track, setVersion } from '../services/telemetry/index.ts';
-import { findProvider, wellKnownProvider, type WellKnownCognitive } from '../providers/index.ts';
+import { findProvider, wellKnownProvider } from '../providers/index.ts';
 import {
-  addSkillToLock,
   addCognitiveToLock,
-  fetchSkillFolderHash,
+  fetchCognitiveFolderHash,
   isPromptDismissed,
   dismissPrompt,
-  getLastSelectedAgents,
-  saveSelectedAgents,
 } from '../services/lock/lock-file.ts';
-import type { Skill, AgentType, RemoteSkill, CognitiveType, ParsedSource } from '../core/types.ts';
+import type {
+  Cognitive,
+  AgentType,
+  RemoteCognitive,
+  CognitiveType,
+  ParsedSource,
+} from '../core/types.ts';
 import { COGNITIVE_FILE_NAMES } from '../core/types.ts';
 import packageJson from '../../package.json' with { type: 'json' };
+import { assertNotCancelled, buildLockEntry, type LockEntry } from './shared.ts';
 
 export function initTelemetry(version: string): void {
   setVersion(version);
@@ -96,7 +86,6 @@ interface InstallItem {
     agent: AgentType,
     options: { global: boolean; mode: InstallMode }
   ) => Promise<InstallResult>;
-  /** Extra files count for well-known skills */
   fileCount?: number;
 }
 
@@ -106,21 +95,8 @@ interface PreparedInstallation {
   installGlobally: boolean;
   installMode: InstallMode;
   cognitiveType: CognitiveType;
-  /** Lock file entries to write after successful install */
   lockEntries: LockEntry[];
-  /** Telemetry data */
   telemetry: TelemetryData;
-}
-
-interface LockEntry {
-  name: string;
-  source: string;
-  sourceType: string;
-  sourceUrl: string;
-  cognitivePath?: string;
-  cognitiveFolderHash: string;
-  cognitiveType: CognitiveType;
-  isCognitive: boolean;
 }
 
 interface TelemetryData {
@@ -130,13 +106,23 @@ interface TelemetryData {
   checkPrivacy: boolean;
 }
 
+interface InstallResultRecord {
+  name: string;
+  agent: string;
+  success: boolean;
+  path: string;
+  canonicalPath?: string;
+  mode: InstallMode;
+  symlinkFailed?: boolean;
+  error?: string;
+}
+
 // ── Shared: Agent Selection ─────────────────────────────────────────────
 
 async function selectTargetAgents(
   options: AddOptions,
   spinner: Ora,
   cleanup?: () => Promise<void>,
-  /** Whether to use ensureUniversalAgents (true for remote/direct, false for well-known/legacy) */
   useUniversalAgents = false
 ): Promise<AgentType[]> {
   const validAgents = Object.keys(agents);
@@ -180,15 +166,11 @@ async function selectTargetAgents(
 
     if (useUniversalAgents) {
       const selected = await selectAgentsInteractive({ global: options.global });
-      if (p.isCancel(selected)) {
-        logger.cancel('Installation cancelled');
-        await cleanup?.();
-        process.exit(0);
-      }
+      assertNotCancelled(selected, cleanup);
       return selected as AgentType[];
     }
 
-    logger.info('Select agents to install skills to');
+    logger.info('Select agents to install to');
     const allAgentChoices = Object.entries(agents).map(([key, config]) => ({
       value: key as AgentType,
       label: config.displayName,
@@ -197,18 +179,14 @@ async function selectTargetAgents(
       'Which agents do you want to install to?',
       allAgentChoices
     );
-    if (p.isCancel(selected)) {
-      logger.cancel('Installation cancelled');
-      await cleanup?.();
-      process.exit(0);
-    }
+    assertNotCancelled(selected, cleanup);
     return selected as AgentType[];
   }
 
   if (installedAgents.length === 1 || options.yes) {
     if (useUniversalAgents) {
       const target = ensureUniversalAgents(installedAgents);
-      const { universal, symlinked } = splitAgentsByType(target);
+      const { symlinked } = splitAgentsByType(target);
       if (symlinked.length > 0) {
         logger.info(
           `Installing to: ${pc.green('universal')} + ${symlinked.map((a) => pc.cyan(a)).join(', ')}`
@@ -230,11 +208,7 @@ async function selectTargetAgents(
   }
 
   const selected = await selectAgentsInteractive({ global: options.global });
-  if (p.isCancel(selected)) {
-    logger.cancel('Installation cancelled');
-    await cleanup?.();
-    process.exit(0);
-  }
+  assertNotCancelled(selected, cleanup);
   return selected as AgentType[];
 }
 
@@ -265,11 +239,7 @@ async function selectInstallScope(
         },
       ],
     });
-    if (p.isCancel(scope)) {
-      logger.cancel('Installation cancelled');
-      await cleanup?.();
-      process.exit(0);
-    }
+    assertNotCancelled(scope, cleanup);
     installGlobally = scope as boolean;
   }
 
@@ -295,12 +265,27 @@ async function selectInstallMode(
       { value: 'copy', label: 'Copy to all agents', hint: 'Independent copies for each agent' },
     ],
   });
-  if (p.isCancel(modeChoice)) {
-    logger.cancel('Installation cancelled');
-    await cleanup?.();
-    process.exit(0);
-  }
+  assertNotCancelled(modeChoice, cleanup);
   return modeChoice as InstallMode;
+}
+
+// ── Shared: Install Context (agents + scope + mode) ─────────────────────
+
+async function selectInstallContext(
+  options: AddOptions,
+  spinner: Ora,
+  cleanup?: () => Promise<void>,
+  config?: { useUniversalAgents?: boolean; forceMode?: InstallMode }
+): Promise<{ targetAgents: AgentType[]; installGlobally: boolean; installMode: InstallMode }> {
+  const targetAgents = await selectTargetAgents(
+    options,
+    spinner,
+    cleanup,
+    config?.useUniversalAgents
+  );
+  const installGlobally = await selectInstallScope(options, targetAgents, cleanup);
+  const installMode = config?.forceMode ?? (await selectInstallMode(options, cleanup));
+  return { targetAgents, installGlobally, installMode };
 }
 
 // ── Shared: Privacy Check ───────────────────────────────────────────────
@@ -311,41 +296,44 @@ async function isSourcePrivate(source: string): Promise<boolean | null> {
   return isRepoPrivate(ownerRepo.owner, ownerRepo.repo);
 }
 
-// ── Unified Install Pipeline ────────────────────────────────────────────
+// ── executeInstallFlow sub-functions ────────────────────────────────────
 
-async function executeInstallFlow(
-  prepared: PreparedInstallation,
-  options: AddOptions,
-  spinner: Ora,
-  cleanup?: () => Promise<void>
-): Promise<void> {
-  const { items, targetAgents, installGlobally, installMode, cognitiveType } = prepared;
-  const cwd = process.cwd();
-
-  // 1. Check for overwrites (parallel)
+async function checkOverwrites(
+  items: InstallItem[],
+  targetAgents: AgentType[],
+  installGlobally: boolean,
+  cognitiveType: CognitiveType
+): Promise<Map<string, Map<string, boolean>>> {
   const overwriteChecks = await Promise.all(
     items.flatMap((item) =>
       targetAgents.map(async (agent) => ({
-        skillName: item.installName,
+        itemName: item.installName,
         agent,
-        installed:
-          cognitiveType === 'skill'
-            ? await isSkillInstalled(item.installName, agent, { global: installGlobally })
-            : await isCognitiveInstalled(item.installName, agent, cognitiveType, {
-                global: installGlobally,
-              }),
+        installed: await isCognitiveInstalled(item.installName, agent, cognitiveType, {
+          global: installGlobally,
+        }),
       }))
     )
   );
   const overwriteStatus = new Map<string, Map<string, boolean>>();
-  for (const { skillName, agent, installed } of overwriteChecks) {
-    if (!overwriteStatus.has(skillName)) {
-      overwriteStatus.set(skillName, new Map());
+  for (const { itemName, agent, installed } of overwriteChecks) {
+    if (!overwriteStatus.has(itemName)) {
+      overwriteStatus.set(itemName, new Map());
     }
-    overwriteStatus.get(skillName)!.set(agent, installed);
+    overwriteStatus.get(itemName)!.set(agent, installed);
   }
+  return overwriteStatus;
+}
 
-  // 2. Build installation summary
+function buildInstallSummary(
+  items: InstallItem[],
+  targetAgents: AgentType[],
+  installGlobally: boolean,
+  installMode: InstallMode,
+  cognitiveType: CognitiveType,
+  overwriteStatus: Map<string, Map<string, boolean>>,
+  cwd: string
+): string[] {
   const summaryLines: string[] = [];
   for (const item of items) {
     if (summaryLines.length > 0) summaryLines.push('');
@@ -359,15 +347,155 @@ async function executeInstallFlow(
     if (item.fileCount && item.fileCount > 1) {
       summaryLines.push(`  ${pc.dim('files:')} ${item.fileCount}`);
     }
-    const skillOverwrites = overwriteStatus.get(item.installName);
+    const itemOverwrites = overwriteStatus.get(item.installName);
     const overwriteAgents = targetAgents
-      .filter((a) => skillOverwrites?.get(a))
+      .filter((a) => itemOverwrites?.get(a))
       .map((a) => agents[a].displayName);
     if (overwriteAgents.length > 0) {
       summaryLines.push(`  ${pc.yellow('overwrites:')} ${formatList(overwriteAgents)}`);
     }
   }
+  return summaryLines;
+}
 
+async function performInstalls(
+  items: InstallItem[],
+  targetAgents: AgentType[],
+  installGlobally: boolean,
+  installMode: InstallMode
+): Promise<InstallResultRecord[]> {
+  const results: InstallResultRecord[] = [];
+
+  for (const item of items) {
+    for (const agent of targetAgents) {
+      const result = await item.installFn(agent, { global: installGlobally, mode: installMode });
+      results.push({
+        name: item.installName,
+        agent: agents[agent].displayName,
+        ...result,
+      });
+    }
+  }
+
+  return results;
+}
+
+async function writeLockEntries(
+  prepared: PreparedInstallation,
+  successfulNames: Set<string>
+): Promise<void> {
+  for (const entry of prepared.lockEntries) {
+    if (successfulNames.has(entry.name)) {
+      try {
+        let cognitiveFolderHash = entry.cognitiveFolderHash;
+        if (!cognitiveFolderHash && entry.sourceType === 'github' && entry.cognitivePath) {
+          const hash = await fetchCognitiveFolderHash(entry.source, entry.cognitivePath);
+          if (hash) cognitiveFolderHash = hash;
+        }
+        await addCognitiveToLock(entry.name, entry.cognitiveType, {
+          source: entry.source,
+          sourceType: entry.sourceType,
+          sourceUrl: entry.sourceUrl,
+          cognitivePath: entry.cognitivePath,
+          cognitiveFolderHash,
+        });
+      } catch {
+        // Don't fail installation if lock file update fails
+      }
+    }
+  }
+}
+
+function displayResults(
+  results: InstallResultRecord[],
+  targetAgents: AgentType[],
+  cognitiveType: CognitiveType,
+  cwd: string
+): void {
+  const successful = results.filter((r) => r.success);
+  const failed = results.filter((r) => !r.success);
+
+  if (successful.length > 0) {
+    const byName = new Map<string, typeof results>();
+    for (const r of successful) {
+      const group = byName.get(r.name) || [];
+      group.push(r);
+      byName.set(r.name, group);
+    }
+
+    const itemCount = byName.size;
+    const resultLines: string[] = [];
+
+    for (const [itemName, itemResults] of byName) {
+      const firstResult = itemResults[0]!;
+      if (firstResult.mode === 'copy') {
+        resultLines.push(`${pc.green('✓')} ${itemName} ${pc.dim('(copied)')}`);
+        for (const r of itemResults) {
+          const shortPath = shortenPath(r.path, cwd);
+          resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
+        }
+      } else {
+        if (firstResult.canonicalPath) {
+          const shortPath = shortenPath(firstResult.canonicalPath, cwd);
+          resultLines.push(`${pc.green('✓')} ${shortPath}`);
+        } else {
+          resultLines.push(`${pc.green('✓')} ${itemName}`);
+        }
+        resultLines.push(...buildResultLines(itemResults, targetAgents));
+      }
+    }
+
+    const title = pc.green(`Installed ${itemCount} ${cognitiveType}${itemCount !== 1 ? 's' : ''}`);
+    logger.note(resultLines.join('\n'), title);
+
+    const symlinkFailures = successful.filter((r) => r.mode === 'symlink' && r.symlinkFailed);
+    if (symlinkFailures.length > 0) {
+      const copiedAgentNames = symlinkFailures.map((r) => r.agent);
+      logger.warning(pc.yellow(`Symlinks failed for: ${formatList(copiedAgentNames)}`));
+      logger.message(
+        pc.dim('Files were copied instead. On Windows, enable Developer Mode for symlink support.')
+      );
+    }
+  }
+
+  if (failed.length > 0) {
+    logger.line();
+    logger.error(pc.red(`Failed to install ${failed.length}`));
+    for (const r of failed) {
+      logger.message(`${pc.red('✗')} ${r.name} → ${r.agent}: ${pc.dim(r.error)}`);
+    }
+  }
+}
+
+// ── Unified Install Pipeline ────────────────────────────────────────────
+
+async function executeInstallFlow(
+  prepared: PreparedInstallation,
+  options: AddOptions,
+  spinner: Ora,
+  cleanup?: () => Promise<void>
+): Promise<void> {
+  const { items, targetAgents, installGlobally, installMode, cognitiveType } = prepared;
+  const cwd = process.cwd();
+
+  // 1. Check for overwrites
+  const overwriteStatus = await checkOverwrites(
+    items,
+    targetAgents,
+    installGlobally,
+    cognitiveType
+  );
+
+  // 2. Build and display summary
+  const summaryLines = buildInstallSummary(
+    items,
+    targetAgents,
+    installGlobally,
+    installMode,
+    cognitiveType,
+    overwriteStatus,
+    cwd
+  );
   logger.note(summaryLines.join('\n'), 'Installation Summary');
 
   // 3. Confirm
@@ -384,36 +512,12 @@ async function executeInstallFlow(
   const label =
     items.length === 1 ? `Installing ${cognitiveType}...` : `Installing ${cognitiveType}s...`;
   spinner.start(label);
-
-  const results: {
-    skill: string;
-    agent: string;
-    success: boolean;
-    path: string;
-    canonicalPath?: string;
-    mode: InstallMode;
-    symlinkFailed?: boolean;
-    error?: string;
-  }[] = [];
-
-  for (const item of items) {
-    for (const agent of targetAgents) {
-      const result = await item.installFn(agent, { global: installGlobally, mode: installMode });
-      results.push({
-        skill: item.installName,
-        agent: agents[agent].displayName,
-        ...result,
-      });
-    }
-  }
-
+  const results = await performInstalls(items, targetAgents, installGlobally, installMode);
   spinner.succeed('Installation complete');
-
   logger.line();
-  const successful = results.filter((r) => r.success);
-  const failed = results.filter((r) => !r.success);
 
-  // 5. Telemetry (skip if source is empty, e.g. private repos or local installs)
+  // 5. Telemetry
+  const successful = results.filter((r) => r.success);
   const { telemetry } = prepared;
   if (telemetry.source) {
     let shouldTrack = true;
@@ -436,91 +540,12 @@ async function executeInstallFlow(
 
   // 6. Lock file
   if (successful.length > 0 && installGlobally) {
-    const successfulSkillNames = new Set(successful.map((r) => r.skill));
-    for (const entry of prepared.lockEntries) {
-      if (successfulSkillNames.has(entry.name)) {
-        try {
-          let cognitiveFolderHash = entry.cognitiveFolderHash;
-          if (!cognitiveFolderHash && entry.sourceType === 'github' && entry.cognitivePath) {
-            const hash = await fetchSkillFolderHash(entry.source, entry.cognitivePath);
-            if (hash) cognitiveFolderHash = hash;
-          }
-          if (entry.isCognitive) {
-            await addCognitiveToLock(entry.name, entry.cognitiveType, {
-              source: entry.source,
-              sourceType: entry.sourceType,
-              sourceUrl: entry.sourceUrl,
-              cognitivePath: entry.cognitivePath,
-              cognitiveFolderHash,
-            });
-          } else {
-            await addSkillToLock(entry.name, {
-              source: entry.source,
-              sourceType: entry.sourceType,
-              sourceUrl: entry.sourceUrl,
-              cognitiveFolderHash,
-            });
-          }
-        } catch {
-          // Don't fail installation if lock file update fails
-        }
-      }
-    }
+    const successfulNames = new Set(successful.map((r) => r.name));
+    await writeLockEntries(prepared, successfulNames);
   }
 
   // 7. Display results
-  if (successful.length > 0) {
-    const bySkill = new Map<string, typeof results>();
-    for (const r of successful) {
-      const skillResults = bySkill.get(r.skill) || [];
-      skillResults.push(r);
-      bySkill.set(r.skill, skillResults);
-    }
-
-    const skillCount = bySkill.size;
-    const resultLines: string[] = [];
-
-    for (const [skillName, skillResults] of bySkill) {
-      const firstResult = skillResults[0]!;
-      if (firstResult.mode === 'copy') {
-        resultLines.push(`${pc.green('✓')} ${skillName} ${pc.dim('(copied)')}`);
-        for (const r of skillResults) {
-          const shortPath = shortenPath(r.path, cwd);
-          resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
-        }
-      } else {
-        if (firstResult.canonicalPath) {
-          const shortPath = shortenPath(firstResult.canonicalPath, cwd);
-          resultLines.push(`${pc.green('✓')} ${shortPath}`);
-        } else {
-          resultLines.push(`${pc.green('✓')} ${skillName}`);
-        }
-        resultLines.push(...buildResultLines(skillResults, targetAgents));
-      }
-    }
-
-    const title = pc.green(
-      `Installed ${skillCount} ${cognitiveType}${skillCount !== 1 ? 's' : ''}`
-    );
-    logger.note(resultLines.join('\n'), title);
-
-    const symlinkFailures = successful.filter((r) => r.mode === 'symlink' && r.symlinkFailed);
-    if (symlinkFailures.length > 0) {
-      const copiedAgentNames = symlinkFailures.map((r) => r.agent);
-      logger.warning(pc.yellow(`Symlinks failed for: ${formatList(copiedAgentNames)}`));
-      logger.message(
-        pc.dim('Files were copied instead. On Windows, enable Developer Mode for symlink support.')
-      );
-    }
-  }
-
-  if (failed.length > 0) {
-    logger.line();
-    logger.error(pc.red(`Failed to install ${failed.length}`));
-    for (const r of failed) {
-      logger.message(`${pc.red('✗')} ${r.skill} → ${r.agent}: ${pc.dim(r.error)}`);
-    }
-  }
+  displayResults(results, targetAgents, cognitiveType, cwd);
 
   logger.outro(
     pc.green('Done!') +
@@ -530,13 +555,16 @@ async function executeInstallFlow(
   await promptForFindSkills(options, targetAgents);
 }
 
-// ── Skill Selection (shared for multi-skill sources) ────────────────────
+// ── Cognitive Selection (shared for multi-item sources) ─────────────────
 
-async function selectSkillItems<
+async function selectCognitiveItems<
   T extends { installName?: string; name: string; description: string },
 >(items: T[], options: AddOptions, cleanup?: () => Promise<void>): Promise<T[]> {
+  const cognitiveType = options.type ?? 'skill';
+  const label = cognitiveType === 'skill' ? 'skills' : `${cognitiveType}s`;
+
   if (options.skill?.includes('*')) {
-    logger.info(`Installing all ${items.length} skills`);
+    logger.info(`Installing all ${items.length} ${label}`);
     return items;
   }
 
@@ -550,8 +578,8 @@ async function selectSkillItems<
       )
     );
     if (selected.length === 0) {
-      logger.error(`No matching skills found for: ${options.skill.join(', ')}`);
-      logger.info('Available skills:');
+      logger.error(`No matching ${label} found for: ${options.skill.join(', ')}`);
+      logger.info(`Available ${label}:`);
       for (const s of items) {
         logger.message(
           `- ${'installName' in s ? (s as { installName: string }).installName : s.name}`
@@ -561,7 +589,7 @@ async function selectSkillItems<
       process.exit(1);
     }
     logger.info(
-      `Selected ${selected.length} skill${selected.length !== 1 ? 's' : ''}: ${selected.map((s) => pc.cyan('installName' in s ? (s as { installName: string }).installName : s.name)).join(', ')}`
+      `Selected ${selected.length} ${cognitiveType}${selected.length !== 1 ? 's' : ''}: ${selected.map((s) => pc.cyan('installName' in s ? (s as { installName: string }).installName : s.name)).join(', ')}`
     );
     return selected;
   }
@@ -569,40 +597,36 @@ async function selectSkillItems<
   if (items.length === 1) {
     const first = items[0]!;
     logger.info(
-      `Skill: ${pc.cyan('installName' in first ? (first as { installName: string }).installName : first.name)}`
+      `${cognitiveType}: ${pc.cyan('installName' in first ? (first as { installName: string }).installName : first.name)}`
     );
     return items;
   }
 
   if (options.yes) {
-    logger.info(`Installing all ${items.length} skills`);
+    logger.info(`Installing all ${items.length} ${label}`);
     return items;
   }
 
-  const skillChoices = items.map((s) => ({
+  const cognitiveChoices = items.map((s) => ({
     value: s,
     label: 'installName' in s ? (s as { installName: string }).installName : s.name,
     hint: s.description.length > 60 ? s.description.slice(0, 57) + '...' : s.description,
   }));
 
   const selected = await multiselect({
-    message: 'Select skills to install',
-    options: skillChoices,
+    message: `Select ${label} to install`,
+    options: cognitiveChoices,
     required: true,
   });
 
-  if (p.isCancel(selected)) {
-    logger.cancel('Installation cancelled');
-    await cleanup?.();
-    process.exit(0);
-  }
+  assertNotCancelled(selected, cleanup);
 
   return selected as T[];
 }
 
-// ── Resolver: Remote Skill (provider-based) ─────────────────────────────
+// ── Resolver: Remote Cognitive (provider-based) ─────────────────────────
 
-async function resolveRemoteSkill(
+async function resolveRemoteCognitive(
   url: string,
   options: AddOptions,
   spinner: Ora
@@ -610,69 +634,80 @@ async function resolveRemoteSkill(
   const provider = findProvider(url);
 
   if (!provider) {
-    spinner.fail('Unsupported skill host');
+    spinner.fail('Unsupported source host');
     logger.outro(
       pc.red(
-        'Could not find a provider for this URL. Supported hosts include Mintlify, HuggingFace, and well-known skill endpoints.'
+        'Could not find a provider for this URL. Supported hosts include Mintlify, HuggingFace, and well-known endpoints.'
       )
     );
     process.exit(1);
   }
 
-  spinner.start(`Fetching skill.md from ${provider.displayName}...`);
-  const providerSkill = await provider.fetchCognitive(url);
+  const cognitiveType = options.type ?? 'skill';
+  const cognitiveFile = COGNITIVE_FILE_NAMES[cognitiveType];
 
-  if (!providerSkill) {
-    spinner.fail('Invalid skill');
+  spinner.start(`Fetching ${cognitiveFile} from ${provider.displayName}...`);
+  const providerCognitive = await provider.fetchCognitive(url);
+
+  if (!providerCognitive) {
+    spinner.fail(`Invalid ${cognitiveType}`);
     logger.outro(
-      pc.red('Could not fetch skill.md or missing required frontmatter (name, description).')
+      pc.red(
+        `Could not fetch ${cognitiveFile} or missing required frontmatter (name, description).`
+      )
     );
     process.exit(1);
   }
 
-  const cognitiveType = providerSkill.cognitiveType ?? 'skill';
+  const resolvedType = providerCognitive.cognitiveType ?? cognitiveType;
 
-  const remoteSkill: RemoteSkill = {
-    name: providerSkill.name,
-    description: providerSkill.description,
-    content: providerSkill.content,
-    installName: providerSkill.installName,
-    sourceUrl: providerSkill.sourceUrl,
+  const remoteCognitive: RemoteCognitive = {
+    name: providerCognitive.name,
+    description: providerCognitive.description,
+    content: providerCognitive.content,
+    installName: providerCognitive.installName,
+    sourceUrl: providerCognitive.sourceUrl,
     providerId: provider.id,
     sourceIdentifier: provider.getSourceIdentifier(url),
-    metadata: providerSkill.metadata,
-    cognitiveType,
+    metadata: providerCognitive.metadata,
+    cognitiveType: resolvedType,
   };
 
-  spinner.succeed(`Found skill: ${pc.cyan(remoteSkill.installName)}`);
-  logger.info(`Skill: ${pc.cyan(remoteSkill.name)}`);
-  logger.message(pc.dim(remoteSkill.description));
-  logger.message(pc.dim(`Source: ${remoteSkill.sourceIdentifier}`));
+  spinner.succeed(`Found ${resolvedType}: ${pc.cyan(remoteCognitive.installName)}`);
+  logger.info(`${resolvedType}: ${pc.cyan(remoteCognitive.name)}`);
+  logger.message(pc.dim(remoteCognitive.description));
+  logger.message(pc.dim(`Source: ${remoteCognitive.sourceIdentifier}`));
 
   if (options.list) {
     logger.line();
-    logger.step(pc.bold('Skill Details'));
-    logger.message(`${pc.cyan('Name:')} ${remoteSkill.name}`);
-    logger.message(`${pc.cyan('Install as:')} ${remoteSkill.installName}`);
+    logger.step(pc.bold('Details'));
+    logger.message(`${pc.cyan('Name:')} ${remoteCognitive.name}`);
+    logger.message(`${pc.cyan('Install as:')} ${remoteCognitive.installName}`);
     logger.message(`${pc.cyan('Provider:')} ${provider.displayName}`);
-    logger.message(`${pc.cyan('Description:')} ${remoteSkill.description}`);
+    logger.message(`${pc.cyan('Description:')} ${remoteCognitive.description}`);
     logger.outro('Run without --list to install');
     process.exit(0);
   }
 
-  const targetAgents = await selectTargetAgents(options, spinner, undefined, true);
-  const installGlobally = await selectInstallScope(options, targetAgents);
-  const installMode = provider.id === 'mintlify' ? 'symlink' : await selectInstallMode(options);
+  const { targetAgents, installGlobally, installMode } = await selectInstallContext(
+    options,
+    spinner,
+    undefined,
+    { useUniversalAgents: true, forceMode: provider.id === 'mintlify' ? 'symlink' : undefined }
+  );
 
   const item: InstallItem = {
-    installName: remoteSkill.installName,
-    displayName: remoteSkill.name,
-    description: remoteSkill.description,
-    sourceIdentifier: remoteSkill.sourceIdentifier,
-    providerId: remoteSkill.providerId,
+    installName: remoteCognitive.installName,
+    displayName: remoteCognitive.name,
+    description: remoteCognitive.description,
+    sourceIdentifier: remoteCognitive.sourceIdentifier,
+    providerId: remoteCognitive.providerId,
     sourceUrl: url,
     installFn: (agent, opts) =>
-      installRemoteSkillForAgent(remoteSkill, agent, { ...opts, cognitiveType }),
+      installRemoteCognitiveForAgent(remoteCognitive, agent, {
+        ...opts,
+        cognitiveType: resolvedType,
+      }),
   };
 
   return {
@@ -680,107 +715,111 @@ async function resolveRemoteSkill(
     targetAgents,
     installGlobally,
     installMode,
-    cognitiveType,
+    cognitiveType: resolvedType,
     lockEntries: [
-      {
-        name: remoteSkill.installName,
-        source: remoteSkill.sourceIdentifier,
-        sourceType: remoteSkill.providerId,
+      buildLockEntry({
+        name: remoteCognitive.installName,
+        source: remoteCognitive.sourceIdentifier,
+        sourceType: remoteCognitive.providerId,
         sourceUrl: url,
-        cognitiveFolderHash: '',
-        cognitiveType,
-        isCognitive: cognitiveType !== 'skill',
-      },
+        cognitiveType: resolvedType,
+      }),
     ],
     telemetry: {
-      source: remoteSkill.sourceIdentifier,
-      sourceType: remoteSkill.providerId,
-      skillFiles: { [remoteSkill.installName]: url },
+      source: remoteCognitive.sourceIdentifier,
+      sourceType: remoteCognitive.providerId,
+      skillFiles: { [remoteCognitive.installName]: url },
       checkPrivacy: true,
     },
   };
 }
 
-// ── Resolver: Well-Known Skills ─────────────────────────────────────────
+// ── Resolver: Well-Known Cognitives ─────────────────────────────────────
 
-async function resolveWellKnownSkills(
-  source: string,
+async function resolveWellKnownCognitives(
   url: string,
   options: AddOptions,
   spinner: Ora
 ): Promise<PreparedInstallation> {
-  spinner.start('Discovering skills from well-known endpoint...');
-  const skills = await wellKnownProvider.fetchAllSkills(url);
+  const cognitiveType = options.type ?? 'skill';
+  const label = cognitiveType === 'skill' ? 'skills' : `${cognitiveType}s`;
 
-  if (skills.length === 0) {
-    spinner.fail('No skills found');
+  spinner.start(`Discovering ${label} from well-known endpoint...`);
+  const cognitives = await wellKnownProvider.fetchAllCognitives(url);
+
+  if (cognitives.length === 0) {
+    spinner.fail(`No ${label} found`);
     logger.outro(
       pc.red(
-        'No skills found at this URL. Make sure the server has a /.well-known/skills/index.json file.'
+        `No ${label} found at this URL. Make sure the server has a /.well-known/skills/index.json file.`
       )
     );
     process.exit(1);
   }
 
-  spinner.succeed(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
+  spinner.succeed(
+    `Found ${pc.green(cognitives.length)} ${cognitiveType}${cognitives.length > 1 ? 's' : ''}`
+  );
 
-  for (const skill of skills) {
-    logger.info(`Skill: ${pc.cyan(skill.installName)}`);
-    logger.message(pc.dim(skill.description));
-    if (skill.files.size > 1) {
-      logger.message(pc.dim(`  Files: ${Array.from(skill.files.keys()).join(', ')}`));
+  for (const item of cognitives) {
+    logger.info(`${cognitiveType}: ${pc.cyan(item.installName)}`);
+    logger.message(pc.dim(item.description));
+    if (item.files.size > 1) {
+      logger.message(pc.dim(`  Files: ${Array.from(item.files.keys()).join(', ')}`));
     }
   }
 
   if (options.list) {
     logger.line();
-    logger.step(pc.bold('Available Skills'));
-    for (const skill of skills) {
-      logger.message(`${pc.cyan(skill.installName)}`);
-      logger.message(`  ${pc.dim(skill.description)}`);
-      if (skill.files.size > 1) {
-        logger.message(`  ${pc.dim(`Files: ${skill.files.size}`)}`);
+    logger.step(pc.bold(`Available ${label}`));
+    for (const item of cognitives) {
+      logger.message(`${pc.cyan(item.installName)}`);
+      logger.message(`  ${pc.dim(item.description)}`);
+      if (item.files.size > 1) {
+        logger.message(`  ${pc.dim(`Files: ${item.files.size}`)}`);
       }
     }
     logger.outro('Run without --list to install');
     process.exit(0);
   }
 
-  const selectedSkills = await selectSkillItems(skills, options);
-  const targetAgents = await selectTargetAgents(options, spinner);
-  const installGlobally = await selectInstallScope(options, targetAgents);
-  const installMode = await selectInstallMode(options);
+  const selectedCognitives = await selectCognitiveItems(cognitives, options);
+
+  const { targetAgents, installGlobally, installMode } = await selectInstallContext(
+    options,
+    spinner
+  );
 
   const sourceIdentifier = wellKnownProvider.getSourceIdentifier(url);
 
-  const items: InstallItem[] = selectedSkills.map((skill) => ({
-    installName: skill.installName,
-    displayName: skill.name,
-    description: skill.description,
+  const items: InstallItem[] = selectedCognitives.map((cog) => ({
+    installName: cog.installName,
+    displayName: cog.name,
+    description: cog.description,
     sourceIdentifier,
     providerId: 'well-known',
-    sourceUrl: skill.sourceUrl,
-    fileCount: skill.files.size,
+    sourceUrl: cog.sourceUrl,
+    fileCount: cog.files.size,
     installFn: (agent: AgentType, opts: { global: boolean; mode: InstallMode }) =>
-      installWellKnownSkillForAgent(skill, agent, opts),
+      installWellKnownCognitiveForAgent(cog, agent, opts),
   }));
 
-  const skillFiles: Record<string, string> = {};
+  const telemetryFiles: Record<string, string> = {};
   const lockEntries: LockEntry[] = [];
-  for (const skill of selectedSkills) {
-    skillFiles[skill.installName] = skill.sourceUrl;
-    lockEntries.push({
-      name: skill.installName,
-      source: sourceIdentifier,
-      sourceType: 'well-known',
-      sourceUrl: skill.sourceUrl,
-      cognitiveFolderHash: '',
-      cognitiveType: skill.cognitiveType ?? 'skill',
-      isCognitive: (skill.cognitiveType ?? 'skill') !== 'skill',
-    });
+  for (const cog of selectedCognitives) {
+    telemetryFiles[cog.installName] = cog.sourceUrl;
+    lockEntries.push(
+      buildLockEntry({
+        name: cog.installName,
+        source: sourceIdentifier,
+        sourceType: 'well-known',
+        sourceUrl: cog.sourceUrl,
+        cognitiveType: cog.cognitiveType ?? cognitiveType,
+      })
+    );
   }
 
-  const resolvedCognitiveType = selectedSkills[0]?.cognitiveType ?? 'skill';
+  const resolvedCognitiveType = selectedCognitives[0]?.cognitiveType ?? cognitiveType;
 
   return {
     items,
@@ -792,181 +831,157 @@ async function resolveWellKnownSkills(
     telemetry: {
       source: sourceIdentifier,
       sourceType: 'well-known',
-      skillFiles,
+      skillFiles: telemetryFiles,
       checkPrivacy: true,
     },
   };
 }
 
-// ── Resolver: Git Repo Skills ───────────────────────────────────────────
+// ── Resolver: Git Repo Cognitives ───────────────────────────────────────
 
-async function resolveGitRepoSkills(
+async function resolveGitRepoCognitives(
   source: string,
   parsed: ParsedSource,
   options: AddOptions,
   spinner: Ora,
-  skillsDir: string,
+  sourceDir: string,
   tempDir: string | null
 ): Promise<PreparedInstallation> {
   const cleanupFn = async () => {
     await cleanupDir(tempDir);
   };
   const cognitiveType = options.type ?? 'skill';
-  const cognitiveLabel = cognitiveType === 'skill' ? 'skills' : `${cognitiveType}s`;
+  const label = cognitiveType === 'skill' ? 'skills' : `${cognitiveType}s`;
   const cognitiveFile = COGNITIVE_FILE_NAMES[cognitiveType];
 
   const includeInternal = !!(options.skill && options.skill.length > 0);
 
-  spinner.start(`Discovering ${cognitiveLabel}...`);
-  const skills = options.type
-    ? await discoverCognitives(skillsDir, parsed.subpath, {
-        includeInternal,
-        fullDepth: options.fullDepth,
-        types: [options.type],
-      })
-    : await discoverSkills(skillsDir, parsed.subpath, {
-        includeInternal,
-        fullDepth: options.fullDepth,
-      });
+  spinner.start(`Discovering ${label}...`);
+  const cognitives = await discoverCognitives(sourceDir, parsed.subpath, {
+    includeInternal,
+    fullDepth: options.fullDepth,
+    types: options.type ? [options.type] : ['skill'],
+  });
 
-  if (skills.length === 0) {
-    spinner.fail(`No ${cognitiveLabel} found`);
+  if (cognitives.length === 0) {
+    spinner.fail(`No ${label} found`);
     logger.outro(
-      pc.red(
-        `No valid ${cognitiveLabel} found. They require a ${cognitiveFile} with name and description.`
-      )
+      pc.red(`No valid ${label} found. They require a ${cognitiveFile} with name and description.`)
     );
     await cleanupFn();
     process.exit(1);
   }
 
-  spinner.succeed(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
+  spinner.succeed(
+    `Found ${pc.green(cognitives.length)} ${cognitiveType}${cognitives.length > 1 ? 's' : ''}`
+  );
 
   if (options.list) {
     logger.line();
-    logger.step(pc.bold('Available Skills'));
-    for (const skill of skills) {
-      logger.message(`${pc.cyan(getSkillDisplayName(skill))}`);
-      logger.message(`  ${pc.dim(skill.description)}`);
+    logger.step(pc.bold(`Available ${label}`));
+    for (const cog of cognitives) {
+      logger.message(`${pc.cyan(getCognitiveDisplayName(cog))}`);
+      logger.message(`  ${pc.dim(cog.description)}`);
     }
-    logger.outro('Use --skill <name> to install specific skills');
+    logger.outro(`Use --skill <name> to install specific ${label}`);
     await cleanupFn();
     process.exit(0);
   }
 
-  // Select skills using filter or interactive
-  let selectedSkills: Skill[];
-  if (options.skill?.includes('*')) {
-    selectedSkills = skills;
-    logger.info(`Installing all ${skills.length} skills`);
-  } else if (options.skill && options.skill.length > 0) {
-    selectedSkills = filterSkills(skills, options.skill);
-    if (selectedSkills.length === 0) {
-      logger.error(`No matching skills found for: ${options.skill.join(', ')}`);
-      logger.info('Available skills:');
-      for (const s of skills) {
-        logger.message(`- ${getSkillDisplayName(s)}`);
+  // Select cognitives: use filterCognitives for --skill flag (supports path-based matching),
+  // selectCognitiveItems for wildcard/interactive/yes
+  let selectedCognitives: Cognitive[];
+  if (options.skill && options.skill.length > 0 && !options.skill.includes('*')) {
+    selectedCognitives = filterCognitives(cognitives, options.skill);
+    if (selectedCognitives.length === 0) {
+      logger.error(`No matching ${label} found for: ${options.skill.join(', ')}`);
+      logger.info(`Available ${label}:`);
+      for (const s of cognitives) {
+        logger.message(`- ${getCognitiveDisplayName(s)}`);
       }
       await cleanupFn();
       process.exit(1);
     }
     logger.info(
-      `Selected ${selectedSkills.length} skill${selectedSkills.length !== 1 ? 's' : ''}: ${selectedSkills.map((s) => pc.cyan(getSkillDisplayName(s))).join(', ')}`
+      `Selected ${selectedCognitives.length} ${cognitiveType}${selectedCognitives.length !== 1 ? 's' : ''}: ${selectedCognitives.map((s: Cognitive) => pc.cyan(getCognitiveDisplayName(s))).join(', ')}`
     );
-  } else if (skills.length === 1) {
-    selectedSkills = skills;
-    const firstSkill = skills[0]!;
-    logger.info(`Skill: ${pc.cyan(getSkillDisplayName(firstSkill))}`);
-    logger.message(pc.dim(firstSkill.description));
-  } else if (options.yes) {
-    selectedSkills = skills;
-    logger.info(`Installing all ${skills.length} skills`);
   } else {
-    const skillChoices = skills.map((s) => ({
-      value: s,
-      label: getSkillDisplayName(s),
-      hint: s.description.length > 60 ? s.description.slice(0, 57) + '...' : s.description,
+    // Map Cognitive[] to the shape selectCognitiveItems expects
+    const selectableItems = cognitives.map((s: Cognitive) => ({
+      installName: s.name,
+      name: getCognitiveDisplayName(s),
+      description: s.description,
     }));
-    const selected = await multiselect({
-      message: 'Select skills to install',
-      options: skillChoices,
-      required: true,
-    });
-    if (p.isCancel(selected)) {
-      logger.cancel('Installation cancelled');
-      await cleanupFn();
-      process.exit(0);
-    }
-    selectedSkills = selected as Skill[];
+    const selected = await selectCognitiveItems(selectableItems, options, cleanupFn);
+    selectedCognitives = selected.map(
+      (s) => cognitives.find((c: Cognitive) => c.name === s.installName)!
+    );
   }
 
-  const targetAgents = await selectTargetAgents(options, spinner, cleanupFn);
-  const installGlobally = await selectInstallScope(options, targetAgents, cleanupFn);
-  const installMode = await selectInstallMode(options, cleanupFn);
+  const { targetAgents, installGlobally, installMode } = await selectInstallContext(
+    options,
+    spinner,
+    cleanupFn
+  );
 
   const normalizedSource = getOwnerRepo(parsed);
 
-  // Build skillFiles map for telemetry
-  const skillFiles: Record<string, string> = {};
-  for (const skill of selectedSkills) {
+  // Build telemetry files map
+  const telemetryFiles: Record<string, string> = {};
+  for (const cog of selectedCognitives) {
     let relativePath: string;
-    if (tempDir && skill.path === tempDir) {
+    if (tempDir && cog.path === tempDir) {
       relativePath = cognitiveFile;
-    } else if (tempDir && skill.path.startsWith(tempDir + sep)) {
+    } else if (tempDir && cog.path.startsWith(tempDir + sep)) {
       relativePath =
-        skill.path
+        cog.path
           .slice(tempDir.length + 1)
           .split(sep)
           .join('/') + `/${cognitiveFile}`;
     } else {
       continue; // Local path - skip telemetry
     }
-    skillFiles[skill.name] = relativePath;
+    telemetryFiles[cog.name] = relativePath;
   }
 
-  const items: InstallItem[] = selectedSkills.map((skill) => ({
-    installName: skill.name,
-    displayName: getSkillDisplayName(skill),
-    description: skill.description,
+  const items: InstallItem[] = selectedCognitives.map((cog) => ({
+    installName: cog.name,
+    displayName: getCognitiveDisplayName(cog),
+    description: cog.description,
     sourceIdentifier: normalizedSource ?? source,
     providerId: parsed.type,
     sourceUrl: parsed.url,
     installFn: (agent: AgentType, opts: { global: boolean; mode: InstallMode }) =>
-      installCognitiveForAgent(skill, agent, { ...opts, cognitiveType }),
+      installCognitiveForAgent(cog, agent, { ...opts, cognitiveType }),
   }));
 
   const lockEntries: LockEntry[] = [];
   if (normalizedSource) {
-    for (const skill of selectedSkills) {
-      lockEntries.push({
-        name: getSkillDisplayName(skill),
-        source: normalizedSource,
-        sourceType: parsed.type,
-        sourceUrl: parsed.url,
-        cognitivePath: skillFiles[skill.name],
-        cognitiveFolderHash: '',
-        cognitiveType,
-        isCognitive: true,
-      });
+    for (const cog of selectedCognitives) {
+      lockEntries.push(
+        buildLockEntry({
+          name: getCognitiveDisplayName(cog),
+          source: normalizedSource,
+          sourceType: parsed.type,
+          sourceUrl: parsed.url,
+          cognitivePath: telemetryFiles[cog.name],
+          cognitiveType,
+        })
+      );
     }
   }
 
   // Determine telemetry privacy check behavior
-  let checkPrivacy = false;
   let telemetrySource = normalizedSource ?? '';
   if (normalizedSource) {
     const ownerRepo = parseOwnerRepo(normalizedSource);
     if (ownerRepo) {
       // For GitHub repos, check privacy — only send if public
       const isPrivate = await isRepoPrivate(ownerRepo.owner, ownerRepo.repo);
-      if (isPrivate === false) {
-        checkPrivacy = false; // Already verified public, just send
-      } else {
+      if (isPrivate !== false) {
         // Private or unknown — skip telemetry entirely
         telemetrySource = '';
       }
-    } else {
-      checkPrivacy = false;
     }
   }
 
@@ -979,7 +994,7 @@ async function resolveGitRepoSkills(
     lockEntries,
     telemetry: {
       source: telemetrySource,
-      skillFiles,
+      skillFiles: telemetryFiles,
       checkPrivacy: false,
     },
   };
@@ -1034,25 +1049,25 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     spinner.start('Parsing source...');
     const parsed = parseSource(source);
     spinner.succeed(
-      `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
+      `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.nameFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.nameFilter)}` : ''}`
     );
 
-    // Direct URL skills (Mintlify, HuggingFace, etc.) via provider system
+    // Direct URL cognitives (Mintlify, HuggingFace, etc.) via provider system
     if (parsed.type === 'direct-url') {
-      const prepared = await resolveRemoteSkill(parsed.url, options, spinner);
+      const prepared = await resolveRemoteCognitive(parsed.url, options, spinner);
       await executeInstallFlow(prepared, options, spinner);
       return;
     }
 
-    // Well-known skills from arbitrary URLs
+    // Well-known cognitives from arbitrary URLs
     if (parsed.type === 'well-known') {
-      const prepared = await resolveWellKnownSkills(source, parsed.url, options, spinner);
+      const prepared = await resolveWellKnownCognitives(parsed.url, options, spinner);
       await executeInstallFlow(prepared, options, spinner);
       return;
     }
 
     // Git repo or local path
-    let skillsDir: string;
+    let sourceDir: string;
 
     if (parsed.type === 'local') {
       spinner.start('Validating local path...');
@@ -1061,28 +1076,28 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         logger.outro(pc.red(`Local path does not exist: ${parsed.localPath}`));
         process.exit(1);
       }
-      skillsDir = parsed.localPath!;
+      sourceDir = parsed.localPath!;
       spinner.succeed('Local path validated');
     } else {
       spinner.start('Cloning repository...');
       tempDir = await cloneRepo(parsed.url, parsed.ref);
-      skillsDir = tempDir;
+      sourceDir = tempDir;
       spinner.succeed('Repository cloned');
     }
 
-    if (parsed.skillFilter) {
+    if (parsed.nameFilter) {
       options.skill = options.skill || [];
-      if (!options.skill.includes(parsed.skillFilter)) {
-        options.skill.push(parsed.skillFilter);
+      if (!options.skill.includes(parsed.nameFilter)) {
+        options.skill.push(parsed.nameFilter);
       }
     }
 
-    const prepared = await resolveGitRepoSkills(
+    const prepared = await resolveGitRepoCognitives(
       source,
       parsed,
       options,
       spinner,
-      skillsDir,
+      sourceDir,
       tempDir
     );
     const cleanupFn = async () => {
@@ -1127,7 +1142,7 @@ async function promptForFindSkills(
     const dismissed = await isPromptDismissed('findSkillsPrompt');
     if (dismissed) return;
 
-    const findSkillsInstalled = await isSkillInstalled('find-skills', 'claude-code', {
+    const findSkillsInstalled = await isCognitiveInstalled('find-skills', 'claude-code', 'skill', {
       global: true,
     });
     if (findSkillsInstalled) {
