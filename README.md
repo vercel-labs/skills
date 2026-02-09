@@ -81,6 +81,51 @@ VT_API_KEY=YOUR_API_KEY npx skillsio add owner/repo
 
 `--vt-key` flag takes precedence over `VT_API_KEY` env var.
 
+### External Rules
+
+You can extend the built-in scanner with your own rules using the `--rules` flag. This is useful for enforcing
+organization-specific policies — for example, blocking references to internal infrastructure or flagging deprecated
+tools.
+
+Rules are defined in JSON files with a simple format:
+
+```json
+{
+  "rules": [
+    {
+      "id": "no-internal-api",
+      "severity": "critical",
+      "description": "References internal API — may leak infrastructure details",
+      "pattern": "https?://internal\\.company\\.com",
+      "flags": "i"
+    },
+    {
+      "id": "no-sudo",
+      "severity": "high",
+      "description": "Skill should not require sudo access",
+      "pattern": "\\bsudo\\s+"
+    }
+  ]
+}
+```
+
+Each rule requires `id`, `severity` (`critical`/`high`/`medium`/`low`/`info`), `description`, and `pattern` (a regex
+string). The optional `flags` field defaults to `"i"` (case-insensitive).
+
+```bash
+# Load rules from a single file
+npx skillsio add owner/repo --rules ./my-rules.json
+
+# Load all .json rule files from a directory
+npx skillsio add owner/repo --rules ./rules/
+```
+
+External rules are applied **in addition to** the built-in ~52 rules — they never replace them. Findings from external
+rules follow the same severity-based prompt flow as built-in findings.
+
+See [docs/EXTERNAL-RULES.md](docs/EXTERNAL-RULES.md) for the full format reference, more examples, and tips for writing
+rules.
+
 ## Quick Start
 
 ```bash
@@ -92,6 +137,9 @@ npx skillsio add vercel-labs/agent-skills --skip-scan
 
 # Scan with VirusTotal threat intelligence
 VT_API_KEY=xxx npx skillsio add owner/repo
+
+# Scan with custom organization rules
+npx skillsio add owner/repo --rules ./company-rules.json
 ```
 
 ## CLI Reference
@@ -116,6 +164,7 @@ npx skillsio add ./my-local-skills                   # Local path
 | `-y, --yes` | Skip confirmation prompts |
 | `--all` | Install all skills to all agents without prompts |
 | `--skip-scan` | Skip the security scan before installation |
+| `--rules <path>` | Load additional scan rules from a JSON file or directory (see [External Rules](#external-rules)) |
 | `--vt-key <key>` | VirusTotal API key for additional threat intelligence |
 | `--full-depth` | Search all subdirectories even when a root SKILL.md exists |
 
@@ -210,7 +259,8 @@ pnpm format           # Format code with Prettier
 ### Scanner Architecture
 
 - `src/scanner.ts` — Rules engine. Defines ~52 regex rules across 8 threat categories, runs them against all skill
-  files (.md, .txt, .yaml, .json, .sh, .py, .js, .ts, .ps1, .bat, .cmd).
+  files (.md, .txt, .yaml, .json, .sh, .py, .js, .ts, .ps1, .bat, .cmd). Supports loading external rules from JSON
+  files via `--rules`.
 - `src/scanner-ui.ts` — Presentation layer. Displays findings by severity, runs optional VT lookups, handles
   escalation logic and user confirmation prompts.
 - `src/vt.ts` — VirusTotal API client. SHA-256 hashing, `GET /api/v3/files/{hash}` lookup, verdict mapping, graceful
@@ -219,6 +269,12 @@ pnpm format           # Format code with Prettier
   well-known endpoints, legacy Mintlify).
 
 ## Changelog
+
+### 1.1.0
+
+- Added `--rules <path>` flag to load external scan rules from JSON files or directories
+- External rules are applied alongside built-in rules, supporting organization-specific policies
+- See [docs/EXTERNAL-RULES.md](docs/EXTERNAL-RULES.md) for format documentation and examples
 
 ### 1.0.1
 
