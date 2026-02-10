@@ -50,6 +50,14 @@ import {
   getLastSelectedAgents,
   saveSelectedAgents,
 } from './skill-lock.ts';
+import {
+  auditSkillContent,
+  auditSkillDirectory,
+  auditSkillFiles,
+  formatAuditSummary,
+  type AuditResult,
+  type AuditFormatter,
+} from './security-audit.ts';
 import type { Skill, AgentType, RemoteSkill } from './types.ts';
 import packageJson from '../package.json' with { type: 'json' };
 export function initTelemetry(version: string): void {
@@ -127,6 +135,61 @@ function buildAgentSummaryLines(targetAgents: AgentType[], installMode: InstallM
   }
 
   return lines;
+}
+
+/**
+ * Display security audit results between Installation Summary and confirmation prompt.
+ * Shows a note box for findings or an inline checkmark for clean skills.
+ */
+function displayAuditResults(results: AuditResult[], options: AddOptions): void {
+  if (options.skipAudit) return;
+
+  const formatter: AuditFormatter = {
+    red: pc.red,
+    yellow: pc.yellow,
+    green: pc.green,
+    cyan: pc.cyan,
+    dim: pc.dim,
+    bold: pc.bold,
+  };
+
+  // Merge all findings across results
+  const allFindings = results.flatMap((r) => r.findings);
+
+  if (allFindings.length === 0) {
+    p.log.info(pc.green('\u2713') + ' Security audit: clean');
+    return;
+  }
+
+  // Use the highest risk label across all results
+  const riskLabels = ['clean', 'low', 'medium', 'high', 'critical'] as const;
+  const maxRiskLabel = results.reduce(
+    (max, r) => {
+      return riskLabels.indexOf(r.riskLabel) > riskLabels.indexOf(max) ? r.riskLabel : max;
+    },
+    'clean' as AuditResult['riskLabel']
+  );
+
+  // Format combined summary
+  const combinedLines: string[] = [];
+  for (const result of results) {
+    if (result.findings.length === 0) continue;
+    if (results.length > 1 && result.findings.length > 0) {
+      combinedLines.push(pc.bold(result.skillName));
+    }
+    combinedLines.push(...formatAuditSummary(result, formatter));
+    if (results.length > 1) combinedLines.push('');
+  }
+
+  const titleColor = maxRiskLabel === 'critical' || maxRiskLabel === 'high' ? pc.red : pc.yellow;
+  p.note(combinedLines.join('\n'), titleColor(`Security Audit: ${maxRiskLabel.toUpperCase()}`));
+
+  // Extra warning for critical/high when --yes skips the prompt
+  if (options.yes && (maxRiskLabel === 'critical' || maxRiskLabel === 'high')) {
+    p.log.warn(
+      pc.yellow(`Security risk is ${maxRiskLabel.toUpperCase()} — review findings above.`)
+    );
+  }
 }
 
 /**
@@ -325,6 +388,7 @@ export interface AddOptions {
   list?: boolean;
   all?: boolean;
   fullDepth?: boolean;
+  skipAudit?: boolean;
 }
 
 /**
@@ -539,6 +603,14 @@ async function handleRemoteSkill(
 
   console.log();
   p.note(summaryLines.join('\n'), 'Installation Summary');
+
+  // Security audit
+  const auditResult = auditSkillContent(
+    remoteSkill.content,
+    remoteSkill.installName,
+    remoteSkill.sourceUrl
+  );
+  displayAuditResults([auditResult], options);
 
   if (!options.yes) {
     const confirmed = await p.confirm({
@@ -954,6 +1026,12 @@ async function handleWellKnownSkills(
   console.log();
   p.note(summaryLines.join('\n'), 'Installation Summary');
 
+  // Security audit
+  const auditResults = selectedSkills.map((skill) =>
+    auditSkillFiles(skill.files, skill.installName, skill.sourceUrl)
+  );
+  displayAuditResults(auditResults, options);
+
   if (!options.yes) {
     const confirmed = await p.confirm({ message: 'Proceed with installation?' });
 
@@ -1291,6 +1369,14 @@ async function handleDirectUrlSkillLegacy(
 
   console.log();
   p.note(summaryLines.join('\n'), 'Installation Summary');
+
+  // Security audit
+  const auditResult = auditSkillContent(
+    remoteSkill.content,
+    remoteSkill.installName,
+    remoteSkill.sourceUrl
+  );
+  displayAuditResults([auditResult], options);
 
   if (!options.yes) {
     const confirmed = await p.confirm({
@@ -1760,6 +1846,14 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     console.log();
     p.note(summaryLines.join('\n'), 'Installation Summary');
 
+    // Security audit
+    const auditResults: AuditResult[] = [];
+    for (const skill of selectedSkills) {
+      const result = await auditSkillDirectory(skill.path);
+      auditResults.push(result);
+    }
+    displayAuditResults(auditResults, options);
+
     if (!options.yes) {
       const confirmed = await p.confirm({ message: 'Proceed with installation?' });
 
@@ -2103,6 +2197,8 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       i--; // Back up one since the loop will increment
     } else if (arg === '--full-depth') {
       options.fullDepth = true;
+    } else if (arg === '--skip-audit') {
+      options.skipAudit = true;
     } else if (arg && !arg.startsWith('-')) {
       source.push(arg);
     }

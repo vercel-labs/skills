@@ -12,6 +12,7 @@ import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { track } from './telemetry.ts';
 import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
+import { runAudit } from './security-audit.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -86,6 +87,9 @@ function showBanner(): void {
   console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills init ${DIM}[name]${RESET}     ${DIM}Create a new skill${RESET}`
   );
+  console.log(
+    `  ${DIM}$${RESET} ${TEXT}npx skills audit ${DIM}[path]${RESET}    ${DIM}Audit a skill for risks${RESET}`
+  );
   console.log();
   console.log(`${DIM}try:${RESET} npx skills add vercel-labs/agent-skills`);
   console.log();
@@ -107,6 +111,7 @@ ${BOLD}Commands:${RESET}
   init [name]       Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)
   check             Check for available skill updates
   update            Update all skills to latest versions
+  audit [path]      Audit a skill for security risks
 
 ${BOLD}Add Options:${RESET}
   -g, --global           Install skill globally (user-level) instead of project-level
@@ -116,6 +121,7 @@ ${BOLD}Add Options:${RESET}
   -y, --yes              Skip confirmation prompts
   --all                  Shorthand for --skill '*' --agent '*' -y
   --full-depth           Search all subdirectories even when a root SKILL.md exists
+  --skip-audit           Skip security audit during installation
 
 ${BOLD}Remove Options:${RESET}
   -g, --global           Remove from global scope
@@ -605,6 +611,9 @@ async function main(): Promise<void> {
     case 'update':
     case 'upgrade':
       runUpdate();
+      break;
+    case 'audit':
+      await runAudit(restArgs);
       break;
     case '--help':
     case '-h':
