@@ -223,7 +223,7 @@ Skills can be installed to any of these agents:
 | Droid | `droid` | `.factory/skills/` | `~/.factory/skills/` |
 | Gemini CLI | `gemini-cli` | `.agents/skills/` | `~/.gemini/skills/` |
 | GitHub Copilot | `github-copilot` | `.agents/skills/` | `~/.copilot/skills/` |
-| Goose | `goose` | `.goose/skills/` | `~/.config/goose/skills/` |
+| Goose | `goose` | `.agents/skills/` | `~/.config/goose/skills/` |
 | Junie | `junie` | `.junie/skills/` | `~/.junie/skills/` |
 | iFlow CLI | `iflow-cli` | `.iflow/skills/` | `~/.iflow/skills/` |
 | Kilo Code | `kilo` | `.kilocode/skills/` | `~/.kilocode/skills/` |
