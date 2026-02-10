@@ -132,10 +132,10 @@ export const agents: Record<AgentType, AgentConfig> = {
   droid: {
     name: 'droid',
     displayName: 'Droid',
-    skillsDir: '.factory/skills',
-    globalSkillsDir: join(home, '.factory/skills'),
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents/skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.factory'));
+      return existsSync(join(home, '.factory')) || existsSync(join(home, '.agents'));
     },
   },
   'gemini-cli': {
