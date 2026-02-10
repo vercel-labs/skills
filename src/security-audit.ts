@@ -371,6 +371,11 @@ const MAX_SCAN_DEPTH = 3;
 // Core Functions
 // ============================================
 
+/**
+ * Scans a single line of text against all detection rules.
+ * Skips credential findings that match common placeholder patterns.
+ * Returns an array of security findings for the line.
+ */
 export function scanLine(line: string, lineNumber: number, filePath?: string): SecurityFinding[] {
   const findings: SecurityFinding[] = [];
 
@@ -402,6 +407,10 @@ export function scanLine(line: string, lineNumber: number, filePath?: string): S
   return findings;
 }
 
+/**
+ * Audits a skill's content string by scanning each line for security issues.
+ * Returns an AuditResult with all findings, risk score, and risk label.
+ */
 export function auditSkillContent(
   content: string,
   skillName: string,
@@ -428,6 +437,10 @@ export function auditSkillContent(
   };
 }
 
+/**
+ * Recursively collects scannable files from a directory up to MAX_SCAN_DEPTH.
+ * Skips .git and node_modules directories, and filters by SCANNABLE_EXTENSIONS.
+ */
 async function collectFiles(dirPath: string, depth: number): Promise<string[]> {
   if (depth > MAX_SCAN_DEPTH) return [];
 
@@ -457,6 +470,9 @@ async function collectFiles(dirPath: string, depth: number): Promise<string[]> {
   return files;
 }
 
+/**
+ * Checks if a buffer contains binary content by looking for null bytes in the first 512 bytes.
+ */
 function isBinaryContent(buffer: Buffer): boolean {
   const checkLength = Math.min(buffer.length, 512);
   for (let i = 0; i < checkLength; i++) {
@@ -465,6 +481,10 @@ function isBinaryContent(buffer: Buffer): boolean {
   return false;
 }
 
+/**
+ * Audits an entire skill directory by collecting and scanning all eligible files.
+ * Reads the skill name from SKILL.md frontmatter if available, otherwise uses the directory name.
+ */
 export async function auditSkillDirectory(dirPath: string): Promise<AuditResult> {
   const resolvedPath = resolve(dirPath);
   let skillName = basename(resolvedPath);
@@ -517,6 +537,10 @@ export async function auditSkillDirectory(dirPath: string): Promise<AuditResult>
   };
 }
 
+/**
+ * Audits a map of file paths to content strings (e.g. from well-known endpoints).
+ * Filters files by scannable extensions before scanning each line for security issues.
+ */
 export function auditSkillFiles(
   files: Map<string, string>,
   skillName: string,
@@ -549,6 +573,10 @@ export function auditSkillFiles(
   };
 }
 
+/**
+ * Calculates a numeric risk score (0-100) from findings based on severity weights.
+ * Critical=25, high=15, medium=8, low=3, info=0.
+ */
 export function calculateRiskScore(findings: SecurityFinding[]): number {
   const weights: Record<RiskLevel, number> = {
     critical: 25,
@@ -566,6 +594,10 @@ export function calculateRiskScore(findings: SecurityFinding[]): number {
   return Math.min(score, 100);
 }
 
+/**
+ * Converts a numeric risk score into a human-readable risk label.
+ * Returns 'clean' (0), 'low' (1-25), 'medium' (26-50), 'high' (51-75), or 'critical' (76+).
+ */
 export function getRiskLabel(score: number): AuditResult['riskLabel'] {
   if (score === 0) return 'clean';
   if (score <= 25) return 'low';
@@ -580,6 +612,9 @@ export function getRiskLabel(score: number): AuditResult['riskLabel'] {
 
 const RISK_ORDER: RiskLevel[] = ['critical', 'high', 'medium', 'low', 'info'];
 
+/**
+ * Returns an ANSI-colored badge string for a risk level (e.g. "CRITICAL" in red).
+ */
 function riskBadge(risk: RiskLevel): string {
   switch (risk) {
     case 'critical':
@@ -595,6 +630,10 @@ function riskBadge(risk: RiskLevel): string {
   }
 }
 
+/**
+ * Renders a colored progress bar showing the risk score out of 100.
+ * Uses block characters and color based on the risk label.
+ */
 function riskScoreBar(score: number, label: AuditResult['riskLabel']): string {
   const filled = Math.round((score / 100) * 12);
   const empty = 12 - filled;
@@ -622,6 +661,9 @@ function riskScoreBar(score: number, label: AuditResult['riskLabel']): string {
   return `${color}${bar}${RESET} ${score}/100 ${color}(${label.toUpperCase()})${RESET}`;
 }
 
+/**
+ * Returns an ANSI-colored label for a finding category (e.g. "Credential Exposure" in cyan).
+ */
 function categoryLabel(category: FindingCategory): string {
   switch (category) {
     case 'credential-exposure':
@@ -635,6 +677,10 @@ function categoryLabel(category: FindingCategory): string {
   }
 }
 
+/**
+ * Formats a full ANSI-colored audit report for one or more skills.
+ * Groups findings by category, sorts by severity, and includes a risk score bar and summary counts.
+ */
 export function formatAuditReport(results: AuditResult[]): string {
   const lines: string[] = [];
 
@@ -716,6 +762,9 @@ export interface AuditFormatter {
   bold: (s: string) => string;
 }
 
+/**
+ * Returns a padded, colored risk badge using the provided formatter (for add.ts integration).
+ */
 function formatRiskBadge(risk: RiskLevel, f: AuditFormatter): string {
   const padded = risk.toUpperCase().padEnd(8);
   switch (risk) {
@@ -732,6 +781,9 @@ function formatRiskBadge(risk: RiskLevel, f: AuditFormatter): string {
   }
 }
 
+/**
+ * Returns a colored category label using the provided formatter (for add.ts integration).
+ */
 function formatCategoryLabel(category: FindingCategory, f: AuditFormatter): string {
   switch (category) {
     case 'credential-exposure':
@@ -745,6 +797,10 @@ function formatCategoryLabel(category: FindingCategory, f: AuditFormatter): stri
   }
 }
 
+/**
+ * Formats a compact audit summary using the provided formatter.
+ * Returns an array of lines suitable for display in the installation flow.
+ */
 export function formatAuditSummary(result: AuditResult, f: AuditFormatter): string[] {
   if (result.findings.length === 0) {
     return [f.green('\u2713') + ' Security audit: clean'];
@@ -807,6 +863,11 @@ export function formatAuditSummary(result: AuditResult, f: AuditFormatter): stri
 // CLI Entry Point
 // ============================================
 
+/**
+ * CLI entry point for the `skills audit` command.
+ * Supports auditing installed skills (--installed), a specific file, or a directory.
+ * Exits with code 1 if medium or higher risk findings are detected.
+ */
 export async function runAudit(args: string[]): Promise<void> {
   const isInstalled = args.includes('--installed') || args.includes('-i');
   const isGlobal = args.includes('--global') || args.includes('-g');
