@@ -118,6 +118,12 @@ describe('installer symlink regression', () => {
 
   // Regression test for #293: when agent skills dir is a symlink to canonical dir
   it('handles agent skills dir being a symlink to canonical dir', async () => {
+    // Skip on Windows without symlink support (requires admin or developer mode)
+    if (!(await symlinksSupported())) {
+      console.log('Skipping test: symlinks not supported on this platform');
+      return;
+    }
+
     const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
     const projectDir = join(root, 'project');
     await mkdir(projectDir, { recursive: true });
