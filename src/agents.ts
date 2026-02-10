@@ -346,6 +346,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.zencoder'));
     },
   },
+  zenflow: {
+    name: 'zenflow',
+    displayName: 'Zenflow',
+    skillsDir: '.zencoder/skills',
+    globalSkillsDir: join(home, '.zencoder/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.zencoder'));
+    },
+  },
   neovate: {
     name: 'neovate',
     displayName: 'Neovate',
