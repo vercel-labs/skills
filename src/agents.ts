@@ -49,6 +49,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(claudeHome);
     },
   },
+  comate: {
+    name: 'comate',
+    displayName: 'COMATE',
+    skillsDir: '.comate/skills',
+    globalSkillsDir: join(home, '.comate/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.comate'));
+    },
+  },
   openclaw: {
     name: 'openclaw',
     displayName: 'OpenClaw',
