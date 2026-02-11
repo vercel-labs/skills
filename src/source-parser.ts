@@ -254,6 +254,17 @@ export function parseSource(input: string): ParsedSource {
     };
   }
 
+  // SSH git URL with optional ref: git@host:path#branch.git or git@host:path#branch or git@host:path
+  const sshGitMatch = input.match(/^git@([^:]+):([^#]+?)(?:\.git)?(?:#(.+?))?(?:\.git)?$/);
+  if (sshGitMatch) {
+    const [, host, repoPath, ref] = sshGitMatch;
+    return {
+      type: 'git',
+      url: `git@${host}:${repoPath}.git`,
+      ...(ref && { ref }),
+    };
+  }
+
   // Fallback: treat as direct git URL
   return {
     type: 'git',
