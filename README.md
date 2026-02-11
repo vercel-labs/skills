@@ -212,7 +212,7 @@ Skills can be installed to any of these agents:
 | Antigravity | `antigravity` | `.agent/skills/` | `~/.gemini/antigravity/skills/` |
 | Augment | `augment` | `.augment/skills/` | `~/.augment/skills/` |
 | Claude Code | `claude-code` | `.claude/skills/` | `~/.claude/skills/` |
-| COMATE | `comate` | `.comate/skills/` | `~/.comate/skills/` |
+| COMATE | `comate` | `.comate/skills/`, `.agents/skills/` | `~/.comate/skills/` |
 | OpenClaw | `openclaw` | `skills/` | `~/.moltbot/skills/` |
 | Cline | `cline` | `.cline/skills/` | `~/.cline/skills/` |
 | CodeBuddy | `codebuddy` | `.codebuddy/skills/` | `~/.codebuddy/skills/` |

@@ -55,7 +55,11 @@ export const agents: Record<AgentType, AgentConfig> = {
     skillsDir: '.comate/skills',
     globalSkillsDir: join(home, '.comate/skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.comate'));
+      return (
+        existsSync(join(process.cwd(), '.comate')) ||
+        existsSync(join(home, '.comate')) ||
+        existsSync(join(process.cwd(), '.agents'))
+      );
     },
   },
   openclaw: {
