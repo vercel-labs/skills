@@ -345,14 +345,25 @@ async function runCheck(args: string[] = []): Promise<void> {
 
   // Group skills by source (owner/repo) to batch GitHub API calls
   const skillsBySource = new Map<string, Array<{ name: string; entry: SkillLockEntry }>>();
+  const skipped: Array<{ name: string; reason: string; sourceUrl: string }> = [];
   let skippedCount = 0;
 
   for (const skillName of skillNames) {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    // Only check GitHub-sourced skills with folder hash
-    if (entry.sourceType !== 'github' || !entry.skillFolderHash || !entry.skillPath) {
+    // Only check skills with folder hash (currently only GitHub HTTPS)
+    if (!entry.skillFolderHash || !entry.skillPath) {
+      // Determine reason for skipping based on what's available
+      let reason = 'No version tracking';
+      if (entry.sourceType === 'local') {
+        reason = 'Local path';
+      } else if (entry.sourceType === 'git') {
+        reason = 'Git SSH (hash tracking not implemented)';
+      } else if (!entry.skillFolderHash) {
+        reason = 'No version hash available';
+      }
+      skipped.push({ name: skillName, reason, sourceUrl: entry.sourceUrl });
       skippedCount++;
       continue;
     }
@@ -365,6 +376,16 @@ async function runCheck(args: string[] = []): Promise<void> {
   const totalSkills = skillNames.length - skippedCount;
   if (totalSkills === 0) {
     console.log(`${DIM}No GitHub skills to check.${RESET}`);
+
+    if (skipped.length > 0) {
+      console.log();
+      console.log(`${DIM}${skipped.length} skill(s) cannot be checked automatically:${RESET}`);
+      for (const skill of skipped) {
+        console.log(`  ${TEXT}•${RESET} ${skill.name} ${DIM}(${skill.reason})${RESET}`);
+        console.log(`    ${DIM}To update: ${TEXT}npx skills add ${skill.sourceUrl} -g -y${RESET}`);
+      }
+    }
+
     return;
   }
 
@@ -417,6 +438,15 @@ async function runCheck(args: string[] = []): Promise<void> {
   if (errors.length > 0) {
     console.log();
     console.log(`${DIM}Could not check ${errors.length} skill(s) (may need reinstall)${RESET}`);
+  }
+
+  if (skipped.length > 0) {
+    console.log();
+    console.log(`${DIM}${skipped.length} skill(s) cannot be checked automatically:${RESET}`);
+    for (const skill of skipped) {
+      console.log(`  ${TEXT}•${RESET} ${skill.name} ${DIM}(${skill.reason})${RESET}`);
+      console.log(`    ${DIM}To update: ${TEXT}npx skills add ${skill.sourceUrl} -g -y${RESET}`);
+    }
   }
 
   // Track telemetry
@@ -473,6 +503,23 @@ async function runUpdate(): Promise<void> {
 
   if (checkedCount === 0) {
     console.log(`${DIM}No skills to check.${RESET}`);
+
+    // Show skills that couldn't be checked (no hash available)
+    const unchecked = skillNames.filter((name) => {
+      const entry = lock.skills[name];
+      return entry && !entry.skillFolderHash;
+    });
+
+    if (unchecked.length > 0) {
+      console.log();
+      console.log(`${DIM}${unchecked.length} skill(s) must be updated manually:${RESET}`);
+      for (const name of unchecked) {
+        const entry = lock.skills[name]!;
+        console.log(`  ${TEXT}•${RESET} ${name}`);
+        console.log(`    ${DIM}Run: ${TEXT}npx skills add ${entry.sourceUrl} -g -y${RESET}`);
+      }
+    }
+
     return;
   }
 
