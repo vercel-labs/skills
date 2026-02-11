@@ -141,7 +141,7 @@ export const agents: Record<AgentType, AgentConfig> = {
   'gemini-cli': {
     name: 'gemini-cli',
     displayName: 'Gemini CLI',
-    skillsDir: '.agents/skills',
+    skillsDir: '.gemini/skills',
     globalSkillsDir: join(home, '.gemini/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.gemini'));
