@@ -2105,10 +2105,12 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
     } else if (arg === '--full-depth') {
       options.fullDepth = true;
     } else if (arg === '-m' || arg === '--method') {
-      i++;
-      const value = args[i];
-      if (value === 'symlink' || value === 'copy') {
-        options.method = value;
+      const nextArg = args[i + 1];
+      if (nextArg && !nextArg.startsWith('-')) {
+        i++;
+        if (nextArg === 'symlink' || nextArg === 'copy') {
+          options.method = nextArg;
+        }
       }
     } else if (arg && !arg.startsWith('-')) {
       source.push(arg);
