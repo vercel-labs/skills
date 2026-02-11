@@ -325,6 +325,7 @@ export interface AddOptions {
   list?: boolean;
   all?: boolean;
   fullDepth?: boolean;
+  method?: 'symlink' | 'copy';
 }
 
 /**
@@ -483,9 +484,9 @@ async function handleRemoteSkill(
   }
 
   // Prompt for install mode (symlink vs copy)
-  let installMode: InstallMode = 'symlink';
+  let installMode: InstallMode = options.method ?? 'symlink';
 
-  if (!options.yes) {
+  if (!options.method && !options.yes) {
     const modeChoice = await p.select({
       message: 'Installation method',
       options: [
@@ -883,9 +884,9 @@ async function handleWellKnownSkills(
   }
 
   // Prompt for install mode (symlink vs copy)
-  let installMode: InstallMode = 'symlink';
+  let installMode: InstallMode = options.method ?? 'symlink';
 
-  if (!options.yes) {
+  if (!options.method && !options.yes) {
     const modeChoice = await p.select({
       message: 'Installation method',
       options: [
@@ -1257,7 +1258,7 @@ async function handleDirectUrlSkillLegacy(
   }
 
   // Use symlink mode by default for direct URL skills
-  const installMode: InstallMode = 'symlink';
+  const installMode: InstallMode = options.method ?? 'symlink';
   const cwd = process.cwd();
 
   // Check for overwrites (parallel)
@@ -1691,9 +1692,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     // Prompt for install mode (symlink vs copy)
-    let installMode: InstallMode = 'symlink';
+    let installMode: InstallMode = options.method ?? 'symlink';
 
-    if (!options.yes) {
+    if (!options.method && !options.yes) {
       const modeChoice = await p.select({
         message: 'Installation method',
         options: [
@@ -2103,6 +2104,12 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       i--; // Back up one since the loop will increment
     } else if (arg === '--full-depth') {
       options.fullDepth = true;
+    } else if (arg === '-m' || arg === '--method') {
+      i++;
+      const value = args[i];
+      if (value === 'symlink' || value === 'copy') {
+        options.method = value;
+      }
     } else if (arg && !arg.startsWith('-')) {
       source.push(arg);
     }
