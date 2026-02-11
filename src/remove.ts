@@ -2,11 +2,24 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { readdir, rm, lstat } from 'fs/promises';
 import { join } from 'path';
+import { homedir } from 'os';
 import { agents, detectInstalledAgents } from './agents.ts';
 import { track } from './telemetry.ts';
-import { removeSkillFromLock, getSkillFromLock } from './skill-lock.ts';
+import { removeSkillFromLock, getSkillFromLock, readSkillLock } from './skill-lock.ts';
 import type { AgentType } from './types.ts';
 import { getInstallPath, getCanonicalPath, getCanonicalSkillsDir } from './installer.ts';
+
+/** Shortens a path for display: replaces homedir with ~ and cwd with . */
+function shortenPath(fullPath: string, cwd: string): string {
+  const home = homedir();
+  if (fullPath.startsWith(home)) {
+    return fullPath.replace(home, '~');
+  }
+  if (fullPath.startsWith(cwd)) {
+    return '.' + fullPath.slice(cwd.length);
+  }
+  return fullPath;
+}
 
 export interface RemoveOptions {
   global?: boolean;
@@ -24,12 +37,38 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   spinner.start('Scanning for installed skills...');
   const skillNamesSet = new Set<string>();
 
-  const scanDir = async (dir: string) => {
+  // First, read from skill-lock.json to get registered skills
+  try {
+    const lock = await readSkillLock();
+    if (lock && lock.skills) {
+      for (const skillName of Object.keys(lock.skills)) {
+        skillNamesSet.add(skillName);
+      }
+    }
+  } catch (err) {
+    // Ignore errors if lock file doesn't exist or is invalid
+    // p.log.debug is not available, so we silently ignore this error
+  }
+
+  const scanDir = async (dir: string, prefix = '', recursive = true) => {
     try {
       const entries = await readdir(dir, { withFileTypes: true });
       for (const entry of entries) {
         if (entry.isDirectory()) {
-          skillNamesSet.add(entry.name);
+          const entryPath = join(dir, entry.name);
+          const fullName = prefix ? `${prefix}/${entry.name}` : entry.name;
+
+          // Check if this is a skill directory (contains SKILL.md)
+          try {
+            await lstat(join(entryPath, 'SKILL.md'));
+            // This is a skill directory, add it
+            skillNamesSet.add(fullName);
+          } catch {
+            // If recursive mode is enabled, this might be a namespace directory
+            if (recursive) {
+              await scanDir(entryPath, fullName, recursive);
+            }
+          }
         }
       }
     } catch (err) {
@@ -40,20 +79,42 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   };
 
   if (isGlobal) {
+    // For canonical skills directory, scan recursively for namespace support
     await scanDir(getCanonicalSkillsDir(true, cwd));
+
+    // For agent-specific directories, scan only top-level (no recursion needed)
     for (const agent of Object.values(agents)) {
       if (agent.globalSkillsDir !== undefined) {
-        await scanDir(agent.globalSkillsDir);
+        await scanDir(agent.globalSkillsDir, '', false);
       }
     }
   } else {
+    // For canonical skills directory, scan recursively for namespace support
     await scanDir(getCanonicalSkillsDir(false, cwd));
+
+    // For agent-specific directories, scan only top-level (no recursion needed)
     for (const agent of Object.values(agents)) {
-      await scanDir(join(cwd, agent.skillsDir));
+      await scanDir(join(cwd, agent.skillsDir), '', false);
     }
   }
 
-  const installedSkills = Array.from(skillNamesSet).sort();
+  // Deduplicate: prefer namespaced versions over bare skill names
+  const bareToNamespaced = new Map<string, string>();
+  for (const skill of skillNamesSet) {
+    const lastSlashIndex = Math.max(skill.lastIndexOf('/'), skill.lastIndexOf('\\'));
+    if (lastSlashIndex > 0) {
+      const bareName = skill.slice(lastSlashIndex + 1);
+      // Store namespaced version, preferring the one with namespace
+      bareToNamespaced.set(bareName.toLowerCase(), skill);
+    } else {
+      // Only store bare name if no namespaced version exists
+      if (!bareToNamespaced.has(skill.toLowerCase())) {
+        bareToNamespaced.set(skill.toLowerCase(), skill);
+      }
+    }
+  }
+
+  const installedSkills = Array.from(bareToNamespaced.values()).sort();
   spinner.stop(`Found ${installedSkills.length} unique installed skill(s)`);
 
   if (installedSkills.length === 0) {
@@ -79,7 +140,22 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     selectedSkills = installedSkills;
   } else if (skillNames.length > 0) {
     selectedSkills = installedSkills.filter((s) =>
-      skillNames.some((name) => name.toLowerCase() === s.toLowerCase())
+      skillNames.some((name) => {
+        const sLower = s.toLowerCase();
+        const nameLower = name.toLowerCase();
+
+        // Try exact match first (including namespace)
+        if (sLower === nameLower) {
+          return true;
+        }
+
+        // Try matching the skill name part (after last slash)
+        const lastSlashIndex = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'));
+        const skillNameOnly =
+          lastSlashIndex > 0 ? s.slice(lastSlashIndex + 1).toLowerCase() : sLower;
+
+        return skillNameOnly === nameLower;
+      })
     );
 
     if (selectedSkills.length === 0) {
@@ -87,10 +163,65 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
       return;
     }
   } else {
-    const choices = installedSkills.map((s) => ({
-      value: s,
-      label: s,
-    }));
+    // Detect installed agents for display
+    spinner.start('Detecting installed agents...');
+    const detectedAgents = await detectInstalledAgents();
+    spinner.stop(`Targeting ${detectedAgents.length} installed agent(s)`);
+
+    // Pre-check which skills are installed in which agents
+    const skillAgentMap = new Map<string, string[]>();
+    for (const s of installedSkills) {
+      const lastSlashIndex = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'));
+      const hasNamespace = lastSlashIndex > 0;
+      const skillName = hasNamespace ? s.slice(lastSlashIndex + 1) : s;
+      const namespace = hasNamespace ? s.slice(0, lastSlashIndex) : null;
+
+      const installedAgentNames: string[] = [];
+      for (const agentKey of detectedAgents) {
+        const agent = agents[agentKey];
+        const agentSkillsDir = isGlobal ? agent.globalSkillsDir : join(cwd, agent.skillsDir);
+        if (agentSkillsDir) {
+          const skillPath = join(agentSkillsDir, hasNamespace ? namespace! : '', skillName);
+          try {
+            await lstat(skillPath);
+            installedAgentNames.push(agent.displayName);
+          } catch {
+            // Skill not installed for this agent
+          }
+        }
+      }
+      skillAgentMap.set(s, installedAgentNames);
+    }
+
+    const choices = installedSkills.map((s) => {
+      // Parse namespace for display (support both / and \ for cross-platform)
+      const lastSlashIndex = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'));
+      const hasNamespace = lastSlashIndex > 0;
+      const skillName = hasNamespace ? s.slice(lastSlashIndex + 1) : s;
+      const namespace = hasNamespace ? s.slice(0, lastSlashIndex) : null;
+
+      // Build canonical path for display
+      const canonicalPath = getCanonicalPath(skillName, {
+        global: isGlobal,
+        cwd,
+        namespace: namespace || undefined,
+      });
+      const shortPath = shortenPath(canonicalPath, cwd);
+      const nsInfo = hasNamespace ? ` ${pc.dim(`[${namespace}]`)}` : '';
+
+      const agentNames = skillAgentMap.get(s) || [];
+      const agentInfo = agentNames.length > 0 ? `Agents: ${agentNames.join(', ')}` : 'not linked';
+
+      return {
+        value: s,
+        label: `${pc.cyan(skillName)}${nsInfo} ${pc.dim(shortPath)}\n  ${pc.dim(agentInfo)}`,
+      };
+    });
+
+    // Show header like list command
+    const scopeLabel = isGlobal ? 'Global' : 'Project';
+    console.log();
+    p.log.step(`${scopeLabel} Skills`);
 
     const selected = await p.multiselect({
       message: `Select skills to remove ${pc.dim('(space to toggle)')}`,
@@ -149,9 +280,18 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
   for (const skillName of selectedSkills) {
     try {
+      // Parse namespace from skill name (format: "namespace/skill-name")
+      const [namespace, actualSkillName] = skillName.includes('/')
+        ? skillName.split('/', 2)
+        : [undefined, skillName];
+
       for (const agentKey of targetAgents) {
         const agent = agents[agentKey];
-        const skillPath = getInstallPath(skillName, agentKey, { global: isGlobal, cwd });
+        const skillPath = getInstallPath(actualSkillName, agentKey, {
+          global: isGlobal,
+          cwd,
+          namespace,
+        });
 
         try {
           const stats = await lstat(skillPath).catch(() => null);
@@ -167,7 +307,11 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
         }
       }
 
-      const canonicalPath = getCanonicalPath(skillName, { global: isGlobal, cwd });
+      const canonicalPath = getCanonicalPath(actualSkillName, {
+        global: isGlobal,
+        cwd,
+        namespace,
+      });
       await rm(canonicalPath, { recursive: true, force: true });
 
       const lockEntry = isGlobal ? await getSkillFromLock(skillName) : null;

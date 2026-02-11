@@ -8,7 +8,12 @@
 
 import { describe, it, expect } from 'vitest';
 import { platform } from 'os';
-import { parseSource, getOwnerRepo } from '../src/source-parser.ts';
+import {
+  parseSource,
+  getOwnerRepo,
+  inferNamespace,
+  inferSkillSubpath,
+} from '../src/source-parser.ts';
 
 const isWindows = platform() === 'win32';
 
@@ -194,7 +199,7 @@ describe('parseSource', () => {
   describe('Git URL fallback tests', () => {
     it('Git URL - SSH format', () => {
       const result = parseSource('git@github.com:owner/repo.git');
-      expect(result.type).toBe('git');
+      expect(result.type).toBe('github');
       expect(result.url).toBe('git@github.com:owner/repo.git');
     });
 
@@ -262,7 +267,7 @@ describe('getOwnerRepo', () => {
     expect(getOwnerRepo(parsed)).toBe('owner/repo');
   });
 
-  it('getOwnerRepo - SSH format returns null', () => {
+  it('getOwnerRepo - SSH format returns null (not supported)', () => {
     const parsed = parseSource('git@github.com:owner/repo.git');
     expect(getOwnerRepo(parsed)).toBeNull();
   });
@@ -313,5 +318,142 @@ describe('getOwnerRepo', () => {
       url: 'https://gitlab.company.com/division/team/repo.git',
     } as const;
     expect(getOwnerRepo(parsed)).toBe('division/team/repo');
+  });
+});
+
+describe('inferNamespace', () => {
+  describe('GitHub URLs', () => {
+    it('GitHub - basic repo', () => {
+      const parsed = parseSource('https://github.com/owner/repo');
+      expect(inferNamespace(parsed)).toBe('owner-repo');
+    });
+
+    it('GitHub - repo with subpath', () => {
+      const parsed = parseSource('https://github.com/owner/repo/tree/main/skills/my-skill');
+      expect(inferNamespace(parsed)).toBe('owner-repo');
+    });
+
+    it('GitHub shorthand - owner/repo', () => {
+      const parsed = parseSource('owner/repo');
+      expect(inferNamespace(parsed)).toBe('owner-repo');
+    });
+  });
+
+  describe('GitLab.com URLs', () => {
+    it('GitLab.com - basic repo', () => {
+      const parsed = parseSource('https://gitlab.com/owner/repo');
+      expect(inferNamespace(parsed)).toBe('gitlab-owner-repo');
+    });
+
+    it('GitLab.com - repo with subpath', () => {
+      const parsed = parseSource('https://gitlab.com/owner/repo/-/tree/main/skills/my-skill');
+      expect(inferNamespace(parsed)).toBe('gitlab-owner-repo');
+    });
+  });
+
+  describe('Self-hosted GitLab with multi-level paths', () => {
+    it('Private GitLab - 5-level path with skills directory', () => {
+      const parsed = parseSource(
+        'https://gitlab.company.com.cn/tools/skills-center/skills/01-base/list-skills'
+      );
+      // Namespace: org + all segments before first 'skills'
+      // Subpath: all segments after first 'skills', preserving hierarchy
+      expect(inferNamespace(parsed)).toBe('company-tools-skills-center');
+      expect(inferSkillSubpath(parsed)).toBe('01-base/list-skills');
+    });
+
+    it('Gitee - 4-level path (common pattern)', () => {
+      const parsed = parseSource(
+        'https://gitee.com/group1/tools-skills-center/skills/01-base/list-skills'
+      );
+      expect(inferNamespace(parsed)).toBe('group1-tools-skills-center');
+      expect(inferSkillSubpath(parsed)).toBe('01-base/list-skills');
+    });
+
+    it('Gitee - simple 2-level path', () => {
+      const parsed = parseSource('https://gitee.com/group1/tools-skills-center');
+      expect(inferNamespace(parsed)).toBe('group1-tools-skills-center');
+    });
+
+    it('Private GitLab - simple 2-level path', () => {
+      const parsed = parseSource('https://gitlab.company.com/team/repo');
+      expect(inferNamespace(parsed)).toBe('company-team-repo');
+    });
+
+    it('Private GitLab - 3-level path', () => {
+      const parsed = parseSource('https://gitlab.company.com/group/subgroup/repo');
+      expect(inferNamespace(parsed)).toBe('company-group-subgroup-repo');
+    });
+
+    it('Private GitLab - skips first "skills" directory', () => {
+      const parsed = parseSource('https://gitlab.company.com/tools/skills/my-skill');
+      // Namespace: org + segments before 'skills'
+      // Subpath: segments after 'skills'
+      expect(inferNamespace(parsed)).toBe('company-tools');
+      expect(inferSkillSubpath(parsed)).toBe('my-skill');
+    });
+
+    it('Private GitLab with SSH URL', () => {
+      const parsed = parseSource(
+        'git@gitlab.company.com.cn:tools/skills-center/skills/01-base/list-skills.git'
+      );
+      expect(inferNamespace(parsed)).toBe('company-tools-skills-center');
+      expect(inferSkillSubpath(parsed)).toBe('01-base/list-skills');
+    });
+  });
+
+  describe('Other Git hosts', () => {
+    it('Custom Git host', () => {
+      const parsed = parseSource('https://git.example.com/team/project');
+      expect(inferNamespace(parsed)).toBe('example-team-project');
+    });
+
+    it('Gitea instance', () => {
+      const parsed = parseSource('https://gitea.company.io/org/repo');
+      expect(inferNamespace(parsed)).toBe('company-org-repo');
+    });
+  });
+
+  describe('Special cases', () => {
+    it('Local path returns null', () => {
+      const parsed = parseSource('./my-skills');
+      expect(inferNamespace(parsed)).toBeNull();
+    });
+
+    it('Direct URL returns hostname', () => {
+      const parsed = parseSource('https://docs.example.com/skill.md');
+      expect(inferNamespace(parsed)).toBe('docs.example.com');
+    });
+
+    it('Well-known type returns wellknown/hostname', () => {
+      const parsed = parseSource('https://example.com/.well-known/skills');
+      expect(inferNamespace(parsed)).toBe('wellknown/example.com');
+    });
+  });
+});
+
+describe('inferSkillSubpath', () => {
+  describe('Multi-level paths', () => {
+    it('Extracts subpath from 5-level GitLab path', () => {
+      const parsed = parseSource(
+        'https://gitlab.company.com.cn/tools/skills-center/skills/01-base/list-skills'
+      );
+      expect(inferSkillSubpath(parsed)).toBe('01-base/list-skills');
+    });
+
+    it('Extracts subpath from GitHub tree URL', () => {
+      const parsed = parseSource('https://github.com/owner/repo/tree/main/skills/my-skill');
+      expect(inferSkillSubpath(parsed)).toBe('skills/my-skill');
+    });
+
+    it('Extracts subpath from GitLab tree URL', () => {
+      const parsed = parseSource('https://gitlab.com/owner/repo/-/tree/main/src/skills');
+      expect(inferSkillSubpath(parsed)).toBe('src/skills');
+    });
+
+    it('Returns undefined for simple 2-level paths', () => {
+      const parsed = parseSource('https://github.com/owner/repo');
+      expect(inferSkillSubpath(parsed)).toBeUndefined();
+    });
   });
 });

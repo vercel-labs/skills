@@ -7,7 +7,7 @@ const rootDir = join(import.meta.dirname, '..');
 describe('dist build', () => {
   it('builds and runs without errors', { timeout: 30000 }, () => {
     // Build the project
-    execSync('pnpm build', { cwd: rootDir, stdio: 'pipe' });
+    execSync('npm run build', { cwd: rootDir, stdio: 'pipe' });
 
     // Run the CLI - should exit cleanly with help output
     const result = execSync('node dist/cli.mjs --help', {

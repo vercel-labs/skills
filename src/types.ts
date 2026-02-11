@@ -43,6 +43,8 @@ export interface Skill {
   name: string;
   description: string;
   path: string;
+  /** Namespace for organizing skills (optional, defaults to parent directory name) */
+  namespace?: string;
   /** Raw SKILL.md content for hashing */
   rawContent?: string;
   metadata?: Record<string, unknown>;
@@ -67,6 +69,8 @@ export interface ParsedSource {
   ref?: string;
   /** Skill name extracted from @skill syntax (e.g., owner/repo@skill-name) */
   skillFilter?: string;
+  /** Namespace for skill installation (optional, defaults to parent directory name) */
+  namespace?: string;
 }
 
 export interface MintlifySkill {

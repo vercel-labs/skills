@@ -1,10 +1,18 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { existsSync } from 'fs';
-import { homedir } from 'os';
-import { sep } from 'path';
-import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
-import { searchMultiselect, cancelSymbol } from './prompts/search-multiselect.ts';
+import { access } from 'fs/promises';
+import { homedir, platform } from 'os';
+import { sep, join } from 'path';
+import {
+  parseSource,
+  getOwnerRepo,
+  parseOwnerRepo,
+  isRepoPrivate,
+  inferNamespace,
+  inferSkillSubpath,
+} from './source-parser.ts';
+import { searchMultiselect } from './prompts/search-multiselect.ts';
 
 // Helper to check if a value is a cancel symbol (works with both clack and our custom prompts)
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
@@ -26,7 +34,6 @@ import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
 import {
   installSkillForAgent,
   isSkillInstalled,
-  getInstallPath,
   getCanonicalPath,
   installRemoteSkillForAgent,
   installWellKnownSkillForAgent,
@@ -325,6 +332,10 @@ export interface AddOptions {
   list?: boolean;
   all?: boolean;
   fullDepth?: boolean;
+  /** Namespace for skill installation (optional) */
+  namespace?: string;
+  /** Installation mode: 'symlink' or 'copy' */
+  mode?: InstallMode;
 }
 
 /**
@@ -337,6 +348,14 @@ async function handleRemoteSkill(
   options: AddOptions,
   spinner: ReturnType<typeof p.spinner>
 ): Promise<void> {
+  // Parse the source to extract namespace information
+  let namespace = options.namespace;
+  if (!namespace) {
+    // Try to infer namespace from source string using new strategy
+    const parsedSource = parseSource(source);
+    namespace = inferNamespace(parsedSource) ?? undefined;
+  }
+
   // Find a provider that can handle this URL
   const provider = findProvider(url);
 
@@ -482,10 +501,10 @@ async function handleRemoteSkill(
     installGlobally = scope as boolean;
   }
 
-  // Prompt for install mode (symlink vs copy)
-  let installMode: InstallMode = 'symlink';
+  // Use install mode from options if provided, otherwise prompt
+  let installMode: InstallMode = options.mode || 'symlink';
 
-  if (!options.yes) {
+  if (!options.yes && !options.mode) {
     const modeChoice = await p.select({
       message: 'Installation method',
       options: [
@@ -524,10 +543,18 @@ async function handleRemoteSkill(
   // Build installation summary
   const summaryLines: string[] = [];
 
-  const canonicalPath = getCanonicalPath(remoteSkill.installName, { global: installGlobally });
-  const shortCanonical = shortenPath(canonicalPath, cwd);
-  summaryLines.push(`${pc.cyan(shortCanonical)}`);
-  summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
+  if (installMode === 'symlink') {
+    const canonicalPath = getCanonicalPath(remoteSkill.installName, {
+      global: installGlobally,
+      namespace,
+    });
+    const shortCanonical = shortenPath(canonicalPath, cwd);
+    summaryLines.push(`${pc.cyan(shortCanonical)}`);
+    summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
+  } else {
+    summaryLines.push(`${pc.cyan(remoteSkill.installName)}`);
+    summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
+  }
 
   const overwriteAgents = targetAgents
     .filter((a) => overwriteStatus.get(a))
@@ -568,6 +595,7 @@ async function handleRemoteSkill(
     const result = await installRemoteSkillForAgent(remoteSkill, agent, {
       global: installGlobally,
       mode: installMode,
+      namespace: namespace, // Pass the inferred namespace to installer
     });
     results.push({
       skill: remoteSkill.installName,
@@ -613,11 +641,36 @@ async function handleRemoteSkill(
         sourceType: remoteSkill.providerId,
         sourceUrl: url,
         skillFolderHash,
+        namespace: namespace || 'legacy', // Use inferred namespace or fallback to 'legacy'
       });
     } catch {
       // Don't fail installation if lock file update fails
     }
   }
+
+  // Verify successful installations actually exist
+  const verifiedSuccessful: typeof successful = [];
+  const verificationFailed: typeof failed = [];
+
+  for (const result of successful) {
+    try {
+      // Check if SKILL.md exists and is readable
+      const skillMdPath = join(result.path, 'SKILL.md');
+      await access(skillMdPath);
+      verifiedSuccessful.push(result);
+    } catch {
+      verificationFailed.push({
+        ...result,
+        success: false,
+        error: 'Installation verification failed: SKILL.md not found',
+      });
+    }
+  }
+
+  // Update arrays
+  successful.length = 0;
+  successful.push(...verifiedSuccessful);
+  failed.push(...verificationFailed);
 
   if (successful.length > 0) {
     const resultLines: string[] = [];
@@ -683,6 +736,14 @@ async function handleWellKnownSkills(
   options: AddOptions,
   spinner: ReturnType<typeof p.spinner>
 ): Promise<void> {
+  // Parse the source to extract namespace information
+  let namespace = options.namespace;
+  if (!namespace) {
+    // Try to infer namespace from source string using new strategy
+    const parsedSource = parseSource(source);
+    namespace = inferNamespace(parsedSource) ?? undefined;
+  }
+
   spinner.start('Discovering skills from well-known endpoint...');
 
   // Fetch all skills from the well-known endpoint
@@ -882,10 +943,10 @@ async function handleWellKnownSkills(
     installGlobally = scope as boolean;
   }
 
-  // Prompt for install mode (symlink vs copy)
-  let installMode: InstallMode = 'symlink';
+  // Use install mode from options if provided, otherwise prompt
+  let installMode: InstallMode = options.mode || 'symlink';
 
-  if (!options.yes) {
+  if (!options.yes && !options.mode) {
     const modeChoice = await p.select({
       message: 'Installation method',
       options: [
@@ -933,12 +994,20 @@ async function handleWellKnownSkills(
   for (const skill of selectedSkills) {
     if (summaryLines.length > 0) summaryLines.push('');
 
-    const canonicalPath = getCanonicalPath(skill.installName, { global: installGlobally });
-    const shortCanonical = shortenPath(canonicalPath, cwd);
-    summaryLines.push(`${pc.cyan(shortCanonical)}`);
-    summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
-    if (skill.files.size > 1) {
-      summaryLines.push(`  ${pc.dim('files:')} ${skill.files.size}`);
+    if (installMode === 'symlink') {
+      const canonicalPath = getCanonicalPath(skill.installName, {
+        global: installGlobally,
+        namespace,
+      });
+      const shortCanonical = shortenPath(canonicalPath, cwd);
+      summaryLines.push(`${pc.cyan(shortCanonical)}`);
+      summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
+      if (skill.files.size > 1) {
+        summaryLines.push(`  ${pc.dim('files:')} ${skill.files.size}`);
+      }
+    } else {
+      summaryLines.push(`${pc.cyan(skill.installName)}`);
+      summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
     }
 
     const skillOverwrites = overwriteStatus.get(skill.installName);
@@ -981,6 +1050,7 @@ async function handleWellKnownSkills(
       const result = await installWellKnownSkillForAgent(skill, agent, {
         global: installGlobally,
         mode: installMode,
+        namespace: namespace, // Pass the inferred namespace to installer
       });
       results.push({
         skill: skill.installName,
@@ -1031,6 +1101,7 @@ async function handleWellKnownSkills(
             sourceType: 'well-known',
             sourceUrl: skill.sourceUrl,
             skillFolderHash: '', // Well-known skills don't have a folder hash
+            namespace: namespace || 'legacy', // Use inferred namespace or fallback to 'legacy'
           });
         } catch {
           // Don't fail installation if lock file update fails
@@ -1115,6 +1186,14 @@ async function handleDirectUrlSkillLegacy(
   options: AddOptions,
   spinner: ReturnType<typeof p.spinner>
 ): Promise<void> {
+  // Parse the source to extract namespace information
+  let namespace = options.namespace;
+  if (!namespace) {
+    // Try to infer namespace from source string using new strategy
+    const parsedSource = parseSource(source);
+    namespace = inferNamespace(parsedSource) ?? undefined;
+  }
+
   spinner.start('Fetching skill.md...');
   const mintlifySkill = await fetchMintlifySkill(url);
 
@@ -1256,8 +1335,13 @@ async function handleDirectUrlSkillLegacy(
     installGlobally = scope as boolean;
   }
 
-  // Use symlink mode by default for direct URL skills
-  const installMode: InstallMode = 'symlink';
+  // Use install mode from options or default to symlink for direct URL skills
+  // On Windows, symlink mode often fails due to permissions, so force copy mode
+  let installMode: InstallMode = options.mode || 'symlink';
+  if (platform() === 'win32' && installMode === 'symlink') {
+    p.log.info('Note: Symlink mode is not reliable on Windows. Using copy mode instead.');
+    installMode = 'copy';
+  }
   const cwd = process.cwd();
 
   // Check for overwrites (parallel)
@@ -1276,7 +1360,10 @@ async function handleDirectUrlSkillLegacy(
   // Build installation summary
   const summaryLines: string[] = [];
   const agentNames = targetAgents.map((a) => agents[a].displayName);
-  const canonicalPath = getCanonicalPath(remoteSkill.installName, { global: installGlobally });
+  const canonicalPath = getCanonicalPath(remoteSkill.installName, {
+    global: installGlobally,
+    namespace,
+  });
   const shortCanonical = shortenPath(canonicalPath, cwd);
   summaryLines.push(`${pc.cyan(shortCanonical)}`);
   summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
@@ -1320,6 +1407,7 @@ async function handleDirectUrlSkillLegacy(
     const result = await installRemoteSkillForAgent(remoteSkill, agent, {
       global: installGlobally,
       mode: installMode,
+      namespace: namespace, // Pass the inferred namespace to installer
     });
     results.push({
       skill: remoteSkill.installName,
@@ -1356,6 +1444,7 @@ async function handleDirectUrlSkillLegacy(
         sourceType: 'mintlify',
         sourceUrl: url,
         skillFolderHash: '', // Populated by server
+        namespace: namespace || 'legacy', // Use inferred namespace or fallback to 'legacy'
       });
     } catch {
       // Don't fail installation if lock file update fails
@@ -1455,8 +1544,19 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     spinner.start('Parsing source...');
     const parsed = parseSource(source);
+    // Apply namespace from options if provided, otherwise infer from source
+    if (options.namespace) {
+      parsed.namespace = options.namespace;
+    } else {
+      // Auto-infer namespace using new strategy
+      const inferredNs = inferNamespace(parsed);
+      if (inferredNs) {
+        parsed.namespace = inferredNs;
+      }
+      // For other types, leave namespace undefined to use default
+    }
     spinner.stop(
-      `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
+      `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}${parsed.namespace ? ` ${pc.dim('ns:')} ${pc.cyan(parsed.namespace)}` : ''}`
     );
 
     // Handle direct URL skills (Mintlify, HuggingFace, etc.) via provider system
@@ -1505,7 +1605,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     const includeInternal = !!(options.skill && options.skill.length > 0);
 
     spinner.start('Discovering skills...');
-    const skills = await discoverSkills(skillsDir, parsed.subpath, {
+    // Use inferSkillSubpath to properly extract subpath from multi-level URLs
+    const discoverySubpath = inferSkillSubpath(parsed) || parsed.subpath;
+    const skills = await discoverSkills(skillsDir, discoverySubpath, {
       includeInternal,
       fullDepth: options.fullDepth,
     });
@@ -1690,10 +1792,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       installGlobally = scope as boolean;
     }
 
-    // Prompt for install mode (symlink vs copy)
-    let installMode: InstallMode = 'symlink';
+    // Use install mode from options if provided, otherwise prompt
+    let installMode: InstallMode = options.mode || 'symlink';
 
-    if (!options.yes) {
+    if (!options.yes && !options.mode) {
       const modeChoice = await p.select({
         message: 'Installation method',
         options: [
@@ -1742,10 +1844,18 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     for (const skill of selectedSkills) {
       if (summaryLines.length > 0) summaryLines.push('');
 
-      const canonicalPath = getCanonicalPath(skill.name, { global: installGlobally });
-      const shortCanonical = shortenPath(canonicalPath, cwd);
-      summaryLines.push(`${pc.cyan(shortCanonical)}`);
-      summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
+      if (installMode === 'symlink') {
+        const canonicalPath = getCanonicalPath(skill.name, {
+          global: installGlobally,
+          namespace: parsed.namespace,
+        });
+        const shortCanonical = shortenPath(canonicalPath, cwd);
+        summaryLines.push(`${pc.cyan(shortCanonical)}`);
+        summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
+      } else {
+        summaryLines.push(`${pc.cyan(getSkillDisplayName(skill))}`);
+        summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
+      }
 
       const skillOverwrites = overwriteStatus.get(skill.name);
       const overwriteAgents = targetAgents
@@ -1783,11 +1893,25 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       error?: string;
     }[] = [];
 
+    // Build full installation path including relative directory structure
+    // Extract relative path from skill.path to skillsDir, remove leading 'skills/'
+    // e.g., skill.path = /tmp/xxx/skills/01-base/list-skills
+    //       skillsDir = /tmp/xxx
+    //       relative = skills/01-base/list-skills -> 01-base/list-skills
+    //       final namespace = company-tools-skills-center/01-base/list-skills
+    const baseNs = parsed.namespace;
+
     for (const skill of selectedSkills) {
+      // For remote sources, use skill.namespace instead of building from path
+      // skill.namespace is extracted from the skill's parent directory by skills.ts
+      const fullNs = skill.namespace ? `${baseNs}/${skill.namespace}` : baseNs;
+
       for (const agent of targetAgents) {
         const result = await installSkillForAgent(skill, agent, {
           global: installGlobally,
           mode: installMode,
+          cwd,
+          namespace: fullNs, // Pass full namespace including relative path
         });
         results.push({
           skill: getSkillDisplayName(skill),
@@ -1881,6 +2005,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               sourceType: parsed.type,
               sourceUrl: parsed.url,
               skillPath: skillPathValue,
+              namespace: parsed.namespace || 'legacy', // Use parsed namespace or fallback to 'legacy'
               skillFolderHash,
             });
           } catch {
@@ -2103,6 +2228,10 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       i--; // Back up one since the loop will increment
     } else if (arg === '--full-depth') {
       options.fullDepth = true;
+    } else if (arg === '--namespace' || arg === '--ns') {
+      options.namespace = args[++i];
+    } else if (arg === '--mode') {
+      options.mode = args[++i] as InstallMode;
     } else if (arg && !arg.startsWith('-')) {
       source.push(arg);
     }

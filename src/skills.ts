@@ -27,7 +27,7 @@ async function hasSkillMd(dir: string): Promise<boolean> {
 
 export async function parseSkillMd(
   skillMdPath: string,
-  options?: { includeInternal?: boolean }
+  options?: { includeInternal?: boolean; basePath?: string }
 ): Promise<Skill | null> {
   try {
     const content = await readFile(skillMdPath, 'utf-8');
@@ -50,10 +50,30 @@ export async function parseSkillMd(
       return null;
     }
 
+    // Extract namespace from parent directory name relative to basePath
+    const skillDir = dirname(skillMdPath);
+    let namespace: string | undefined;
+
+    if (options?.basePath && skillDir.startsWith(options.basePath)) {
+      const relativePath = skillDir.slice(options.basePath.length).replace(/^[\\/]/, '');
+      const parts = relativePath.split(/[\\/]/).filter((p) => p && p !== 'SKILL.md');
+
+      // If skill is in a subdirectory, use the parent directory as namespace
+      // For example: basePath/skills/github/copilot/SKILL.md → namespace = "github"
+      if (parts.length >= 2) {
+        // The parent directory of the skill folder
+        namespace = parts[parts.length - 2];
+      } else if (parts.length === 1 && parts[0] !== '') {
+        // If skill is directly under a subdirectory, use that as namespace
+        namespace = parts[0];
+      }
+    }
+
     return {
       name: data.name,
       description: data.description,
-      path: dirname(skillMdPath),
+      path: skillDir,
+      namespace,
       rawContent: content,
       metadata: data.metadata,
     };
@@ -102,9 +122,12 @@ export async function discoverSkills(
   const seenNames = new Set<string>();
   const searchPath = subpath ? join(basePath, subpath) : basePath;
 
+  // Pass basePath to parseSkillMd for namespace extraction
+  const parseOptions = { ...options, basePath };
+
   // If pointing directly at a skill, add it (and return early unless fullDepth is set)
   if (await hasSkillMd(searchPath)) {
-    const skill = await parseSkillMd(join(searchPath, 'SKILL.md'), options);
+    const skill = await parseSkillMd(join(searchPath, 'SKILL.md'), parseOptions);
     if (skill) {
       skills.push(skill);
       seenNames.add(skill.name);
@@ -160,7 +183,7 @@ export async function discoverSkills(
         if (entry.isDirectory()) {
           const skillDir = join(dir, entry.name);
           if (await hasSkillMd(skillDir)) {
-            const skill = await parseSkillMd(join(skillDir, 'SKILL.md'), options);
+            const skill = await parseSkillMd(join(skillDir, 'SKILL.md'), parseOptions);
             if (skill && !seenNames.has(skill.name)) {
               skills.push(skill);
               seenNames.add(skill.name);
@@ -178,7 +201,7 @@ export async function discoverSkills(
     const allSkillDirs = await findSkillDirs(searchPath);
 
     for (const skillDir of allSkillDirs) {
-      const skill = await parseSkillMd(join(skillDir, 'SKILL.md'), options);
+      const skill = await parseSkillMd(join(skillDir, 'SKILL.md'), parseOptions);
       if (skill && !seenNames.has(skill.name)) {
         skills.push(skill);
         seenNames.add(skill.name);

@@ -73,16 +73,14 @@ describe('skills CLI', () => {
       expect(hasLogo(output)).toBe(false);
     });
 
-    it('should not display logo for check command', () => {
-      // Note: check command makes GitHub API calls, so we just verify initial output
+    it('should not display logo for check command', { timeout: 30000 }, () => {
       const output = runCliOutput(['check']);
       expect(hasLogo(output)).toBe(false);
-    }, 60000);
+    });
 
-    it('should not display logo for update command', () => {
-      // Note: update command makes GitHub API calls, so we just verify initial output
+    it('should not display logo for update command', { timeout: 60000 }, () => {
       const output = runCliOutput(['update']);
       expect(hasLogo(output)).toBe(false);
-    }, 60000);
+    });
   });
 });

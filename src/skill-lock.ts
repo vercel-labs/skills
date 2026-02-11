@@ -20,6 +20,8 @@ export interface SkillLockEntry {
   sourceUrl: string;
   /** Subpath within the source repo, if applicable */
   skillPath?: string;
+  /** Namespace for organizing skills (optional) */
+  namespace?: string;
   /**
    * GitHub tree SHA for the entire skill folder.
    * This hash changes when ANY file in the skill folder changes.
