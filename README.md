@@ -245,6 +245,7 @@ Skills can be installed to any of these agents:
 | Neovate | `neovate` | `.neovate/skills/` | `~/.neovate/skills/` |
 | Pochi | `pochi` | `.pochi/skills/` | `~/.pochi/skills/` |
 | AdaL | `adal` | `.adal/skills/` | `~/.adal/skills/` |
+| Infcode | `infcode` | `.infcode/skills/` | `~/.infcode/skills/` |
 <!-- supported-agents:end -->
 
 > [!NOTE]
@@ -346,6 +347,7 @@ The CLI searches for skills in these locations within a repository:
 - `.neovate/skills/`
 - `.pochi/skills/`
 - `.adal/skills/`
+- `.infcode/skills/`
 <!-- skill-discovery:end -->
 
 ### Plugin Manifest Discovery
