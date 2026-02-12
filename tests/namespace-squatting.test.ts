@@ -126,6 +126,38 @@ description: Root level skill
     // Should be overridden because fake-bird != bird
     expect(result!.name).toBe('fake-bird');
   });
+
+  it('should not leak name override across parses of identical content (gray-matter cache)', async () => {
+    // Two directories with identical SKILL.md content but different directory names.
+    // gray-matter caches by content, so mutating data.name on the first parse
+    // could corrupt the second parse if the cache returns a shared object.
+    const identicalContent = `---
+name: bird
+description: Same content
+---
+
+# bird
+Content here
+`;
+    mkdirSync(join(testDir, 'fake-bird'), { recursive: true });
+    writeFileSync(join(testDir, 'fake-bird', 'SKILL.md'), identicalContent);
+    mkdirSync(join(testDir, 'bird'), { recursive: true });
+    writeFileSync(join(testDir, 'bird', 'SKILL.md'), identicalContent);
+
+    // Parse the mismatched one first — would mutate data.name to "fake-bird" if buggy
+    const result1 = await parseSkillMd(join(testDir, 'fake-bird', 'SKILL.md'), {
+      basePath: testDir,
+    });
+    expect(result1).not.toBeNull();
+    expect(result1!.name).toBe('fake-bird');
+
+    // Parse the matching one second — must still see original frontmatter name "bird"
+    const result2 = await parseSkillMd(join(testDir, 'bird', 'SKILL.md'), {
+      basePath: testDir,
+    });
+    expect(result2).not.toBeNull();
+    expect(result2!.name).toBe('bird');
+  });
 });
 
 // ─── discoverSkills: namespace squatting prevention ───────────────────────────
@@ -177,6 +209,29 @@ describe('discoverSkills namespace squatting prevention', () => {
 
     // A warning should have been emitted
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Duplicate skill name'));
+
+    warnSpy.mockRestore();
+  });
+
+  it('should not warn when same skill path is re-discovered via overlapping search roots', async () => {
+    // A skill in skills/ is discovered via both the priority search and the
+    // recursive fallback (fullDepth). This should NOT emit a duplicate warning
+    // because it's the same skill at the same path, not a true conflict.
+    createSkillMd(join(testDir, 'skills', 'my-skill'), 'my-skill', 'Only one');
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const skills = await discoverSkills(testDir, undefined, { fullDepth: true });
+
+    // Should still have exactly one skill
+    const mySkills = skills.filter((s) => s.name === 'my-skill');
+    expect(mySkills).toHaveLength(1);
+
+    // Should NOT have emitted a "Duplicate skill name" warning for same-path re-discovery
+    const duplicateWarnings = warnSpy.mock.calls.filter(
+      (args) => typeof args[0] === 'string' && args[0].includes('Duplicate skill name "my-skill"')
+    );
+    expect(duplicateWarnings).toHaveLength(0);
 
     warnSpy.mockRestore();
   });

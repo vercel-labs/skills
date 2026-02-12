@@ -54,6 +54,9 @@ export async function parseSkillMd(
     // Validate name-directory binding to prevent namespace squatting.
     // Only applies when basePath is provided (i.e., called from discoverSkills).
     // Skip for root-level SKILL.md (where dirname is a temp clone directory).
+    // Use a local variable instead of mutating data.name to avoid corrupting
+    // gray-matter's content-based cache (shared across parses of identical content).
+    let skillName = data.name;
     if (options?.basePath) {
       const dirName = basename(dirname(skillMdPath));
       const isRootSkill = resolve(dirname(skillMdPath)) === resolve(options.basePath);
@@ -63,12 +66,12 @@ export async function parseSkillMd(
           `[skills] Warning: Skill at "${skillMdPath}" claims name "${data.name}" ` +
             `but is in directory "${dirName}". Using directory name to prevent namespace squatting.`
         );
-        data.name = dirName;
+        skillName = dirName;
       }
     }
 
     return {
-      name: data.name,
+      name: skillName,
       description: data.description,
       path: dirname(skillMdPath),
       rawContent: content,
@@ -180,12 +183,16 @@ export async function discoverSkills(
           if (await hasSkillMd(skillDir)) {
             const skill = await parseSkillMd(join(skillDir, 'SKILL.md'), parseOptions);
             if (skill) {
-              if (seenNames.has(skill.name)) {
-                console.warn(
-                  `[skills] Warning: Duplicate skill name "${skill.name}".\n` +
-                    `  Accepted: ${seenNames.get(skill.name)}\n` +
-                    `  Skipped:  ${skill.path}`
-                );
+              const existingPath = seenNames.get(skill.name);
+              if (existingPath != null) {
+                // Only warn when the duplicate comes from a different directory
+                if (existingPath !== skill.path) {
+                  console.warn(
+                    `[skills] Warning: Duplicate skill name "${skill.name}".\n` +
+                      `  Accepted: ${existingPath}\n` +
+                      `  Skipped:  ${skill.path}`
+                  );
+                }
               } else {
                 skills.push(skill);
                 seenNames.set(skill.name, skill.path);
@@ -206,12 +213,16 @@ export async function discoverSkills(
     for (const skillDir of allSkillDirs) {
       const skill = await parseSkillMd(join(skillDir, 'SKILL.md'), parseOptions);
       if (skill) {
-        if (seenNames.has(skill.name)) {
-          console.warn(
-            `[skills] Warning: Duplicate skill name "${skill.name}".\n` +
-              `  Accepted: ${seenNames.get(skill.name)}\n` +
-              `  Skipped:  ${skill.path}`
-          );
+        const existingPath = seenNames.get(skill.name);
+        if (existingPath != null) {
+          // Only warn when the duplicate comes from a different directory
+          if (existingPath !== skill.path) {
+            console.warn(
+              `[skills] Warning: Duplicate skill name "${skill.name}".\n` +
+                `  Accepted: ${existingPath}\n` +
+                `  Skipped:  ${skill.path}`
+            );
+          }
         } else {
           skills.push(skill);
           seenNames.set(skill.name, skill.path);
