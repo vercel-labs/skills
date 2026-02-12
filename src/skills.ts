@@ -137,6 +137,7 @@ export async function discoverSkills(
     join(searchPath, '.junie/skills'),
     join(searchPath, '.kilocode/skills'),
     join(searchPath, '.kiro/skills'),
+    join(searchPath, '.letta/skills'),
     join(searchPath, '.mux/skills'),
     join(searchPath, '.neovate/skills'),
     join(searchPath, '.opencode/skills'),
@@ -147,6 +148,8 @@ export async function discoverSkills(
     join(searchPath, '.trae/skills'),
     join(searchPath, '.windsurf/skills'),
     join(searchPath, '.zencoder/skills'),
+    // Letta Code uses .skills at project root
+    join(searchPath, '.skills'),
   ];
 
   // Add skill paths declared in plugin manifests
