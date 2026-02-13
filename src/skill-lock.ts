@@ -30,6 +30,8 @@ export interface SkillLockEntry {
   installedAt: string;
   /** ISO timestamp when the skill was last updated */
   updatedAt: string;
+  /** Name of the plugin this skill belongs to (if any) */
+  pluginName?: string;
 }
 
 /**

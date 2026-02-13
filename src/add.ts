@@ -859,12 +859,8 @@ async function handleWellKnownSkills(
       for (const s of skills) {
         p.log.message(`  - ${s.installName}`);
       }
-      process.exit(1);
     }
-
-    p.log.info(
-      `Selected ${selectedSkills.length} skill${selectedSkills.length !== 1 ? 's' : ''}: ${selectedSkills.map((s) => pc.cyan(s.installName)).join(', ')}`
-    );
+    process.exit(1);
   } else if (skills.length === 1) {
     selectedSkills = skills;
     const firstSkill = skills[0]!;
@@ -1548,7 +1544,6 @@ async function handleDirectUrlSkillLegacy(
   // Prompt for find-skills after successful install
   await promptForFindSkills(options, targetAgents);
 }
-
 export async function runAdd(args: string[], options: AddOptions = {}): Promise<void> {
   const source = args[0];
   let installTipShown = false;
@@ -1666,10 +1661,47 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     if (options.list) {
       console.log();
       p.log.step(pc.bold('Available Skills'));
+
+      // Group available skills by plugin for list output
+      const groupedSkills: Record<string, Skill[]> = {};
+      const ungroupedSkills: Skill[] = [];
+
       for (const skill of skills) {
-        p.log.message(`  ${pc.cyan(getSkillDisplayName(skill))}`);
-        p.log.message(`    ${pc.dim(skill.description)}`);
+        if (skill.pluginName) {
+          const group = skill.pluginName;
+          if (!groupedSkills[group]) groupedSkills[group] = [];
+          groupedSkills[group].push(skill);
+        } else {
+          ungroupedSkills.push(skill);
+        }
       }
+
+      // Print groups
+      const sortedGroups = Object.keys(groupedSkills).sort();
+      for (const group of sortedGroups) {
+        // Convert kebab-case to Title Case for display header
+        const title = group
+          .split('-')
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(' ');
+
+        console.log(pc.bold(title));
+        for (const skill of groupedSkills[group]) {
+          p.log.message(`  ${pc.cyan(getSkillDisplayName(skill))}`);
+          p.log.message(`    ${pc.dim(skill.description)}`);
+        }
+        console.log();
+      }
+
+      // Print ungrouped
+      if (ungroupedSkills.length > 0) {
+        if (sortedGroups.length > 0) console.log(pc.bold('General'));
+        for (const skill of ungroupedSkills) {
+          p.log.message(`  ${pc.cyan(getSkillDisplayName(skill))}`);
+          p.log.message(`    ${pc.dim(skill.description)}`);
+        }
+      }
+
       console.log();
       p.outro('Use --skill <name> to install specific skills');
       await cleanup(tempDir);
@@ -1707,19 +1739,30 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       selectedSkills = skills;
       p.log.info(`Installing all ${skills.length} skills`);
     } else {
-      const skillChoices = skills.map((s) => ({
+      // Sort skills by plugin name first, then by skill name
+      const sortedSkills = [...skills].sort((a, b) => {
+        if (a.pluginName && !b.pluginName) return -1;
+        if (!a.pluginName && b.pluginName) return 1;
+        if (a.pluginName && b.pluginName && a.pluginName !== b.pluginName) {
+          return a.pluginName.localeCompare(b.pluginName);
+        }
+        return getSkillDisplayName(a).localeCompare(getSkillDisplayName(b));
+      });
+
+      const skillChoices = sortedSkills.map((s) => ({
         value: s,
         label: getSkillDisplayName(s),
         hint: s.description.length > 60 ? s.description.slice(0, 57) + '...' : s.description,
+        group: s.pluginName,
       }));
 
-      const selected = await multiselect({
+      const selected = await searchMultiselect({
         message: 'Select skills to install',
-        options: skillChoices,
+        items: skillChoices,
         required: true,
       });
 
-      if (p.isCancel(selected)) {
+      if (isCancelled(selected)) {
         p.cancel('Installation cancelled');
         await cleanup(tempDir);
         process.exit(0);
@@ -1892,22 +1935,61 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       overwriteStatus.get(skillName)!.set(agent, installed);
     }
 
+    // Group selected skills for summary
+    const groupedSummary: Record<string, Skill[]> = {};
+    const ungroupedSummary: Skill[] = [];
+
     for (const skill of selectedSkills) {
-      if (summaryLines.length > 0) summaryLines.push('');
-
-      const canonicalPath = getCanonicalPath(skill.name, { global: installGlobally });
-      const shortCanonical = shortenPath(canonicalPath, cwd);
-      summaryLines.push(`${pc.cyan(shortCanonical)}`);
-      summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
-
-      const skillOverwrites = overwriteStatus.get(skill.name);
-      const overwriteAgents = targetAgents
-        .filter((a) => skillOverwrites?.get(a))
-        .map((a) => agents[a].displayName);
-
-      if (overwriteAgents.length > 0) {
-        summaryLines.push(`  ${pc.yellow('overwrites:')} ${formatList(overwriteAgents)}`);
+      if (skill.pluginName) {
+        const group = skill.pluginName;
+        if (!groupedSummary[group]) groupedSummary[group] = [];
+        groupedSummary[group].push(skill);
+      } else {
+        ungroupedSummary.push(skill);
       }
+    }
+
+    // Helper to print summary lines for a list of skills
+    const printSkillSummary = (skills: Skill[]) => {
+      for (const skill of skills) {
+        if (summaryLines.length > 0) summaryLines.push('');
+
+        const canonicalPath = getCanonicalPath(skill.name, { global: installGlobally });
+        const shortCanonical = shortenPath(canonicalPath, cwd);
+        summaryLines.push(`${pc.cyan(shortCanonical)}`);
+        summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
+
+        const skillOverwrites = overwriteStatus.get(skill.name);
+        const overwriteAgents = targetAgents
+          .filter((a) => skillOverwrites?.get(a))
+          .map((a) => agents[a].displayName);
+
+        if (overwriteAgents.length > 0) {
+          summaryLines.push(`  ${pc.yellow('overwrites:')} ${formatList(overwriteAgents)}`);
+        }
+      }
+    };
+
+    // Build grouped summary
+    const sortedGroups = Object.keys(groupedSummary).sort();
+
+    for (const group of sortedGroups) {
+      const title = group
+        .split('-')
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ');
+
+      summaryLines.push('');
+      summaryLines.push(pc.bold(title));
+      printSkillSummary(groupedSummary[group]);
+    }
+
+    if (ungroupedSummary.length > 0) {
+      if (sortedGroups.length > 0) {
+        summaryLines.push('');
+        summaryLines.push(pc.bold('General'));
+      }
+      printSkillSummary(ungroupedSummary);
     }
 
     console.log();
@@ -1955,6 +2037,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       mode: InstallMode;
       symlinkFailed?: boolean;
       error?: string;
+      pluginName?: string;
     }[] = [];
 
     for (const skill of selectedSkills) {
@@ -1966,6 +2049,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         results.push({
           skill: getSkillDisplayName(skill),
           agent: agents[agent].displayName,
+          pluginName: skill.pluginName,
           ...result,
         });
       }
@@ -2056,6 +2140,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               sourceUrl: parsed.url,
               skillPath: skillPathValue,
               skillFolderHash,
+              pluginName: skill.pluginName,
             });
           } catch {
             // Don't fail installation if lock file update fails
@@ -2090,10 +2175,27 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     if (successful.length > 0) {
       const bySkill = new Map<string, typeof results>();
+
+      // Group results by plugin name
+      const groupedResults: Record<string, typeof results> = {};
+      const ungroupedResults: typeof results = [];
+
       for (const r of successful) {
         const skillResults = bySkill.get(r.skill) || [];
         skillResults.push(r);
         bySkill.set(r.skill, skillResults);
+
+        // We only need to group once per skill (take the first result for that skill)
+        if (skillResults.length === 1) {
+          if (r.pluginName) {
+            const group = r.pluginName;
+            if (!groupedResults[group]) groupedResults[group] = [];
+            // We'll store just one entry per skill here to drive the loop
+            groupedResults[group].push(r);
+          } else {
+            ungroupedResults.push(r);
+          }
+        }
       }
 
       const skillCount = bySkill.size;
@@ -2101,26 +2203,51 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       const copiedAgents = symlinkFailures.map((r) => r.agent);
       const resultLines: string[] = [];
 
-      for (const [skillName, skillResults] of bySkill) {
-        const firstResult = skillResults[0]!;
+      const printSkillResults = (entries: typeof results) => {
+        for (const entry of entries) {
+          const skillResults = bySkill.get(entry.skill) || [];
+          const firstResult = skillResults[0]!;
 
-        if (firstResult.mode === 'copy') {
-          // Copy mode: show skill name and list all agent paths
-          resultLines.push(`${pc.green('✓')} ${skillName} ${pc.dim('(copied)')}`);
-          for (const r of skillResults) {
-            const shortPath = shortenPath(r.path, cwd);
-            resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
-          }
-        } else {
-          // Symlink mode: show canonical path and universal/symlinked agents
-          if (firstResult.canonicalPath) {
-            const shortPath = shortenPath(firstResult.canonicalPath, cwd);
-            resultLines.push(`${pc.green('✓')} ${shortPath}`);
+          if (firstResult.mode === 'copy') {
+            // Copy mode: show skill name and list all agent paths
+            resultLines.push(`${pc.green('✓')} ${entry.skill} ${pc.dim('(copied)')}`);
+            for (const r of skillResults) {
+              const shortPath = shortenPath(r.path, cwd);
+              resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
+            }
           } else {
-            resultLines.push(`${pc.green('✓')} ${skillName}`);
+            // Symlink mode: show canonical path and universal/symlinked agents
+            if (firstResult.canonicalPath) {
+              const shortPath = shortenPath(firstResult.canonicalPath, cwd);
+              resultLines.push(`${pc.green('✓')} ${shortPath}`);
+            } else {
+              resultLines.push(`${pc.green('✓')} ${entry.skill}`);
+            }
+            resultLines.push(...buildResultLines(skillResults, targetAgents));
           }
-          resultLines.push(...buildResultLines(skillResults, targetAgents));
         }
+      };
+
+      // Print grouped results
+      const sortedResultGroups = Object.keys(groupedResults).sort();
+
+      for (const group of sortedResultGroups) {
+        const title = group
+          .split('-')
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(' ');
+
+        resultLines.push('');
+        resultLines.push(pc.bold(title));
+        printSkillResults(groupedResults[group]);
+      }
+
+      if (ungroupedResults.length > 0) {
+        if (sortedResultGroups.length > 0) {
+          resultLines.push('');
+          resultLines.push(pc.bold('General'));
+        }
+        printSkillResults(ungroupedResults);
       }
 
       const title = pc.green(`Installed ${skillCount} skill${skillCount !== 1 ? 's' : ''}`);
@@ -2171,6 +2298,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
   }
 }
 
+// Cleanup helper
 async function cleanup(tempDir: string | null) {
   if (tempDir) {
     try {
@@ -2183,10 +2311,6 @@ async function cleanup(tempDir: string | null) {
 
 /**
  * Prompt user to install the find-skills skill after their first installation.
- * This helps users discover skills via their coding agent.
- * The prompt is only shown once - if dismissed, it's stored in the lock file.
- *
- * @param options - Installation options, used to check for -y/--yes flag
  */
 async function promptForFindSkills(
   options?: AddOptions,
@@ -2223,8 +2347,6 @@ async function promptForFindSkills(
 
     if (install) {
       // Install find-skills to the same agents the user selected, excluding replit
-      // (replit doesn't support global skill installation)
-      // Mark as dismissed first to prevent recursive prompts
       await dismissPrompt('findSkillsPrompt');
 
       // Filter out replit from target agents
@@ -2239,8 +2361,7 @@ async function promptForFindSkills(
       p.log.step('Installing find-skills skill...');
 
       try {
-        // Call runAdd directly instead of spawning subprocess
-        // Use the same agents that were selected for the original install (minus replit)
+        // Call runAdd directly
         await runAdd(['vercel-labs/skills'], {
           skill: ['find-skills'],
           global: true,
