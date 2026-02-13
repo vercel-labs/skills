@@ -746,8 +746,8 @@ async function handleWellKnownSkills(
       for (const s of skills) {
         p.log.message(`  - ${s.installName}`);
       }
+      process.exit(1);
     }
-    process.exit(1);
   } else if (skills.length === 1) {
     selectedSkills = skills;
     const firstSkill = skills[0]!;
