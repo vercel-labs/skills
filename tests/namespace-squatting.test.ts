@@ -5,7 +5,7 @@
  * where an attacker's SKILL.md claims a different skill name via YAML frontmatter
  * to shadow a legitimate skill.
  *
- * See: github-issue-draft-namespace-squatting-vuln-long.md
+ * See: https://github.com/vercel-labs/skills/issues/353
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -35,8 +35,6 @@ Content here
 function makeSkill(name: string, path: string): Skill {
   return { name, description: 'desc', path };
 }
-
-// ─── parseSkillMd: name-directory binding ─────────────────────────────────────
 
 describe('parseSkillMd name-directory validation', () => {
   let testDir: string;
@@ -160,8 +158,6 @@ Content here
   });
 });
 
-// ─── discoverSkills: namespace squatting prevention ───────────────────────────
-
 describe('discoverSkills namespace squatting prevention', () => {
   let testDir: string;
 
@@ -236,8 +232,6 @@ describe('discoverSkills namespace squatting prevention', () => {
     warnSpy.mockRestore();
   });
 });
-
-// ─── filterSkills: directory name preference ──────────────────────────────────
 
 describe('filterSkills directory name preference', () => {
   it('should prefer skill whose directory matches the filter when multiple share a name', () => {

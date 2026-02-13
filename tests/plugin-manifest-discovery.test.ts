@@ -38,11 +38,11 @@ describe('discoverSkills with plugin manifests', () => {
     );
 
     // Create the skill (name must match directory for name-directory binding)
-    mkdirSync(join(testDir, 'plugins/test-plugin/skills/test-skill'), { recursive: true });
+    mkdirSync(join(testDir, 'plugins/test-plugin/skills/manifest-skill'), { recursive: true });
     writeFileSync(
-      join(testDir, 'plugins/test-plugin/skills/test-skill/SKILL.md'),
+      join(testDir, 'plugins/test-plugin/skills/manifest-skill/SKILL.md'),
       `---
-name: test-skill
+name: manifest-skill
 description: Skill discovered via manifest
 ---
 # Test
@@ -51,7 +51,7 @@ description: Skill discovered via manifest
 
     const skills = await discoverSkills(testDir);
     expect(skills).toHaveLength(1);
-    expect(skills[0].name).toBe('test-skill');
+    expect(skills[0].name).toBe('manifest-skill');
   });
 
   it('should respect metadata.pluginRoot', async () => {
@@ -70,9 +70,9 @@ description: Skill discovered via manifest
       })
     );
 
-    mkdirSync(join(testDir, 'plugins/my-plugin/skills/my-skill'), { recursive: true });
+    mkdirSync(join(testDir, 'plugins/my-plugin/skills/pluginroot-skill'), { recursive: true });
     writeFileSync(
-      join(testDir, 'plugins/my-plugin/skills/my-skill/SKILL.md'),
+      join(testDir, 'plugins/my-plugin/skills/pluginroot-skill/SKILL.md'),
       `---
 name: my-skill
 description: Test
@@ -82,7 +82,7 @@ description: Test
 
     const skills = await discoverSkills(testDir);
     expect(skills).toHaveLength(1);
-    expect(skills[0].name).toBe('my-skill');
+    expect(skills[0].name).toBe('pluginroot-skill');
   });
 
   it('should discover skills from plugin.json', async () => {
@@ -95,11 +95,11 @@ description: Test
       })
     );
 
-    mkdirSync(join(testDir, 'skills/single-skill'), { recursive: true });
+    mkdirSync(join(testDir, 'skills/single-plugin-skill'), { recursive: true });
     writeFileSync(
-      join(testDir, 'skills/single-skill/SKILL.md'),
+      join(testDir, 'skills/single-plugin-skill/SKILL.md'),
       `---
-name: single-skill
+name: single-plugin-skill
 description: Test
 ---
 `
@@ -107,7 +107,7 @@ description: Test
 
     const skills = await discoverSkills(testDir);
     expect(skills).toHaveLength(1);
-    expect(skills[0].name).toBe('single-skill');
+    expect(skills[0].name).toBe('single-plugin-skill');
   });
 
   it('should skip remote source objects', async () => {
