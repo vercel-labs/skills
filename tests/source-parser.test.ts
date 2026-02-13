@@ -262,9 +262,9 @@ describe('getOwnerRepo', () => {
     expect(getOwnerRepo(parsed)).toBe('owner/repo');
   });
 
-  it('getOwnerRepo - SSH format returns null', () => {
+  it('getOwnerRepo - SSH format extracts owner/repo', () => {
     const parsed = parseSource('git@github.com:owner/repo.git');
-    expect(getOwnerRepo(parsed)).toBeNull();
+    expect(getOwnerRepo(parsed)).toBe('owner/repo');
   });
 
   it('getOwnerRepo - private GitLab instance extracts owner/repo', () => {
@@ -313,5 +313,38 @@ describe('getOwnerRepo', () => {
       url: 'https://gitlab.company.com/division/team/repo.git',
     } as const;
     expect(getOwnerRepo(parsed)).toBe('division/team/repo');
+  });
+
+  it('getOwnerRepo - SSH URL (GitHub)', () => {
+    const parsed = { type: 'git', url: 'git@github.com:owner/repo.git' } as const;
+    expect(getOwnerRepo(parsed)).toBe('owner/repo');
+  });
+
+  it('getOwnerRepo - SSH URL (GitLab)', () => {
+    const parsed = { type: 'git', url: 'git@gitlab.com:owner/repo.git' } as const;
+    expect(getOwnerRepo(parsed)).toBe('owner/repo');
+  });
+
+  it('getOwnerRepo - SSH URL with subgroups (GitLab)', () => {
+    const parsed = {
+      type: 'git',
+      url: 'git@gitlab.com:group/subgroup/project/repo.git',
+    } as const;
+    expect(getOwnerRepo(parsed)).toBe('group/subgroup/project/repo');
+  });
+
+  it('getOwnerRepo - SSH URL without .git suffix', () => {
+    const parsed = { type: 'git', url: 'git@github.com:owner/repo' } as const;
+    expect(getOwnerRepo(parsed)).toBe('owner/repo');
+  });
+
+  it('getOwnerRepo - SSH URL (custom host)', () => {
+    const parsed = { type: 'git', url: 'git@git.company.com:org/team/repo.git' } as const;
+    expect(getOwnerRepo(parsed)).toBe('org/team/repo');
+  });
+
+  it('getOwnerRepo - SSH URL without path (returns null)', () => {
+    const parsed = { type: 'git', url: 'git@github.com:repo.git' } as const;
+    expect(getOwnerRepo(parsed)).toBeNull();
   });
 });
