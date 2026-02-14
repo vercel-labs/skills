@@ -401,8 +401,8 @@ describe('find-skills prompt with -y flag', () => {
   });
 
   it('should skip find-skills prompt when -y flag is passed', () => {
-    // Create a test skill
-    const skillDir = join(testDir, 'test-skill');
+    // Create a test skill (name must match directory to pass name-directory binding)
+    const skillDir = join(testDir, 'yes-flag-test-skill');
     mkdirSync(skillDir, { recursive: true });
     writeFileSync(
       join(skillDir, 'SKILL.md'),
@@ -411,7 +411,7 @@ name: yes-flag-test-skill
 description: A test skill for -y flag testing
 ---
 
-# Yes Flag Test Skill
+# Yes FlagTest Skill
 
 This is a test skill for -y flag mode testing.
 `

@@ -37,10 +37,10 @@ describe('discoverSkills with plugin manifests', () => {
       })
     );
 
-    // Create the skill
-    mkdirSync(join(testDir, 'plugins/test-plugin/skills/test-skill'), { recursive: true });
+    // Create the skill (name must match directory for name-directory binding)
+    mkdirSync(join(testDir, 'plugins/test-plugin/skills/manifest-skill'), { recursive: true });
     writeFileSync(
-      join(testDir, 'plugins/test-plugin/skills/test-skill/SKILL.md'),
+      join(testDir, 'plugins/test-plugin/skills/manifest-skill/SKILL.md'),
       `---
 name: manifest-skill
 description: Skill discovered via manifest
@@ -70,11 +70,11 @@ description: Skill discovered via manifest
       })
     );
 
-    mkdirSync(join(testDir, 'plugins/my-plugin/skills/my-skill'), { recursive: true });
+    mkdirSync(join(testDir, 'plugins/my-plugin/skills/pluginroot-skill'), { recursive: true });
     writeFileSync(
-      join(testDir, 'plugins/my-plugin/skills/my-skill/SKILL.md'),
+      join(testDir, 'plugins/my-plugin/skills/pluginroot-skill/SKILL.md'),
       `---
-name: pluginroot-skill
+name: my-skill
 description: Test
 ---
 `
@@ -95,9 +95,9 @@ description: Test
       })
     );
 
-    mkdirSync(join(testDir, 'skills/single-skill'), { recursive: true });
+    mkdirSync(join(testDir, 'skills/single-plugin-skill'), { recursive: true });
     writeFileSync(
-      join(testDir, 'skills/single-skill/SKILL.md'),
+      join(testDir, 'skills/single-plugin-skill/SKILL.md'),
       `---
 name: single-plugin-skill
 description: Test
@@ -521,7 +521,7 @@ description: Should not be found
     writeFileSync(
       join(testDir, 'valid-plugin/skills/skill2/SKILL.md'),
       `---
-name: valid-skill
+name: skill2
 description: Should be found
 ---
 `
@@ -529,7 +529,7 @@ description: Should be found
 
     const skills = await discoverSkills(testDir);
     expect(skills).toHaveLength(1);
-    expect(skills[0].name).toBe('valid-skill');
+    expect(skills[0].name).toBe('skill2');
   });
 
   it('should reject skill paths without ./ prefix', async () => {
@@ -571,7 +571,7 @@ description: Should be found - path has ./
     writeFileSync(
       join(testDir, 'skills/standard/SKILL.md'),
       `---
-name: standard-skill
+name: standard
 description: Standard location
 ---
 `
@@ -579,8 +579,8 @@ description: Standard location
 
     const skills = await discoverSkills(testDir);
     const names = skills.map((s) => s.name).sort();
-    // Should find: valid-skill (via valid manifest path) and standard-skill (via convention)
+    // Should find: valid-skill (via valid manifest path) and standard (via convention)
     // Should NOT find: bare-skill (manifest path lacks ./)
-    expect(names).toEqual(['standard-skill', 'valid-skill']);
+    expect(names).toEqual(['standard', 'valid-skill']);
   });
 });
