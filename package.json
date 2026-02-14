@@ -74,7 +74,9 @@
     "zencoder",
     "neovate",
     "pochi",
-    "adal"
+    "adal",
+    "xcode-codex",
+    "xcode-claude"
   ],
   "repository": {
     "type": "git",
