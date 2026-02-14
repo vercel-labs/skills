@@ -9,6 +9,7 @@ export type AgentType =
   | 'codex'
   | 'command-code'
   | 'continue'
+  | 'cortex'
   | 'crush'
   | 'cursor'
   | 'droid'
