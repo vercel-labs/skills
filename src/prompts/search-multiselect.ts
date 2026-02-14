@@ -13,6 +13,7 @@ export interface SearchItem<T> {
   value: T;
   label: string;
   hint?: string;
+  group?: string;
 }
 
 export interface LockedSection<T> {
@@ -150,8 +151,20 @@ export async function searchMultiselect<T>(
         if (filtered.length === 0) {
           lines.push(`${S_BAR}  ${pc.dim('No matches found')}`);
         } else {
+          let lastGroup: string | undefined;
+
           for (let i = 0; i < visibleItems.length; i++) {
             const item = visibleItems[i]!;
+
+            // Render group header if group changed
+            if (item.group && item.group !== lastGroup) {
+              lines.push(`${S_BAR}  ${pc.bold(pc.cyan(item.group))}`);
+              lastGroup = item.group;
+            } else if (!item.group && lastGroup) {
+              // Reset group if we moved from grouped to ungrouped
+              lastGroup = undefined;
+            }
+
             const actualIndex = visibleStart + i;
             const isSelected = selected.has(item.value);
             const isCursor = actualIndex === cursor;
