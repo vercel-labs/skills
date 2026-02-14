@@ -220,7 +220,7 @@ Skills can be installed to any of these agents:
 | Continue | `continue` | `.continue/skills/` | `~/.continue/skills/` |
 | Crush | `crush` | `.crush/skills/` | `~/.config/crush/skills/` |
 | Cursor | `cursor` | `.cursor/skills/` | `~/.cursor/skills/` |
-| Droid | `droid` | `.factory/skills/` | `~/.factory/skills/` |
+| Droid | `droid` | `.agents/skills/` | `~/.agents/skills/` |
 | Gemini CLI | `gemini-cli` | `.agents/skills/` | `~/.gemini/skills/` |
 | GitHub Copilot | `github-copilot` | `.agents/skills/` | `~/.copilot/skills/` |
 | Goose | `goose` | `.goose/skills/` | `~/.config/goose/skills/` |
@@ -325,7 +325,7 @@ The CLI searches for skills in these locations within a repository:
 - `.continue/skills/`
 - `.crush/skills/`
 - `.cursor/skills/`
-- `.factory/skills/`
+
 - `.goose/skills/`
 - `.junie/skills/`
 - `.iflow/skills/`
