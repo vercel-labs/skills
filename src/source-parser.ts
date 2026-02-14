@@ -2,6 +2,19 @@ import { isAbsolute, resolve } from 'path';
 import type { ParsedSource } from './types.ts';
 
 /**
+ * Check if a hostname is a GitHub-like host.
+ * Matches: github.com, *.github.com (e.g., mycompany.github.com),
+ * and github.*.* (e.g., github.mycompany.com) for GitHub Enterprise Server.
+ */
+function isGitHubHost(hostname: string): boolean {
+  return (
+    hostname === 'github.com' ||
+    hostname.endsWith('.github.com') ||
+    (hostname.startsWith('github.') && hostname !== 'github.com')
+  );
+}
+
+/**
  * Extract owner/repo (or group/subgroup/repo for GitLab) from a parsed source
  * for lockfile tracking and telemetry.
  * Returns null for local paths or unparseable sources.
@@ -102,16 +115,22 @@ function isDirectSkillUrl(input: string): boolean {
     return false;
   }
 
-  // Exclude GitHub and GitLab repository URLs - they have their own handling
-  // (but allow raw.githubusercontent.com if someone wants to use it directly)
-  if (input.includes('github.com/') && !input.includes('raw.githubusercontent.com')) {
-    // Check if it's a blob/raw URL to SKILL.md (these should be handled by providers)
-    // vs a tree/repo URL (these should be cloned)
-    if (!input.includes('/blob/') && !input.includes('/raw/')) {
+  try {
+    const parsed = new URL(input);
+
+    // Exclude GitHub and GitLab repository URLs - they have their own handling
+    // (but allow raw.githubusercontent.com if someone wants to use it directly)
+    if (isGitHubHost(parsed.hostname) && !input.includes('raw.githubusercontent.com')) {
+      // Check if it's a blob/raw URL to SKILL.md (these should be handled by providers)
+      // vs a tree/repo URL (these should be cloned)
+      if (!input.includes('/blob/') && !input.includes('/raw/')) {
+        return false;
+      }
+    }
+    if (parsed.hostname === 'gitlab.com' && !input.includes('/-/raw/')) {
       return false;
     }
-  }
-  if (input.includes('gitlab.com/') && !input.includes('/-/raw/')) {
+  } catch {
     return false;
   }
 
@@ -150,6 +169,69 @@ export function parseSource(input: string): ParsedSource {
     return {
       type: 'direct-url',
       url: input,
+    };
+  }
+
+  // Custom GitHub Enterprise URLs
+  // Supports two hostname formats:
+  //   - *.github.com (e.g., mycompany.github.com)
+  //   - github.*.* (e.g., github.mycompany.com) - GitHub Enterprise Server
+  // Supports both full URLs (https://github.mycompany.com/...) and shorthand (github.mycompany.com/...)
+  // Must be checked BEFORE standard github.com patterns
+
+  // Custom GitHub host with @skill syntax: github.mycompany.com/org/repo@skill-name
+  // Must be checked FIRST before other custom GitHub patterns
+  const customGitHubAtSkillMatch = input.match(
+    /^(?:https?:\/\/)?([a-z0-9-]+\.github\.com|github\.[a-z0-9-]+\.[a-z]+)\/([^/]+)\/([^/@]+)@(.+)$/i
+  );
+  if (customGitHubAtSkillMatch) {
+    const [, hostname, owner, repo, skillFilter] = customGitHubAtSkillMatch;
+    return {
+      type: 'github',
+      url: `https://${hostname}/${owner}/${repo}.git`,
+      skillFilter,
+    };
+  }
+
+  // Custom GitHub host with tree/branch/path: github.mycompany.com/org/repo/tree/main/skills
+  const customGitHubTreeMatch = input.match(
+    /^(?:https?:\/\/)?([a-z0-9-]+\.github\.com|github\.[a-z0-9-]+\.[a-z]+)\/([^/]+)\/([^/]+)\/tree\/([^/]+)(?:\/(.+))?$/i
+  );
+  if (customGitHubTreeMatch) {
+    const [, hostname, owner, repoWithGit, ref, subpath] = customGitHubTreeMatch;
+    const repo = repoWithGit!.replace(/\.git$/, '');
+    return {
+      type: 'github',
+      url: `https://${hostname}/${owner}/${repo}.git`,
+      ref,
+      subpath,
+    };
+  }
+
+  // Custom GitHub host with subpath: github.mycompany.com/org/repo/path/to/skill
+  const customGitHubSubpathMatch = input.match(
+    /^(?:https?:\/\/)?([a-z0-9-]+\.github\.com|github\.[a-z0-9-]+\.[a-z]+)\/([^/]+)\/([^/]+)\/(.+)$/i
+  );
+  if (customGitHubSubpathMatch) {
+    const [, hostname, owner, repoWithGit, subpath] = customGitHubSubpathMatch;
+    const repo = repoWithGit!.replace(/\.git$/, '');
+    return {
+      type: 'github',
+      url: `https://${hostname}/${owner}/${repo}.git`,
+      subpath,
+    };
+  }
+
+  // Basic custom GitHub host: github.mycompany.com/org/repo
+  const customGitHubMatch = input.match(
+    /^(?:https?:\/\/)?([a-z0-9-]+\.github\.com|github\.[a-z0-9-]+\.[a-z]+)\/([^/]+)\/([^/]+)$/i
+  );
+  if (customGitHubMatch) {
+    const [, hostname, owner, repoWithGit] = customGitHubMatch;
+    const repo = repoWithGit!.replace(/\.git$/, '');
+    return {
+      type: 'github',
+      url: `https://${hostname}/${owner}/${repo}.git`,
     };
   }
 
@@ -293,6 +375,11 @@ function isWellKnownUrl(input: string): boolean {
       'raw.githubusercontent.com',
     ];
     if (excludedHosts.includes(parsed.hostname)) {
+      return false;
+    }
+
+    // Exclude custom GitHub hosts (*.github.com)
+    if (isGitHubHost(parsed.hostname)) {
       return false;
     }
 
