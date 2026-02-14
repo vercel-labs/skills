@@ -299,6 +299,8 @@ const EXCLUDE_DIRS = new Set(['.git']);
 
 const isExcluded = (name: string, isDirectory: boolean = false): boolean => {
   if (EXCLUDE_FILES.has(name)) return true;
+  // Explicitly allow __init__.py (Python package marker)
+  if (name === '__init__.py') return false;
   if (name.startsWith('_')) return true;
   if (isDirectory && EXCLUDE_DIRS.has(name)) return true;
   return false;
