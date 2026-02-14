@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [35 more](#available-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [36 more](#available-agents).
 <!-- agent-list:end -->
 
 ## Install a Skill
@@ -211,6 +211,7 @@ Skills can be installed to any of these agents:
 | Amp, Kimi Code CLI, Replit | `amp`, `kimi-cli`, `replit` | `.agents/skills/` | `~/.config/agents/skills/` |
 | Antigravity | `antigravity` | `.agent/skills/` | `~/.gemini/antigravity/skills/` |
 | Augment | `augment` | `.augment/skills/` | `~/.augment/skills/` |
+| IBM Bob | `bob` | `.bob/skills/` | `~/.bob/skills/` |
 | Claude Code | `claude-code` | `.claude/skills/` | `~/.claude/skills/` |
 | OpenClaw | `openclaw` | `skills/` | `~/.moltbot/skills/` |
 | Cline | `cline` | `.cline/skills/` | `~/.cline/skills/` |
@@ -317,6 +318,7 @@ The CLI searches for skills in these locations within a repository:
 - `.agents/skills/`
 - `.agent/skills/`
 - `.augment/skills/`
+- `.bob/skills/`
 - `.claude/skills/`
 - `./skills/`
 - `.cline/skills/`
