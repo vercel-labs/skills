@@ -325,6 +325,22 @@ export interface AddOptions {
   list?: boolean;
   all?: boolean;
   fullDepth?: boolean;
+  rename?: string;
+}
+
+function getNormalizedRename(rename: string | undefined): string | undefined {
+  if (rename === undefined) return undefined;
+  const trimmed = rename.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function validateSingleRename(rename: string | undefined, selectedCount: number): void {
+  if (!rename) return;
+  if (selectedCount !== 1) {
+    p.log.error('--rename requires exactly one selected skill');
+    p.log.info('Use --skill <name> to select a single skill, then pass --rename <new-name>');
+    process.exit(1);
+  }
 }
 
 /**
@@ -368,6 +384,8 @@ async function handleRemoteSkill(
     sourceIdentifier: provider.getSourceIdentifier(url),
     metadata: providerSkill.metadata,
   };
+  const renameTarget = getNormalizedRename(options.rename);
+  const installName = renameTarget || remoteSkill.installName;
 
   spinner.stop(`Found skill: ${pc.cyan(remoteSkill.installName)}`);
 
@@ -379,7 +397,7 @@ async function handleRemoteSkill(
     console.log();
     p.log.step(pc.bold('Skill Details'));
     p.log.message(`  ${pc.cyan('Name:')} ${remoteSkill.name}`);
-    p.log.message(`  ${pc.cyan('Install as:')} ${remoteSkill.installName}`);
+    p.log.message(`  ${pc.cyan('Install as:')} ${installName}`);
     p.log.message(`  ${pc.cyan('Provider:')} ${provider.displayName}`);
     p.log.message(`  ${pc.cyan('Description:')} ${remoteSkill.description}`);
     console.log();
@@ -512,7 +530,7 @@ async function handleRemoteSkill(
   const overwriteChecks = await Promise.all(
     targetAgents.map(async (agent) => ({
       agent,
-      installed: await isSkillInstalled(remoteSkill.installName, agent, {
+      installed: await isSkillInstalled(installName, agent, {
         global: installGlobally,
       }),
     }))
@@ -524,7 +542,7 @@ async function handleRemoteSkill(
   // Build installation summary
   const summaryLines: string[] = [];
 
-  const canonicalPath = getCanonicalPath(remoteSkill.installName, { global: installGlobally });
+  const canonicalPath = getCanonicalPath(installName, { global: installGlobally });
   const shortCanonical = shortenPath(canonicalPath, cwd);
   summaryLines.push(`${pc.cyan(shortCanonical)}`);
   summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
@@ -568,9 +586,10 @@ async function handleRemoteSkill(
     const result = await installRemoteSkillForAgent(remoteSkill, agent, {
       global: installGlobally,
       mode: installMode,
+      renameTo: renameTarget,
     });
     results.push({
-      skill: remoteSkill.installName,
+      skill: installName,
       agent: agents[agent].displayName,
       ...result,
     });
@@ -590,10 +609,10 @@ async function handleRemoteSkill(
     track({
       event: 'install',
       source: remoteSkill.sourceIdentifier,
-      skills: remoteSkill.installName,
+      skills: installName,
       agents: targetAgents.join(','),
       ...(installGlobally && { global: '1' }),
-      skillFiles: JSON.stringify({ [remoteSkill.installName]: url }),
+      skillFiles: JSON.stringify({ [installName]: url }),
       sourceType: remoteSkill.providerId,
     });
   }
@@ -609,7 +628,7 @@ async function handleRemoteSkill(
       }
 
       await addSkillToLock(
-        remoteSkill.installName,
+        installName,
         {
           source: remoteSkill.sourceIdentifier,
           sourceType: remoteSkill.providerId,
@@ -628,7 +647,7 @@ async function handleRemoteSkill(
     const firstResult = successful[0]!;
 
     if (firstResult.mode === 'copy') {
-      resultLines.push(`${pc.green('✓')} ${remoteSkill.installName} ${pc.dim('(copied)')}`);
+      resultLines.push(`${pc.green('✓')} ${installName} ${pc.dim('(copied)')}`);
       for (const r of successful) {
         const shortPath = shortenPath(r.path, cwd);
         resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
@@ -639,7 +658,7 @@ async function handleRemoteSkill(
         const shortPath = shortenPath(firstResult.canonicalPath, cwd);
         resultLines.push(`${pc.green('✓')} ${shortPath}`);
       } else {
-        resultLines.push(`${pc.green('✓')} ${remoteSkill.installName}`);
+        resultLines.push(`${pc.green('✓')} ${installName}`);
       }
       resultLines.push(...buildResultLines(successful, targetAgents));
     }
@@ -784,6 +803,12 @@ async function handleWellKnownSkills(
 
     selectedSkills = selected as WellKnownSkill[];
   }
+  const renameTarget = getNormalizedRename(options.rename);
+  validateSingleRename(renameTarget, selectedSkills.length);
+  const getInstallName = (skill: WellKnownSkill): string =>
+    renameTarget && selectedSkills.length === 1 ? renameTarget : skill.installName;
+  const getRenameForSkill = (skill: WellKnownSkill): string | undefined =>
+    renameTarget && selectedSkills.length === 1 ? renameTarget : undefined;
 
   // Detect agents
   let targetAgents: AgentType[];
@@ -920,9 +945,11 @@ async function handleWellKnownSkills(
   const overwriteChecks = await Promise.all(
     selectedSkills.flatMap((skill) =>
       targetAgents.map(async (agent) => ({
-        skillName: skill.installName,
+        skillName: getInstallName(skill),
         agent,
-        installed: await isSkillInstalled(skill.installName, agent, { global: installGlobally }),
+        installed: await isSkillInstalled(getInstallName(skill), agent, {
+          global: installGlobally,
+        }),
       }))
     )
   );
@@ -937,7 +964,8 @@ async function handleWellKnownSkills(
   for (const skill of selectedSkills) {
     if (summaryLines.length > 0) summaryLines.push('');
 
-    const canonicalPath = getCanonicalPath(skill.installName, { global: installGlobally });
+    const installName = getInstallName(skill);
+    const canonicalPath = getCanonicalPath(installName, { global: installGlobally });
     const shortCanonical = shortenPath(canonicalPath, cwd);
     summaryLines.push(`${pc.cyan(shortCanonical)}`);
     summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
@@ -945,7 +973,7 @@ async function handleWellKnownSkills(
       summaryLines.push(`  ${pc.dim('files:')} ${skill.files.size}`);
     }
 
-    const skillOverwrites = overwriteStatus.get(skill.installName);
+    const skillOverwrites = overwriteStatus.get(installName);
     const overwriteAgents = targetAgents
       .filter((a) => skillOverwrites?.get(a))
       .map((a) => agents[a].displayName);
@@ -981,13 +1009,16 @@ async function handleWellKnownSkills(
   }[] = [];
 
   for (const skill of selectedSkills) {
+    const installName = getInstallName(skill);
+    const renameTo = getRenameForSkill(skill);
     for (const agent of targetAgents) {
       const result = await installWellKnownSkillForAgent(skill, agent, {
         global: installGlobally,
         mode: installMode,
+        renameTo,
       });
       results.push({
-        skill: skill.installName,
+        skill: installName,
         agent: agents[agent].displayName,
         ...result,
       });
@@ -1006,7 +1037,7 @@ async function handleWellKnownSkills(
   // Build skillFiles map: { skillName: sourceUrl }
   const skillFiles: Record<string, string> = {};
   for (const skill of selectedSkills) {
-    skillFiles[skill.installName] = skill.sourceUrl;
+    skillFiles[getInstallName(skill)] = skill.sourceUrl;
   }
 
   // Skip telemetry for private GitHub repos
@@ -1016,7 +1047,7 @@ async function handleWellKnownSkills(
     track({
       event: 'install',
       source: sourceIdentifier,
-      skills: selectedSkills.map((s) => s.installName).join(','),
+      skills: selectedSkills.map((s) => getInstallName(s)).join(','),
       agents: targetAgents.join(','),
       ...(installGlobally && { global: '1' }),
       skillFiles: JSON.stringify(skillFiles),
@@ -1028,10 +1059,11 @@ async function handleWellKnownSkills(
   if (successful.length > 0) {
     const successfulSkillNames = new Set(successful.map((r) => r.skill));
     for (const skill of selectedSkills) {
-      if (successfulSkillNames.has(skill.installName)) {
+      const installName = getInstallName(skill);
+      if (successfulSkillNames.has(installName)) {
         try {
           await addSkillToLock(
-            skill.installName,
+            installName,
             {
               source: sourceIdentifier,
               sourceType: 'well-known',
@@ -1146,6 +1178,8 @@ async function handleDirectUrlSkillLegacy(
     providerId: 'mintlify',
     sourceIdentifier: 'mintlify/com',
   };
+  const renameTarget = getNormalizedRename(options.rename);
+  const installName = renameTarget || remoteSkill.installName;
 
   spinner.stop(`Found skill: ${pc.cyan(remoteSkill.installName)}`);
 
@@ -1156,7 +1190,7 @@ async function handleDirectUrlSkillLegacy(
     console.log();
     p.log.step(pc.bold('Skill Details'));
     p.log.message(`  ${pc.cyan('Name:')} ${remoteSkill.name}`);
-    p.log.message(`  ${pc.cyan('Site:')} ${remoteSkill.installName}`);
+    p.log.message(`  ${pc.cyan('Site:')} ${installName}`);
     p.log.message(`  ${pc.cyan('Description:')} ${remoteSkill.description}`);
     console.log();
     p.outro('Run without --list to install');
@@ -1272,7 +1306,7 @@ async function handleDirectUrlSkillLegacy(
   const overwriteChecks = await Promise.all(
     targetAgents.map(async (agent) => ({
       agent,
-      installed: await isSkillInstalled(remoteSkill.installName, agent, {
+      installed: await isSkillInstalled(installName, agent, {
         global: installGlobally,
       }),
     }))
@@ -1284,7 +1318,7 @@ async function handleDirectUrlSkillLegacy(
   // Build installation summary
   const summaryLines: string[] = [];
   const agentNames = targetAgents.map((a) => agents[a].displayName);
-  const canonicalPath = getCanonicalPath(remoteSkill.installName, { global: installGlobally });
+  const canonicalPath = getCanonicalPath(installName, { global: installGlobally });
   const shortCanonical = shortenPath(canonicalPath, cwd);
   summaryLines.push(`${pc.cyan(shortCanonical)}`);
   summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
@@ -1328,9 +1362,10 @@ async function handleDirectUrlSkillLegacy(
     const result = await installRemoteSkillForAgent(remoteSkill, agent, {
       global: installGlobally,
       mode: installMode,
+      renameTo: renameTarget,
     });
     results.push({
-      skill: remoteSkill.installName,
+      skill: installName,
       agent: agents[agent].displayName,
       ...result,
     });
@@ -1347,10 +1382,10 @@ async function handleDirectUrlSkillLegacy(
   track({
     event: 'install',
     source: 'mintlify/com',
-    skills: remoteSkill.installName,
+    skills: installName,
     agents: targetAgents.join(','),
     ...(installGlobally && { global: '1' }),
-    skillFiles: JSON.stringify({ [remoteSkill.installName]: url }),
+    skillFiles: JSON.stringify({ [installName]: url }),
     sourceType: 'mintlify',
   });
 
@@ -1360,7 +1395,7 @@ async function handleDirectUrlSkillLegacy(
       // skillFolderHash will be populated by telemetry server
       // Mintlify skills are single-file, so folder hash = content hash on server
       await addSkillToLock(
-        remoteSkill.installName,
+        installName,
         {
           source: `mintlify/${remoteSkill.installName}`,
           sourceType: 'mintlify',
@@ -1382,7 +1417,7 @@ async function handleDirectUrlSkillLegacy(
       const shortPath = shortenPath(firstResult.canonicalPath, cwd);
       resultLines.push(`${pc.green('✓')} ${shortPath}`);
     } else {
-      resultLines.push(`${pc.green('✓')} ${remoteSkill.installName}`);
+      resultLines.push(`${pc.green('✓')} ${installName}`);
     }
     resultLines.push(...buildResultLines(successful, targetAgents));
 
@@ -1422,6 +1457,14 @@ async function handleDirectUrlSkillLegacy(
 export async function runAdd(args: string[], options: AddOptions = {}): Promise<void> {
   const source = args[0];
   let installTipShown = false;
+  const normalizedRename = getNormalizedRename(options.rename);
+
+  if (options.rename !== undefined && !normalizedRename) {
+    p.log.error('Missing value for --rename');
+    p.log.info('Usage: npx skills add <source> --rename <new-name>');
+    process.exit(1);
+  }
+  options.rename = normalizedRename;
 
   const showInstallTip = (): void => {
     if (installTipShown) return;
@@ -1597,6 +1640,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
       selectedSkills = selected as Skill[];
     }
+    const renameTarget = getNormalizedRename(options.rename);
+    validateSingleRename(renameTarget, selectedSkills.length);
+    const getInstallName = (skill: Skill): string =>
+      renameTarget && selectedSkills.length === 1 ? renameTarget : skill.name;
+    const getRenameForSkill = (skill: Skill): string | undefined =>
+      renameTarget && selectedSkills.length === 1 ? renameTarget : undefined;
 
     let targetAgents: AgentType[];
     const validAgents = Object.keys(agents);
@@ -1737,9 +1786,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     const overwriteChecks = await Promise.all(
       selectedSkills.flatMap((skill) =>
         targetAgents.map(async (agent) => ({
-          skillName: skill.name,
+          skillName: getInstallName(skill),
           agent,
-          installed: await isSkillInstalled(skill.name, agent, { global: installGlobally }),
+          installed: await isSkillInstalled(getInstallName(skill), agent, {
+            global: installGlobally,
+          }),
         }))
       )
     );
@@ -1754,12 +1805,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     for (const skill of selectedSkills) {
       if (summaryLines.length > 0) summaryLines.push('');
 
-      const canonicalPath = getCanonicalPath(skill.name, { global: installGlobally });
+      const installName = getInstallName(skill);
+      const canonicalPath = getCanonicalPath(installName, { global: installGlobally });
       const shortCanonical = shortenPath(canonicalPath, cwd);
       summaryLines.push(`${pc.cyan(shortCanonical)}`);
       summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
 
-      const skillOverwrites = overwriteStatus.get(skill.name);
+      const skillOverwrites = overwriteStatus.get(installName);
       const overwriteAgents = targetAgents
         .filter((a) => skillOverwrites?.get(a))
         .map((a) => agents[a].displayName);
@@ -1796,13 +1848,16 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }[] = [];
 
     for (const skill of selectedSkills) {
+      const installName = getInstallName(skill);
+      const renameTo = getRenameForSkill(skill);
       for (const agent of targetAgents) {
         const result = await installSkillForAgent(skill, agent, {
           global: installGlobally,
           mode: installMode,
+          renameTo,
         });
         results.push({
-          skill: getSkillDisplayName(skill),
+          skill: installName,
           agent: agents[agent].displayName,
           ...result,
         });
@@ -1836,7 +1891,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         // Local path - skip telemetry for local installs
         continue;
       }
-      skillFiles[skill.name] = relativePath;
+      skillFiles[getInstallName(skill)] = relativePath;
     }
 
     // Normalize source to owner/repo format for telemetry
@@ -1854,7 +1909,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           track({
             event: 'install',
             source: normalizedSource,
-            skills: selectedSkills.map((s) => s.name).join(','),
+            skills: selectedSkills.map((s) => getInstallName(s)).join(','),
             agents: targetAgents.join(','),
             ...(installGlobally && { global: '1' }),
             skillFiles: JSON.stringify(skillFiles),
@@ -1865,7 +1920,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         track({
           event: 'install',
           source: normalizedSource,
-          skills: selectedSkills.map((s) => s.name).join(','),
+          skills: selectedSkills.map((s) => getInstallName(s)).join(','),
           agents: targetAgents.join(','),
           ...(installGlobally && { global: '1' }),
           skillFiles: JSON.stringify(skillFiles),
@@ -1877,19 +1932,19 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     if (successful.length > 0 && normalizedSource) {
       const successfulSkillNames = new Set(successful.map((r) => r.skill));
       for (const skill of selectedSkills) {
-        const skillDisplayName = getSkillDisplayName(skill);
-        if (successfulSkillNames.has(skillDisplayName)) {
+        const installName = getInstallName(skill);
+        if (successfulSkillNames.has(installName)) {
           try {
             // Fetch the folder hash from GitHub Trees API
             let skillFolderHash = '';
-            const skillPathValue = skillFiles[skill.name];
+            const skillPathValue = skillFiles[installName];
             if (parsed.type === 'github' && skillPathValue) {
               const hash = await fetchSkillFolderHash(normalizedSource, skillPathValue);
               if (hash) skillFolderHash = hash;
             }
 
             await addSkillToLock(
-              skill.name,
+              installName,
               {
                 source: normalizedSource,
                 sourceType: parsed.type,
@@ -2119,6 +2174,15 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       i--; // Back up one since the loop will increment
     } else if (arg === '--full-depth') {
       options.fullDepth = true;
+    } else if (arg === '--rename') {
+      const nextArg = args[i + 1];
+      if (nextArg && !nextArg.startsWith('-')) {
+        options.rename = nextArg;
+        i++;
+      } else {
+        // Mark as present but invalid; runAdd will print a clear error
+        options.rename = '';
+      }
     } else if (arg && !arg.startsWith('-')) {
       source.push(arg);
     }

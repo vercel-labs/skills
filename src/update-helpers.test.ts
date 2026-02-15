@@ -43,9 +43,10 @@ describe('update install argument builders', () => {
     expect(buildInstallUrl(entry)).toBe('https://github.com/owner/repo/tree/main/skills/my-skill');
   });
 
-  it('buildUpdateAddArgs builds project-scoped add args', () => {
+  it('buildUpdateAddArgs preserves local name via --rename', () => {
     const args = buildUpdateAddArgs(
       'https://github.com/owner/repo/tree/main/skills/my-skill',
+      'my-renamed-skill',
       'project'
     );
     expect(args).toEqual([
@@ -54,12 +55,15 @@ describe('update install argument builders', () => {
       'add',
       'https://github.com/owner/repo/tree/main/skills/my-skill',
       '-y',
+      '--rename',
+      'my-renamed-skill',
     ]);
   });
 
   it('buildUpdateAddArgs adds -g for global scope', () => {
     const args = buildUpdateAddArgs(
       'https://github.com/owner/repo/tree/main/skills/my-skill',
+      'my-renamed-skill',
       'global'
     );
     expect(args).toContain('-g');

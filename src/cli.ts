@@ -115,6 +115,7 @@ ${BOLD}Add Options:${RESET}
   -g, --global           Install skill globally (user-level) instead of project-level
   -a, --agent <agents>   Specify agents to install to (use '*' for all agents)
   -s, --skill <skills>   Specify skill names to install (use '*' for all skills)
+  --rename <name>        Install selected skill under a new local name
   -l, --list             List available skills in the repository without installing
   -y, --yes              Skip confirmation prompts
   --all                  Shorthand for --skill '*' --agent '*' -y
@@ -142,6 +143,7 @@ ${BOLD}Options:${RESET}
 ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills add vercel-labs/agent-skills
   ${DIM}$${RESET} skills add vercel-labs/agent-skills -g
+  ${DIM}$${RESET} skills add vercel-labs/agent-skills --skill review --rename my-review-skill
   ${DIM}$${RESET} skills add vercel-labs/agent-skills --agent claude-code cursor
   ${DIM}$${RESET} skills add vercel-labs/agent-skills --skill pr-review commit
   ${DIM}$${RESET} skills remove                   ${DIM}# interactive remove${RESET}
@@ -274,6 +276,7 @@ export function parseScopeOptions(args: string[]): ScopeOptions {
   const wantsGlobal = args.includes('-g') || args.includes('--global');
   const wantsProject = args.includes('-p') || args.includes('--project');
 
+  // Default: check both scopes
   if (!wantsGlobal && !wantsProject) {
     return { project: true, global: true };
   }
@@ -311,6 +314,7 @@ export function buildInstallUrl(entry: SkillLockEntry): string {
     return installUrl;
   }
 
+  // Extract the skill folder path (remove /SKILL.md suffix)
   let skillFolder = entry.skillPath;
   if (skillFolder.endsWith('/SKILL.md')) {
     skillFolder = skillFolder.slice(0, -9);
@@ -321,12 +325,18 @@ export function buildInstallUrl(entry: SkillLockEntry): string {
     skillFolder = skillFolder.slice(0, -1);
   }
 
+  // Convert git URL to tree URL with path
+  // https://github.com/owner/repo.git -> https://github.com/owner/repo/tree/main/path
   installUrl = entry.sourceUrl.replace(/\.git$/, '').replace(/\/$/, '');
   return `${installUrl}/tree/main/${skillFolder}`;
 }
 
-export function buildUpdateAddArgs(installUrl: string, scope: 'project' | 'global'): string[] {
-  const addArgs = ['-y', 'skills', 'add', installUrl, '-y'];
+export function buildUpdateAddArgs(
+  installUrl: string,
+  skillName: string,
+  scope: 'project' | 'global'
+): string[] {
+  const addArgs = ['-y', 'skills', 'add', installUrl, '-y', '--rename', skillName];
   if (scope === 'global') {
     addArgs.push('-g');
   }
@@ -506,7 +516,9 @@ async function runUpdate(args: string[] = []): Promise<void> {
     console.log(`${TEXT}Updating ${update.name} (${update.scope})...${RESET}`);
 
     const installUrl = buildInstallUrl(update.entry);
-    const addArgs = buildUpdateAddArgs(installUrl, update.scope);
+    const addArgs = buildUpdateAddArgs(installUrl, update.name, update.scope);
+
+    // Reinstall while preserving install name via --rename
     const result = spawnSync('npx', addArgs, {
       stdio: ['inherit', 'pipe', 'pipe'],
     });

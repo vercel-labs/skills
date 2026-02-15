@@ -41,6 +41,7 @@ npx skills add ./my-local-skills
 | `-g, --global`            | Install to user directory instead of project                                                                                                       |
 | `-a, --agent <agents...>` | <!-- agent-names:start -->Target specific agents (e.g., `claude-code`, `codex`). See [Available Agents](#available-agents)<!-- agent-names:end -->                  |
 | `-s, --skill <skills...>` | Install specific skills by name (use `'*'` for all skills)                                                                                         |
+| `--rename <name>`         | Install the selected skill under a different local name (updates folder + `SKILL.md` frontmatter `name`)                                         |
 | `-l, --list`              | List available skills without installing                                                                                                           |
 | `-y, --yes`               | Skip all confirmation prompts                                                                                                                      |
 | `--all`                   | Install all skills to all agents without prompts                                                                                                   |
@@ -71,6 +72,9 @@ npx skills add vercel-labs/agent-skills --skill '*' -a claude-code
 
 # Install specific skills to all agents
 npx skills add vercel-labs/agent-skills --agent '*' --skill frontend-design
+
+# Install a skill under a different local name
+npx skills add vercel-labs/agent-skills --skill review --rename team-review
 ```
 
 ### Installation Scope
@@ -142,6 +146,8 @@ npx skills update
 # Update only global installs
 npx skills update --global
 ```
+
+`skills update` preserves local install names (including `--rename`) during upgrades.
 
 ### `skills init`
 

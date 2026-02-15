@@ -17,9 +17,12 @@ describe('skills CLI', () => {
       expect(output).toContain('-g, --global');
       expect(output).toContain('-a, --agent');
       expect(output).toContain('-s, --skill');
+      expect(output).toContain('--rename <name>');
       expect(output).toContain('-l, --list');
       expect(output).toContain('-y, --yes');
       expect(output).toContain('--all');
+      expect(output).toContain('--project');
+      expect(output).toContain('--global');
     });
 
     it('should show same output for -h alias', () => {
