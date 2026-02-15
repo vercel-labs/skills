@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'fs';
+import { mkdtempSync, readFileSync, rmSync } from 'fs';
 import { join } from 'path';
+import { tmpdir } from 'os';
 import { runCliOutput, stripLogo, hasLogo } from './test-utils.ts';
 
 describe('skills CLI', () => {
@@ -11,6 +12,7 @@ describe('skills CLI', () => {
       expect(output).toContain('Commands:');
       expect(output).toContain('init [name]');
       expect(output).toContain('add <package>');
+      expect(output).toContain('agents');
       expect(output).toContain('check');
       expect(output).toContain('update');
       expect(output).toContain('Add Options:');
@@ -49,6 +51,7 @@ describe('skills CLI', () => {
       const output = stripLogo(runCliOutput([]));
       expect(output).toContain('The open agent skills ecosystem');
       expect(output).toContain('npx skills add');
+      expect(output).toContain('npx skills agents');
       expect(output).toContain('npx skills check');
       expect(output).toContain('npx skills update');
       expect(output).toContain('npx skills init');
@@ -84,5 +87,15 @@ describe('skills CLI', () => {
       const output = runCliOutput(['update']);
       expect(hasLogo(output)).toBe(false);
     }, 60000);
+
+    it('should not display logo for agents command', () => {
+      const testDir = mkdtempSync(join(tmpdir(), 'skills-cli-agents-logo-test-'));
+      try {
+        const output = runCliOutput(['agents'], testDir);
+        expect(hasLogo(output)).toBe(false);
+      } finally {
+        rmSync(testDir, { recursive: true, force: true });
+      }
+    });
   });
 });

@@ -94,6 +94,7 @@ When installing interactively, you can choose:
 | Command                      | Description                                             |
 | ---------------------------- | ------------------------------------------------------- |
 | `npx skills list`            | List installed skills (alias: `ls`)                     |
+| `npx skills agents`          | Sync installed skills (name + description) into AGENTS.md |
 | `npx skills find [query]`    | Search for skills interactively or by keyword           |
 | `npx skills remove [skills]` | Remove installed skills from agents                     |
 | `npx skills check`           | Check for available skill updates                       |
@@ -113,6 +114,18 @@ npx skills ls -g
 
 # Filter by specific agents
 npx skills ls -a claude-code -a cursor
+```
+
+### `skills agents`
+
+Update or create a managed skills section in the project `AGENTS.md` file with a table of installed skills and descriptions.
+
+```bash
+# Sync project skills into AGENTS.md
+npx skills agents
+
+# Sync global skills into AGENTS.md
+npx skills agents -g
 ```
 
 ### `skills find`

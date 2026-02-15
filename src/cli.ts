@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
 import { runFind } from './find.ts';
 import { runList } from './list.ts';
+import { runAgents } from './agents-md.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { track } from './telemetry.ts';
 import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
@@ -72,6 +73,9 @@ function showBanner(): void {
     `  ${DIM}$${RESET} ${TEXT}npx skills list${RESET}            ${DIM}List installed skills${RESET}`
   );
   console.log(
+    `  ${DIM}$${RESET} ${TEXT}npx skills agents${RESET}          ${DIM}Sync installed skills to AGENTS.md${RESET}`
+  );
+  console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills find ${DIM}[query]${RESET}    ${DIM}Search for skills${RESET}`
   );
   console.log(
@@ -103,6 +107,7 @@ ${BOLD}Commands:${RESET}
                          https://github.com/vercel-labs/agent-skills
   remove [skills]   Remove installed skills
   list, ls          List installed skills
+  agents            Sync installed skills to AGENTS.md
   find [query]      Search for skills interactively
   init [name]       Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)
   check             Check for available skill updates
@@ -128,6 +133,9 @@ ${BOLD}List Options:${RESET}
   -g, --global           List global skills (default: project)
   -a, --agent <agents>   Filter by specific agents
 
+${BOLD}Agents Options:${RESET}
+  -g, --global           Use global skills instead of project skills
+
 ${BOLD}Options:${RESET}
   --help, -h        Show this help message
   --version, -v     Show version number
@@ -143,6 +151,8 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills list                     ${DIM}# list all installed skills${RESET}
   ${DIM}$${RESET} skills ls -g                    ${DIM}# list global skills only${RESET}
   ${DIM}$${RESET} skills ls -a claude-code        ${DIM}# filter by agent${RESET}
+  ${DIM}$${RESET} skills agents                   ${DIM}# sync project skills into AGENTS.md${RESET}
+  ${DIM}$${RESET} skills agents -g                ${DIM}# sync global skills into AGENTS.md${RESET}
   ${DIM}$${RESET} skills find                     ${DIM}# interactive search${RESET}
   ${DIM}$${RESET} skills find typescript          ${DIM}# search by keyword${RESET}
   ${DIM}$${RESET} skills init my-skill
@@ -598,6 +608,10 @@ async function main(): Promise<void> {
     case 'list':
     case 'ls':
       await runList(restArgs);
+      break;
+    case 'agents':
+    case 'sync-agents':
+      await runAgents(restArgs);
       break;
     case 'check':
       runCheck(restArgs);

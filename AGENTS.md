@@ -14,10 +14,11 @@ This file provides guidance to AI coding agents working on the `skills` CLI code
 | `skills init [name]` | Create a new SKILL.md template                      |
 | `skills add <pkg>`   | Install skills from git repos, URLs, or local paths |
 | `skills list`        | List installed skills (alias: `ls`)                 |
+| `skills agents`      | Sync installed skills into project AGENTS.md        |
 | `skills check`       | Check for available skill updates                   |
 | `skills update`      | Update all skills to latest versions                |
 
-Aliases: `skills a`, `skills i`, `skills install` all work for `add`. `skills ls` works for `list`.
+Aliases: `skills a`, `skills i`, `skills install` all work for `add`. `skills ls` works for `list`. `skills sync-agents` works for `agents`.
 
 ## Architecture
 
@@ -29,6 +30,8 @@ src/
 ├── add.test.ts      # Add command tests
 ├── list.ts          # List installed skills command
 ├── list.test.ts     # List command tests
+├── agents-md.ts     # Sync installed skills into AGENTS.md
+├── agents-md.test.ts # Tests for AGENTS.md sync command
 ├── agents.ts        # Agent definitions and detection
 ├── installer.ts     # Skill installation logic (symlink/copy) + listInstalledSkills
 ├── skills.ts        # Skill discovery and parsing
