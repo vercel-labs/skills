@@ -13,6 +13,7 @@ export type AgentType =
   | 'crush'
   | 'cursor'
   | 'droid'
+  | 'firebender'
   | 'gemini-cli'
   | 'github-copilot'
   | 'goose'

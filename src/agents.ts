@@ -157,6 +157,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.factory'));
     },
   },
+  firebender: {
+    name: 'firebender',
+    displayName: 'Firebender',
+    skillsDir: '.firebender/skills',
+    globalSkillsDir: join(home, '.firebender/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.firebender'));
+    },
+  },
   'gemini-cli': {
     name: 'gemini-cli',
     displayName: 'Gemini CLI',
