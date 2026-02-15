@@ -131,11 +131,17 @@ npx skills find typescript
 ### `skills check` / `skills update`
 
 ```bash
-# Check if any installed skills have updates
+# Check for updates in both project + global lock files (default)
 npx skills check
 
-# Update all skills to latest versions
+# Check only project-scoped installs
+npx skills check --project
+
+# Update all tracked skills (project + global)
 npx skills update
+
+# Update only global installs
+npx skills update --global
 ```
 
 ### `skills init`

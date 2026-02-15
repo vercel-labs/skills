@@ -691,8 +691,8 @@ async function handleRemoteSkill(
     });
   }
 
-  // Add to skill lock file for update tracking (only for global installs)
-  if (successful.length > 0 && installGlobally) {
+  // Add to skill lock file for update tracking
+  if (successful.length > 0) {
     try {
       // Try to fetch the folder hash from GitHub Trees API
       let skillFolderHash = '';
@@ -701,12 +701,16 @@ async function handleRemoteSkill(
         if (hash) skillFolderHash = hash;
       }
 
-      await addSkillToLock(remoteSkill.installName, {
-        source: remoteSkill.sourceIdentifier,
-        sourceType: remoteSkill.providerId,
-        sourceUrl: url,
-        skillFolderHash,
-      });
+      await addSkillToLock(
+        remoteSkill.installName,
+        {
+          source: remoteSkill.sourceIdentifier,
+          sourceType: remoteSkill.providerId,
+          sourceUrl: url,
+          skillFolderHash,
+        },
+        { global: installGlobally, cwd }
+      );
     } catch {
       // Don't fail installation if lock file update fails
     }
@@ -1134,18 +1138,22 @@ async function handleWellKnownSkills(
     });
   }
 
-  // Add to skill lock file for update tracking (only for global installs)
-  if (successful.length > 0 && installGlobally) {
+  // Add to skill lock file for update tracking
+  if (successful.length > 0) {
     const successfulSkillNames = new Set(successful.map((r) => r.skill));
     for (const skill of selectedSkills) {
       if (successfulSkillNames.has(skill.installName)) {
         try {
-          await addSkillToLock(skill.installName, {
-            source: sourceIdentifier,
-            sourceType: 'well-known',
-            sourceUrl: skill.sourceUrl,
-            skillFolderHash: '', // Well-known skills don't have a folder hash
-          });
+          await addSkillToLock(
+            skill.installName,
+            {
+              source: sourceIdentifier,
+              sourceType: 'well-known',
+              sourceUrl: skill.sourceUrl,
+              skillFolderHash: '', // Well-known skills don't have a folder hash
+            },
+            { global: installGlobally, cwd }
+          );
         } catch {
           // Don't fail installation if lock file update fails
         }
@@ -1488,17 +1496,21 @@ async function handleDirectUrlSkillLegacy(
     sourceType: 'mintlify',
   });
 
-  // Add to skill lock file for update tracking (only for global installs)
-  if (successful.length > 0 && installGlobally) {
+  // Add to skill lock file for update tracking
+  if (successful.length > 0) {
     try {
       // skillFolderHash will be populated by telemetry server
       // Mintlify skills are single-file, so folder hash = content hash on server
-      await addSkillToLock(remoteSkill.installName, {
-        source: `mintlify/${remoteSkill.installName}`,
-        sourceType: 'mintlify',
-        sourceUrl: url,
-        skillFolderHash: '', // Populated by server
-      });
+      await addSkillToLock(
+        remoteSkill.installName,
+        {
+          source: `mintlify/${remoteSkill.installName}`,
+          sourceType: 'mintlify',
+          sourceUrl: url,
+          skillFolderHash: '', // Populated by server
+        },
+        { global: installGlobally, cwd }
+      );
     } catch {
       // Don't fail installation if lock file update fails
     }
@@ -2035,8 +2047,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
-    // Add to skill lock file for update tracking (only for global installs)
-    if (successful.length > 0 && installGlobally && normalizedSource) {
+    // Add to skill lock file for update tracking
+    if (successful.length > 0 && normalizedSource) {
       const successfulSkillNames = new Set(successful.map((r) => r.skill));
       for (const skill of selectedSkills) {
         const skillDisplayName = getSkillDisplayName(skill);
@@ -2050,13 +2062,17 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               if (hash) skillFolderHash = hash;
             }
 
-            await addSkillToLock(skill.name, {
-              source: normalizedSource,
-              sourceType: parsed.type,
-              sourceUrl: parsed.url,
-              skillPath: skillPathValue,
-              skillFolderHash,
-            });
+            await addSkillToLock(
+              skill.name,
+              {
+                source: normalizedSource,
+                sourceType: parsed.type,
+                sourceUrl: parsed.url,
+                skillPath: skillPathValue,
+                skillFolderHash,
+              },
+              { global: installGlobally, cwd }
+            );
           } catch {
             // Don't fail installation if lock file update fails
           }

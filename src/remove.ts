@@ -208,13 +208,11 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
         await rm(canonicalPath, { recursive: true, force: true });
       }
 
-      const lockEntry = isGlobal ? await getSkillFromLock(skillName) : null;
+      const lockEntry = await getSkillFromLock(skillName, { global: isGlobal, cwd });
       const effectiveSource = lockEntry?.source || 'local';
       const effectiveSourceType = lockEntry?.sourceType || 'local';
 
-      if (isGlobal) {
-        await removeSkillFromLock(skillName);
-      }
+      await removeSkillFromLock(skillName, { global: isGlobal, cwd });
 
       results.push({
         skill: skillName,
