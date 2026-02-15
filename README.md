@@ -99,6 +99,8 @@ When installing interactively, you can choose:
 | `npx skills check`           | Check for available skill updates                       |
 | `npx skills update`          | Update all installed skills to latest versions          |
 | `npx skills init [name]`     | Create a new SKILL.md template                          |
+| `npx skills batch-export`    | Export installed skills to YAML config file             |
+| `npx skills batch-update`    | Batch update skills from YAML config file               |
 
 ### `skills list`
 
@@ -145,6 +147,45 @@ npx skills init
 
 # Create a new skill in a subdirectory
 npx skills init my-skill
+```
+
+### `skills batch-export`
+
+Export installed skills to a YAML configuration file.
+
+```bash
+# Export skills to stdout
+npx skills batch-export
+
+# Export to a file
+npx skills batch-export -o config.yml
+
+# Export global skills
+npx skills batch-export -g
+
+# Export with extra fields (tags, triggers)
+npx skills batch-export --with tags,triggers
+```
+
+### `skills batch-update`
+
+Batch update skills from a YAML configuration file.
+
+```bash
+# Update from default config file (./skills-config.yml)
+npx skills batch-update
+
+# Update from specific config file
+npx skills batch-update config.yml
+
+# Update global skills
+npx skills batch-update -g
+
+# Dry run (preview changes)
+npx skills batch-update --dry-run
+
+# Skip confirmation prompts
+npx skills batch-update -y
 ```
 
 ### `skills remove`

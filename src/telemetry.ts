@@ -45,12 +45,26 @@ interface FindTelemetryData {
   interactive?: '1';
 }
 
+interface BatchExportTelemetryData {
+  event: 'batch-export';
+  skillCount: string;
+}
+
+interface BatchUpdateTelemetryData {
+  event: 'batch-update-config';
+  skillCount: string;
+  enabledCount?: string;
+  disabledCount?: string;
+}
+
 type TelemetryData =
   | InstallTelemetryData
   | RemoveTelemetryData
   | CheckTelemetryData
   | UpdateTelemetryData
-  | FindTelemetryData;
+  | FindTelemetryData
+  | BatchExportTelemetryData
+  | BatchUpdateTelemetryData;
 
 let cliVersion: string | null = null;
 
