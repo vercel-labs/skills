@@ -2,18 +2,33 @@ import { isAbsolute, resolve } from 'path';
 import type { ParsedSource } from './types.ts';
 
 /**
- * Extract owner/repo from a parsed source for telemetry.
+ * Extract owner/repo (or group/subgroup/repo for GitLab) from a parsed source
+ * for lockfile tracking and telemetry.
  * Returns null for local paths or unparseable sources.
+ * Supports any Git host with an owner/repo URL structure, including GitLab subgroups.
  */
 export function getOwnerRepo(parsed: ParsedSource): string | null {
   if (parsed.type === 'local') {
     return null;
   }
 
-  // Extract from git URL: https://github.com/owner/repo.git or similar
-  const match = parsed.url.match(/(?:github|gitlab)\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/);
-  if (match) {
-    return `${match[1]}/${match[2]}`;
+  // Only handle HTTP(S) URLs
+  if (!parsed.url.startsWith('http://') && !parsed.url.startsWith('https://')) {
+    return null;
+  }
+
+  try {
+    const url = new URL(parsed.url);
+    // Get pathname, remove leading slash and trailing .git
+    let path = url.pathname.slice(1);
+    path = path.replace(/\.git$/, '');
+
+    // Must have at least owner/repo (one slash)
+    if (path.includes('/')) {
+      return path;
+    }
+  } catch {
+    // Invalid URL
   }
 
   return null;
@@ -107,7 +122,18 @@ function isDirectSkillUrl(input: string): boolean {
  * Parse a source string into a structured format
  * Supports: local paths, GitHub URLs, GitLab URLs, GitHub shorthand, direct skill.md URLs, and direct git URLs
  */
+// Source aliases: map common shorthand to canonical source
+const SOURCE_ALIASES: Record<string, string> = {
+  'coinbase/agentWallet': 'coinbase/agentic-wallet-skills',
+};
+
 export function parseSource(input: string): ParsedSource {
+  // Resolve source aliases before parsing
+  const alias = SOURCE_ALIASES[input];
+  if (alias) {
+    input = alias;
+  }
+
   // Local path: absolute, relative, or current directory
   if (isLocalPath(input)) {
     const resolvedPath = resolve(input);
@@ -192,16 +218,19 @@ export function parseSource(input: string): ParsedSource {
     }
   }
 
-  // GitLab.com URL: https://gitlab.com/owner/repo
+  // GitLab.com URL: https://gitlab.com/owner/repo or https://gitlab.com/group/subgroup/repo
   // Only for the official gitlab.com domain for user convenience.
-  const gitlabRepoMatch = input.match(/gitlab\.com\/([^/]+)\/([^/]+)/);
+  // Supports nested subgroups (e.g., gitlab.com/group/subgroup1/subgroup2/repo).
+  const gitlabRepoMatch = input.match(/gitlab\.com\/(.+?)(?:\.git)?\/?$/);
   if (gitlabRepoMatch) {
-    const [, owner, repo] = gitlabRepoMatch;
-    const cleanRepo = repo!.replace(/\.git$/, '');
-    return {
-      type: 'gitlab',
-      url: `https://gitlab.com/${owner}/${cleanRepo}.git`,
-    };
+    const repoPath = gitlabRepoMatch[1]!;
+    // Must have at least owner/repo (one slash)
+    if (repoPath.includes('/')) {
+      return {
+        type: 'gitlab',
+        url: `https://gitlab.com/${repoPath}.git`,
+      };
+    }
   }
 
   // GitHub shorthand: owner/repo, owner/repo/path/to/skill, or owner/repo@skill-name

@@ -11,6 +11,7 @@ import { runFind } from './find.ts';
 import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { track } from './telemetry.ts';
+import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -339,83 +340,91 @@ async function runCheck(args: string[] = []): Promise<void> {
     return;
   }
 
-  const checkRequest: CheckUpdatesRequest = {
-    skills: [],
-  };
+  // Get GitHub token from user's environment for higher rate limits
+  const token = getGitHubToken();
+
+  // Group skills by source (owner/repo) to batch GitHub API calls
+  const skillsBySource = new Map<string, Array<{ name: string; entry: SkillLockEntry }>>();
+  let skippedCount = 0;
 
   for (const skillName of skillNames) {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    // Skip skills without skillFolderHash (e.g., private repos where API can't fetch hash)
-    if (!entry.skillFolderHash) {
+    // Only check GitHub-sourced skills with folder hash
+    if (entry.sourceType !== 'github' || !entry.skillFolderHash || !entry.skillPath) {
+      skippedCount++;
       continue;
     }
 
-    checkRequest.skills.push({
-      name: skillName,
-      source: entry.source,
-      path: entry.skillPath,
-      skillFolderHash: entry.skillFolderHash,
-    });
+    const existing = skillsBySource.get(entry.source) || [];
+    existing.push({ name: skillName, entry });
+    skillsBySource.set(entry.source, existing);
   }
 
-  if (checkRequest.skills.length === 0) {
-    console.log(`${DIM}No skills to check.${RESET}`);
+  const totalSkills = skillNames.length - skippedCount;
+  if (totalSkills === 0) {
+    console.log(`${DIM}No GitHub skills to check.${RESET}`);
     return;
   }
 
-  console.log(`${DIM}Checking ${checkRequest.skills.length} skill(s) for updates...${RESET}`);
+  console.log(`${DIM}Checking ${totalSkills} skill(s) for updates...${RESET}`);
 
-  try {
-    const response = await fetch(CHECK_UPDATES_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(checkRequest),
-    });
+  const updates: Array<{ name: string; source: string }> = [];
+  const errors: Array<{ name: string; source: string; error: string }> = [];
 
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
-    }
+  // Check each source (one API call per repo)
+  for (const [source, skills] of skillsBySource) {
+    for (const { name, entry } of skills) {
+      try {
+        const latestHash = await fetchSkillFolderHash(source, entry.skillPath!, token);
 
-    const data = (await response.json()) as CheckUpdatesResponse;
+        if (!latestHash) {
+          errors.push({ name, source, error: 'Could not fetch from GitHub' });
+          continue;
+        }
 
-    console.log();
-
-    if (data.updates.length === 0) {
-      console.log(`${TEXT}✓ All skills are up to date${RESET}`);
-    } else {
-      console.log(`${TEXT}${data.updates.length} update(s) available:${RESET}`);
-      console.log();
-      for (const update of data.updates) {
-        console.log(`  ${TEXT}↑${RESET} ${update.name}`);
-        console.log(`    ${DIM}source: ${update.source}${RESET}`);
+        if (latestHash !== entry.skillFolderHash) {
+          updates.push({ name, source });
+        }
+      } catch (err) {
+        errors.push({
+          name,
+          source,
+          error: err instanceof Error ? err.message : 'Unknown error',
+        });
       }
-      console.log();
-      console.log(
-        `${DIM}Run${RESET} ${TEXT}npx skills update${RESET} ${DIM}to update all skills${RESET}`
-      );
     }
-
-    if (data.errors && data.errors.length > 0) {
-      console.log();
-      console.log(
-        `${DIM}Could not check ${data.errors.length} skill(s) (may need reinstall)${RESET}`
-      );
-    }
-
-    // Track telemetry
-    track({
-      event: 'check',
-      skillCount: String(checkRequest.skills.length),
-      updatesAvailable: String(data.updates.length),
-    });
-  } catch (error) {
-    console.log(
-      `${TEXT}Error checking for updates:${RESET} ${error instanceof Error ? error.message : 'Unknown error'}`
-    );
-    process.exit(1);
   }
+
+  console.log();
+
+  if (updates.length === 0) {
+    console.log(`${TEXT}✓ All skills are up to date${RESET}`);
+  } else {
+    console.log(`${TEXT}${updates.length} update(s) available:${RESET}`);
+    console.log();
+    for (const update of updates) {
+      console.log(`  ${TEXT}↑${RESET} ${update.name}`);
+      console.log(`    ${DIM}source: ${update.source}${RESET}`);
+    }
+    console.log();
+    console.log(
+      `${DIM}Run${RESET} ${TEXT}npx skills update${RESET} ${DIM}to update all skills${RESET}`
+    );
+  }
+
+  if (errors.length > 0) {
+    console.log();
+    console.log(`${DIM}Could not check ${errors.length} skill(s) (may need reinstall)${RESET}`);
+  }
+
+  // Track telemetry
+  track({
+    event: 'check',
+    skillCount: String(totalSkills),
+    updatesAvailable: String(updates.length),
+  });
 
   console.log();
 }
@@ -433,51 +442,38 @@ async function runUpdate(): Promise<void> {
     return;
   }
 
-  const checkRequest: CheckUpdatesRequest = {
-    skills: [],
-  };
+  // Get GitHub token from user's environment for higher rate limits
+  const token = getGitHubToken();
+
+  // Find skills that need updates by checking GitHub directly
+  const updates: Array<{ name: string; source: string; entry: SkillLockEntry }> = [];
+  let checkedCount = 0;
 
   for (const skillName of skillNames) {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    // Skip skills without skillFolderHash (e.g., private repos where API can't fetch hash)
-    if (!entry.skillFolderHash) {
+    // Only check GitHub-sourced skills with folder hash
+    if (entry.sourceType !== 'github' || !entry.skillFolderHash || !entry.skillPath) {
       continue;
     }
 
-    checkRequest.skills.push({
-      name: skillName,
-      source: entry.source,
-      path: entry.skillPath,
-      skillFolderHash: entry.skillFolderHash,
-    });
+    checkedCount++;
+
+    try {
+      const latestHash = await fetchSkillFolderHash(entry.source, entry.skillPath, token);
+
+      if (latestHash && latestHash !== entry.skillFolderHash) {
+        updates.push({ name: skillName, source: entry.source, entry });
+      }
+    } catch {
+      // Skip skills that fail to check
+    }
   }
 
-  if (checkRequest.skills.length === 0) {
+  if (checkedCount === 0) {
     console.log(`${DIM}No skills to check.${RESET}`);
     return;
-  }
-
-  let updates: CheckUpdatesResponse['updates'] = [];
-  try {
-    const response = await fetch(CHECK_UPDATES_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(checkRequest),
-    });
-
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
-    }
-
-    const data = (await response.json()) as CheckUpdatesResponse;
-    updates = data.updates;
-  } catch (error) {
-    console.log(
-      `${TEXT}Error checking for updates:${RESET} ${error instanceof Error ? error.message : 'Unknown error'}`
-    );
-    process.exit(1);
   }
 
   if (updates.length === 0) {
@@ -494,19 +490,33 @@ async function runUpdate(): Promise<void> {
   let failCount = 0;
 
   for (const update of updates) {
-    const entry = lock.skills[update.name];
-    if (!entry) continue;
-
     console.log(`${TEXT}Updating ${update.name}...${RESET}`);
 
-    // Use skills CLI to reinstall with -g -y flags
-    const result = spawnSync(
-      'npx',
-      ['-y', 'skills', entry.sourceUrl, '--skill', update.name, '-g', '-y'],
-      {
-        stdio: ['inherit', 'pipe', 'pipe'],
+    // Build the URL with subpath to target the specific skill directory
+    // e.g., https://github.com/owner/repo/tree/main/skills/my-skill
+    let installUrl = update.entry.sourceUrl;
+    if (update.entry.skillPath) {
+      // Extract the skill folder path (remove /SKILL.md suffix)
+      let skillFolder = update.entry.skillPath;
+      if (skillFolder.endsWith('/SKILL.md')) {
+        skillFolder = skillFolder.slice(0, -9);
+      } else if (skillFolder.endsWith('SKILL.md')) {
+        skillFolder = skillFolder.slice(0, -8);
       }
-    );
+      if (skillFolder.endsWith('/')) {
+        skillFolder = skillFolder.slice(0, -1);
+      }
+
+      // Convert git URL to tree URL with path
+      // https://github.com/owner/repo.git -> https://github.com/owner/repo/tree/main/path
+      installUrl = update.entry.sourceUrl.replace(/\.git$/, '').replace(/\/$/, '');
+      installUrl = `${installUrl}/tree/main/${skillFolder}`;
+    }
+
+    // Use skills CLI to reinstall with -g -y flags
+    const result = spawnSync('npx', ['-y', 'skills', 'add', installUrl, '-g', '-y'], {
+      stdio: ['inherit', 'pipe', 'pipe'],
+    });
 
     if (result.status === 0) {
       successCount++;

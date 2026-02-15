@@ -208,22 +208,22 @@ Skills can be installed to any of these agents:
 <!-- supported-agents:start -->
 | Agent | `--agent` | Project Path | Global Path |
 |-------|-----------|--------------|-------------|
-| Amp, Kimi Code CLI | `amp`, `kimi-cli` | `.agents/skills/` | `~/.config/agents/skills/` |
+| Amp, Kimi Code CLI, Replit | `amp`, `kimi-cli`, `replit` | `.agents/skills/` | `~/.config/agents/skills/` |
 | Antigravity | `antigravity` | `.agent/skills/` | `~/.gemini/antigravity/skills/` |
-| Augment | `augment` | `.augment/rules/` | `~/.augment/rules/` |
+| Augment | `augment` | `.augment/skills/` | `~/.augment/skills/` |
 | Claude Code | `claude-code` | `.claude/skills/` | `~/.claude/skills/` |
 | OpenClaw | `openclaw` | `skills/` | `~/.moltbot/skills/` |
 | Cline | `cline` | `.cline/skills/` | `~/.cline/skills/` |
 | CodeBuddy | `codebuddy` | `.codebuddy/skills/` | `~/.codebuddy/skills/` |
-| Codex | `codex` | `.codex/skills/` | `~/.codex/skills/` |
+| Codex | `codex` | `.agents/skills/` | `~/.codex/skills/` |
 | Command Code | `command-code` | `.commandcode/skills/` | `~/.commandcode/skills/` |
 | Continue | `continue` | `.continue/skills/` | `~/.continue/skills/` |
 | Cortex Code | `cortex` | `.cortex/skills/` | `~/.snowflake/cortex/skills/` |
 | Crush | `crush` | `.crush/skills/` | `~/.config/crush/skills/` |
 | Cursor | `cursor` | `.cursor/skills/` | `~/.cursor/skills/` |
 | Droid | `droid` | `.factory/skills/` | `~/.factory/skills/` |
-| Gemini CLI | `gemini-cli` | `.gemini/skills/` | `~/.gemini/skills/` |
-| GitHub Copilot | `github-copilot` | `.github/skills/` | `~/.copilot/skills/` |
+| Gemini CLI | `gemini-cli` | `.agents/skills/` | `~/.gemini/skills/` |
+| GitHub Copilot | `github-copilot` | `.agents/skills/` | `~/.copilot/skills/` |
 | Goose | `goose` | `.goose/skills/` | `~/.config/goose/skills/` |
 | Junie | `junie` | `.junie/skills/` | `~/.junie/skills/` |
 | iFlow CLI | `iflow-cli` | `.iflow/skills/` | `~/.iflow/skills/` |
@@ -233,12 +233,11 @@ Skills can be installed to any of these agents:
 | MCPJam | `mcpjam` | `.mcpjam/skills/` | `~/.mcpjam/skills/` |
 | Mistral Vibe | `mistral-vibe` | `.vibe/skills/` | `~/.vibe/skills/` |
 | Mux | `mux` | `.mux/skills/` | `~/.mux/skills/` |
-| OpenCode | `opencode` | `.opencode/skills/` | `~/.config/opencode/skills/` |
+| OpenCode | `opencode` | `.agents/skills/` | `~/.config/opencode/skills/` |
 | OpenHands | `openhands` | `.openhands/skills/` | `~/.openhands/skills/` |
 | Pi | `pi` | `.pi/skills/` | `~/.pi/agent/skills/` |
 | Qoder | `qoder` | `.qoder/skills/` | `~/.qoder/skills/` |
 | Qwen Code | `qwen-code` | `.qwen/skills/` | `~/.qwen/skills/` |
-| Replit | `replit` | `.agent/skills/` | N/A (project-only) |
 | Roo Code | `roo` | `.roo/skills/` | `~/.roo/skills/` |
 | Trae | `trae` | `.trae/skills/` | `~/.trae/skills/` |
 | Trae CN | `trae-cn` | `.trae/skills/` | `~/.trae-cn/skills/` |
@@ -318,20 +317,17 @@ The CLI searches for skills in these locations within a repository:
 - `skills/.system/`
 - `.agents/skills/`
 - `.agent/skills/`
-- `.augment/rules/`
+- `.augment/skills/`
 - `.claude/skills/`
 - `./skills/`
 - `.cline/skills/`
 - `.codebuddy/skills/`
-- `.codex/skills/`
 - `.commandcode/skills/`
 - `.continue/skills/`
 - `.cortex/skills/`
 - `.crush/skills/`
 - `.cursor/skills/`
 - `.factory/skills/`
-- `.gemini/skills/`
-- `.github/skills/`
 - `.goose/skills/`
 - `.junie/skills/`
 - `.iflow/skills/`
@@ -341,7 +337,6 @@ The CLI searches for skills in these locations within a repository:
 - `.mcpjam/skills/`
 - `.vibe/skills/`
 - `.mux/skills/`
-- `.opencode/skills/`
 - `.openhands/skills/`
 - `.pi/skills/`
 - `.qoder/skills/`

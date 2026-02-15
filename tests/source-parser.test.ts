@@ -79,6 +79,56 @@ describe('parseSource', () => {
       expect(result.ref).toBe('main');
       expect(result.subpath).toBe('src/skills');
     });
+
+    it('GitLab URL - with .git suffix', () => {
+      const result = parseSource('https://gitlab.com/owner/repo.git');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.com/owner/repo.git');
+    });
+
+    it('GitLab URL - subgroup (2 levels)', () => {
+      const result = parseSource('https://gitlab.com/group/subgroup/repo');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.com/group/subgroup/repo.git');
+      expect(result.ref).toBeUndefined();
+    });
+
+    it('GitLab URL - subgroup (3 levels)', () => {
+      const result = parseSource('https://gitlab.com/coresofthq/ai/agent-skills');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.com/coresofthq/ai/agent-skills.git');
+      expect(result.ref).toBeUndefined();
+    });
+
+    it('GitLab URL - deep subgroup with .git suffix', () => {
+      const result = parseSource('https://gitlab.com/org/team/project/repo.git');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.com/org/team/project/repo.git');
+    });
+
+    it('GitLab URL - subgroup with tree/branch', () => {
+      const result = parseSource('https://gitlab.com/group/subgroup/repo/-/tree/main');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.com/group/subgroup/repo.git');
+      expect(result.ref).toBe('main');
+      expect(result.subpath).toBeUndefined();
+    });
+
+    it('GitLab URL - subgroup with tree/branch/path', () => {
+      const result = parseSource(
+        'https://gitlab.com/group/subgroup/repo/-/tree/main/path/to/skill'
+      );
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.com/group/subgroup/repo.git');
+      expect(result.ref).toBe('main');
+      expect(result.subpath).toBe('path/to/skill');
+    });
+
+    it('GitLab URL - trailing slash', () => {
+      const result = parseSource('https://gitlab.com/group/subgroup/repo/');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.com/group/subgroup/repo.git');
+    });
   });
 
   describe('GitHub shorthand tests', () => {
@@ -192,6 +242,11 @@ describe('getOwnerRepo', () => {
     expect(getOwnerRepo(parsed)).toBe('owner/repo');
   });
 
+  it('getOwnerRepo - GitLab URL with subgroup', () => {
+    const parsed = parseSource('https://gitlab.com/coresofthq/ai/agent-skills');
+    expect(getOwnerRepo(parsed)).toBe('coresofthq/ai/agent-skills');
+  });
+
   it('getOwnerRepo - local path returns null', () => {
     const parsed = parseSource('./my-skills');
     expect(getOwnerRepo(parsed)).toBeNull();
@@ -202,9 +257,9 @@ describe('getOwnerRepo', () => {
     expect(getOwnerRepo(parsed)).toBeNull();
   });
 
-  it('getOwnerRepo - custom git host returns null', () => {
+  it('getOwnerRepo - custom git host extracts owner/repo', () => {
     const parsed = parseSource('https://git.example.com/owner/repo.git');
-    expect(getOwnerRepo(parsed)).toBeNull();
+    expect(getOwnerRepo(parsed)).toBe('owner/repo');
   });
 
   it('getOwnerRepo - SSH format returns null', () => {
@@ -212,9 +267,59 @@ describe('getOwnerRepo', () => {
     expect(getOwnerRepo(parsed)).toBeNull();
   });
 
-  it('getOwnerRepo - private GitLab instance returns null', () => {
-    // This falls through to 'git' type since it's not gitlab.com
+  it('getOwnerRepo - private GitLab instance extracts owner/repo', () => {
     const parsed = parseSource('https://gitlab.company.com/team/repo');
-    expect(getOwnerRepo(parsed)).toBeNull();
+    expect(getOwnerRepo(parsed)).toBe('team/repo');
+  });
+
+  it('getOwnerRepo - self-hosted git with .git suffix', () => {
+    const parsed = parseSource('https://git.internal.io/myteam/skills.git');
+    expect(getOwnerRepo(parsed)).toBe('myteam/skills');
+  });
+
+  it('getOwnerRepo - URL with query string', () => {
+    const parsed = { type: 'git', url: 'https://git.example.com/owner/repo?ref=main' } as const;
+    expect(getOwnerRepo(parsed)).toBe('owner/repo');
+  });
+
+  it('getOwnerRepo - URL with fragment', () => {
+    const parsed = { type: 'git', url: 'https://git.example.com/owner/repo#readme' } as const;
+    expect(getOwnerRepo(parsed)).toBe('owner/repo');
+  });
+
+  it('getOwnerRepo - URL with .git and query string', () => {
+    const parsed = { type: 'git', url: 'https://git.example.com/owner/repo.git?ref=main' } as const;
+    expect(getOwnerRepo(parsed)).toBe('owner/repo');
+  });
+
+  it('getOwnerRepo - GitLab subgroup (2 levels)', () => {
+    const parsed = { type: 'git', url: 'https://gitlab.com/group/subgroup/repo' } as const;
+    expect(getOwnerRepo(parsed)).toBe('group/subgroup/repo');
+  });
+
+  it('getOwnerRepo - GitLab subgroup (3 levels)', () => {
+    const parsed = { type: 'git', url: 'https://gitlab.com/org/team/project/repo.git' } as const;
+    expect(getOwnerRepo(parsed)).toBe('org/team/project/repo');
+  });
+
+  it('getOwnerRepo - GitLab subgroup with query string', () => {
+    const parsed = { type: 'git', url: 'https://gitlab.com/group/subgroup/repo?ref=main' } as const;
+    expect(getOwnerRepo(parsed)).toBe('group/subgroup/repo');
+  });
+
+  it('getOwnerRepo - self-hosted GitLab with subgroups', () => {
+    const parsed = {
+      type: 'git',
+      url: 'https://gitlab.company.com/division/team/repo.git',
+    } as const;
+    expect(getOwnerRepo(parsed)).toBe('division/team/repo');
+  });
+});
+
+describe('Source aliases', () => {
+  it('resolves coinbase/agentWallet to coinbase/agentic-wallet-skills', () => {
+    const result = parseSource('coinbase/agentWallet');
+    expect(result.type).toBe('github');
+    expect(result.url).toBe('https://github.com/coinbase/agentic-wallet-skills.git');
   });
 });

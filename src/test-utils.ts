@@ -23,7 +23,8 @@ export function hasLogo(str: string): boolean {
 export function runCli(
   args: string[],
   cwd?: string,
-  env?: Record<string, string>
+  env?: Record<string, string>,
+  timeout?: number
 ): { stdout: string; stderr: string; exitCode: number } {
   try {
     const output = execSync(`node ${CLI_PATH} ${args.join(' ')}`, {
@@ -31,6 +32,7 @@ export function runCli(
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: env ? { ...process.env, ...env } : undefined,
+      timeout: timeout ?? 30000,
     });
     return { stdout: stripAnsi(output), stderr: '', exitCode: 0 };
   } catch (error: any) {

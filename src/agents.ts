@@ -34,8 +34,8 @@ export const agents: Record<AgentType, AgentConfig> = {
   augment: {
     name: 'augment',
     displayName: 'Augment',
-    skillsDir: '.augment/rules',
-    globalSkillsDir: join(home, '.augment/rules'),
+    skillsDir: '.augment/skills',
+    globalSkillsDir: join(home, '.augment/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.augment'));
     },
@@ -87,7 +87,7 @@ export const agents: Record<AgentType, AgentConfig> = {
   codex: {
     name: 'codex',
     displayName: 'Codex',
-    skillsDir: '.codex/skills',
+    skillsDir: '.agents/skills',
     globalSkillsDir: join(codexHome, 'skills'),
     detectInstalled: async () => {
       return existsSync(codexHome) || existsSync('/etc/codex');
@@ -150,7 +150,7 @@ export const agents: Record<AgentType, AgentConfig> = {
   'gemini-cli': {
     name: 'gemini-cli',
     displayName: 'Gemini CLI',
-    skillsDir: '.gemini/skills',
+    skillsDir: '.agents/skills',
     globalSkillsDir: join(home, '.gemini/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.gemini'));
@@ -159,7 +159,7 @@ export const agents: Record<AgentType, AgentConfig> = {
   'github-copilot': {
     name: 'github-copilot',
     displayName: 'GitHub Copilot',
-    skillsDir: '.github/skills',
+    skillsDir: '.agents/skills',
     globalSkillsDir: join(home, '.copilot/skills'),
     detectInstalled: async () => {
       return existsSync(join(process.cwd(), '.github')) || existsSync(join(home, '.copilot'));
@@ -258,7 +258,7 @@ export const agents: Record<AgentType, AgentConfig> = {
   opencode: {
     name: 'opencode',
     displayName: 'OpenCode',
-    skillsDir: '.opencode/skills',
+    skillsDir: '.agents/skills',
     globalSkillsDir: join(configHome, 'opencode/skills'),
     detectInstalled: async () => {
       return existsSync(join(configHome, 'opencode')) || existsSync(join(claudeHome, 'skills'));
@@ -303,10 +303,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   replit: {
     name: 'replit',
     displayName: 'Replit',
-    skillsDir: '.agent/skills',
-    globalSkillsDir: undefined,
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(configHome, 'agents/skills'),
+    showInUniversalList: false,
     detectInstalled: async () => {
-      return existsSync(join(process.cwd(), '.agent'));
+      return existsSync(join(process.cwd(), '.agents'));
     },
   },
   roo: {
@@ -395,4 +396,34 @@ export async function detectInstalledAgents(): Promise<AgentType[]> {
 
 export function getAgentConfig(type: AgentType): AgentConfig {
   return agents[type];
+}
+
+/**
+ * Returns agents that use the universal .agents/skills directory.
+ * These agents share a common skill location and don't need symlinks.
+ * Agents with showInUniversalList: false are excluded.
+ */
+export function getUniversalAgents(): AgentType[] {
+  return (Object.entries(agents) as [AgentType, AgentConfig][])
+    .filter(
+      ([_, config]) => config.skillsDir === '.agents/skills' && config.showInUniversalList !== false
+    )
+    .map(([type]) => type);
+}
+
+/**
+ * Returns agents that use agent-specific skill directories (not universal).
+ * These agents need symlinks from the canonical .agents/skills location.
+ */
+export function getNonUniversalAgents(): AgentType[] {
+  return (Object.entries(agents) as [AgentType, AgentConfig][])
+    .filter(([_, config]) => config.skillsDir !== '.agents/skills')
+    .map(([type]) => type);
+}
+
+/**
+ * Check if an agent uses the universal .agents/skills directory.
+ */
+export function isUniversalAgent(type: AgentType): boolean {
+  return agents[type].skillsDir === '.agents/skills';
 }

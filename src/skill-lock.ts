@@ -2,6 +2,7 @@ import { readFile, writeFile, mkdir } from 'fs/promises';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
+import { execSync } from 'child_process';
 
 const AGENTS_DIR = '.agents';
 const LOCK_FILE = '.skill-lock.json';
@@ -114,17 +115,53 @@ export function computeContentHash(content: string): string {
 }
 
 /**
+ * Get GitHub token from user's environment.
+ * Tries in order:
+ * 1. GITHUB_TOKEN environment variable
+ * 2. GH_TOKEN environment variable
+ * 3. gh CLI auth token (if gh is installed)
+ *
+ * @returns The token string or null if not available
+ */
+export function getGitHubToken(): string | null {
+  // Check environment variables first
+  if (process.env.GITHUB_TOKEN) {
+    return process.env.GITHUB_TOKEN;
+  }
+  if (process.env.GH_TOKEN) {
+    return process.env.GH_TOKEN;
+  }
+
+  // Try gh CLI
+  try {
+    const token = execSync('gh auth token', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    if (token) {
+      return token;
+    }
+  } catch {
+    // gh not installed or not authenticated
+  }
+
+  return null;
+}
+
+/**
  * Fetch the tree SHA (folder hash) for a skill folder using GitHub's Trees API.
  * This makes ONE API call to get the entire repo tree, then extracts the SHA
  * for the specific skill folder.
  *
  * @param ownerRepo - GitHub owner/repo (e.g., "vercel-labs/agent-skills")
  * @param skillPath - Path to skill folder or SKILL.md (e.g., "skills/react-best-practices/SKILL.md")
+ * @param token - Optional GitHub token for authenticated requests (higher rate limits)
  * @returns The tree SHA for the skill folder, or null if not found
  */
 export async function fetchSkillFolderHash(
   ownerRepo: string,
-  skillPath: string
+  skillPath: string,
+  token?: string | null
 ): Promise<string | null> {
   // Normalize to forward slashes first (for GitHub API compatibility)
   let folderPath = skillPath.replace(/\\/g, '/');
@@ -146,12 +183,15 @@ export async function fetchSkillFolderHash(
   for (const branch of branches) {
     try {
       const url = `https://api.github.com/repos/${ownerRepo}/git/trees/${branch}?recursive=1`;
-      const response = await fetch(url, {
-        headers: {
-          Accept: 'application/vnd.github.v3+json',
-          'User-Agent': 'skills-cli',
-        },
-      });
+      const headers: Record<string, string> = {
+        Accept: 'application/vnd.github.v3+json',
+        'User-Agent': 'skills-cli',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(url, { headers });
 
       if (!response.ok) continue;
 

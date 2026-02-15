@@ -15,6 +15,11 @@ export interface SearchItem<T> {
   hint?: string;
 }
 
+export interface LockedSection<T> {
+  title: string;
+  items: SearchItem<T>[];
+}
+
 export interface SearchMultiselectOptions<T> {
   message: string;
   items: SearchItem<T>[];
@@ -22,6 +27,8 @@ export interface SearchMultiselectOptions<T> {
   initialSelected?: T[];
   /** If true, require at least one item to be selected before submitting */
   required?: boolean;
+  /** Locked section shown above the searchable list - items are always selected and can't be toggled */
+  lockedSection?: LockedSection<T>;
 }
 
 const S_STEP_ACTIVE = pc.green('◆');
@@ -29,18 +36,28 @@ const S_STEP_CANCEL = pc.red('■');
 const S_STEP_SUBMIT = pc.green('◇');
 const S_RADIO_ACTIVE = pc.green('●');
 const S_RADIO_INACTIVE = pc.dim('○');
+const S_CHECKBOX_LOCKED = pc.green('✓');
 const S_BAR = pc.dim('│');
+const S_BAR_H = pc.dim('─');
 
 export const cancelSymbol = Symbol('cancel');
 
 /**
  * Interactive search multiselect prompt.
  * Allows users to filter a long list by typing and select multiple items.
+ * Optionally supports a "locked" section that displays always-selected items.
  */
 export async function searchMultiselect<T>(
   options: SearchMultiselectOptions<T>
 ): Promise<T[] | symbol> {
-  const { message, items, maxVisible = 8, initialSelected = [], required = false } = options;
+  const {
+    message,
+    items,
+    maxVisible = 8,
+    initialSelected = [],
+    required = false,
+    lockedSection,
+  } = options;
 
   return new Promise((resolve) => {
     const rl = readline.createInterface({
@@ -59,6 +76,9 @@ export async function searchMultiselect<T>(
     let cursor = 0;
     const selected = new Set<T>(initialSelected);
     let lastRenderHeight = 0;
+
+    // Locked items are always included in the result
+    const lockedValues = lockedSection ? lockedSection.items.map((i) => i.value) : [];
 
     const filter = (item: SearchItem<T>, q: string): boolean => {
       if (!q) return true;
@@ -96,6 +116,21 @@ export async function searchMultiselect<T>(
       lines.push(`${icon}  ${pc.bold(message)}`);
 
       if (state === 'active') {
+        // Locked section (universal agents)
+        if (lockedSection && lockedSection.items.length > 0) {
+          lines.push(`${S_BAR}`);
+          lines.push(
+            `${S_BAR}  ${S_BAR_H}${S_BAR_H} ${pc.bold(lockedSection.title)} ${S_BAR_H.repeat(30)}`
+          );
+          for (const item of lockedSection.items) {
+            lines.push(`${S_BAR}    ${S_CHECKBOX_LOCKED} ${item.label}`);
+          }
+          lines.push(`${S_BAR}`);
+          lines.push(
+            `${S_BAR}  ${S_BAR_H}${S_BAR_H} ${pc.bold('Other agents')} ${S_BAR_H.repeat(34)}`
+          );
+        }
+
         // Search input
         const searchLine = `${S_BAR}  ${pc.dim('Search:')} ${query}${pc.inverse(' ')}`;
         lines.push(searchLine);
@@ -140,28 +175,30 @@ export async function searchMultiselect<T>(
           }
         }
 
-        // Selected summary
+        // Selected summary (include locked items)
         lines.push(`${S_BAR}`);
-        if (selected.size === 0) {
+        const allSelectedLabels = [
+          ...(lockedSection ? lockedSection.items.map((i) => i.label) : []),
+          ...items.filter((item) => selected.has(item.value)).map((item) => item.label),
+        ];
+        if (allSelectedLabels.length === 0) {
           lines.push(`${S_BAR}  ${pc.dim('Selected: (none)')}`);
         } else {
-          const selectedLabels = items
-            .filter((item) => selected.has(item.value))
-            .map((item) => item.label);
           const summary =
-            selectedLabels.length <= 3
-              ? selectedLabels.join(', ')
-              : `${selectedLabels.slice(0, 3).join(', ')} +${selectedLabels.length - 3} more`;
+            allSelectedLabels.length <= 3
+              ? allSelectedLabels.join(', ')
+              : `${allSelectedLabels.slice(0, 3).join(', ')} +${allSelectedLabels.length - 3} more`;
           lines.push(`${S_BAR}  ${pc.green('Selected:')} ${summary}`);
         }
 
         lines.push(`${pc.dim('└')}`);
       } else if (state === 'submit') {
-        // Final state - show what was selected
-        const selectedLabels = items
-          .filter((item) => selected.has(item.value))
-          .map((item) => item.label);
-        lines.push(`${S_BAR}  ${pc.dim(selectedLabels.join(', '))}`);
+        // Final state - show what was selected (including locked)
+        const allSelectedLabels = [
+          ...(lockedSection ? lockedSection.items.map((i) => i.label) : []),
+          ...items.filter((item) => selected.has(item.value)).map((item) => item.label),
+        ];
+        lines.push(`${S_BAR}  ${pc.dim(allSelectedLabels.join(', '))}`);
       } else if (state === 'cancel') {
         lines.push(`${S_BAR}  ${pc.strikethrough(pc.dim('Cancelled'))}`);
       }
@@ -179,13 +216,14 @@ export async function searchMultiselect<T>(
     };
 
     const submit = (): void => {
-      // If required, don't allow submitting with no selection
-      if (required && selected.size === 0) {
+      // If required and no locked items, don't allow submitting with no selection
+      if (required && selected.size === 0 && lockedValues.length === 0) {
         return;
       }
       render('submit');
       cleanup();
-      resolve(Array.from(selected));
+      // Include locked values in the result
+      resolve([...lockedValues, ...Array.from(selected)]);
     };
 
     const cancel = (): void => {

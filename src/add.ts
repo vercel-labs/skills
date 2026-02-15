@@ -32,7 +32,13 @@ import {
   installWellKnownSkillForAgent,
   type InstallMode,
 } from './installer.ts';
-import { detectInstalledAgents, agents } from './agents.ts';
+import {
+  detectInstalledAgents,
+  agents,
+  getUniversalAgents,
+  getNonUniversalAgents,
+  isUniversalAgent,
+} from './agents.ts';
 import { track, setVersion } from './telemetry.ts';
 import { findProvider, wellKnownProvider, type WellKnownSkill } from './providers/index.ts';
 import { fetchMintlifySkill } from './mintlify.ts';
@@ -76,6 +82,102 @@ function formatList(items: string[], maxShow: number = 5): string {
   const shown = items.slice(0, maxShow);
   const remaining = items.length - maxShow;
   return `${shown.join(', ')} +${remaining} more`;
+}
+
+/**
+ * Splits agents into universal and non-universal (symlinked) groups.
+ * Returns display names for each group.
+ */
+function splitAgentsByType(agentTypes: AgentType[]): {
+  universal: string[];
+  symlinked: string[];
+} {
+  const universal: string[] = [];
+  const symlinked: string[] = [];
+
+  for (const a of agentTypes) {
+    if (isUniversalAgent(a)) {
+      universal.push(agents[a].displayName);
+    } else {
+      symlinked.push(agents[a].displayName);
+    }
+  }
+
+  return { universal, symlinked };
+}
+
+/**
+ * Builds summary lines showing universal vs symlinked agents
+ */
+function buildAgentSummaryLines(targetAgents: AgentType[], installMode: InstallMode): string[] {
+  const lines: string[] = [];
+  const { universal, symlinked } = splitAgentsByType(targetAgents);
+
+  if (installMode === 'symlink') {
+    if (universal.length > 0) {
+      lines.push(`  ${pc.green('universal:')} ${formatList(universal)}`);
+    }
+    if (symlinked.length > 0) {
+      lines.push(`  ${pc.dim('symlink →')} ${formatList(symlinked)}`);
+    }
+  } else {
+    // Copy mode - all agents get copies
+    const allNames = targetAgents.map((a) => agents[a].displayName);
+    lines.push(`  ${pc.dim('copy →')} ${formatList(allNames)}`);
+  }
+
+  return lines;
+}
+
+/**
+ * Ensures universal agents are always included in the target agents list.
+ * Used when -y flag is passed or when auto-selecting agents.
+ */
+function ensureUniversalAgents(targetAgents: AgentType[]): AgentType[] {
+  const universalAgents = getUniversalAgents();
+  const result = [...targetAgents];
+
+  for (const ua of universalAgents) {
+    if (!result.includes(ua)) {
+      result.push(ua);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Builds result lines from installation results, splitting by universal vs symlinked
+ */
+function buildResultLines(
+  results: Array<{
+    agent: string;
+    symlinkFailed?: boolean;
+  }>,
+  targetAgents: AgentType[]
+): string[] {
+  const lines: string[] = [];
+
+  // Split target agents by type
+  const { universal, symlinked: symlinkAgents } = splitAgentsByType(targetAgents);
+
+  // For symlink results, also track which ones actually succeeded vs failed
+  const successfulSymlinks = results
+    .filter((r) => !r.symlinkFailed && !universal.includes(r.agent))
+    .map((r) => r.agent);
+  const failedSymlinks = results.filter((r) => r.symlinkFailed).map((r) => r.agent);
+
+  if (universal.length > 0) {
+    lines.push(`  ${pc.green('universal:')} ${formatList(universal)}`);
+  }
+  if (successfulSymlinks.length > 0) {
+    lines.push(`  ${pc.dim('symlinked:')} ${formatList(successfulSymlinks)}`);
+  }
+  if (failedSymlinks.length > 0) {
+    lines.push(`  ${pc.yellow('copied:')} ${formatList(failedSymlinks)}`);
+  }
+
+  return lines;
 }
 
 /**
@@ -152,19 +254,64 @@ export async function promptForAgents(
 
 /**
  * Interactive agent selection using fuzzy search.
- * Shows all agents (not just detected ones) and pre-selects previously used agents.
+ * Shows universal agents as locked (always selected), and other agents as selectable.
  */
 async function selectAgentsInteractive(options: {
   global?: boolean;
 }): Promise<AgentType[] | symbol> {
-  const allAgents = Object.keys(agents) as AgentType[];
-  const agentChoices = allAgents.map((a) => ({
+  // Filter out agents that don't support global installation when --global is used
+  const supportsGlobalFilter = (a: AgentType) => !options.global || agents[a].globalSkillsDir;
+
+  const universalAgents = getUniversalAgents().filter(supportsGlobalFilter);
+  const otherAgents = getNonUniversalAgents().filter(supportsGlobalFilter);
+
+  // Universal agents shown as locked section
+  const universalSection = {
+    title: 'Universal (.agents/skills)',
+    items: universalAgents.map((a) => ({
+      value: a,
+      label: agents[a].displayName,
+    })),
+  };
+
+  // Other agents are selectable with their skillsDir as hint
+  const otherChoices = otherAgents.map((a) => ({
     value: a,
     label: agents[a].displayName,
-    hint: `${options.global ? agents[a].globalSkillsDir : agents[a].skillsDir}`,
+    hint: options.global ? agents[a].globalSkillsDir! : agents[a].skillsDir,
   }));
 
-  return promptForAgents('Which agents do you want to install to?', agentChoices);
+  // Get last selected agents (filter to only non-universal ones for initial selection)
+  let lastSelected: string[] | undefined;
+  try {
+    lastSelected = await getLastSelectedAgents();
+  } catch {
+    // Silently ignore errors
+  }
+
+  const initialSelected = lastSelected
+    ? (lastSelected.filter(
+        (a) => otherAgents.includes(a as AgentType) && !universalAgents.includes(a as AgentType)
+      ) as AgentType[])
+    : [];
+
+  const selected = await searchMultiselect({
+    message: 'Which agents do you want to install to?',
+    items: otherChoices,
+    initialSelected,
+    lockedSection: universalSection,
+  });
+
+  if (!isCancelled(selected)) {
+    // Save selection (all agents including universal)
+    try {
+      await saveSelectedAgents(selected as string[]);
+    } catch {
+      // Silently ignore errors
+    }
+  }
+
+  return selected as AgentType[] | symbol;
 }
 
 const version = packageJson.version;
@@ -240,9 +387,10 @@ async function handleRemoteSkill(
     process.exit(0);
   }
 
-  // Detect agents
+  // Detect agents - universal agents are always included
   let targetAgents: AgentType[];
   const validAgents = Object.keys(agents);
+  const universalAgents = getUniversalAgents();
 
   if (options.agent?.includes('*')) {
     // --agent '*' selects all agents
@@ -257,7 +405,8 @@ async function handleRemoteSkill(
       process.exit(1);
     }
 
-    targetAgents = options.agent as AgentType[];
+    // Always include universal agents
+    targetAgents = ensureUniversalAgents(options.agent as AgentType[]);
   } else {
     spinner.start('Loading agents...');
     const installedAgents = await detectInstalledAgents();
@@ -266,21 +415,12 @@ async function handleRemoteSkill(
 
     if (installedAgents.length === 0) {
       if (options.yes) {
-        targetAgents = validAgents as AgentType[];
-        p.log.info('Installing to all agents');
+        // With -y and no detected agents, install to universal agents only
+        targetAgents = universalAgents;
+        p.log.info(`Installing to universal agents`);
       } else {
-        p.log.info('Select agents to install skills to');
-
-        const allAgentChoices = Object.entries(agents).map(([key, config]) => ({
-          value: key as AgentType,
-          label: config.displayName,
-        }));
-
-        // Use helper to prompt with search
-        const selected = await promptForAgents(
-          'Which agents do you want to install to?',
-          allAgentChoices
-        );
+        // Interactive selection with universal agents locked
+        const selected = await selectAgentsInteractive({ global: options.global });
 
         if (p.isCancel(selected)) {
           p.cancel('Installation cancelled');
@@ -290,14 +430,15 @@ async function handleRemoteSkill(
         targetAgents = selected as AgentType[];
       }
     } else if (installedAgents.length === 1 || options.yes) {
-      targetAgents = installedAgents;
-      if (installedAgents.length === 1) {
-        const firstAgent = installedAgents[0]!;
-        p.log.info(`Installing to: ${pc.cyan(agents[firstAgent].displayName)}`);
-      } else {
+      // Auto-select detected agents + ensure universal agents are included
+      targetAgents = ensureUniversalAgents(installedAgents);
+      const { universal, symlinked } = splitAgentsByType(targetAgents);
+      if (symlinked.length > 0) {
         p.log.info(
-          `Installing to: ${installedAgents.map((a) => pc.cyan(agents[a].displayName)).join(', ')}`
+          `Installing to: ${pc.green('universal')} + ${symlinked.map((a) => pc.cyan(a)).join(', ')}`
         );
+      } else {
+        p.log.info(`Installing to: ${pc.green('universal agents')}`);
       }
     } else {
       const selected = await selectAgentsInteractive({ global: options.global });
@@ -382,17 +523,11 @@ async function handleRemoteSkill(
 
   // Build installation summary
   const summaryLines: string[] = [];
-  const agentNames = targetAgents.map((a) => agents[a].displayName);
 
-  if (installMode === 'symlink') {
-    const canonicalPath = getCanonicalPath(remoteSkill.installName, { global: installGlobally });
-    const shortCanonical = shortenPath(canonicalPath, cwd);
-    summaryLines.push(`${pc.cyan(shortCanonical)}`);
-    summaryLines.push(`  ${pc.dim('symlink →')} ${formatList(agentNames)}`);
-  } else {
-    summaryLines.push(`${pc.cyan(remoteSkill.installName)}`);
-    summaryLines.push(`  ${pc.dim('copy →')} ${formatList(agentNames)}`);
-  }
+  const canonicalPath = getCanonicalPath(remoteSkill.installName, { global: installGlobally });
+  const shortCanonical = shortenPath(canonicalPath, cwd);
+  summaryLines.push(`${pc.cyan(shortCanonical)}`);
+  summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
 
   const overwriteAgents = targetAgents
     .filter((a) => overwriteStatus.get(a))
@@ -502,20 +637,10 @@ async function handleRemoteSkill(
       } else {
         resultLines.push(`${pc.green('✓')} ${remoteSkill.installName}`);
       }
-      const symlinked = successful.filter((r) => !r.symlinkFailed).map((r) => r.agent);
-      const copied = successful.filter((r) => r.symlinkFailed).map((r) => r.agent);
-
-      if (symlinked.length > 0) {
-        resultLines.push(`  ${pc.dim('symlink →')} ${formatList(symlinked)}`);
-      }
-      if (copied.length > 0) {
-        resultLines.push(`  ${pc.yellow('copied →')} ${formatList(copied)}`);
-      }
+      resultLines.push(...buildResultLines(successful, targetAgents));
     }
 
-    const title = pc.green(
-      `Installed 1 skill to ${successful.length} agent${successful.length !== 1 ? 's' : ''}`
-    );
+    const title = pc.green('Installed 1 skill');
     p.note(resultLines.join('\n'), title);
 
     // Show symlink failure warning
@@ -540,7 +665,9 @@ async function handleRemoteSkill(
   }
 
   console.log();
-  p.outro(pc.green('Done!'));
+  p.outro(
+    pc.green('Done!') + pc.dim('  Review skills before use; they run with full agent permissions.')
+  );
 
   // Prompt for find-skills after successful install
   await promptForFindSkills(options, targetAgents);
@@ -806,17 +933,12 @@ async function handleWellKnownSkills(
   for (const skill of selectedSkills) {
     if (summaryLines.length > 0) summaryLines.push('');
 
-    if (installMode === 'symlink') {
-      const canonicalPath = getCanonicalPath(skill.installName, { global: installGlobally });
-      const shortCanonical = shortenPath(canonicalPath, cwd);
-      summaryLines.push(`${pc.cyan(shortCanonical)}`);
-      summaryLines.push(`  ${pc.dim('symlink →')} ${formatList(agentNames)}`);
-      if (skill.files.size > 1) {
-        summaryLines.push(`  ${pc.dim('files:')} ${skill.files.size}`);
-      }
-    } else {
-      summaryLines.push(`${pc.cyan(skill.installName)}`);
-      summaryLines.push(`  ${pc.dim('copy →')} ${formatList(agentNames)}`);
+    const canonicalPath = getCanonicalPath(skill.installName, { global: installGlobally });
+    const shortCanonical = shortenPath(canonicalPath, cwd);
+    summaryLines.push(`${pc.cyan(shortCanonical)}`);
+    summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
+    if (skill.files.size > 1) {
+      summaryLines.push(`  ${pc.dim('files:')} ${skill.files.size}`);
     }
 
     const skillOverwrites = overwriteStatus.get(skill.installName);
@@ -926,7 +1048,6 @@ async function handleWellKnownSkills(
     }
 
     const skillCount = bySkill.size;
-    const agentCount = new Set(successful.map((r) => r.agent)).size;
     const symlinkFailures = successful.filter((r) => r.mode === 'symlink' && r.symlinkFailed);
     const copiedAgents = symlinkFailures.map((r) => r.agent);
     const resultLines: string[] = [];
@@ -942,28 +1063,18 @@ async function handleWellKnownSkills(
           resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
         }
       } else {
-        // Symlink mode: show canonical path and symlinked agents
+        // Symlink mode: show canonical path and universal/symlinked agents
         if (firstResult.canonicalPath) {
           const shortPath = shortenPath(firstResult.canonicalPath, cwd);
           resultLines.push(`${pc.green('✓')} ${shortPath}`);
         } else {
           resultLines.push(`${pc.green('✓')} ${skillName}`);
         }
-        const symlinked = skillResults.filter((r) => !r.symlinkFailed).map((r) => r.agent);
-        const copied = skillResults.filter((r) => r.symlinkFailed).map((r) => r.agent);
-
-        if (symlinked.length > 0) {
-          resultLines.push(`  ${pc.dim('symlink →')} ${formatList(symlinked)}`);
-        }
-        if (copied.length > 0) {
-          resultLines.push(`  ${pc.yellow('copied →')} ${formatList(copied)}`);
-        }
+        resultLines.push(...buildResultLines(skillResults, targetAgents));
       }
     }
 
-    const title = pc.green(
-      `Installed ${skillCount} skill${skillCount !== 1 ? 's' : ''} to ${agentCount} agent${agentCount !== 1 ? 's' : ''}`
-    );
+    const title = pc.green(`Installed ${skillCount} skill${skillCount !== 1 ? 's' : ''}`);
     p.note(resultLines.join('\n'), title);
 
     // Show symlink failure warning (only for symlink mode)
@@ -986,7 +1097,9 @@ async function handleWellKnownSkills(
   }
 
   console.log();
-  p.outro(pc.green('Done!'));
+  p.outro(
+    pc.green('Done!') + pc.dim('  Review skills before use; they run with full agent permissions.')
+  );
 
   // Prompt for find-skills after successful install
   await promptForFindSkills(options, targetAgents);
@@ -1166,7 +1279,7 @@ async function handleDirectUrlSkillLegacy(
   const canonicalPath = getCanonicalPath(remoteSkill.installName, { global: installGlobally });
   const shortCanonical = shortenPath(canonicalPath, cwd);
   summaryLines.push(`${pc.cyan(shortCanonical)}`);
-  summaryLines.push(`  ${pc.dim('symlink →')} ${formatList(agentNames)}`);
+  summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
 
   const overwriteAgents = targetAgents
     .filter((a) => overwriteStatus.get(a))
@@ -1259,19 +1372,9 @@ async function handleDirectUrlSkillLegacy(
     } else {
       resultLines.push(`${pc.green('✓')} ${remoteSkill.installName}`);
     }
-    const symlinked = successful.filter((r) => !r.symlinkFailed).map((r) => r.agent);
-    const copied = successful.filter((r) => r.symlinkFailed).map((r) => r.agent);
+    resultLines.push(...buildResultLines(successful, targetAgents));
 
-    if (symlinked.length > 0) {
-      resultLines.push(`  ${pc.dim('symlink →')} ${formatList(symlinked)}`);
-    }
-    if (copied.length > 0) {
-      resultLines.push(`  ${pc.yellow('copied →')} ${formatList(copied)}`);
-    }
-
-    const title = pc.green(
-      `Installed 1 skill to ${successful.length} agent${successful.length !== 1 ? 's' : ''}`
-    );
+    const title = pc.green('Installed 1 skill');
     p.note(resultLines.join('\n'), title);
 
     // Show symlink failure warning
@@ -1296,7 +1399,9 @@ async function handleDirectUrlSkillLegacy(
   }
 
   console.log();
-  p.outro(pc.green('Done!'));
+  p.outro(
+    pc.green('Done!') + pc.dim('  Review skills before use; they run with full agent permissions.')
+  );
 
   // Prompt for find-skills after successful install
   await promptForFindSkills(options, targetAgents);
@@ -1637,15 +1742,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     for (const skill of selectedSkills) {
       if (summaryLines.length > 0) summaryLines.push('');
 
-      if (installMode === 'symlink') {
-        const canonicalPath = getCanonicalPath(skill.name, { global: installGlobally });
-        const shortCanonical = shortenPath(canonicalPath, cwd);
-        summaryLines.push(`${pc.cyan(shortCanonical)}`);
-        summaryLines.push(`  ${pc.dim('symlink →')} ${formatList(agentNames)}`);
-      } else {
-        summaryLines.push(`${pc.cyan(getSkillDisplayName(skill))}`);
-        summaryLines.push(`  ${pc.dim('copy →')} ${formatList(agentNames)}`);
-      }
+      const canonicalPath = getCanonicalPath(skill.name, { global: installGlobally });
+      const shortCanonical = shortenPath(canonicalPath, cwd);
+      summaryLines.push(`${pc.cyan(shortCanonical)}`);
+      summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
 
       const skillOverwrites = overwriteStatus.get(skill.name);
       const overwriteAgents = targetAgents
@@ -1799,7 +1899,6 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
 
       const skillCount = bySkill.size;
-      const agentCount = new Set(successful.map((r) => r.agent)).size;
       const symlinkFailures = successful.filter((r) => r.mode === 'symlink' && r.symlinkFailed);
       const copiedAgents = symlinkFailures.map((r) => r.agent);
       const resultLines: string[] = [];
@@ -1815,28 +1914,18 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
           }
         } else {
-          // Symlink mode: show canonical path and symlinked agents
+          // Symlink mode: show canonical path and universal/symlinked agents
           if (firstResult.canonicalPath) {
             const shortPath = shortenPath(firstResult.canonicalPath, cwd);
             resultLines.push(`${pc.green('✓')} ${shortPath}`);
           } else {
             resultLines.push(`${pc.green('✓')} ${skillName}`);
           }
-          const symlinked = skillResults.filter((r) => !r.symlinkFailed).map((r) => r.agent);
-          const copied = skillResults.filter((r) => r.symlinkFailed).map((r) => r.agent);
-
-          if (symlinked.length > 0) {
-            resultLines.push(`  ${pc.dim('symlink →')} ${formatList(symlinked)}`);
-          }
-          if (copied.length > 0) {
-            resultLines.push(`  ${pc.yellow('copied →')} ${formatList(copied)}`);
-          }
+          resultLines.push(...buildResultLines(skillResults, targetAgents));
         }
       }
 
-      const title = pc.green(
-        `Installed ${skillCount} skill${skillCount !== 1 ? 's' : ''} to ${agentCount} agent${agentCount !== 1 ? 's' : ''}`
-      );
+      const title = pc.green(`Installed ${skillCount} skill${skillCount !== 1 ? 's' : ''}`);
       p.note(resultLines.join('\n'), title);
 
       // Show symlink failure warning (only for symlink mode)
@@ -1859,7 +1948,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     console.log();
-    p.outro(pc.green('Done!'));
+    p.outro(
+      pc.green('Done!') +
+        pc.dim('  Review skills before use; they run with full agent permissions.')
+    );
 
     // Prompt for find-skills after successful install
     await promptForFindSkills(options, targetAgents);

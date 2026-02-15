@@ -56,6 +56,8 @@ export interface AgentConfig {
   /** Global skills directory. Set to undefined if the agent doesn't support global installation. */
   globalSkillsDir: string | undefined;
   detectInstalled: () => Promise<boolean>;
+  /** Whether to show this agent in the universal agents list. Defaults to true. */
+  showInUniversalList?: boolean;
 }
 
 export interface ParsedSource {
