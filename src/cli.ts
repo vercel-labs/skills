@@ -1,17 +1,20 @@
 #!/usr/bin/env node
 
-import { spawn, spawnSync } from 'child_process';
-import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs';
+import { spawnSync } from 'child_process';
+import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { basename, join, dirname } from 'path';
-import { homedir } from 'os';
-import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
 import { runFind } from './find.ts';
 import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { track } from './telemetry.ts';
-import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
+import {
+  fetchSkillFolderHash,
+  getGitHubToken,
+  readSkillLock,
+  type SkillLockEntry,
+} from './skill-lock.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -117,6 +120,10 @@ ${BOLD}Add Options:${RESET}
   --all                  Shorthand for --skill '*' --agent '*' -y
   --full-depth           Search all subdirectories even when a root SKILL.md exists
 
+${BOLD}Check/Update Options:${RESET}
+  -g, --global           Check/update only global lock file
+  -p, --project          Check/update only project lock file
+
 ${BOLD}Remove Options:${RESET}
   -g, --global           Remove from global scope
   -a, --agent <agents>   Remove from specific agents (use '*' for all agents)
@@ -146,8 +153,9 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills find                     ${DIM}# interactive search${RESET}
   ${DIM}$${RESET} skills find typescript          ${DIM}# search by keyword${RESET}
   ${DIM}$${RESET} skills init my-skill
-  ${DIM}$${RESET} skills check
-  ${DIM}$${RESET} skills update
+  ${DIM}$${RESET} skills check                    ${DIM}# project + global (default)${RESET}
+  ${DIM}$${RESET} skills check --project          ${DIM}# project only${RESET}
+  ${DIM}$${RESET} skills update --global          ${DIM}# global only${RESET}
 
 Discover more skills at ${TEXT}https://skills.sh/${RESET}
 `);
@@ -251,90 +259,88 @@ Describe when this skill should be used.
 // Check and Update Commands
 // ============================================
 
-const AGENTS_DIR = '.agents';
-const LOCK_FILE = '.skill-lock.json';
-const CHECK_UPDATES_API_URL = 'https://add-skill.vercel.sh/check-updates';
-const CURRENT_LOCK_VERSION = 3; // Bumped from 2 to 3 for folder hash support
-
-interface SkillLockEntry {
-  source: string;
-  sourceType: string;
-  sourceUrl: string;
-  skillPath?: string;
-  /** GitHub tree SHA for the entire skill folder (v3) */
-  skillFolderHash: string;
-  installedAt: string;
-  updatedAt: string;
+interface ScopeOptions {
+  project: boolean;
+  global: boolean;
 }
 
-interface SkillLockFile {
-  version: number;
-  skills: Record<string, SkillLockEntry>;
+interface ScopedSkillLockEntry {
+  name: string;
+  entry: SkillLockEntry;
+  scope: 'project' | 'global';
 }
 
-interface CheckUpdatesRequest {
-  skills: Array<{
-    name: string;
-    source: string;
-    path?: string;
-    skillFolderHash: string;
-  }>;
-}
+export function parseScopeOptions(args: string[]): ScopeOptions {
+  const wantsGlobal = args.includes('-g') || args.includes('--global');
+  const wantsProject = args.includes('-p') || args.includes('--project');
 
-interface CheckUpdatesResponse {
-  updates: Array<{
-    name: string;
-    source: string;
-    currentHash: string;
-    latestHash: string;
-  }>;
-  errors?: Array<{
-    name: string;
-    source: string;
-    error: string;
-  }>;
-}
-
-function getSkillLockPath(): string {
-  return join(homedir(), AGENTS_DIR, LOCK_FILE);
-}
-
-function readSkillLock(): SkillLockFile {
-  const lockPath = getSkillLockPath();
-  try {
-    const content = readFileSync(lockPath, 'utf-8');
-    const parsed = JSON.parse(content) as SkillLockFile;
-    if (typeof parsed.version !== 'number' || !parsed.skills) {
-      return { version: CURRENT_LOCK_VERSION, skills: {} };
-    }
-    // If old version, wipe and start fresh (backwards incompatible change)
-    // v3 adds skillFolderHash - we want fresh installs to populate it
-    if (parsed.version < CURRENT_LOCK_VERSION) {
-      return { version: CURRENT_LOCK_VERSION, skills: {} };
-    }
-    return parsed;
-  } catch {
-    return { version: CURRENT_LOCK_VERSION, skills: {} };
+  if (!wantsGlobal && !wantsProject) {
+    return { project: true, global: true };
   }
+
+  return {
+    project: wantsProject,
+    global: wantsGlobal,
+  };
 }
 
-function writeSkillLock(lock: SkillLockFile): void {
-  const lockPath = getSkillLockPath();
-  const dir = join(homedir(), AGENTS_DIR);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
+async function loadScopedLockEntries(options: ScopeOptions): Promise<ScopedSkillLockEntry[]> {
+  const entries: ScopedSkillLockEntry[] = [];
+
+  if (options.project) {
+    const projectLock = await readSkillLock({ global: false, cwd: process.cwd() });
+    for (const [name, entry] of Object.entries(projectLock.skills)) {
+      entries.push({ name, entry, scope: 'project' });
+    }
   }
-  writeFileSync(lockPath, JSON.stringify(lock, null, 2), 'utf-8');
+
+  if (options.global) {
+    const globalLock = await readSkillLock({ global: true });
+    for (const [name, entry] of Object.entries(globalLock.skills)) {
+      entries.push({ name, entry, scope: 'global' });
+    }
+  }
+
+  return entries;
+}
+
+export function buildInstallUrl(entry: SkillLockEntry): string {
+  let installUrl = entry.sourceUrl;
+
+  if (!entry.skillPath) {
+    return installUrl;
+  }
+
+  let skillFolder = entry.skillPath;
+  if (skillFolder.endsWith('/SKILL.md')) {
+    skillFolder = skillFolder.slice(0, -9);
+  } else if (skillFolder.endsWith('SKILL.md')) {
+    skillFolder = skillFolder.slice(0, -8);
+  }
+  if (skillFolder.endsWith('/')) {
+    skillFolder = skillFolder.slice(0, -1);
+  }
+
+  installUrl = entry.sourceUrl.replace(/\.git$/, '').replace(/\/$/, '');
+  return `${installUrl}/tree/main/${skillFolder}`;
+}
+
+export function buildUpdateAddArgs(installUrl: string, scope: 'project' | 'global'): string[] {
+  const addArgs = ['-y', 'skills', 'add', installUrl, '-y'];
+  if (scope === 'global') {
+    addArgs.push('-g');
+  }
+  return addArgs;
 }
 
 async function runCheck(args: string[] = []): Promise<void> {
   console.log(`${TEXT}Checking for skill updates...${RESET}`);
   console.log();
 
-  const lock = readSkillLock();
-  const skillNames = Object.keys(lock.skills);
+  const scopeOptions = parseScopeOptions(args);
+  const lockEntries = await loadScopedLockEntries(scopeOptions);
 
-  if (skillNames.length === 0) {
+  if (lockEntries.length === 0) {
     console.log(`${DIM}No skills tracked in lock file.${RESET}`);
     console.log(`${DIM}Install skills with${RESET} ${TEXT}npx skills add <package>${RESET}`);
     return;
@@ -344,13 +350,11 @@ async function runCheck(args: string[] = []): Promise<void> {
   const token = getGitHubToken();
 
   // Group skills by source (owner/repo) to batch GitHub API calls
-  const skillsBySource = new Map<string, Array<{ name: string; entry: SkillLockEntry }>>();
+  const skillsBySource = new Map<string, ScopedSkillLockEntry[]>();
   let skippedCount = 0;
 
-  for (const skillName of skillNames) {
-    const entry = lock.skills[skillName];
-    if (!entry) continue;
-
+  for (const scoped of lockEntries) {
+    const { entry } = scoped;
     // Only check GitHub-sourced skills with folder hash
     if (entry.sourceType !== 'github' || !entry.skillFolderHash || !entry.skillPath) {
       skippedCount++;
@@ -358,11 +362,11 @@ async function runCheck(args: string[] = []): Promise<void> {
     }
 
     const existing = skillsBySource.get(entry.source) || [];
-    existing.push({ name: skillName, entry });
+    existing.push(scoped);
     skillsBySource.set(entry.source, existing);
   }
 
-  const totalSkills = skillNames.length - skippedCount;
+  const totalSkills = lockEntries.length - skippedCount;
   if (totalSkills === 0) {
     console.log(`${DIM}No GitHub skills to check.${RESET}`);
     return;
@@ -370,27 +374,33 @@ async function runCheck(args: string[] = []): Promise<void> {
 
   console.log(`${DIM}Checking ${totalSkills} skill(s) for updates...${RESET}`);
 
-  const updates: Array<{ name: string; source: string }> = [];
-  const errors: Array<{ name: string; source: string; error: string }> = [];
+  const updates: Array<{ name: string; source: string; scope: 'project' | 'global' }> = [];
+  const errors: Array<{
+    name: string;
+    source: string;
+    scope: 'project' | 'global';
+    error: string;
+  }> = [];
 
   // Check each source (one API call per repo)
   for (const [source, skills] of skillsBySource) {
-    for (const { name, entry } of skills) {
+    for (const { name, entry, scope } of skills) {
       try {
         const latestHash = await fetchSkillFolderHash(source, entry.skillPath!, token);
 
         if (!latestHash) {
-          errors.push({ name, source, error: 'Could not fetch from GitHub' });
+          errors.push({ name, source, scope, error: 'Could not fetch from GitHub' });
           continue;
         }
 
         if (latestHash !== entry.skillFolderHash) {
-          updates.push({ name, source });
+          updates.push({ name, source, scope });
         }
       } catch (err) {
         errors.push({
           name,
           source,
+          scope,
           error: err instanceof Error ? err.message : 'Unknown error',
         });
       }
@@ -407,6 +417,7 @@ async function runCheck(args: string[] = []): Promise<void> {
     for (const update of updates) {
       console.log(`  ${TEXT}↑${RESET} ${update.name}`);
       console.log(`    ${DIM}source: ${update.source}${RESET}`);
+      console.log(`    ${DIM}scope: ${update.scope}${RESET}`);
     }
     console.log();
     console.log(
@@ -429,14 +440,14 @@ async function runCheck(args: string[] = []): Promise<void> {
   console.log();
 }
 
-async function runUpdate(): Promise<void> {
+async function runUpdate(args: string[] = []): Promise<void> {
   console.log(`${TEXT}Checking for skill updates...${RESET}`);
   console.log();
 
-  const lock = readSkillLock();
-  const skillNames = Object.keys(lock.skills);
+  const scopeOptions = parseScopeOptions(args);
+  const lockEntries = await loadScopedLockEntries(scopeOptions);
 
-  if (skillNames.length === 0) {
+  if (lockEntries.length === 0) {
     console.log(`${DIM}No skills tracked in lock file.${RESET}`);
     console.log(`${DIM}Install skills with${RESET} ${TEXT}npx skills add <package>${RESET}`);
     return;
@@ -446,13 +457,15 @@ async function runUpdate(): Promise<void> {
   const token = getGitHubToken();
 
   // Find skills that need updates by checking GitHub directly
-  const updates: Array<{ name: string; source: string; entry: SkillLockEntry }> = [];
+  const updates: Array<{
+    name: string;
+    source: string;
+    entry: SkillLockEntry;
+    scope: 'project' | 'global';
+  }> = [];
   let checkedCount = 0;
 
-  for (const skillName of skillNames) {
-    const entry = lock.skills[skillName];
-    if (!entry) continue;
-
+  for (const { name: skillName, entry, scope } of lockEntries) {
     // Only check GitHub-sourced skills with folder hash
     if (entry.sourceType !== 'github' || !entry.skillFolderHash || !entry.skillPath) {
       continue;
@@ -464,7 +477,7 @@ async function runUpdate(): Promise<void> {
       const latestHash = await fetchSkillFolderHash(entry.source, entry.skillPath, token);
 
       if (latestHash && latestHash !== entry.skillFolderHash) {
-        updates.push({ name: skillName, source: entry.source, entry });
+        updates.push({ name: skillName, source: entry.source, entry, scope });
       }
     } catch {
       // Skip skills that fail to check
@@ -490,31 +503,11 @@ async function runUpdate(): Promise<void> {
   let failCount = 0;
 
   for (const update of updates) {
-    console.log(`${TEXT}Updating ${update.name}...${RESET}`);
+    console.log(`${TEXT}Updating ${update.name} (${update.scope})...${RESET}`);
 
-    // Build the URL with subpath to target the specific skill directory
-    // e.g., https://github.com/owner/repo/tree/main/skills/my-skill
-    let installUrl = update.entry.sourceUrl;
-    if (update.entry.skillPath) {
-      // Extract the skill folder path (remove /SKILL.md suffix)
-      let skillFolder = update.entry.skillPath;
-      if (skillFolder.endsWith('/SKILL.md')) {
-        skillFolder = skillFolder.slice(0, -9);
-      } else if (skillFolder.endsWith('SKILL.md')) {
-        skillFolder = skillFolder.slice(0, -8);
-      }
-      if (skillFolder.endsWith('/')) {
-        skillFolder = skillFolder.slice(0, -1);
-      }
-
-      // Convert git URL to tree URL with path
-      // https://github.com/owner/repo.git -> https://github.com/owner/repo/tree/main/path
-      installUrl = update.entry.sourceUrl.replace(/\.git$/, '').replace(/\/$/, '');
-      installUrl = `${installUrl}/tree/main/${skillFolder}`;
-    }
-
-    // Use skills CLI to reinstall with -g -y flags
-    const result = spawnSync('npx', ['-y', 'skills', 'add', installUrl, '-g', '-y'], {
+    const installUrl = buildInstallUrl(update.entry);
+    const addArgs = buildUpdateAddArgs(installUrl, update.scope);
+    const result = spawnSync('npx', addArgs, {
       stdio: ['inherit', 'pipe', 'pipe'],
     });
 
@@ -600,11 +593,11 @@ async function main(): Promise<void> {
       await runList(restArgs);
       break;
     case 'check':
-      runCheck(restArgs);
+      await runCheck(restArgs);
       break;
     case 'update':
     case 'upgrade':
-      runUpdate();
+      await runUpdate(restArgs);
       break;
     case '--help':
     case '-h':
@@ -621,4 +614,6 @@ async function main(): Promise<void> {
   }
 }
 
-main();
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  main();
+}

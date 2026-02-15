@@ -54,11 +54,22 @@ export interface SkillLockFile {
   lastSelectedAgents?: string[];
 }
 
+export interface SkillLockScopeOptions {
+  /** Global lock at ~/.agents/.skill-lock.json (default) */
+  global?: boolean;
+  /** Project root for project-scoped lock file */
+  cwd?: string;
+}
+
 /**
- * Get the path to the global skill lock file.
- * Located at ~/.agents/.skill-lock.json
+ * Get the path to the lock file for a given scope.
+ * Global scope: ~/.agents/.skill-lock.json
+ * Project scope: <cwd>/.agents/.skill-lock.json
  */
-export function getSkillLockPath(): string {
+export function getSkillLockPath(options: SkillLockScopeOptions = {}): string {
+  if (options.global === false) {
+    return join(options.cwd || process.cwd(), AGENTS_DIR, LOCK_FILE);
+  }
   return join(homedir(), AGENTS_DIR, LOCK_FILE);
 }
 
@@ -67,8 +78,8 @@ export function getSkillLockPath(): string {
  * Returns an empty lock file structure if the file doesn't exist.
  * Wipes the lock file if it's an old format (version < CURRENT_VERSION).
  */
-export async function readSkillLock(): Promise<SkillLockFile> {
-  const lockPath = getSkillLockPath();
+export async function readSkillLock(options: SkillLockScopeOptions = {}): Promise<SkillLockFile> {
+  const lockPath = getSkillLockPath(options);
 
   try {
     const content = await readFile(lockPath, 'utf-8');
@@ -96,8 +107,11 @@ export async function readSkillLock(): Promise<SkillLockFile> {
  * Write the skill lock file.
  * Creates the directory if it doesn't exist.
  */
-export async function writeSkillLock(lock: SkillLockFile): Promise<void> {
-  const lockPath = getSkillLockPath();
+export async function writeSkillLock(
+  lock: SkillLockFile,
+  options: SkillLockScopeOptions = {}
+): Promise<void> {
+  const lockPath = getSkillLockPath(options);
 
   // Ensure directory exists
   await mkdir(dirname(lockPath), { recursive: true });
@@ -226,9 +240,10 @@ export async function fetchSkillFolderHash(
  */
 export async function addSkillToLock(
   skillName: string,
-  entry: Omit<SkillLockEntry, 'installedAt' | 'updatedAt'>
+  entry: Omit<SkillLockEntry, 'installedAt' | 'updatedAt'>,
+  options: SkillLockScopeOptions = {}
 ): Promise<void> {
-  const lock = await readSkillLock();
+  const lock = await readSkillLock(options);
   const now = new Date().toISOString();
 
   const existingEntry = lock.skills[skillName];
@@ -239,37 +254,45 @@ export async function addSkillToLock(
     updatedAt: now,
   };
 
-  await writeSkillLock(lock);
+  await writeSkillLock(lock, options);
 }
 
 /**
  * Remove a skill from the lock file.
  */
-export async function removeSkillFromLock(skillName: string): Promise<boolean> {
-  const lock = await readSkillLock();
+export async function removeSkillFromLock(
+  skillName: string,
+  options: SkillLockScopeOptions = {}
+): Promise<boolean> {
+  const lock = await readSkillLock(options);
 
   if (!(skillName in lock.skills)) {
     return false;
   }
 
   delete lock.skills[skillName];
-  await writeSkillLock(lock);
+  await writeSkillLock(lock, options);
   return true;
 }
 
 /**
  * Get a skill entry from the lock file.
  */
-export async function getSkillFromLock(skillName: string): Promise<SkillLockEntry | null> {
-  const lock = await readSkillLock();
+export async function getSkillFromLock(
+  skillName: string,
+  options: SkillLockScopeOptions = {}
+): Promise<SkillLockEntry | null> {
+  const lock = await readSkillLock(options);
   return lock.skills[skillName] ?? null;
 }
 
 /**
  * Get all skills from the lock file.
  */
-export async function getAllLockedSkills(): Promise<Record<string, SkillLockEntry>> {
-  const lock = await readSkillLock();
+export async function getAllLockedSkills(
+  options: SkillLockScopeOptions = {}
+): Promise<Record<string, SkillLockEntry>> {
+  const lock = await readSkillLock(options);
   return lock.skills;
 }
 
@@ -309,7 +332,7 @@ function createEmptyLockFile(): SkillLockFile {
  * Check if a prompt has been dismissed.
  */
 export async function isPromptDismissed(promptKey: keyof DismissedPrompts): Promise<boolean> {
-  const lock = await readSkillLock();
+  const lock = await readSkillLock({ global: true });
   return lock.dismissed?.[promptKey] === true;
 }
 
@@ -317,19 +340,19 @@ export async function isPromptDismissed(promptKey: keyof DismissedPrompts): Prom
  * Mark a prompt as dismissed.
  */
 export async function dismissPrompt(promptKey: keyof DismissedPrompts): Promise<void> {
-  const lock = await readSkillLock();
+  const lock = await readSkillLock({ global: true });
   if (!lock.dismissed) {
     lock.dismissed = {};
   }
   lock.dismissed[promptKey] = true;
-  await writeSkillLock(lock);
+  await writeSkillLock(lock, { global: true });
 }
 
 /**
  * Get the last selected agents.
  */
 export async function getLastSelectedAgents(): Promise<string[] | undefined> {
-  const lock = await readSkillLock();
+  const lock = await readSkillLock({ global: true });
   return lock.lastSelectedAgents;
 }
 
@@ -337,7 +360,7 @@ export async function getLastSelectedAgents(): Promise<string[] | undefined> {
  * Save the selected agents to the lock file.
  */
 export async function saveSelectedAgents(agents: string[]): Promise<void> {
-  const lock = await readSkillLock();
+  const lock = await readSkillLock({ global: true });
   lock.lastSelectedAgents = agents;
-  await writeSkillLock(lock);
+  await writeSkillLock(lock, { global: true });
 }

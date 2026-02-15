@@ -62,25 +62,16 @@ tests/
 
 ### How `skills check` and `skills update` Work
 
-1. Read `~/.agents/.skill-lock.json` for installed skills
-2. For each skill, get `skillFolderHash` from lock file
-3. POST to `https://add-skill.vercel.sh/check-updates` with:
-   ```json
-   {
-     "skills": [{ "name": "...", "source": "...", "skillFolderHash": "..." }],
-     "forceRefresh": true
-   }
-   ```
-4. API fetches fresh content from GitHub, computes hash, compares
-5. Returns list of skills with different hashes (updates available)
-
-### Why `forceRefresh: true`?
-
-Both `check` and `update` always send `forceRefresh: true`. This ensures the API fetches fresh content from GitHub rather than using its Redis cache.
-
-**Without forceRefresh:** Users saw phantom "updates available" due to stale cached hashes. The fix was to always fetch fresh.
-
-**Tradeoff:** Slightly slower (GitHub API call per skill), but always accurate.
+1. Read lock files from project and/or global scope:
+   - Project: `<cwd>/.agents/.skill-lock.json`
+   - Global: `~/.agents/.skill-lock.json`
+2. For each GitHub skill, compare stored `skillFolderHash` to current GitHub tree SHA via `fetchSkillFolderHash`.
+3. `skills check` reports available updates.
+4. `skills update` reinstalls changed skills.
+5. Scope flags:
+   - `--project` / `-p`: project only
+   - `--global` / `-g`: global only
+   - default: both scopes
 
 ### Lock File Compatibility
 
@@ -93,8 +84,8 @@ If reading an older lock file version, it's wiped. Users must reinstall skills t
 | Feature          | Implementation                              |
 | ---------------- | ------------------------------------------- |
 | `skills add`     | `src/add.ts` - full implementation          |
-| `skills check`   | `POST /check-updates` API                   |
-| `skills update`  | `POST /check-updates` + reinstall per skill |
+| `skills check`   | `src/cli.ts` + `src/skill-lock.ts`          |
+| `skills update`  | `src/cli.ts` + `src/add.ts` reinstall flow  |
 
 ## Development
 
