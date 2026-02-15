@@ -71,7 +71,7 @@ tests/
    - Global: `~/.agents/.skill-lock.json`
 2. For each GitHub skill, compare stored `skillFolderHash` to current GitHub tree SHA via `fetchSkillFolderHash`.
 3. `skills check` reports available updates.
-4. `skills update` reinstalls changed skills.
+4. `skills update` reinstalls changed skills via `npx skills add ... --rename <installed-name>` to preserve local rename aliases.
 5. Scope flags:
    - `--project` / `-p`: project only
    - `--global` / `-g`: global only

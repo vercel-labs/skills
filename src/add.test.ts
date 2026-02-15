@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { existsSync, rmSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from './test-utils.ts';
@@ -156,6 +156,68 @@ description: Test
   it('should restore from lock file with experimental_install', () => {
     const result = runCli(['experimental_install'], testDir);
     expect(result.stdout).toContain('No project skills found in skills-lock.json');
+  });
+
+  it('should install a skill with --rename and rewrite SKILL.md name', () => {
+    const sourceSkillDir = join(testDir, 'source', 'my-skill');
+    mkdirSync(sourceSkillDir, { recursive: true });
+    writeFileSync(
+      join(sourceSkillDir, 'SKILL.md'),
+      `---
+name: my-skill
+description: Original name skill
+---
+# My Skill
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    mkdirSync(projectDir, { recursive: true });
+
+    const result = runCli(
+      ['add', join(testDir, 'source'), '-y', '--agent', 'amp', '--rename', 'renamed-skill'],
+      projectDir
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('renamed-skill');
+
+    const installedPath = join(projectDir, '.agents', 'skills', 'renamed-skill', 'SKILL.md');
+    expect(existsSync(installedPath)).toBe(true);
+    const installed = readFileSync(installedPath, 'utf-8');
+    expect(installed).toContain('name: renamed-skill');
+  });
+
+  it('should reject --rename when multiple skills are selected', () => {
+    const skillOneDir = join(testDir, 'multi', 'skill-one');
+    const skillTwoDir = join(testDir, 'multi', 'skill-two');
+    mkdirSync(skillOneDir, { recursive: true });
+    mkdirSync(skillTwoDir, { recursive: true });
+
+    writeFileSync(
+      join(skillOneDir, 'SKILL.md'),
+      `---
+name: skill-one
+description: First skill
+---
+# Skill One
+`
+    );
+    writeFileSync(
+      join(skillTwoDir, 'SKILL.md'),
+      `---
+name: skill-two
+description: Second skill
+---
+# Skill Two
+`
+    );
+
+    const result = runCli(
+      ['add', join(testDir, 'multi'), '-y', '--agent', 'amp', '--rename', 'renamed'],
+      testDir
+    );
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('--rename requires exactly one selected skill');
   });
 
   describe('internal skills', () => {
@@ -388,6 +450,18 @@ describe('parseAddOptions', () => {
     expect(result.options.fullDepth).toBe(true);
     expect(result.options.list).toBe(true);
     expect(result.options.global).toBe(true);
+  });
+
+  it('should parse --rename with a value', () => {
+    const result = parseAddOptions(['source', '--rename', 'renamed-skill']);
+    expect(result.source).toEqual(['source']);
+    expect(result.options.rename).toBe('renamed-skill');
+  });
+
+  it('should mark --rename as invalid when value is missing', () => {
+    const result = parseAddOptions(['source', '--rename']);
+    expect(result.source).toEqual(['source']);
+    expect(result.options.rename).toBe('');
   });
 });
 

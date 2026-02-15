@@ -8,11 +8,13 @@ import {
   rm,
   readlink,
   writeFile,
+  readFile,
   stat,
   realpath,
 } from 'fs/promises';
 import { join, basename, normalize, resolve, sep, relative, dirname } from 'path';
 import { homedir, platform } from 'os';
+import matter from 'gray-matter';
 import type { Skill, AgentType, MintlifySkill, RemoteSkill } from './types.ts';
 import type { WellKnownSkill } from './providers/wellknown.ts';
 import { agents, detectInstalledAgents, isUniversalAgent } from './agents.ts';
@@ -208,10 +210,30 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
   }
 }
 
+function rewriteSkillNameInContent(content: string, name: string): string {
+  try {
+    const parsed = matter(content);
+    parsed.data = {
+      ...parsed.data,
+      name,
+    };
+    return matter.stringify(parsed.content, parsed.data);
+  } catch {
+    return content;
+  }
+}
+
+async function rewriteInstalledSkillName(targetDir: string, name: string): Promise<void> {
+  const skillMdPath = join(targetDir, 'SKILL.md');
+  const current = await readFile(skillMdPath, 'utf-8');
+  const updated = rewriteSkillNameInContent(current, name);
+  await writeFile(skillMdPath, updated, 'utf-8');
+}
+
 export async function installSkillForAgent(
   skill: Skill,
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
+  options: { global?: boolean; cwd?: string; mode?: InstallMode; renameTo?: string } = {}
 ): Promise<InstallResult> {
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
@@ -228,7 +250,7 @@ export async function installSkillForAgent(
   }
 
   // Sanitize skill name to prevent directory traversal
-  const rawSkillName = skill.name || basename(skill.path);
+  const rawSkillName = options.renameTo || skill.name || basename(skill.path);
   const skillName = sanitizeName(rawSkillName);
 
   // Canonical location: .agents/skills/<skill-name>
@@ -265,6 +287,9 @@ export async function installSkillForAgent(
     if (installMode === 'copy') {
       await cleanAndCreateDirectory(agentDir);
       await copyDirectory(skill.path, agentDir);
+      if (options.renameTo) {
+        await rewriteInstalledSkillName(agentDir, options.renameTo);
+      }
 
       return {
         success: true,
@@ -276,6 +301,9 @@ export async function installSkillForAgent(
     // Symlink mode: copy to canonical location and symlink to agent location
     await cleanAndCreateDirectory(canonicalDir);
     await copyDirectory(skill.path, canonicalDir);
+    if (options.renameTo) {
+      await rewriteInstalledSkillName(canonicalDir, options.renameTo);
+    }
 
     // For universal agents with global install, the skill is already in the canonical
     // ~/.agents/skills directory. Skip creating a symlink to the agent-specific global dir
@@ -556,7 +584,7 @@ export async function installMintlifySkillForAgent(
 export async function installRemoteSkillForAgent(
   skill: RemoteSkill,
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
+  options: { global?: boolean; cwd?: string; mode?: InstallMode; renameTo?: string } = {}
 ): Promise<InstallResult> {
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
@@ -574,7 +602,10 @@ export async function installRemoteSkillForAgent(
   }
 
   // Use installName as the skill directory name
-  const skillName = sanitizeName(skill.installName);
+  const skillName = sanitizeName(options.renameTo || skill.installName);
+  const skillContent = options.renameTo
+    ? rewriteSkillNameInContent(skill.content, options.renameTo)
+    : skill.content;
 
   // Canonical location: .agents/skills/<skill-name>
   const canonicalBase = getCanonicalSkillsDir(isGlobal, cwd);
@@ -608,7 +639,7 @@ export async function installRemoteSkillForAgent(
     if (installMode === 'copy') {
       await cleanAndCreateDirectory(agentDir);
       const skillMdPath = join(agentDir, 'SKILL.md');
-      await writeFile(skillMdPath, skill.content, 'utf-8');
+      await writeFile(skillMdPath, skillContent, 'utf-8');
 
       return {
         success: true,
@@ -620,7 +651,7 @@ export async function installRemoteSkillForAgent(
     // Symlink mode: write to canonical location and symlink to agent location
     await cleanAndCreateDirectory(canonicalDir);
     const skillMdPath = join(canonicalDir, 'SKILL.md');
-    await writeFile(skillMdPath, skill.content, 'utf-8');
+    await writeFile(skillMdPath, skillContent, 'utf-8');
 
     // For universal agents with global install, skip creating agent-specific symlink
     if (isGlobal && isUniversalAgent(agentType)) {
@@ -638,7 +669,7 @@ export async function installRemoteSkillForAgent(
       // Symlink failed, fall back to copy
       await cleanAndCreateDirectory(agentDir);
       const agentSkillMdPath = join(agentDir, 'SKILL.md');
-      await writeFile(agentSkillMdPath, skill.content, 'utf-8');
+      await writeFile(agentSkillMdPath, skillContent, 'utf-8');
 
       return {
         success: true,
@@ -675,7 +706,7 @@ export async function installRemoteSkillForAgent(
 export async function installWellKnownSkillForAgent(
   skill: WellKnownSkill,
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
+  options: { global?: boolean; cwd?: string; mode?: InstallMode; renameTo?: string } = {}
 ): Promise<InstallResult> {
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
@@ -693,7 +724,7 @@ export async function installWellKnownSkillForAgent(
   }
 
   // Use installName as the skill directory name
-  const skillName = sanitizeName(skill.installName);
+  const skillName = sanitizeName(options.renameTo || skill.installName);
 
   // Canonical location: .agents/skills/<skill-name>
   const canonicalBase = getCanonicalSkillsDir(isGlobal, cwd);
@@ -738,8 +769,11 @@ export async function installWellKnownSkillForAgent(
       if (parentDir !== targetDir) {
         await mkdir(parentDir, { recursive: true });
       }
-
-      await writeFile(fullPath, content, 'utf-8');
+      const output =
+        options.renameTo && filePath.toLowerCase() === 'skill.md'
+          ? rewriteSkillNameInContent(content, options.renameTo)
+          : content;
+      await writeFile(fullPath, output, 'utf-8');
     }
   }
 
