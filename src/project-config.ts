@@ -189,6 +189,7 @@ export async function setProjectAgents(
   cwd: string = process.cwd()
 ): Promise<void> {
   const config = await readProjectConfig(cwd);
-  config.agents = agents;
+  const existingAgents = config.agents || [];
+  config.agents = [...new Set([...existingAgents, ...agents])];
   await writeProjectConfig(config, cwd);
 }
