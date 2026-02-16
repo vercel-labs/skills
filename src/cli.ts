@@ -7,6 +7,7 @@ import { homedir } from 'os';
 import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
+import { runDoctor } from './doctor.ts';
 import { runFind } from './find.ts';
 import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
@@ -86,6 +87,9 @@ function showBanner(): void {
   console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills init ${DIM}[name]${RESET}     ${DIM}Create a new skill${RESET}`
   );
+  console.log(
+    `  ${DIM}$${RESET} ${TEXT}npx skills doctor${RESET}          ${DIM}Diagnose agent setup${RESET}`
+  );
   console.log();
   console.log(`${DIM}try:${RESET} npx skills add vercel-labs/agent-skills`);
   console.log();
@@ -107,6 +111,7 @@ ${BOLD}Commands:${RESET}
   init [name]       Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)
   check             Check for available skill updates
   update            Update all skills to latest versions
+  doctor            Diagnose agent detection and paths
 
 ${BOLD}Add Options:${RESET}
   -g, --global           Install skill globally (user-level) instead of project-level
@@ -605,6 +610,9 @@ async function main(): Promise<void> {
     case 'update':
     case 'upgrade':
       runUpdate();
+      break;
+    case 'doctor':
+      await runDoctor(VERSION);
       break;
     case '--help':
     case '-h':
