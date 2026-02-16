@@ -103,6 +103,9 @@ export async function discoverSkills(
   const seenNames = new Set<string>();
   const searchPath = subpath ? join(basePath, subpath) : basePath;
 
+  // Load .skillignore patterns once (used by early return and final filter)
+  const ignorePatterns = !options?.includeInternal ? await loadSkillIgnorePatterns(basePath) : [];
+
   // If pointing directly at a skill, add it (and return early unless fullDepth is set)
   if (await hasSkillMd(searchPath)) {
     const skill = await parseSkillMd(join(searchPath, 'SKILL.md'), options);
@@ -111,6 +114,9 @@ export async function discoverSkills(
       seenNames.add(skill.name);
       // Only return early if fullDepth is not set
       if (!options?.fullDepth) {
+        if (ignorePatterns.length > 0) {
+          return skills.filter((s) => !isSkillIgnored(s.name, ignorePatterns));
+        }
         return skills;
       }
     }
@@ -187,12 +193,9 @@ export async function discoverSkills(
     }
   }
 
-  // Apply .skillignore filtering (read from repo root), unless internal skills are explicitly requested
-  if (!options?.includeInternal) {
-    const ignorePatterns = await loadSkillIgnorePatterns(basePath);
-    if (ignorePatterns.length > 0) {
-      return skills.filter((skill) => !isSkillIgnored(skill.name, ignorePatterns));
-    }
+  // Apply .skillignore filtering
+  if (ignorePatterns.length > 0) {
+    return skills.filter((skill) => !isSkillIgnored(skill.name, ignorePatterns));
   }
 
   return skills;

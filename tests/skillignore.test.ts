@@ -10,6 +10,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { parseSkillIgnore, isSkillIgnored, loadSkillIgnorePatterns } from '../src/skillignore.ts';
+import { discoverSkills } from '../src/skills.ts';
 
 describe('parseSkillIgnore', () => {
   it('parses simple skill names', () => {
@@ -113,5 +114,74 @@ describe('loadSkillIgnorePatterns', () => {
     writeFileSync(join(testDir, '.skillignore'), '');
     const patterns = await loadSkillIgnorePatterns(testDir);
     expect(patterns).toEqual([]);
+  });
+});
+
+// Helper to create a skill directory with a SKILL.md
+function createSkill(baseDir: string, name: string): void {
+  const dir = join(baseDir, 'skills', name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, 'SKILL.md'),
+    `---\nname: ${name}\ndescription: ${name} description\n---\n\n# ${name}\n`
+  );
+}
+
+describe('discoverSkills with .skillignore', () => {
+  let testDir: string;
+
+  beforeEach(() => {
+    testDir = join(tmpdir(), `skillignore-discover-test-${Date.now()}`);
+    mkdirSync(testDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(testDir, { recursive: true, force: true });
+  });
+
+  it('filters out skills matching .skillignore patterns', async () => {
+    createSkill(testDir, 'public-skill');
+    createSkill(testDir, 'internal-tool');
+    createSkill(testDir, 'internal-eval');
+    writeFileSync(join(testDir, '.skillignore'), 'internal-*\n');
+
+    const skills = await discoverSkills(testDir);
+    const names = skills.map((s) => s.name);
+
+    expect(names).toEqual(['public-skill']);
+    expect(names).not.toContain('internal-tool');
+    expect(names).not.toContain('internal-eval');
+  });
+
+  it('returns all skills when no .skillignore exists', async () => {
+    createSkill(testDir, 'skill-a');
+    createSkill(testDir, 'skill-b');
+
+    const skills = await discoverSkills(testDir);
+    expect(skills).toHaveLength(2);
+  });
+
+  it('filters a directly-pointed skill via early return path', async () => {
+    // Root SKILL.md (triggers early return in discoverSkills)
+    writeFileSync(
+      join(testDir, 'SKILL.md'),
+      `---\nname: ignored-root\ndescription: Should be ignored\n---\n\n# Ignored\n`
+    );
+    writeFileSync(join(testDir, '.skillignore'), 'ignored-root\n');
+
+    const skills = await discoverSkills(testDir);
+    expect(skills).toHaveLength(0);
+  });
+
+  it('does not filter when includeInternal is set', async () => {
+    createSkill(testDir, 'public-skill');
+    createSkill(testDir, 'internal-tool');
+    writeFileSync(join(testDir, '.skillignore'), 'internal-tool\n');
+
+    const skills = await discoverSkills(testDir, undefined, { includeInternal: true });
+    const names = skills.map((s) => s.name);
+
+    expect(names).toContain('internal-tool');
+    expect(names).toContain('public-skill');
   });
 });

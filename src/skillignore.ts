@@ -4,10 +4,10 @@
  * A `.skillignore` file at the repo root lets maintainers hide internal skills
  * from public discovery (e.g., validation scripts, prompt evals, scaffolding).
  *
- * Format (one pattern per line):
- *   # comment
- *   internal-tool        # exact match
- *   test-*               # trailing wildcard
+ * Format (one pattern per line, inline comments supported):
+ *   # full-line comment
+ *   internal-tool        # exact match by name
+ *   test-*               # trailing wildcard (matches any name starting with "test-")
  */
 
 import { readFile } from 'fs/promises';
