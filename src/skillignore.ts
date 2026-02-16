@@ -29,11 +29,14 @@ export function parseSkillIgnore(content: string): string[] {
  * Supports exact matches and trailing-wildcard patterns (e.g. "internal-*").
  */
 export function isSkillIgnored(skillName: string, patterns: string[]): boolean {
+  const normalizedSkillName = skillName.toLowerCase();
   return patterns.some((pattern) => {
-    if (pattern.endsWith('*')) {
-      return skillName.startsWith(pattern.slice(0, -1));
+    const normalizedPattern = pattern.toLowerCase();
+    if (normalizedPattern.endsWith('*')) {
+      const prefix = normalizedPattern.slice(0, -1);
+      return normalizedSkillName.startsWith(prefix);
     }
-    return skillName === pattern;
+    return normalizedSkillName === normalizedPattern;
   });
 }
 
