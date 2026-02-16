@@ -187,10 +187,12 @@ export async function discoverSkills(
     }
   }
 
-  // Apply .skillignore filtering (read from repo root)
-  const ignorePatterns = await loadSkillIgnorePatterns(basePath);
-  if (ignorePatterns.length > 0) {
-    return skills.filter((skill) => !isSkillIgnored(skill.name, ignorePatterns));
+  // Apply .skillignore filtering (read from repo root), unless internal skills are explicitly requested
+  if (!options?.includeInternal) {
+    const ignorePatterns = await loadSkillIgnorePatterns(basePath);
+    if (ignorePatterns.length > 0) {
+      return skills.filter((skill) => !isSkillIgnored(skill.name, ignorePatterns));
+    }
   }
 
   return skills;
