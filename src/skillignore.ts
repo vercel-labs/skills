@@ -15,13 +15,16 @@ import { join } from 'path';
 
 /**
  * Parse a .skillignore file into an array of patterns.
- * Blank lines and lines starting with # are ignored.
+ * Blank lines and comments (everything from # onward) are ignored.
  */
 export function parseSkillIgnore(content: string): string[] {
   return content
     .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith('#'));
+    .map((line) => {
+      const commentIndex = line.indexOf('#');
+      return (commentIndex === -1 ? line : line.slice(0, commentIndex)).trim();
+    })
+    .filter((line) => line.length > 0);
 }
 
 /**
