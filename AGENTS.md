@@ -10,7 +10,8 @@ This file provides guidance to AI coding agents working on the `skills` CLI code
 
 | Command              | Description                                         |
 | -------------------- | --------------------------------------------------- |
-| `skills`             | Show banner with available commands                 |
+| `skills`             | Auto-sync from skills.yaml (if exists) or show banner |
+| `skills sync`        | Sync skills from skills.yaml                        |
 | `skills init [name]` | Create a new SKILL.md template                      |
 | `skills add <pkg>`   | Install skills from git repos, URLs, or local paths |
 | `skills list`        | List installed skills (alias: `ls`)                 |
@@ -23,7 +24,7 @@ Aliases: `skills a`, `skills i`, `skills install` all work for `add`. `skills ls
 
 ```
 src/
-├── cli.ts           # Main entry point, command routing, init/check/update
+├── cli.ts           # Main entry point, command routing, init/check/update/sync
 ├── cli.test.ts      # CLI tests
 ├── add.ts           # Core add command logic
 ├── add.test.ts      # Add command tests
@@ -32,7 +33,8 @@ src/
 ├── agents.ts        # Agent definitions and detection
 ├── installer.ts     # Skill installation logic (symlink/copy) + listInstalledSkills
 ├── skills.ts        # Skill discovery and parsing
-├── skill-lock.ts    # Lock file management
+├── skill-lock.ts    # Global lock file management (~/.agents/.skill-lock.json)
+├── project-config.ts # Project config file management (skills.yaml)
 ├── source-parser.ts # Parse git URLs, GitHub shorthand, local paths
 ├── git.ts           # Git clone operations
 ├── telemetry.ts     # Anonymous usage tracking
@@ -93,8 +95,42 @@ If reading an older lock file version, it's wiped. Users must reinstall skills t
 | Feature          | Implementation                              |
 | ---------------- | ------------------------------------------- |
 | `skills add`     | `src/add.ts` - full implementation          |
+| `skills sync`    | `src/cli.ts` - reads skills.yaml, calls add |
 | `skills check`   | `POST /check-updates` API                   |
 | `skills update`  | `POST /check-updates` + reinstall per skill |
+
+## Project Configuration (skills.yaml)
+
+When installing skills to a project (without `-g`), a `skills.yaml` file is created/updated:
+
+```yaml
+agents:
+  - claude-code
+  - cursor
+
+skills:
+  web-design-guidelines:
+    source: vercel-labs/agent-skills
+    sourceUrl: https://github.com/vercel-labs/agent-skills.git
+```
+
+### Key Files
+
+- `src/project-config.ts` - YAML parsing/writing for skills.yaml
+- `src/constants.ts` - `PROJECT_CONFIG_FILE = 'skills.yaml'`
+
+### Behavior
+
+1. `skills add` (project scope) → writes to skills.yaml
+2. `skills sync` → reads skills.yaml, installs each skill
+3. `skills` (empty command) → auto-detects skills.yaml, runs sync
+
+### Global vs Project Lock Files
+
+| Scope    | Lock File                    | Config File   |
+| -------- | ---------------------------- | ------------- |
+| Global   | `~/.agents/.skill-lock.json` | None          |
+| Project  | None                         | `skills.yaml` |
 
 ## Development
 

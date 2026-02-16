@@ -89,10 +89,56 @@ When installing interactively, you can choose:
 | **Symlink** (Recommended) | Creates symlinks from each agent to a canonical copy. Single source of truth, easy updates. |
 | **Copy**                  | Creates independent copies for each agent. Use when symlinks aren't supported.              |
 
+## Project Configuration
+
+When installing skills to a project (without `-g`), a `skills.yaml` file is created in the project root. This file tracks which skills are installed and their sources.
+
+### skills.yaml Format
+
+```yaml
+agents:
+  - claude-code
+  - cursor
+  - opencode
+
+skills:
+  web-design-guidelines:
+    source: vercel-labs/agent-skills
+    sourceUrl: https://github.com/vercel-labs/agent-skills.git
+  react-best-practices:
+    source: vercel-labs/agent-skills
+    sourceUrl: https://github.com/vercel-labs/agent-skills.git
+```
+
+### Syncing Skills
+
+When running `npx skills` (without any command) in a directory with `skills.yaml`, the CLI automatically syncs all configured skills:
+
+```bash
+# Auto-sync from skills.yaml
+npx skills
+
+# Explicit sync command
+npx skills sync
+```
+
+This is useful for:
+- Onboarding new team members
+- CI/CD environments
+- Restoring skills after cloning a repository
+
+### Benefits
+
+- **Team Collaboration**: Commit `skills.yaml` to version control so team members get the same skills
+- **Reproducible Environments**: CI/CD pipelines can automatically install required skills
+- **Easy Recovery**: Quickly restore skills after cloning or cleaning a project
+
 ## Other Commands
 
 | Command                      | Description                                             |
 | ---------------------------- | ------------------------------------------------------- |
+| `npx skills`                 | Sync skills from skills.yaml (auto-detect)              |
+| `npx skills sync`            | Sync skills from skills.yaml                            |
 | `npx skills list`            | List installed skills (alias: `ls`)                     |
 | `npx skills find [query]`    | Search for skills interactively or by keyword           |
 | `npx skills remove [skills]` | Remove installed skills from agents                     |

@@ -50,6 +50,7 @@ import {
   getLastSelectedAgents,
   saveSelectedAgents,
 } from './skill-lock.ts';
+import { addSkillToProjectConfig, setProjectAgents } from './project-config.ts';
 import type { Skill, AgentType, RemoteSkill } from './types.ts';
 import packageJson from '../package.json' with { type: 'json' };
 export function initTelemetry(version: string): void {
@@ -619,6 +620,19 @@ async function handleRemoteSkill(
     }
   }
 
+  // Add to project config file for project-level installs
+  if (successful.length > 0 && !installGlobally) {
+    try {
+      await setProjectAgents(targetAgents);
+      await addSkillToProjectConfig(remoteSkill.installName, {
+        source: remoteSkill.sourceIdentifier,
+        sourceUrl: url,
+      });
+    } catch {
+      // Don't fail installation if project config update fails
+    }
+  }
+
   if (successful.length > 0) {
     const resultLines: string[] = [];
     const firstResult = successful[0]!;
@@ -1039,6 +1053,28 @@ async function handleWellKnownSkills(
     }
   }
 
+  // Add to project config file for project-level installs
+  if (successful.length > 0 && !installGlobally) {
+    try {
+      await setProjectAgents(targetAgents);
+    } catch {
+      // Don't fail installation if project config update fails
+    }
+    const successfulSkillNames = new Set(successful.map((r) => r.skill));
+    for (const skill of selectedSkills) {
+      if (successfulSkillNames.has(skill.installName)) {
+        try {
+          await addSkillToProjectConfig(skill.installName, {
+            source: sourceIdentifier,
+            sourceUrl: skill.sourceUrl,
+          });
+        } catch {
+          // Don't fail installation if project config update fails
+        }
+      }
+    }
+  }
+
   if (successful.length > 0) {
     const bySkill = new Map<string, typeof results>();
     for (const r of successful) {
@@ -1359,6 +1395,19 @@ async function handleDirectUrlSkillLegacy(
       });
     } catch {
       // Don't fail installation if lock file update fails
+    }
+  }
+
+  // Add to project config file for project-level installs
+  if (successful.length > 0 && !installGlobally) {
+    try {
+      await setProjectAgents(targetAgents);
+      await addSkillToProjectConfig(remoteSkill.installName, {
+        source: `mintlify/${remoteSkill.installName}`,
+        sourceUrl: url,
+      });
+    } catch {
+      // Don't fail installation if project config update fails
     }
   }
 
@@ -1885,6 +1934,29 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             });
           } catch {
             // Don't fail installation if lock file update fails
+          }
+        }
+      }
+    }
+
+    // Add to project config file for project-level installs
+    if (successful.length > 0 && !installGlobally && normalizedSource) {
+      try {
+        await setProjectAgents(targetAgents);
+      } catch {
+        // Don't fail installation if project config update fails
+      }
+      const successfulSkillNames = new Set(successful.map((r) => r.skill));
+      for (const skill of selectedSkills) {
+        const skillDisplayName = getSkillDisplayName(skill);
+        if (successfulSkillNames.has(skillDisplayName)) {
+          try {
+            await addSkillToProjectConfig(skill.name, {
+              source: normalizedSource,
+              sourceUrl: parsed.url,
+            });
+          } catch {
+            // Don't fail installation if project config update fails
           }
         }
       }

@@ -12,6 +12,7 @@ import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { track } from './telemetry.ts';
 import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
+import { projectConfigExists, getAllProjectSkills, getProjectAgents } from './project-config.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -69,6 +70,9 @@ function showBanner(): void {
     `  ${DIM}$${RESET} ${TEXT}npx skills add ${DIM}<package>${RESET}   ${DIM}Install a skill${RESET}`
   );
   console.log(
+    `  ${DIM}$${RESET} ${TEXT}npx skills sync${RESET}            ${DIM}Sync skills from skills.yaml${RESET}`
+  );
+  console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills list${RESET}            ${DIM}List installed skills${RESET}`
   );
   console.log(
@@ -101,6 +105,7 @@ ${BOLD}Commands:${RESET}
   add <package>     Add a skill package
                     e.g. vercel-labs/agent-skills
                          https://github.com/vercel-labs/agent-skills
+  sync              Sync skills from skills.yaml in current directory
   remove [skills]   Remove installed skills
   list, ls          List installed skills
   find [query]      Search for skills interactively
@@ -137,6 +142,7 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills add vercel-labs/agent-skills -g
   ${DIM}$${RESET} skills add vercel-labs/agent-skills --agent claude-code cursor
   ${DIM}$${RESET} skills add vercel-labs/agent-skills --skill pr-review commit
+  ${DIM}$${RESET} skills sync                    ${DIM}# sync from skills.yaml${RESET}
   ${DIM}$${RESET} skills remove                   ${DIM}# interactive remove${RESET}
   ${DIM}$${RESET} skills remove web-design        ${DIM}# remove by name${RESET}
   ${DIM}$${RESET} skills rm --global frontend-design
@@ -550,10 +556,80 @@ async function runUpdate(): Promise<void> {
 // Main
 // ============================================
 
+async function runSync(): Promise<void> {
+  const cwd = process.cwd();
+  const hasConfig = await projectConfigExists(cwd);
+
+  if (!hasConfig) {
+    console.log(`${TEXT}No skills.yaml found in current directory.${RESET}`);
+    console.log(`${DIM}Run ${TEXT}npx skills add <source>${DIM} to install skills first.${RESET}`);
+    console.log();
+    return;
+  }
+
+  const skills = await getAllProjectSkills(cwd);
+  const skillNames = Object.keys(skills);
+  const projectAgents = await getProjectAgents(cwd);
+
+  if (skillNames.length === 0) {
+    console.log(`${TEXT}No skills configured in skills.yaml.${RESET}`);
+    console.log();
+    return;
+  }
+
+  console.log(`${TEXT}Syncing ${skillNames.length} skill(s) from skills.yaml...${RESET}`);
+  console.log();
+
+  let successCount = 0;
+  let failCount = 0;
+
+  for (const skillName of skillNames) {
+    const entry = skills[skillName];
+    if (!entry) continue;
+
+    console.log(`${TEXT}Installing ${skillName}...${RESET}`);
+
+    try {
+      const agentOptions = projectAgents
+        ? { agent: projectAgents, skill: [skillName], yes: true }
+        : { skill: [skillName], yes: true };
+      await runAdd([entry.sourceUrl], agentOptions);
+      successCount++;
+      console.log(`  ${TEXT}✓${RESET} Installed ${skillName}`);
+    } catch (error) {
+      failCount++;
+      console.log(`  ${DIM}✗ Failed to install ${skillName}${RESET}`);
+      if (error instanceof Error) {
+        console.log(`    ${DIM}${error.message}${RESET}`);
+      }
+    }
+  }
+
+  console.log();
+  if (successCount > 0) {
+    console.log(`${TEXT}✓ Synced ${successCount} skill(s)${RESET}`);
+  }
+  if (failCount > 0) {
+    console.log(`${DIM}Failed to sync ${failCount} skill(s)${RESET}`);
+  }
+
+  console.log();
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
 
   if (args.length === 0) {
+    const cwd = process.cwd();
+    const hasConfig = await projectConfigExists(cwd);
+
+    if (hasConfig) {
+      showLogo();
+      console.log();
+      await runSync();
+      return;
+    }
+
     showBanner();
     return;
   }
@@ -565,10 +641,14 @@ async function main(): Promise<void> {
     case 'find':
     case 'search':
     case 'f':
-    case 's':
       showLogo();
       console.log();
       await runFind(restArgs);
+      break;
+    case 'sync':
+      showLogo();
+      console.log();
+      await runSync();
       break;
     case 'init':
       showLogo();
