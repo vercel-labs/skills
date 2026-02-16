@@ -3,6 +3,7 @@ import { join, basename, dirname } from 'path';
 import matter from 'gray-matter';
 import type { Skill } from './types.ts';
 import { getPluginSkillPaths } from './plugin-manifest.ts';
+import { loadSkillIgnorePatterns, isSkillIgnored } from './skillignore.ts';
 
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
 
@@ -184,6 +185,12 @@ export async function discoverSkills(
         seenNames.add(skill.name);
       }
     }
+  }
+
+  // Apply .skillignore filtering (read from repo root)
+  const ignorePatterns = await loadSkillIgnorePatterns(basePath);
+  if (ignorePatterns.length > 0) {
+    return skills.filter((skill) => !isSkillIgnored(skill.name, ignorePatterns));
   }
 
   return skills;
