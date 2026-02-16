@@ -79,6 +79,11 @@ describe('isSkillIgnored', () => {
   it('wildcard with empty prefix matches everything', () => {
     expect(isSkillIgnored('anything', ['*'])).toBe(true);
   });
+
+  it('handles case differences between pattern and skill name', () => {
+    // Pattern has different casing than the skill name
+    expect(isSkillIgnored('internal-tool', ['Internal-Tool'])).toBe(true);
+  });
 });
 
 describe('loadSkillIgnorePatterns', () => {
