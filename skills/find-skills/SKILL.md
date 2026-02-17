@@ -108,6 +108,37 @@ When searching, consider these common categories:
 | Design          | ui, ux, design-system, accessibility     |
 | Productivity    | workflow, automation, git                |
 
+## Security Auditing
+
+Before installing a skill, you can audit it for security risks using the built-in security scanner.
+
+### Audit Commands
+
+- `npx skills audit ./path/to/skill` - Audit a local skill directory
+- `npx skills audit --installed` - Audit all installed skills (project scope)
+- `npx skills audit --installed -g` - Audit all globally-installed skills
+
+### What the Audit Checks
+
+| Category | What it Detects |
+|----------|----------------|
+| Credential Exposure | API keys, tokens, passwords, private keys hardcoded in skill content |
+| Malicious Payloads | Dangerous shell commands (rm -rf, eval, curl\|bash, reverse shells) |
+| Data Exfiltration | Outbound network calls leaking environment variables or local files |
+| Suspicious URLs | IP address URLs, URL shorteners, ngrok tunnels, suspicious TLDs |
+
+### When to Suggest an Audit
+
+When a user finds a skill and wants to install it, suggest running the audit first:
+
+```
+I found a skill that might help. Before installing, let me check it for security risks:
+npx skills audit <owner/repo@skill>
+
+If the audit looks clean, you can install with:
+npx skills add <owner/repo@skill> -g -y
+```
+
 ## Tips for Effective Searches
 
 1. **Use specific keywords**: "react testing" is better than just "testing"
