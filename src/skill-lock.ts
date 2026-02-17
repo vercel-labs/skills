@@ -2,7 +2,7 @@ import { readFile, writeFile, mkdir } from 'fs/promises';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
-import { execSync } from 'child_process';
+import { execSync, execFileSync } from 'child_process';
 
 const AGENTS_DIR = '.agents';
 const LOCK_FILE = '.skill-lock.json';
@@ -114,6 +114,46 @@ export async function writeSkillLock(lock: SkillLockFile): Promise<void> {
  */
 export function computeContentHash(content: string): string {
   return createHash('sha256').update(content, 'utf-8').digest('hex');
+}
+
+/**
+ * Compute the tree SHA for a skill folder locally using `git rev-parse`.
+ * Works on any cloned repo (public or private) without needing GitHub API access.
+ *
+ * @param repoDir - Path to the cloned git repository
+ * @param skillPath - Path to the skill folder or SKILL.md relative to repo root
+ * @returns The tree SHA for the skill folder, or null if not found
+ */
+export function computeLocalSkillFolderHash(repoDir: string, skillPath: string): string | null {
+  // Normalize to forward slashes
+  let folderPath = skillPath.replace(/\\/g, '/');
+
+  // Remove SKILL.md suffix to get folder path
+  if (folderPath.endsWith('/SKILL.md')) {
+    folderPath = folderPath.slice(0, -9);
+  } else if (folderPath.endsWith('SKILL.md')) {
+    folderPath = folderPath.slice(0, -8);
+  }
+
+  // Remove trailing slash
+  if (folderPath.endsWith('/')) {
+    folderPath = folderPath.slice(0, -1);
+  }
+
+  try {
+    // For root-level skills, get the root tree SHA
+    const ref = folderPath ? `HEAD:${folderPath}` : 'HEAD^{tree}';
+    // Use execFileSync to avoid shell interpretation of skillPath contents
+    const sha = execFileSync('git', ['rev-parse', ref], {
+      cwd: repoDir,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+
+    return sha || null;
+  } catch {
+    return null;
+  }
 }
 
 /**

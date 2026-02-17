@@ -414,8 +414,8 @@ async function runCheck(args: string[] = []): Promise<void> {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    // Only check skills with folder hash and skill path
-    if (!entry.skillFolderHash || !entry.skillPath) {
+    // Only check skills with a skill path (allow empty skillFolderHash for self-healing)
+    if (!entry.skillPath) {
       skipped.push({ name: skillName, reason: getSkipReason(entry), sourceUrl: entry.sourceUrl });
       continue;
     }
@@ -436,6 +436,7 @@ async function runCheck(args: string[] = []): Promise<void> {
 
   const updates: Array<{ name: string; source: string }> = [];
   const errors: Array<{ name: string; source: string; error: string }> = [];
+  let lockModified = false;
 
   // Check each source (one API call per repo)
   for (const [source, skills] of skillsBySource) {
@@ -445,6 +446,14 @@ async function runCheck(args: string[] = []): Promise<void> {
 
         if (!latestHash) {
           errors.push({ name, source, error: 'Could not fetch from GitHub' });
+          continue;
+        }
+
+        // Self-heal: if stored hash was empty (e.g., installed from private repo
+        // before auth fix), populate it now so future checks work correctly
+        if (!entry.skillFolderHash) {
+          entry.skillFolderHash = latestHash;
+          lockModified = true;
           continue;
         }
 
@@ -459,6 +468,11 @@ async function runCheck(args: string[] = []): Promise<void> {
         });
       }
     }
+  }
+
+  // Persist self-healed hashes
+  if (lockModified) {
+    writeSkillLock(lock);
   }
 
   console.log();
@@ -514,13 +528,14 @@ async function runUpdate(): Promise<void> {
   // Find skills that need updates by checking GitHub directly
   const updates: Array<{ name: string; source: string; entry: SkillLockEntry }> = [];
   const skipped: SkippedSkill[] = [];
+  let lockModified = false;
 
   for (const skillName of skillNames) {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    // Only check skills with folder hash and skill path
-    if (!entry.skillFolderHash || !entry.skillPath) {
+    // Only check skills with a skill path (allow empty skillFolderHash for self-healing)
+    if (!entry.skillPath) {
       skipped.push({ name: skillName, reason: getSkipReason(entry), sourceUrl: entry.sourceUrl });
       continue;
     }
@@ -528,12 +543,26 @@ async function runUpdate(): Promise<void> {
     try {
       const latestHash = await fetchSkillFolderHash(entry.source, entry.skillPath, token);
 
-      if (latestHash && latestHash !== entry.skillFolderHash) {
+      if (!latestHash) continue;
+
+      // Self-heal: if stored hash was empty, populate it now
+      if (!entry.skillFolderHash) {
+        entry.skillFolderHash = latestHash;
+        lockModified = true;
+        continue;
+      }
+
+      if (latestHash !== entry.skillFolderHash) {
         updates.push({ name: skillName, source: entry.source, entry });
       }
     } catch {
       // Skip skills that fail to check
     }
+  }
+
+  // Persist self-healed hashes
+  if (lockModified) {
+    writeSkillLock(lock);
   }
 
   const checkedCount = skillNames.length - skipped.length;
