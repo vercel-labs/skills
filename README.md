@@ -212,7 +212,7 @@ Skills can be installed to any of these agents:
 | Antigravity | `antigravity` | `.agent/skills/` | `~/.gemini/antigravity/skills/` |
 | Augment | `augment` | `.augment/skills/` | `~/.augment/skills/` |
 | Claude Code | `claude-code` | `.claude/skills/` | `~/.claude/skills/` |
-| OpenClaw | `openclaw` | `skills/` | `~/.moltbot/skills/` |
+| OpenClaw | `openclaw` | `skills/` | `~/.openclaw/skills/` |
 | Cline | `cline` | `.cline/skills/` | `~/.cline/skills/` |
 | CodeBuddy | `codebuddy` | `.codebuddy/skills/` | `~/.codebuddy/skills/` |
 | Codex | `codex` | `.agents/skills/` | `~/.codex/skills/` |
@@ -373,7 +373,7 @@ If no skills are found in standard locations, a recursive search is performed.
 Skills are generally compatible across agents since they follow a
 shared [Agent Skills specification](https://agentskills.io). However, some features may be agent-specific:
 
-| Feature         | OpenCode | OpenHands | Claude Code | Cline | CodeBuddy | Codex | Command Code | Kiro CLI | Cursor | Antigravity | Roo Code | Github Copilot | Amp | Clawdbot | Neovate | Pi  | Qoder | Zencoder |
+| Feature         | OpenCode | OpenHands | Claude Code | Cline | CodeBuddy | Codex | Command Code | Kiro CLI | Cursor | Antigravity | Roo Code | Github Copilot | Amp | OpenClaw | Neovate | Pi  | Qoder | Zencoder |
 | --------------- | -------- | --------- | ----------- | ----- | --------- | ----- | ------------ | -------- | ------ | ----------- | -------- | -------------- | --- | -------- | ------- | --- | ----- | -------- |
 | Basic skills    | Yes      | Yes       | Yes         | Yes   | Yes       | Yes   | Yes          | Yes      | Yes    | Yes         | Yes      | Yes            | Yes | Yes      | Yes     | Yes | Yes   | Yes      |
 | `allowed-tools` | Yes      | Yes       | Yes         | Yes   | Yes       | Yes   | Yes          | No       | Yes    | Yes         | Yes      | Yes            | Yes | Yes      | Yes     | Yes | Yes   | No       |
@@ -423,7 +423,7 @@ Telemetry is automatically disabled in CI environments.
 - [Antigravity Skills Documentation](https://antigravity.google/docs/skills)
 - [Factory AI / Droid Skills Documentation](https://docs.factory.ai/cli/configuration/skills)
 - [Claude Code Skills Documentation](https://code.claude.com/docs/en/skills)
-- [Clawdbot Skills Documentation](https://docs.clawd.bot/tools/skills)
+- [OpenClaw Skills Documentation](https://docs.openclaw.ai/tools/skills)
 - [Cline Skills Documentation](https://docs.cline.bot/features/skills)
 - [CodeBuddy Skills Documentation](https://www.codebuddy.ai/docs/ide/Features/Skills)
 - [Codex Skills Documentation](https://developers.openai.com/codex/skills)
