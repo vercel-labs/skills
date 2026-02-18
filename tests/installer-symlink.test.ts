@@ -154,11 +154,11 @@ describe('installer symlink regression', () => {
     const skillName = 'universal-only-skill';
     const skillDir = await makeSkillSource(root, skillName);
 
-    // We test with 'github-copilot', a universal agent (skillsDir: '.agents/skills')
-    // whose globalSkillsDir is different from canonical (~/.copilot/skills vs ~/.agents/skills)
+    // We test with 'gemini-cli', a universal agent (skillsDir: '.agents/skills')
+    // whose globalSkillsDir is different from canonical (~/.gemini/skills vs ~/.agents/skills)
     // For testing, we use a project-level install to avoid writing to actual home dir.
     // But the bug only manifests with global: true.
-    // We can't safely test with global: true in unit tests (it would write to ~/.copilot/skills).
+    // We can't safely test with global: true in unit tests (it would write to ~/.gemini/skills).
     // Instead, we verify that the installSkillForAgent function returns the canonical path
     // as both path and canonicalPath for universal agents with global install.
 
@@ -170,7 +170,7 @@ describe('installer symlink regression', () => {
     try {
       const result = await installSkillForAgent(
         { name: skillName, description: 'test', path: skillDir },
-        'github-copilot', // Universal agent
+        'gemini-cli', // Universal agent
         { cwd: projectDir, mode: 'symlink', global: false }
       );
 
