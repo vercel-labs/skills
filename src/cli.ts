@@ -10,6 +10,7 @@ import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
 import { runFind } from './find.ts';
 import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
+import { runBatchExport, runBatchUpdate } from './skill-manager.ts';
 import { track } from './telemetry.ts';
 import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
 
@@ -86,6 +87,15 @@ function showBanner(): void {
   console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills init ${DIM}[name]${RESET}     ${DIM}Create a new skill${RESET}`
   );
+  console.log(
+    `  ${DIM}$${RESET} ${TEXT}npx skills merge-with-namespace ${DIM}Migrate skills to namespace structure${RESET}`
+  );
+  console.log(
+    `  ${DIM}$${RESET} ${TEXT}npx skills batch-export ${DIM}[options]${RESET} ${DIM}Export skills to config file${RESET}`
+  );
+  console.log(
+    `  ${DIM}$${RESET} ${TEXT}npx skills batch-update ${DIM}[options]${RESET} ${DIM}Batch update all skills${RESET}`
+  );
   console.log();
   console.log(`${DIM}try:${RESET} npx skills add vercel-labs/agent-skills`);
   console.log();
@@ -107,6 +117,8 @@ ${BOLD}Commands:${RESET}
   init [name]       Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)
   check             Check for available skill updates
   update            Update all skills to latest versions
+  merge-with-namespace Migrate existing skills to namespace-based structure
+  export            Export installed skills to YAML
 
 ${BOLD}Add Options:${RESET}
   -g, --global           Install skill globally (user-level) instead of project-level
@@ -128,6 +140,24 @@ ${BOLD}List Options:${RESET}
   -g, --global           List global skills (default: project)
   -a, --agent <agents>   Filter by specific agents
 
+${BOLD}Merge Options:${RESET}
+  -g, --global           Migrate global skills only (default: both project and global)
+  -y, --yes              Skip confirmation prompts
+  --dry-run              Show what would be migrated without making changes
+
+${BOLD}Export Options:${RESET}
+  -g, --global           Export global skills (default: project)
+  -a, --agent <agents>   Filter by specific agents
+  -o, --output <file>    Write to file instead of stdout
+
+${BOLD}Batch Export Options:${RESET}
+  -o, --output <file>    Write to file instead of stdout
+
+${BOLD}Batch Update Options:${RESET}
+  <file>                 Configuration file path (default: ./skills-config.yml)
+  -g, --global           Update global skills (default: project)
+  -y, --yes              Skip confirmation prompts
+  --dry-run              Show what would be updated without making changes
 ${BOLD}Options:${RESET}
   --help, -h        Show this help message
   --version, -v     Show version number
@@ -148,6 +178,14 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills init my-skill
   ${DIM}$${RESET} skills check
   ${DIM}$${RESET} skills update
+  ${DIM}$${RESET} skills merge-with-namespace   ${DIM}# migrate legacy skills to namespace structure${RESET}
+  ${DIM}$${RESET} skills batch-export           ${DIM}# export skills to stdout${RESET}
+  ${DIM}$${RESET} skills batch-export -o config.yml ${DIM}# export to file${RESET}
+  ${DIM}$${RESET} skills batch-export -g        ${DIM}# export global skills${RESET}
+  ${DIM}$${RESET} skills batch-export --with tags,triggers ${DIM}# export with extra fields${RESET}
+  ${DIM}$${RESET} skills batch-update           ${DIM}# update from ./skills-config.yml${RESET}
+  ${DIM}$${RESET} skills batch-update config.yml ${DIM}# update from specific file${RESET}
+  ${DIM}$${RESET} ${TEXT}skills batch-update -g        ${DIM}# update global skills${RESET}
 
 Discover more skills at ${TEXT}https://skills.sh/${RESET}
 `);
@@ -492,31 +530,14 @@ async function runUpdate(): Promise<void> {
   for (const update of updates) {
     console.log(`${TEXT}Updating ${update.name}...${RESET}`);
 
-    // Build the URL with subpath to target the specific skill directory
-    // e.g., https://github.com/owner/repo/tree/main/skills/my-skill
-    let installUrl = update.entry.sourceUrl;
-    if (update.entry.skillPath) {
-      // Extract the skill folder path (remove /SKILL.md suffix)
-      let skillFolder = update.entry.skillPath;
-      if (skillFolder.endsWith('/SKILL.md')) {
-        skillFolder = skillFolder.slice(0, -9);
-      } else if (skillFolder.endsWith('SKILL.md')) {
-        skillFolder = skillFolder.slice(0, -8);
-      }
-      if (skillFolder.endsWith('/')) {
-        skillFolder = skillFolder.slice(0, -1);
-      }
-
-      // Convert git URL to tree URL with path
-      // https://github.com/owner/repo.git -> https://github.com/owner/repo/tree/main/path
-      installUrl = update.entry.sourceUrl.replace(/\.git$/, '').replace(/\/$/, '');
-      installUrl = `${installUrl}/tree/main/${skillFolder}`;
-    }
-
     // Use skills CLI to reinstall with -g -y flags
-    const result = spawnSync('npx', ['-y', 'skills', 'add', installUrl, '-g', '-y'], {
-      stdio: ['inherit', 'pipe', 'pipe'],
-    });
+    const result = spawnSync(
+      'npx',
+      ['-y', 'skills', 'add', update.entry.sourceUrl, '--skill', update.name, '-g', '-y'],
+      {
+        stdio: ['inherit', 'pipe', 'pipe'],
+      }
+    );
 
     if (result.status === 0) {
       successCount++;
@@ -605,6 +626,14 @@ async function main(): Promise<void> {
     case 'update':
     case 'upgrade':
       runUpdate();
+      break;
+    case 'batch-export':
+    case 'be':
+      await runBatchExport(restArgs);
+      break;
+    case 'batch-update':
+    case 'bu':
+      await runBatchUpdate(restArgs);
       break;
     case '--help':
     case '-h':
