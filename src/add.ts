@@ -859,8 +859,8 @@ async function handleWellKnownSkills(
       for (const s of skills) {
         p.log.message(`  - ${s.installName}`);
       }
+      process.exit(1);
     }
-    process.exit(1);
   } else if (skills.length === 1) {
     selectedSkills = skills;
     const firstSkill = skills[0]!;
@@ -1544,6 +1544,7 @@ async function handleDirectUrlSkillLegacy(
   // Prompt for find-skills after successful install
   await promptForFindSkills(options, targetAgents);
 }
+
 export async function runAdd(args: string[], options: AddOptions = {}): Promise<void> {
   const source = args[0];
   let installTipShown = false;
@@ -1686,7 +1687,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           .join(' ');
 
         console.log(pc.bold(title));
-        for (const skill of groupedSkills[group]) {
+        for (const skill of groupedSkills[group]!) {
           p.log.message(`  ${pc.cyan(getSkillDisplayName(skill))}`);
           p.log.message(`    ${pc.dim(skill.description)}`);
         }
@@ -1749,20 +1750,50 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         return getSkillDisplayName(a).localeCompare(getSkillDisplayName(b));
       });
 
-      const skillChoices = sortedSkills.map((s) => ({
-        value: s,
-        label: getSkillDisplayName(s),
-        hint: s.description.length > 60 ? s.description.slice(0, 57) + '...' : s.description,
-        group: s.pluginName,
-      }));
+      // Check if any skills have plugin grouping
+      const hasGroups = sortedSkills.some((s) => s.pluginName);
 
-      const selected = await searchMultiselect({
-        message: 'Select skills to install',
-        items: skillChoices,
-        required: true,
-      });
+      let selected: Skill[] | symbol;
 
-      if (isCancelled(selected)) {
+      if (hasGroups) {
+        // Build grouped options for groupMultiselect
+        const kebabToTitle = (s: string) =>
+          s
+            .split('-')
+            .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+            .join(' ');
+
+        const grouped: Record<string, p.Option<Skill>[]> = {};
+        for (const s of sortedSkills) {
+          const groupName = s.pluginName ? kebabToTitle(s.pluginName) : 'Other';
+          if (!grouped[groupName]) grouped[groupName] = [];
+          grouped[groupName]!.push({
+            value: s,
+            label: getSkillDisplayName(s),
+            hint: s.description.length > 60 ? s.description.slice(0, 57) + '...' : s.description,
+          });
+        }
+
+        selected = await p.groupMultiselect({
+          message: `Select skills to install ${pc.dim('(space to toggle)')}`,
+          options: grouped,
+          required: true,
+        });
+      } else {
+        const skillChoices = sortedSkills.map((s) => ({
+          value: s,
+          label: getSkillDisplayName(s),
+          hint: s.description.length > 60 ? s.description.slice(0, 57) + '...' : s.description,
+        }));
+
+        selected = await multiselect({
+          message: 'Select skills to install',
+          options: skillChoices,
+          required: true,
+        });
+      }
+
+      if (p.isCancel(selected)) {
         p.cancel('Installation cancelled');
         await cleanup(tempDir);
         process.exit(0);
@@ -1981,7 +2012,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
       summaryLines.push('');
       summaryLines.push(pc.bold(title));
-      printSkillSummary(groupedSummary[group]);
+      printSkillSummary(groupedSummary[group]!);
     }
 
     if (ungroupedSummary.length > 0) {
@@ -2239,7 +2270,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
         resultLines.push('');
         resultLines.push(pc.bold(title));
-        printSkillResults(groupedResults[group]);
+        printSkillResults(groupedResults[group]!);
       }
 
       if (ungroupedResults.length > 0) {
