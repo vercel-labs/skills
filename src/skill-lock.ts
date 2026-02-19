@@ -155,12 +155,14 @@ export function getGitHubToken(): string | null {
  *
  * @param ownerRepo - GitHub owner/repo (e.g., "vercel-labs/agent-skills")
  * @param skillPath - Path to skill folder or SKILL.md (e.g., "skills/react-best-practices/SKILL.md")
+ * @param ref - Optional git ref (branch/tag/commit)
  * @param token - Optional GitHub token for authenticated requests (higher rate limits)
  * @returns The tree SHA for the skill folder, or null if not found
  */
 export async function fetchSkillFolderHash(
   ownerRepo: string,
   skillPath: string,
+  ref?: string | null,
   token?: string | null
 ): Promise<string | null> {
   // Normalize to forward slashes first (for GitHub API compatibility)
@@ -178,7 +180,8 @@ export async function fetchSkillFolderHash(
     folderPath = folderPath.slice(0, -1);
   }
 
-  const branches = ['main', 'master'];
+  // Try the provided ref first, then fallback to common defaults
+  const branches = ref ? [ref, 'main', 'master'] : ['main', 'master'];
 
   for (const branch of branches) {
     try {

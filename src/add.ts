@@ -1995,7 +1995,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             let skillFolderHash = '';
             const skillPathValue = skillFiles[skill.name];
             if (parsed.type === 'github' && skillPathValue) {
-              const hash = await fetchSkillFolderHash(normalizedSource, skillPathValue);
+              const hash = await fetchSkillFolderHash(normalizedSource, skillPathValue, parsed.ref);
               if (hash) skillFolderHash = hash;
             }
 

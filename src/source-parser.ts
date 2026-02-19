@@ -153,37 +153,59 @@ export function parseSource(input: string): ParsedSource {
     };
   }
 
+  // Handle SSH URLs or git URLs with #branch suffix
+  let fragmentRef: string | undefined;
+  if (input.includes('#')) {
+    const parts = input.split('#');
+    fragmentRef = parts.pop();
+    input = parts.join('#');
+  }
+
+  // Handle SSH URLs explicitly to avoid false positives in broad regexes
+  if (input.startsWith('git@') || input.startsWith('ssh://')) {
+    return {
+      type: 'git',
+      url: input,
+      ref: fragmentRef,
+    };
+  }
+
   // GitHub URL with path: https://github.com/owner/repo/tree/branch/path/to/skill
-  const githubTreeWithPathMatch = input.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/);
+  const githubTreeWithPathMatch = input.match(
+    /^(?:https?:\/\/)?github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/
+  );
   if (githubTreeWithPathMatch) {
-    const [, owner, repo, ref, subpath] = githubTreeWithPathMatch;
+    const [, owner, repo, matchedRef, subpath] = githubTreeWithPathMatch;
     return {
       type: 'github',
-      url: `https://github.com/${owner}/${repo}.git`,
-      ref,
+      url: `https://github.com/${owner}/${repo!.replace(/\.git$/, '')}.git`,
+      ref: fragmentRef || matchedRef,
       subpath,
     };
   }
 
   // GitHub URL with branch only: https://github.com/owner/repo/tree/branch
-  const githubTreeMatch = input.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)$/);
+  const githubTreeMatch = input.match(
+    /^(?:https?:\/\/)?github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)$/
+  );
   if (githubTreeMatch) {
-    const [, owner, repo, ref] = githubTreeMatch;
+    const [, owner, repo, matchedRef] = githubTreeMatch;
     return {
       type: 'github',
-      url: `https://github.com/${owner}/${repo}.git`,
-      ref,
+      url: `https://github.com/${owner}/${repo!.replace(/\.git$/, '')}.git`,
+      ref: fragmentRef || matchedRef,
     };
   }
 
   // GitHub URL: https://github.com/owner/repo
-  const githubRepoMatch = input.match(/github\.com\/([^/]+)\/([^/]+)/);
+  const githubRepoMatch = input.match(/^(?:https?:\/\/)?github\.com\/([^/]+)\/([^/]+)/);
   if (githubRepoMatch) {
     const [, owner, repo] = githubRepoMatch;
     const cleanRepo = repo!.replace(/\.git$/, '');
     return {
       type: 'github',
       url: `https://github.com/${owner}/${cleanRepo}.git`,
+      ref: fragmentRef,
     };
   }
 
@@ -194,12 +216,12 @@ export function parseSource(input: string): ParsedSource {
     /^(https?):\/\/([^/]+)\/(.+?)\/-\/tree\/([^/]+)\/(.+)/
   );
   if (gitlabTreeWithPathMatch) {
-    const [, protocol, hostname, repoPath, ref, subpath] = gitlabTreeWithPathMatch;
+    const [, protocol, hostname, repoPath, matchedRef, subpath] = gitlabTreeWithPathMatch;
     if (hostname !== 'github.com' && repoPath) {
       return {
         type: 'gitlab',
         url: `${protocol}://${hostname}/${repoPath.replace(/\.git$/, '')}.git`,
-        ref,
+        ref: fragmentRef || matchedRef,
         subpath,
       };
     }
@@ -208,12 +230,12 @@ export function parseSource(input: string): ParsedSource {
   // GitLab URL with branch only (any GitLab instance): https://gitlab.com/owner/repo/-/tree/branch
   const gitlabTreeMatch = input.match(/^(https?):\/\/([^/]+)\/(.+?)\/-\/tree\/([^/]+)$/);
   if (gitlabTreeMatch) {
-    const [, protocol, hostname, repoPath, ref] = gitlabTreeMatch;
+    const [, protocol, hostname, repoPath, matchedRef] = gitlabTreeMatch;
     if (hostname !== 'github.com' && repoPath) {
       return {
         type: 'gitlab',
         url: `${protocol}://${hostname}/${repoPath.replace(/\.git$/, '')}.git`,
-        ref,
+        ref: fragmentRef || matchedRef,
       };
     }
   }
@@ -221,7 +243,7 @@ export function parseSource(input: string): ParsedSource {
   // GitLab.com URL: https://gitlab.com/owner/repo or https://gitlab.com/group/subgroup/repo
   // Only for the official gitlab.com domain for user convenience.
   // Supports nested subgroups (e.g., gitlab.com/group/subgroup1/subgroup2/repo).
-  const gitlabRepoMatch = input.match(/gitlab\.com\/(.+?)(?:\.git)?\/?$/);
+  const gitlabRepoMatch = input.match(/^(?:https?:\/\/)?gitlab\.com\/(.+?)(?:\.git)?\/?$/);
   if (gitlabRepoMatch) {
     const repoPath = gitlabRepoMatch[1]!;
     // Must have at least owner/repo (one slash)
@@ -229,6 +251,7 @@ export function parseSource(input: string): ParsedSource {
       return {
         type: 'gitlab',
         url: `https://gitlab.com/${repoPath}.git`,
+        ref: fragmentRef,
       };
     }
   }
@@ -243,6 +266,7 @@ export function parseSource(input: string): ParsedSource {
       type: 'github',
       url: `https://github.com/${owner}/${repo}.git`,
       skillFilter,
+      ref: fragmentRef,
     };
   }
 
@@ -253,6 +277,7 @@ export function parseSource(input: string): ParsedSource {
       type: 'github',
       url: `https://github.com/${owner}/${repo}.git`,
       subpath,
+      ref: fragmentRef,
     };
   }
 
@@ -269,6 +294,7 @@ export function parseSource(input: string): ParsedSource {
   return {
     type: 'git',
     url: input,
+    ref: fragmentRef,
   };
 }
 
