@@ -79,6 +79,56 @@ describe('parseSource', () => {
       expect(result.ref).toBe('main');
       expect(result.subpath).toBe('src/skills');
     });
+
+    it('GitLab URL - with .git suffix', () => {
+      const result = parseSource('https://gitlab.com/owner/repo.git');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.com/owner/repo.git');
+    });
+
+    it('GitLab URL - subgroup (2 levels)', () => {
+      const result = parseSource('https://gitlab.com/group/subgroup/repo');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.com/group/subgroup/repo.git');
+      expect(result.ref).toBeUndefined();
+    });
+
+    it('GitLab URL - subgroup (3 levels)', () => {
+      const result = parseSource('https://gitlab.com/coresofthq/ai/agent-skills');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.com/coresofthq/ai/agent-skills.git');
+      expect(result.ref).toBeUndefined();
+    });
+
+    it('GitLab URL - deep subgroup with .git suffix', () => {
+      const result = parseSource('https://gitlab.com/org/team/project/repo.git');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.com/org/team/project/repo.git');
+    });
+
+    it('GitLab URL - subgroup with tree/branch', () => {
+      const result = parseSource('https://gitlab.com/group/subgroup/repo/-/tree/main');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.com/group/subgroup/repo.git');
+      expect(result.ref).toBe('main');
+      expect(result.subpath).toBeUndefined();
+    });
+
+    it('GitLab URL - subgroup with tree/branch/path', () => {
+      const result = parseSource(
+        'https://gitlab.com/group/subgroup/repo/-/tree/main/path/to/skill'
+      );
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.com/group/subgroup/repo.git');
+      expect(result.ref).toBe('main');
+      expect(result.subpath).toBe('path/to/skill');
+    });
+
+    it('GitLab URL - trailing slash', () => {
+      const result = parseSource('https://gitlab.com/group/subgroup/repo/');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.com/group/subgroup/repo.git');
+    });
   });
 
   describe('GitHub shorthand tests', () => {
@@ -192,6 +242,11 @@ describe('getOwnerRepo', () => {
     expect(getOwnerRepo(parsed)).toBe('owner/repo');
   });
 
+  it('getOwnerRepo - GitLab URL with subgroup', () => {
+    const parsed = parseSource('https://gitlab.com/coresofthq/ai/agent-skills');
+    expect(getOwnerRepo(parsed)).toBe('coresofthq/ai/agent-skills');
+  });
+
   it('getOwnerRepo - local path returns null', () => {
     const parsed = parseSource('./my-skills');
     expect(getOwnerRepo(parsed)).toBeNull();
@@ -258,5 +313,13 @@ describe('getOwnerRepo', () => {
       url: 'https://gitlab.company.com/division/team/repo.git',
     } as const;
     expect(getOwnerRepo(parsed)).toBe('division/team/repo');
+  });
+});
+
+describe('Source aliases', () => {
+  it('resolves coinbase/agentWallet to coinbase/agentic-wallet-skills', () => {
+    const result = parseSource('coinbase/agentWallet');
+    expect(result.type).toBe('github');
+    expect(result.url).toBe('https://github.com/coinbase/agentic-wallet-skills.git');
   });
 });
