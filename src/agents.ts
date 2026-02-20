@@ -238,6 +238,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.kode'));
     },
   },
+  loaf: {
+    name: 'loaf',
+    displayName: 'Loaf',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.loaf/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.loaf'));
+    },
+  },
   mcpjam: {
     name: 'mcpjam',
     displayName: 'MCPJam',

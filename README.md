@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [37 more](#available-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [38 more](#available-agents).
 <!-- agent-list:end -->
 
 ## Install a Skill
@@ -231,6 +231,7 @@ Skills can be installed to any of these agents:
 | Kilo Code | `kilo` | `.kilocode/skills/` | `~/.kilocode/skills/` |
 | Kiro CLI | `kiro-cli` | `.kiro/skills/` | `~/.kiro/skills/` |
 | Kode | `kode` | `.kode/skills/` | `~/.kode/skills/` |
+| Loaf | `loaf` | `.agents/skills/` | `~/.loaf/skills/` |
 | MCPJam | `mcpjam` | `.mcpjam/skills/` | `~/.mcpjam/skills/` |
 | Mistral Vibe | `mistral-vibe` | `.vibe/skills/` | `~/.vibe/skills/` |
 | Mux | `mux` | `.mux/skills/` | `~/.mux/skills/` |
