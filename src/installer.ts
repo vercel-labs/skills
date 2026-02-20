@@ -21,7 +21,7 @@ import { parseSkillMd } from './skills.ts';
 
 export type InstallMode = 'symlink' | 'copy';
 
-interface InstallResult {
+export interface InstallResult {
   success: boolean;
   path: string;
   canonicalPath?: string;
