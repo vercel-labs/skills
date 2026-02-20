@@ -39,7 +39,7 @@ export const agents: Record<AgentType, AgentConfig> = {
   antigravity: {
     name: 'antigravity',
     displayName: 'Antigravity',
-    skillsDir: '.agents/skills',
+    skillsDir: '.agent/skills',
     globalSkillsDir: join(home, '.gemini/antigravity/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.gemini/antigravity'));

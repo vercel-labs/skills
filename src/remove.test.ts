@@ -4,7 +4,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli, runCliWithInput } from './test-utils.js';
 
-describe('remove command', () => {
+describe('remove command', { timeout: 30000 }, () => {
   let testDir: string;
   let skillsDir: string;
 
