@@ -1,8 +1,9 @@
 import { readdir, readFile, stat } from 'fs/promises';
-import { join, basename, dirname } from 'path';
+import { join, basename, dirname, resolve } from 'path';
 import matter from 'gray-matter';
 import type { Skill } from './types.ts';
 import { getPluginSkillPaths } from './plugin-manifest.ts';
+import { sanitizeName } from './sanitize.ts';
 
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
 
@@ -27,7 +28,7 @@ async function hasSkillMd(dir: string): Promise<boolean> {
 
 export async function parseSkillMd(
   skillMdPath: string,
-  options?: { includeInternal?: boolean }
+  options?: { includeInternal?: boolean; basePath?: string }
 ): Promise<Skill | null> {
   try {
     const content = await readFile(skillMdPath, 'utf-8');
@@ -50,8 +51,27 @@ export async function parseSkillMd(
       return null;
     }
 
+    // Validate name-directory binding to prevent namespace squatting.
+    // Only applies when basePath is provided (i.e., called from discoverSkills).
+    // Skip for root-level SKILL.md (where dirname is a temp clone directory).
+    // Use a local variable instead of mutating data.name to avoid corrupting
+    // gray-matter's content-based cache (shared across parses of identical content).
+    let skillName = data.name;
+    if (options?.basePath) {
+      const dirName = basename(dirname(skillMdPath));
+      const isRootSkill = resolve(dirname(skillMdPath)) === resolve(options.basePath);
+
+      if (!isRootSkill && sanitizeName(data.name) !== sanitizeName(dirName)) {
+        console.warn(
+          `[skills] Warning: Skill at "${skillMdPath}" claims name "${data.name}" ` +
+            `but is in directory "${dirName}". Using directory name to prevent namespace squatting.`
+        );
+        skillName = dirName;
+      }
+    }
+
     return {
-      name: data.name,
+      name: skillName,
       description: data.description,
       path: dirname(skillMdPath),
       rawContent: content,
@@ -99,15 +119,16 @@ export async function discoverSkills(
   options?: DiscoverSkillsOptions
 ): Promise<Skill[]> {
   const skills: Skill[] = [];
-  const seenNames = new Set<string>();
+  const seenNames = new Map<string, string>(); // name → path (for duplicate warnings)
   const searchPath = subpath ? join(basePath, subpath) : basePath;
+  const parseOptions = { ...options, basePath: searchPath };
 
   // If pointing directly at a skill, add it (and return early unless fullDepth is set)
   if (await hasSkillMd(searchPath)) {
-    const skill = await parseSkillMd(join(searchPath, 'SKILL.md'), options);
+    const skill = await parseSkillMd(join(searchPath, 'SKILL.md'), parseOptions);
     if (skill) {
       skills.push(skill);
-      seenNames.add(skill.name);
+      seenNames.set(skill.name, skill.path);
       // Only return early if fullDepth is not set
       if (!options?.fullDepth) {
         return skills;
@@ -160,10 +181,22 @@ export async function discoverSkills(
         if (entry.isDirectory()) {
           const skillDir = join(dir, entry.name);
           if (await hasSkillMd(skillDir)) {
-            const skill = await parseSkillMd(join(skillDir, 'SKILL.md'), options);
-            if (skill && !seenNames.has(skill.name)) {
-              skills.push(skill);
-              seenNames.add(skill.name);
+            const skill = await parseSkillMd(join(skillDir, 'SKILL.md'), parseOptions);
+            if (skill) {
+              const existingPath = seenNames.get(skill.name);
+              if (existingPath != null) {
+                // Only warn when the duplicate comes from a different directory
+                if (existingPath !== skill.path) {
+                  console.warn(
+                    `[skills] Warning: Duplicate skill name "${skill.name}".\n` +
+                      `  Accepted: ${existingPath}\n` +
+                      `  Skipped:  ${skill.path}`
+                  );
+                }
+              } else {
+                skills.push(skill);
+                seenNames.set(skill.name, skill.path);
+              }
             }
           }
         }
@@ -178,10 +211,22 @@ export async function discoverSkills(
     const allSkillDirs = await findSkillDirs(searchPath);
 
     for (const skillDir of allSkillDirs) {
-      const skill = await parseSkillMd(join(skillDir, 'SKILL.md'), options);
-      if (skill && !seenNames.has(skill.name)) {
-        skills.push(skill);
-        seenNames.add(skill.name);
+      const skill = await parseSkillMd(join(skillDir, 'SKILL.md'), parseOptions);
+      if (skill) {
+        const existingPath = seenNames.get(skill.name);
+        if (existingPath != null) {
+          // Only warn when the duplicate comes from a different directory
+          if (existingPath !== skill.path) {
+            console.warn(
+              `[skills] Warning: Duplicate skill name "${skill.name}".\n` +
+                `  Accepted: ${existingPath}\n` +
+                `  Skipped:  ${skill.path}`
+            );
+          }
+        } else {
+          skills.push(skill);
+          seenNames.set(skill.name, skill.path);
+        }
       }
     }
   }
@@ -196,14 +241,29 @@ export function getSkillDisplayName(skill: Skill): string {
 /**
  * Filter skills based on user input (case-insensitive direct matching).
  * Multi-word skill names must be quoted on the command line.
+ * When multiple skills match, prefer those whose directory name matches the filter
+ * (defense-in-depth against namespace squatting).
  */
 export function filterSkills(skills: Skill[], inputNames: string[]): Skill[] {
   const normalizedInputs = inputNames.map((n) => n.toLowerCase());
 
-  return skills.filter((skill) => {
+  const matches = skills.filter((skill) => {
     const name = skill.name.toLowerCase();
     const displayName = getSkillDisplayName(skill).toLowerCase();
 
     return normalizedInputs.some((input) => input === name || input === displayName);
   });
+
+  // When multiple skills match, prefer those whose directory name matches the filter
+  if (matches.length > 1) {
+    const dirMatches = matches.filter((skill) => {
+      const dirName = sanitizeName(basename(skill.path));
+      return normalizedInputs.some((input) => sanitizeName(input) === dirName);
+    });
+    if (dirMatches.length > 0) {
+      return dirMatches;
+    }
+  }
+
+  return matches;
 }
