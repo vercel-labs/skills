@@ -516,8 +516,7 @@ async function runUpdate(): Promise<void> {
   for (const update of updates) {
     console.log(`${TEXT}Updating ${update.name}...${RESET}`);
 
-    // Build the URL with subpath to target the specific skill directory
-    // e.g., https://github.com/owner/repo/tree/main/skills/my-skill
+    // Build the install specifier for the specific skill directory
     let installUrl = update.entry.sourceUrl;
     if (update.entry.skillPath) {
       // Extract the skill folder path (remove /SKILL.md suffix)
@@ -531,10 +530,10 @@ async function runUpdate(): Promise<void> {
         skillFolder = skillFolder.slice(0, -1);
       }
 
-      // Convert git URL to tree URL with path
-      // https://github.com/owner/repo.git -> https://github.com/owner/repo/tree/main/path
-      installUrl = update.entry.sourceUrl.replace(/\.git$/, '').replace(/\/$/, '');
-      installUrl = `${installUrl}/tree/main/${skillFolder}`;
+      // Use GitHub shorthand (owner/repo/path) so parseSource clones the
+      // repo's default branch instead of assuming "main".
+      // entry.source is always "owner/repo" for GitHub-sourced skills.
+      installUrl = skillFolder ? `${update.source}/${skillFolder}` : update.source;
     }
 
     // Use skills CLI to reinstall with -g -y flags
@@ -615,7 +614,7 @@ async function main(): Promise<void> {
     }
     case 'remove':
     case 'rm':
-    case 'r':
+    case 'r': {
       // Check for --help or -h flag
       if (restArgs.includes('--help') || restArgs.includes('-h')) {
         showRemoveHelp();
@@ -624,6 +623,7 @@ async function main(): Promise<void> {
       const { skills, options: removeOptions } = parseRemoveOptions(restArgs);
       await removeCommand(skills, removeOptions);
       break;
+    }
     case 'experimental_sync': {
       showLogo();
       const { options: syncOptions } = parseSyncOptions(restArgs);

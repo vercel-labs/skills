@@ -3,6 +3,7 @@ import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
 import { execSync } from 'child_process';
+import { resolveDefaultBranch } from './git.ts';
 
 const AGENTS_DIR = '.agents';
 const LOCK_FILE = '.skill-lock.json';
@@ -178,7 +179,13 @@ export async function fetchSkillFolderHash(
     folderPath = folderPath.slice(0, -1);
   }
 
-  const branches = ['main', 'master'];
+  const repoUrl = `https://github.com/${ownerRepo}.git`;
+  const defaultBranch = await resolveDefaultBranch(repoUrl);
+  const branches = defaultBranch ? [defaultBranch] : ['main', 'master'];
+
+  if (!defaultBranch) {
+    console.error(`Warning: Could not resolve default branch for ${ownerRepo}, trying main/master`);
+  }
 
   for (const branch of branches) {
     try {
