@@ -102,16 +102,19 @@ export async function discoverSkills(
   const seenNames = new Set<string>();
   const searchPath = subpath ? join(basePath, subpath) : basePath;
 
-  // If pointing directly at a skill, add it (and return early unless fullDepth is set)
-  if (await hasSkillMd(searchPath)) {
-    const skill = await parseSkillMd(join(searchPath, 'SKILL.md'), options);
-    if (skill) {
+  async function collectSkill(skillDir: string) {
+    const skill = await parseSkillMd(join(skillDir, 'SKILL.md'), options);
+    if (skill && !seenNames.has(skill.name)) {
       skills.push(skill);
       seenNames.add(skill.name);
-      // Only return early if fullDepth is not set
-      if (!options?.fullDepth) {
-        return skills;
-      }
+    }
+  }
+
+  // If pointing directly at a skill, add it (and return early unless fullDepth is set)
+  if (await hasSkillMd(searchPath)) {
+    await collectSkill(searchPath);
+    if (skills.length > 0 && !options?.fullDepth) {
+      return skills;
     }
   }
 
@@ -157,14 +160,15 @@ export async function discoverSkills(
       const entries = await readdir(dir, { withFileTypes: true });
 
       for (const entry of entries) {
-        if (entry.isDirectory()) {
-          const skillDir = join(dir, entry.name);
-          if (await hasSkillMd(skillDir)) {
-            const skill = await parseSkillMd(join(skillDir, 'SKILL.md'), options);
-            if (skill && !seenNames.has(skill.name)) {
-              skills.push(skill);
-              seenNames.add(skill.name);
-            }
+        if (!entry.isDirectory()) continue;
+
+        const skillDir = join(dir, entry.name);
+        if (await hasSkillMd(skillDir)) {
+          await collectSkill(skillDir);
+        } else {
+          const nestedDirs = await findSkillDirs(skillDir, 0, 3);
+          for (const nestedDir of nestedDirs) {
+            await collectSkill(nestedDir);
           }
         }
       }
@@ -176,13 +180,8 @@ export async function discoverSkills(
   // Fall back to recursive search if nothing found, or if fullDepth is set
   if (skills.length === 0 || options?.fullDepth) {
     const allSkillDirs = await findSkillDirs(searchPath);
-
     for (const skillDir of allSkillDirs) {
-      const skill = await parseSkillMd(join(skillDir, 'SKILL.md'), options);
-      if (skill && !seenNames.has(skill.name)) {
-        skills.push(skill);
-        seenNames.add(skill.name);
-      }
+      await collectSkill(skillDir);
     }
   }
 
