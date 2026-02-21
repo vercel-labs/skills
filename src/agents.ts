@@ -169,7 +169,7 @@ export const agents: Record<AgentType, AgentConfig> = {
   'github-copilot': {
     name: 'github-copilot',
     displayName: 'GitHub Copilot',
-    skillsDir: '.agents/skills',
+    skillsDir: '.github/skills',
     globalSkillsDir: join(home, '.copilot/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.copilot'));
