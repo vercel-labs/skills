@@ -243,7 +243,7 @@ Skills can be installed to any of these agents:
 | Trae | `trae` | `.trae/skills/` | `~/.trae/skills/` |
 | Trae CN | `trae-cn` | `.trae/skills/` | `~/.trae-cn/skills/` |
 | Windsurf | `windsurf` | `.windsurf/skills/` | `~/.codeium/windsurf/skills/` |
-| Zencoder | `zencoder` | `.zencoder/skills/` | `~/.zencoder/skills/` |
+| Zencoder | `zencoder` | `.agents/skills/` | `~/.agents/skills/` |
 | Neovate | `neovate` | `.neovate/skills/` | `~/.neovate/skills/` |
 | Pochi | `pochi` | `.pochi/skills/` | `~/.pochi/skills/` |
 | AdaL | `adal` | `.adal/skills/` | `~/.adal/skills/` |
@@ -344,7 +344,6 @@ The CLI searches for skills in these locations within a repository:
 - `.roo/skills/`
 - `.trae/skills/`
 - `.windsurf/skills/`
-- `.zencoder/skills/`
 - `.neovate/skills/`
 - `.pochi/skills/`
 - `.adal/skills/`

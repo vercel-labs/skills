@@ -1,8 +1,8 @@
 import { readdir, readFile, stat } from 'fs/promises';
-import { join, basename, dirname } from 'path';
 import matter from 'gray-matter';
-import type { Skill } from './types.ts';
+import { basename, dirname, join } from 'path';
 import { getPluginSkillPaths } from './plugin-manifest.ts';
+import type { Skill } from './types.ts';
 
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
 
@@ -146,7 +146,6 @@ export async function discoverSkills(
     join(searchPath, '.roo/skills'),
     join(searchPath, '.trae/skills'),
     join(searchPath, '.windsurf/skills'),
-    join(searchPath, '.zencoder/skills'),
   ];
 
   // Add skill paths declared in plugin manifests
