@@ -3,6 +3,7 @@ import { join, basename, dirname } from 'path';
 import matter from 'gray-matter';
 import type { Skill } from './types.ts';
 import { getPluginSkillPaths } from './plugin-manifest.ts';
+import { loadSkillIgnorePatterns, isSkillIgnored } from './skillignore.ts';
 
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
 
@@ -102,6 +103,9 @@ export async function discoverSkills(
   const seenNames = new Set<string>();
   const searchPath = subpath ? join(basePath, subpath) : basePath;
 
+  // Load .skillignore patterns once (used by early return and final filter)
+  const ignorePatterns = !options?.includeInternal ? await loadSkillIgnorePatterns(basePath) : [];
+
   // If pointing directly at a skill, add it (and return early unless fullDepth is set)
   if (await hasSkillMd(searchPath)) {
     const skill = await parseSkillMd(join(searchPath, 'SKILL.md'), options);
@@ -110,6 +114,9 @@ export async function discoverSkills(
       seenNames.add(skill.name);
       // Only return early if fullDepth is not set
       if (!options?.fullDepth) {
+        if (ignorePatterns.length > 0) {
+          return skills.filter((s) => !isSkillIgnored(s.name, ignorePatterns));
+        }
         return skills;
       }
     }
@@ -184,6 +191,11 @@ export async function discoverSkills(
         seenNames.add(skill.name);
       }
     }
+  }
+
+  // Apply .skillignore filtering
+  if (ignorePatterns.length > 0) {
+    return skills.filter((skill) => !isSkillIgnored(skill.name, ignorePatterns));
   }
 
   return skills;
