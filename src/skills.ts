@@ -145,6 +145,7 @@ export async function discoverSkills(
     join(searchPath, '.qoder/skills'),
     join(searchPath, '.roo/skills'),
     join(searchPath, '.trae/skills'),
+    join(searchPath, '.verdent/skills'),
     join(searchPath, '.windsurf/skills'),
     join(searchPath, '.zencoder/skills'),
   ];

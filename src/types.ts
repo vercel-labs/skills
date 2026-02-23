@@ -35,6 +35,7 @@ export type AgentType =
   | 'roo'
   | 'trae'
   | 'trae-cn'
+  | 'verdent'
   | 'windsurf'
   | 'zencoder'
   | 'pochi'

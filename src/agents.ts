@@ -347,6 +347,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.trae-cn'));
     },
   },
+  verdent: {
+    name: 'verdent',
+    displayName: 'Verdent',
+    skillsDir: '.verdent/skills',
+    globalSkillsDir: join(home, '.verdent/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.verdent'));
+    },
+  },
   windsurf: {
     name: 'windsurf',
     displayName: 'Windsurf',

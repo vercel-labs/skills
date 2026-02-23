@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [37 more](#available-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [38 more](#available-agents).
 <!-- agent-list:end -->
 
 ## Install a Skill
@@ -242,6 +242,7 @@ Skills can be installed to any of these agents:
 | Roo Code | `roo` | `.roo/skills/` | `~/.roo/skills/` |
 | Trae | `trae` | `.trae/skills/` | `~/.trae/skills/` |
 | Trae CN | `trae-cn` | `.trae/skills/` | `~/.trae-cn/skills/` |
+| Verdent | `verdent` | `.verdent/skills/` | `~/.verdent/skills/` |
 | Windsurf | `windsurf` | `.windsurf/skills/` | `~/.codeium/windsurf/skills/` |
 | Zencoder | `zencoder` | `.zencoder/skills/` | `~/.zencoder/skills/` |
 | Neovate | `neovate` | `.neovate/skills/` | `~/.neovate/skills/` |
@@ -343,6 +344,7 @@ The CLI searches for skills in these locations within a repository:
 - `.qwen/skills/`
 - `.roo/skills/`
 - `.trae/skills/`
+- `.verdent/skills/`
 - `.windsurf/skills/`
 - `.zencoder/skills/`
 - `.neovate/skills/`
@@ -448,6 +450,7 @@ Telemetry is automatically disabled in CI environments.
 - [Replit Skills Documentation](https://docs.replit.com/replitai/skills)
 - [Roo Code Skills Documentation](https://docs.roocode.com/features/skills)
 - [Trae Skills Documentation](https://docs.trae.ai/ide/skills)
+- [Verdent Skills Documentation](https://www.verdent.ai)
 - [Vercel Agent Skills Repository](https://github.com/vercel-labs/agent-skills)
 
 ## License
