@@ -37,6 +37,11 @@ export async function parseSkillMd(
       return null;
     }
 
+    // Ensure name and description are strings (YAML can parse numbers, booleans, etc.)
+    if (typeof data.name !== 'string' || typeof data.description !== 'string') {
+      return null;
+    }
+
     // Skip internal skills unless:
     // 1. INSTALL_INTERNAL_SKILLS=1 is set, OR
     // 2. includeInternal option is true (e.g., when user explicitly requests a skill)
@@ -125,7 +130,7 @@ export async function discoverSkills(
     join(searchPath, '.codex/skills'),
     join(searchPath, '.commandcode/skills'),
     join(searchPath, '.continue/skills'),
-    join(searchPath, '.cursor/skills'),
+
     join(searchPath, '.github/skills'),
     join(searchPath, '.goose/skills'),
     join(searchPath, '.iflow/skills'),
