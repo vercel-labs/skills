@@ -23,7 +23,7 @@ import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track } from './telemetry.ts';
 import { fetchSkillFolderHash, getGitHubToken, removeSkillFromLock } from './skill-lock.ts';
-import { getCanonicalPath, getInstallPath } from './installer.ts';
+import { getCanonicalPath, getInstallPath, sanitizeName } from './installer.ts';
 import { agents } from './agents.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -298,6 +298,88 @@ const LOCK_FILE = '.skill-lock.json';
 const CHECK_UPDATES_API_URL = 'https://add-skill.vercel.sh/check-updates';
 const CURRENT_LOCK_VERSION = 3; // Bumped from 2 to 3 for folder hash support
 
+// In-memory cache: ownerRepo -> { tree entries, branch used }
+// Avoids redundant GitHub API calls when many skills share the same source repo
+const repoTreeCache = new Map<
+  string,
+  { tree: Array<{ path: string; type: string; sha: string }>; rootSha: string } | null
+>();
+
+/**
+ * Fetch and cache the GitHub repo tree for a given owner/repo.
+ * Returns the full tree (all entries) or null if the repo can't be fetched.
+ * Subsequent calls for the same ownerRepo return the cached result.
+ */
+async function fetchRepoTree(
+  ownerRepo: string,
+  token?: string | null
+): Promise<{ tree: Array<{ path: string; type: string; sha: string }>; rootSha: string } | null> {
+  if (repoTreeCache.has(ownerRepo)) {
+    return repoTreeCache.get(ownerRepo)!;
+  }
+
+  const branches = ['main', 'master'];
+  for (const branch of branches) {
+    try {
+      const url = `https://api.github.com/repos/${ownerRepo}/git/trees/${branch}?recursive=1`;
+      const headers: Record<string, string> = {
+        Accept: 'application/vnd.github.v3+json',
+        'User-Agent': 'skills-cli',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(url, { headers });
+      if (!response.ok) continue;
+
+      const data = (await response.json()) as {
+        sha: string;
+        tree: Array<{ path: string; type: string; sha: string }>;
+      };
+
+      const result = { tree: data.tree, rootSha: data.sha };
+      repoTreeCache.set(ownerRepo, result);
+      return result;
+    } catch {
+      continue;
+    }
+  }
+
+  repoTreeCache.set(ownerRepo, null);
+  return null;
+}
+
+/**
+ * Look up a skill's folder hash from the cached repo tree.
+ * Returns the tree SHA for the folder, or null if the path doesn't exist.
+ */
+function lookupSkillHashFromTree(
+  repoTree: { tree: Array<{ path: string; type: string; sha: string }>; rootSha: string },
+  skillPath: string
+): string | null {
+  // Normalize path
+  let folderPath = skillPath.replace(/\\/g, '/');
+  if (folderPath.endsWith('/SKILL.md')) {
+    folderPath = folderPath.slice(0, -9);
+  } else if (folderPath.endsWith('SKILL.md')) {
+    folderPath = folderPath.slice(0, -8);
+  }
+  if (folderPath.endsWith('/')) {
+    folderPath = folderPath.slice(0, -1);
+  }
+
+  // Root-level skill
+  if (!folderPath) {
+    return repoTree.rootSha;
+  }
+
+  const folderEntry = repoTree.tree.find(
+    (entry) => entry.type === 'tree' && entry.path === folderPath
+  );
+  return folderEntry ? folderEntry.sha : null;
+}
+
 interface SkillLockEntry {
   source: string;
   sourceType: string;
@@ -393,8 +475,10 @@ async function runCheck(args: string[] = []): Promise<void> {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    // Only check GitHub-sourced skills with folder hash
-    if (entry.sourceType !== 'github' || !entry.skillFolderHash || !entry.skillPath) {
+    // Only check GitHub-sourced skills that have a skillPath
+    // Note: skillFolderHash may be empty for older installs — we can still
+    // check staleness (path existence) and backfill the hash
+    if (entry.sourceType !== 'github' || !entry.skillPath) {
       skippedCount++;
       continue;
     }
@@ -416,27 +500,43 @@ async function runCheck(args: string[] = []): Promise<void> {
   const stale: Array<{ name: string; source: string }> = [];
   const errors: Array<{ name: string; source: string; error: string }> = [];
 
-  // Check each source (one API call per repo)
+  // Check each source (one API call per repo via cache)
   for (const [source, skills] of skillsBySource) {
-    for (const { name, entry } of skills) {
-      try {
-        const latestHash = await fetchSkillFolderHash(source, entry.skillPath!, token);
-
-        if (!latestHash) {
-          // Skill path no longer exists in the source repo
-          stale.push({ name, source });
-          continue;
-        }
-
-        if (latestHash !== entry.skillFolderHash) {
-          updates.push({ name, source });
-        }
-      } catch (err) {
+    let repoTree: Awaited<ReturnType<typeof fetchRepoTree>>;
+    try {
+      repoTree = await fetchRepoTree(source, token);
+    } catch (err) {
+      // If we can't fetch the repo tree, mark all skills from this source as errors
+      for (const { name } of skills) {
         errors.push({
           name,
           source,
           error: err instanceof Error ? err.message : 'Unknown error',
         });
+      }
+      continue;
+    }
+
+    if (!repoTree) {
+      // Repo not accessible — error, not stale (we can't confirm the path is gone)
+      for (const { name } of skills) {
+        errors.push({ name, source, error: 'Could not fetch repository tree' });
+      }
+      continue;
+    }
+
+    for (const { name, entry } of skills) {
+      const latestHash = lookupSkillHashFromTree(repoTree, entry.skillPath!);
+
+      if (!latestHash) {
+        // Skill path no longer exists in the source repo
+        stale.push({ name, source });
+        continue;
+      }
+
+      // Only report as update if we have a previous hash to compare against
+      if (entry.skillFolderHash && latestHash !== entry.skillFolderHash) {
+        updates.push({ name, source });
       }
     }
   }
@@ -505,6 +605,9 @@ async function runUpdate(options: { prune?: boolean } = {}): Promise<void> {
   // Get GitHub token from user's environment for higher rate limits
   const token = getGitHubToken();
 
+  // Group skills by source for efficient batched API calls
+  const skillsBySource = new Map<string, Array<{ name: string; entry: SkillLockEntry }>>();
+
   // Find skills that need updates by checking GitHub directly
   const updates: Array<{ name: string; source: string; entry: SkillLockEntry }> = [];
   const staleSkills: Array<{ name: string; source: string; entry: SkillLockEntry }> = [];
@@ -514,27 +617,48 @@ async function runUpdate(options: { prune?: boolean } = {}): Promise<void> {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    // Only check GitHub-sourced skills with folder hash
-    if (entry.sourceType !== 'github' || !entry.skillFolderHash || !entry.skillPath) {
+    // Only check GitHub-sourced skills that have a skillPath
+    // Note: skillFolderHash may be empty for older installs — we can still
+    // check staleness (path existence) and backfill the hash
+    if (entry.sourceType !== 'github' || !entry.skillPath) {
       continue;
     }
 
     checkedCount++;
 
+    const existing = skillsBySource.get(entry.source) || [];
+    existing.push({ name: skillName, entry });
+    skillsBySource.set(entry.source, existing);
+  }
+
+  // Fetch trees and check all skills (one API call per repo via cache)
+  for (const [source, skills] of skillsBySource) {
+    let repoTree: Awaited<ReturnType<typeof fetchRepoTree>>;
     try {
-      const latestHash = await fetchSkillFolderHash(entry.source, entry.skillPath, token);
+      repoTree = await fetchRepoTree(source, token);
+    } catch {
+      // Skip skills from repos we can't fetch
+      continue;
+    }
+
+    if (!repoTree) {
+      // Repo not accessible — skip (don't treat as stale, we can't confirm)
+      continue;
+    }
+
+    for (const { name, entry } of skills) {
+      const latestHash = lookupSkillHashFromTree(repoTree, entry.skillPath!);
 
       if (!latestHash) {
         // Skill path no longer exists in the source repo
-        staleSkills.push({ name: skillName, source: entry.source, entry });
+        staleSkills.push({ name, source, entry });
         continue;
       }
 
-      if (latestHash !== entry.skillFolderHash) {
-        updates.push({ name: skillName, source: entry.source, entry });
+      // Only report as update if we have a previous hash to compare against
+      if (entry.skillFolderHash && latestHash !== entry.skillFolderHash) {
+        updates.push({ name, source, entry });
       }
-    } catch {
-      // Skip skills that fail to check
     }
   }
 
@@ -623,15 +747,26 @@ async function runUpdate(options: { prune?: boolean } = {}): Promise<void> {
       try {
         // Remove from disk: canonical path and agent symlinks
         const canonicalPath = getCanonicalPath(stale.name, { global: true });
+        const sanitizedName = sanitizeName(stale.name);
 
-        // Remove agent-specific symlinks/copies
+        // Remove agent-specific symlinks/copies, including legacy paths
         for (const [agentKey, agent] of Object.entries(agents)) {
           try {
+            const pathsToCleanup = new Set<string>();
             const skillPath = getInstallPath(stale.name, agentKey as any, { global: true });
-            if (skillPath !== canonicalPath) {
+            pathsToCleanup.add(skillPath);
+
+            // Also check the agent's native globalSkillsDir for legacy symlinks
+            if (agent.globalSkillsDir) {
+              pathsToCleanup.add(join(agent.globalSkillsDir, sanitizedName));
+            }
+
+            for (const pathToCleanup of pathsToCleanup) {
+              // Skip canonical path here — we handle it after all agents
+              if (pathToCleanup === canonicalPath) continue;
               try {
-                lstatSync(skillPath);
-                rmSync(skillPath, { recursive: true, force: true });
+                lstatSync(pathToCleanup);
+                rmSync(pathToCleanup, { recursive: true, force: true });
               } catch {
                 // Path doesn't exist, skip
               }
