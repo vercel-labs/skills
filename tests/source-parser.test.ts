@@ -56,6 +56,57 @@ describe('parseSource', () => {
     });
   });
 
+  describe('GitHub Enterprise URL tests', () => {
+    it('GHE URL - basic repo', () => {
+      const result = parseSource('https://github.company.com/owner/repo');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.company.com/owner/repo.git');
+      expect(result.ref).toBeUndefined();
+      expect(result.subpath).toBeUndefined();
+    });
+
+    it('GHE URL - tree with branch only', () => {
+      const result = parseSource('https://github.company.com/owner/repo/tree/main');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.company.com/owner/repo.git');
+      expect(result.ref).toBe('main');
+      expect(result.subpath).toBeUndefined();
+    });
+
+    it('GHE URL - tree with branch and path', () => {
+      const result = parseSource('https://github.company.com/owner/repo/tree/main/path/to/skill');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.company.com/owner/repo.git');
+      expect(result.ref).toBe('main');
+      expect(result.subpath).toBe('path/to/skill');
+    });
+
+    it('GHE URL - with port number', () => {
+      const result = parseSource('https://github.company.com:8443/owner/repo');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.company.com:8443/owner/repo.git');
+      expect(result.ref).toBeUndefined();
+    });
+
+    it('GHE URL - with .git suffix', () => {
+      const result = parseSource('https://github.company.com/owner/repo.git');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.company.com/owner/repo.git');
+    });
+
+    it('GHE URL - http protocol', () => {
+      const result = parseSource('http://github.internal.io/owner/repo');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('http://github.internal.io/owner/repo.git');
+    });
+
+    it('GHE URL - should not be treated as well-known', () => {
+      const result = parseSource('https://github.enterprise.corp/owner/repo');
+      expect(result.type).toBe('github');
+      expect(result.type).not.toBe('well-known');
+    });
+  });
+
   describe('GitLab URL tests', () => {
     it('GitLab URL - basic repo', () => {
       const result = parseSource('https://gitlab.com/owner/repo');

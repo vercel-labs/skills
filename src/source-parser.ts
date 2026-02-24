@@ -104,15 +104,20 @@ function isDirectSkillUrl(input: string): boolean {
 
   // Exclude GitHub and GitLab repository URLs - they have their own handling
   // (but allow raw.githubusercontent.com if someone wants to use it directly)
-  if (input.includes('github.com/') && !input.includes('raw.githubusercontent.com')) {
-    // Check if it's a blob/raw URL to SKILL.md (these should be handled by providers)
-    // vs a tree/repo URL (these should be cloned)
-    if (!input.includes('/blob/') && !input.includes('/raw/')) {
+  // Supports GitHub Enterprise domains (any hostname containing "github")
+  try {
+    const parsedUrl = new URL(input);
+    const host = parsedUrl.hostname.toLowerCase();
+    if (host.includes('github') && !host.includes('raw.githubusercontent.com')) {
+      if (!input.includes('/blob/') && !input.includes('/raw/')) {
+        return false;
+      }
+    }
+    if (host.includes('gitlab') && !input.includes('/-/raw/')) {
       return false;
     }
-  }
-  if (input.includes('gitlab.com/') && !input.includes('/-/raw/')) {
-    return false;
+  } catch {
+    // Invalid URL, continue with other checks
   }
 
   return true;
@@ -154,36 +159,45 @@ export function parseSource(input: string): ParsedSource {
   }
 
   // GitHub URL with path: https://github.com/owner/repo/tree/branch/path/to/skill
-  const githubTreeWithPathMatch = input.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/);
+  // Also supports GitHub Enterprise domains (any hostname containing "github")
+  const githubTreeWithPathMatch = input.match(
+    /^(https?):\/\/((?:[^/]*github[^/]*)(?::\d+)?)\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/
+  );
   if (githubTreeWithPathMatch) {
-    const [, owner, repo, ref, subpath] = githubTreeWithPathMatch;
+    const [, protocol, hostname, owner, repo, ref, subpath] = githubTreeWithPathMatch;
     return {
       type: 'github',
-      url: `https://github.com/${owner}/${repo}.git`,
+      url: `${protocol}://${hostname}/${owner}/${repo}.git`,
       ref,
       subpath,
     };
   }
 
   // GitHub URL with branch only: https://github.com/owner/repo/tree/branch
-  const githubTreeMatch = input.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)$/);
+  // Also supports GitHub Enterprise domains (any hostname containing "github")
+  const githubTreeMatch = input.match(
+    /^(https?):\/\/((?:[^/]*github[^/]*)(?::\d+)?)\/([^/]+)\/([^/]+)\/tree\/([^/]+)$/
+  );
   if (githubTreeMatch) {
-    const [, owner, repo, ref] = githubTreeMatch;
+    const [, protocol, hostname, owner, repo, ref] = githubTreeMatch;
     return {
       type: 'github',
-      url: `https://github.com/${owner}/${repo}.git`,
+      url: `${protocol}://${hostname}/${owner}/${repo}.git`,
       ref,
     };
   }
 
   // GitHub URL: https://github.com/owner/repo
-  const githubRepoMatch = input.match(/github\.com\/([^/]+)\/([^/]+)/);
+  // Also supports GitHub Enterprise domains (any hostname containing "github")
+  const githubRepoMatch = input.match(
+    /^(https?):\/\/((?:[^/]*github[^/]*)(?::\d+)?)\/([^/]+)\/([^/]+)/
+  );
   if (githubRepoMatch) {
-    const [, owner, repo] = githubRepoMatch;
+    const [, protocol, hostname, owner, repo] = githubRepoMatch;
     const cleanRepo = repo!.replace(/\.git$/, '');
     return {
       type: 'github',
-      url: `https://github.com/${owner}/${cleanRepo}.git`,
+      url: `${protocol}://${hostname}/${owner}/${cleanRepo}.git`,
     };
   }
 
@@ -286,13 +300,14 @@ function isWellKnownUrl(input: string): boolean {
     const parsed = new URL(input);
 
     // Exclude known git hosts that have their own handling
-    const excludedHosts = [
-      'github.com',
-      'gitlab.com',
-      'huggingface.co',
-      'raw.githubusercontent.com',
-    ];
-    if (excludedHosts.includes(parsed.hostname)) {
+    // Supports GitHub/GitLab Enterprise domains (any hostname containing "github" or "gitlab")
+    const host = parsed.hostname.toLowerCase();
+    if (
+      host.includes('github') ||
+      host.includes('gitlab') ||
+      host === 'huggingface.co' ||
+      host === 'raw.githubusercontent.com'
+    ) {
       return false;
     }
 
