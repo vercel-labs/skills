@@ -1,7 +1,16 @@
 #!/usr/bin/env node
 
 import { spawn, spawnSync } from 'child_process';
-import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs';
+import {
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  statSync,
+  rmSync,
+  lstatSync,
+} from 'fs';
 import { basename, join, dirname } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
@@ -13,7 +22,9 @@ import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track } from './telemetry.ts';
-import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
+import { fetchSkillFolderHash, getGitHubToken, removeSkillFromLock } from './skill-lock.ts';
+import { getCanonicalPath, getInstallPath } from './installer.ts';
+import { agents } from './agents.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -86,6 +97,9 @@ function showBanner(): void {
   console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills update${RESET}               ${DIM}Update all skills${RESET}`
   );
+  console.log(
+    `  ${DIM}$${RESET} ${TEXT}npx skills update --prune${RESET}       ${DIM}Remove stale skills${RESET}`
+  );
   console.log();
   console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills experimental_install${RESET} ${DIM}Restore from skills-lock.json${RESET}`
@@ -118,6 +132,9 @@ ${BOLD}Manage Skills:${RESET}
 ${BOLD}Updates:${RESET}
   check                Check for available skill updates
   update               Update all skills to latest versions
+
+${BOLD}Update Options:${RESET}
+  --prune              Remove skills no longer in their source repo
 
 ${BOLD}Project:${RESET}
   experimental_install Restore skills from skills-lock.json
@@ -168,6 +185,7 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills find typescript               ${DIM}# search by keyword${RESET}
   ${DIM}$${RESET} skills check
   ${DIM}$${RESET} skills update
+  ${DIM}$${RESET} skills update --prune                ${DIM}# remove stale skills${RESET}
   ${DIM}$${RESET} skills experimental_install            ${DIM}# restore from skills-lock.json${RESET}
   ${DIM}$${RESET} skills init my-skill
   ${DIM}$${RESET} skills experimental_sync              ${DIM}# sync from node_modules${RESET}
@@ -395,6 +413,7 @@ async function runCheck(args: string[] = []): Promise<void> {
   console.log(`${DIM}Checking ${totalSkills} skill(s) for updates...${RESET}`);
 
   const updates: Array<{ name: string; source: string }> = [];
+  const stale: Array<{ name: string; source: string }> = [];
   const errors: Array<{ name: string; source: string; error: string }> = [];
 
   // Check each source (one API call per repo)
@@ -404,7 +423,8 @@ async function runCheck(args: string[] = []): Promise<void> {
         const latestHash = await fetchSkillFolderHash(source, entry.skillPath!, token);
 
         if (!latestHash) {
-          errors.push({ name, source, error: 'Could not fetch from GitHub' });
+          // Skill path no longer exists in the source repo
+          stale.push({ name, source });
           continue;
         }
 
@@ -423,19 +443,35 @@ async function runCheck(args: string[] = []): Promise<void> {
 
   console.log();
 
-  if (updates.length === 0) {
+  if (updates.length === 0 && stale.length === 0) {
     console.log(`${TEXT}✓ All skills are up to date${RESET}`);
   } else {
-    console.log(`${TEXT}${updates.length} update(s) available:${RESET}`);
-    console.log();
-    for (const update of updates) {
-      console.log(`  ${TEXT}↑${RESET} ${update.name}`);
-      console.log(`    ${DIM}source: ${update.source}${RESET}`);
+    if (updates.length > 0) {
+      console.log(`${TEXT}${updates.length} update(s) available:${RESET}`);
+      console.log();
+      for (const update of updates) {
+        console.log(`  ${TEXT}↑${RESET} ${update.name}`);
+        console.log(`    ${DIM}source: ${update.source}${RESET}`);
+      }
+      console.log();
+      console.log(
+        `${DIM}Run${RESET} ${TEXT}npx skills update${RESET} ${DIM}to update all skills${RESET}`
+      );
     }
-    console.log();
-    console.log(
-      `${DIM}Run${RESET} ${TEXT}npx skills update${RESET} ${DIM}to update all skills${RESET}`
-    );
+
+    if (stale.length > 0) {
+      console.log();
+      console.log(`${TEXT}${stale.length} stale skill(s) no longer in source repo:${RESET}`);
+      console.log();
+      for (const s of stale) {
+        console.log(`  ${DIM}✗${RESET} ${s.name}`);
+        console.log(`    ${DIM}source: ${s.source}${RESET}`);
+      }
+      console.log();
+      console.log(
+        `${DIM}Run${RESET} ${TEXT}npx skills update --prune${RESET} ${DIM}to remove stale skills${RESET}`
+      );
+    }
   }
 
   if (errors.length > 0) {
@@ -453,7 +489,7 @@ async function runCheck(args: string[] = []): Promise<void> {
   console.log();
 }
 
-async function runUpdate(): Promise<void> {
+async function runUpdate(options: { prune?: boolean } = {}): Promise<void> {
   console.log(`${TEXT}Checking for skill updates...${RESET}`);
   console.log();
 
@@ -471,6 +507,7 @@ async function runUpdate(): Promise<void> {
 
   // Find skills that need updates by checking GitHub directly
   const updates: Array<{ name: string; source: string; entry: SkillLockEntry }> = [];
+  const staleSkills: Array<{ name: string; source: string; entry: SkillLockEntry }> = [];
   let checkedCount = 0;
 
   for (const skillName of skillNames) {
@@ -487,7 +524,13 @@ async function runUpdate(): Promise<void> {
     try {
       const latestHash = await fetchSkillFolderHash(entry.source, entry.skillPath, token);
 
-      if (latestHash && latestHash !== entry.skillFolderHash) {
+      if (!latestHash) {
+        // Skill path no longer exists in the source repo
+        staleSkills.push({ name: skillName, source: entry.source, entry });
+        continue;
+      }
+
+      if (latestHash !== entry.skillFolderHash) {
         updates.push({ name: skillName, source: entry.source, entry });
       }
     } catch {
@@ -500,14 +543,31 @@ async function runUpdate(): Promise<void> {
     return;
   }
 
-  if (updates.length === 0) {
+  if (updates.length === 0 && staleSkills.length === 0) {
     console.log(`${TEXT}✓ All skills are up to date${RESET}`);
     console.log();
     return;
   }
 
-  console.log(`${TEXT}Found ${updates.length} update(s)${RESET}`);
-  console.log();
+  if (updates.length === 0 && staleSkills.length > 0 && !options.prune) {
+    console.log(`${TEXT}✓ All skills are up to date${RESET}`);
+    console.log();
+    console.log(`${TEXT}${staleSkills.length} stale skill(s) no longer in source repo:${RESET}`);
+    for (const s of staleSkills) {
+      console.log(`  ${DIM}✗${RESET} ${s.name} ${DIM}(${s.source})${RESET}`);
+    }
+    console.log();
+    console.log(
+      `${DIM}Run${RESET} ${TEXT}npx skills update --prune${RESET} ${DIM}to remove stale skills${RESET}`
+    );
+    console.log();
+    return;
+  }
+
+  if (updates.length > 0) {
+    console.log(`${TEXT}Found ${updates.length} update(s)${RESET}`);
+    console.log();
+  }
 
   // Reinstall each skill that has an update
   let successCount = 0;
@@ -551,12 +611,78 @@ async function runUpdate(): Promise<void> {
     }
   }
 
+  // Prune stale skills if --prune flag is set
+  let pruneCount = 0;
+  let pruneFailCount = 0;
+
+  if (options.prune && staleSkills.length > 0) {
+    console.log();
+    console.log(`${TEXT}Pruning ${staleSkills.length} stale skill(s)...${RESET}`);
+
+    for (const stale of staleSkills) {
+      try {
+        // Remove from disk: canonical path and agent symlinks
+        const canonicalPath = getCanonicalPath(stale.name, { global: true });
+
+        // Remove agent-specific symlinks/copies
+        for (const [agentKey, agent] of Object.entries(agents)) {
+          try {
+            const skillPath = getInstallPath(stale.name, agentKey as any, { global: true });
+            if (skillPath !== canonicalPath) {
+              try {
+                lstatSync(skillPath);
+                rmSync(skillPath, { recursive: true, force: true });
+              } catch {
+                // Path doesn't exist, skip
+              }
+            }
+          } catch {
+            // Skip agents that don't support global installation
+          }
+        }
+
+        // Remove canonical directory
+        try {
+          lstatSync(canonicalPath);
+          rmSync(canonicalPath, { recursive: true, force: true });
+        } catch {
+          // Already gone, that's fine
+        }
+
+        // Remove from lock file
+        await removeSkillFromLock(stale.name);
+
+        pruneCount++;
+        console.log(`  ${TEXT}✓${RESET} Pruned ${stale.name} ${DIM}(${stale.source})${RESET}`);
+      } catch (err) {
+        pruneFailCount++;
+        console.log(`  ${DIM}✗ Failed to prune ${stale.name}${RESET}`);
+      }
+    }
+  } else if (staleSkills.length > 0) {
+    console.log();
+    console.log(`${TEXT}${staleSkills.length} stale skill(s) no longer in source repo:${RESET}`);
+    for (const s of staleSkills) {
+      console.log(`  ${DIM}✗${RESET} ${s.name} ${DIM}(${s.source})${RESET}`);
+    }
+    console.log();
+    console.log(
+      `${DIM}Run${RESET} ${TEXT}npx skills update --prune${RESET} ${DIM}to remove stale skills${RESET}`
+    );
+  }
+
   console.log();
   if (successCount > 0) {
     console.log(`${TEXT}✓ Updated ${successCount} skill(s)${RESET}`);
   }
   if (failCount > 0) {
     console.log(`${DIM}Failed to update ${failCount} skill(s)${RESET}`);
+  }
+  if (pruneCount > 0) {
+    console.log(`${TEXT}✓ Pruned ${pruneCount} stale skill(s)${RESET}`);
+  }
+  if (pruneFailCount > 0) {
+    console.log(`${DIM}Failed to prune ${pruneFailCount} skill(s)${RESET}`);
   }
 
   // Track telemetry
@@ -565,6 +691,8 @@ async function runUpdate(): Promise<void> {
     skillCount: String(updates.length),
     successCount: String(successCount),
     failCount: String(failCount),
+    ...(options.prune && { pruneCount: String(pruneCount) }),
+    ...(staleSkills.length > 0 && { staleCount: String(staleSkills.length) }),
   });
 
   console.log();
@@ -638,9 +766,11 @@ async function main(): Promise<void> {
       runCheck(restArgs);
       break;
     case 'update':
-    case 'upgrade':
-      runUpdate();
+    case 'upgrade': {
+      const pruneFlag = restArgs.includes('--prune');
+      runUpdate({ prune: pruneFlag });
       break;
+    }
     case '--help':
     case '-h':
       showHelp();
