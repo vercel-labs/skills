@@ -1,5 +1,13 @@
-import { describe, it, expect } from 'vitest';
-import { parseSymrefOutput, resolveDefaultBranch } from '../src/git.ts';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { parseSymrefOutput } from '../src/git.ts';
+
+const mockListRemote = vi.fn();
+
+vi.mock('simple-git', () => ({
+  default: vi.fn(() => ({
+    env: vi.fn(() => ({ listRemote: mockListRemote })),
+  })),
+}));
 
 describe('parseSymrefOutput', () => {
   it('parses "main" from standard output', () => {
@@ -42,17 +50,50 @@ describe('parseSymrefOutput', () => {
 });
 
 describe('resolveDefaultBranch', () => {
-  it('returns null for a nonexistent repo', async () => {
-    const branch = await resolveDefaultBranch(
-      'https://github.com/this-does-not-exist-12345/nope.git'
-    );
-    expect(branch).toBeNull();
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
-  it('returns a string or null (network-dependent)', async () => {
-    // This test validates the function contract without requiring network access.
-    // If network is available, it returns a branch name; otherwise null.
-    const branch = await resolveDefaultBranch('https://github.com/octocat/Hello-World.git');
-    expect(branch === null || typeof branch === 'string').toBe(true);
+  // Dynamic import required because vi.mock is hoisted
+  async function loadResolveDefaultBranch() {
+    const { resolveDefaultBranch } = await import('../src/git.ts');
+    return resolveDefaultBranch;
+  }
+
+  it('passes args to listRemote in correct order: --symref, url, HEAD', async () => {
+    const resolveDefaultBranch = await loadResolveDefaultBranch();
+    mockListRemote.mockResolvedValue('ref: refs/heads/main\tHEAD\nabc123\tHEAD\n');
+
+    await resolveDefaultBranch('https://github.com/owner/repo.git');
+
+    expect(mockListRemote).toHaveBeenCalledWith([
+      '--symref',
+      'https://github.com/owner/repo.git',
+      'HEAD',
+    ]);
+  });
+
+  it('returns parsed branch name from listRemote output', async () => {
+    const resolveDefaultBranch = await loadResolveDefaultBranch();
+    mockListRemote.mockResolvedValue('ref: refs/heads/develop\tHEAD\nabc123\tHEAD\n');
+
+    const result = await resolveDefaultBranch('https://github.com/owner/repo.git');
+    expect(result).toBe('develop');
+  });
+
+  it('returns null when listRemote throws', async () => {
+    const resolveDefaultBranch = await loadResolveDefaultBranch();
+    mockListRemote.mockRejectedValue(new Error('fatal: repository not found'));
+
+    const result = await resolveDefaultBranch('https://github.com/bad/repo.git');
+    expect(result).toBeNull();
+  });
+
+  it('returns null when output has no symref line', async () => {
+    const resolveDefaultBranch = await loadResolveDefaultBranch();
+    mockListRemote.mockResolvedValue('abc123\tHEAD\n');
+
+    const result = await resolveDefaultBranch('https://github.com/owner/repo.git');
+    expect(result).toBeNull();
   });
 });

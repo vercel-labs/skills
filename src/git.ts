@@ -87,7 +87,7 @@ export async function resolveDefaultBranch(repoUrl: string): Promise<string | nu
     GIT_TERMINAL_PROMPT: '0',
   });
   try {
-    const output = await git.listRemote(['--symref', 'HEAD', repoUrl]);
+    const output = await git.listRemote(['--symref', repoUrl, 'HEAD']);
     return parseSymrefOutput(output);
   } catch {
     return null;
