@@ -537,10 +537,13 @@ async function runUpdate(): Promise<void> {
       installUrl = `${installUrl}/tree/main/${skillFolder}`;
     }
 
-    // Use skills CLI to reinstall with -g -y flags
-    const result = spawnSync('npx', ['-y', 'skills', 'add', installUrl, '-g', '-y'], {
-      stdio: ['inherit', 'pipe', 'pipe'],
-    });
+    // Reinstall using the current CLI entrypoint directly instead of nested npx,
+    // which fails on Windows and non-npm package managers (see #362, #371)
+    const result = spawnSync(
+      process.execPath,
+      [fileURLToPath(import.meta.url), 'add', installUrl, '-g', '-y'],
+      { stdio: ['inherit', 'pipe', 'pipe'], encoding: 'utf-8' }
+    );
 
     if (result.status === 0) {
       successCount++;
@@ -548,6 +551,9 @@ async function runUpdate(): Promise<void> {
     } else {
       failCount++;
       console.log(`  ${DIM}✗ Failed to update ${update.name}${RESET}`);
+      if (result.stderr) {
+        console.log(`  ${DIM}  ${result.stderr.trim()}${RESET}`);
+      }
     }
   }
 
