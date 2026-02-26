@@ -131,6 +131,44 @@ describe('parseSource', () => {
     });
   });
 
+  describe('Bitbucket URL tests', () => {
+    it('Bitbucket URL - basic repo', () => {
+      const result = parseSource('https://bitbucket.org/workspace/repo');
+      expect(result.type).toBe('bitbucket');
+      expect(result.url).toBe('https://bitbucket.org/workspace/repo.git');
+      expect(result.ref).toBeUndefined();
+      expect(result.subpath).toBeUndefined();
+    });
+
+    it('Bitbucket URL - with .git suffix', () => {
+      const result = parseSource('https://bitbucket.org/workspace/repo.git');
+      expect(result.type).toBe('bitbucket');
+      expect(result.url).toBe('https://bitbucket.org/workspace/repo.git');
+    });
+
+    it('Bitbucket URL - with branch only', () => {
+      const result = parseSource('https://bitbucket.org/workspace/repo/src/main');
+      expect(result.type).toBe('bitbucket');
+      expect(result.url).toBe('https://bitbucket.org/workspace/repo.git');
+      expect(result.ref).toBe('main');
+      expect(result.subpath).toBeUndefined();
+    });
+
+    it('Bitbucket URL - with branch and path', () => {
+      const result = parseSource('https://bitbucket.org/workspace/repo/src/main/skills/my-skill');
+      expect(result.type).toBe('bitbucket');
+      expect(result.url).toBe('https://bitbucket.org/workspace/repo.git');
+      expect(result.ref).toBe('main');
+      expect(result.subpath).toBe('skills/my-skill');
+    });
+
+    it('Bitbucket URL - with trailing slash', () => {
+      const result = parseSource('https://bitbucket.org/workspace/repo/');
+      expect(result.type).toBe('bitbucket');
+      expect(result.url).toBe('https://bitbucket.org/workspace/repo.git');
+    });
+  });
+
   describe('GitHub shorthand tests', () => {
     it('GitHub shorthand - owner/repo', () => {
       const result = parseSource('owner/repo');
@@ -245,6 +283,16 @@ describe('getOwnerRepo', () => {
   it('getOwnerRepo - GitLab URL with subgroup', () => {
     const parsed = parseSource('https://gitlab.com/coresofthq/ai/agent-skills');
     expect(getOwnerRepo(parsed)).toBe('coresofthq/ai/agent-skills');
+  });
+
+  it('getOwnerRepo - Bitbucket URL', () => {
+    const parsed = parseSource('https://bitbucket.org/workspace/repo');
+    expect(getOwnerRepo(parsed)).toBe('workspace/repo');
+  });
+
+  it('getOwnerRepo - Bitbucket URL with src/branch/path', () => {
+    const parsed = parseSource('https://bitbucket.org/workspace/repo/src/main/skills/my-skill');
+    expect(getOwnerRepo(parsed)).toBe('workspace/repo');
   });
 
   it('getOwnerRepo - local path returns null', () => {

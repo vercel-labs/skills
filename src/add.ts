@@ -52,6 +52,8 @@ import { fetchMintlifySkill } from './mintlify.ts';
 import {
   addSkillToLock,
   fetchSkillFolderHash,
+  fetchBitbucketSkillFolderHash,
+  getBitbucketAuthHeaders,
   isPromptDismissed,
   dismissPrompt,
   getLastSelectedAgents,
@@ -694,10 +696,17 @@ async function handleRemoteSkill(
   // Add to skill lock file for update tracking (only for global installs)
   if (successful.length > 0 && installGlobally) {
     try {
-      // Try to fetch the folder hash from GitHub Trees API
+      // Try to fetch the folder hash from GitHub/Bitbucket API
       let skillFolderHash = '';
       if (remoteSkill.providerId === 'github') {
         const hash = await fetchSkillFolderHash(remoteSkill.sourceIdentifier, url);
+        if (hash) skillFolderHash = hash;
+      } else if (remoteSkill.providerId === 'bitbucket') {
+        const hash = await fetchBitbucketSkillFolderHash(
+          remoteSkill.sourceIdentifier,
+          url,
+          getBitbucketAuthHeaders()
+        );
         if (hash) skillFolderHash = hash;
       }
 
@@ -2157,11 +2166,18 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         const skillDisplayName = getSkillDisplayName(skill);
         if (successfulSkillNames.has(skillDisplayName)) {
           try {
-            // Fetch the folder hash from GitHub Trees API
+            // Fetch the folder hash from GitHub/Bitbucket API
             let skillFolderHash = '';
             const skillPathValue = skillFiles[skill.name];
             if (parsed.type === 'github' && skillPathValue) {
               const hash = await fetchSkillFolderHash(normalizedSource, skillPathValue);
+              if (hash) skillFolderHash = hash;
+            } else if (parsed.type === 'bitbucket' && skillPathValue) {
+              const hash = await fetchBitbucketSkillFolderHash(
+                normalizedSource,
+                skillPathValue,
+                getBitbucketAuthHeaders()
+              );
               if (hash) skillFolderHash = hash;
             }
 

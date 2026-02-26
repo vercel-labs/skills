@@ -13,7 +13,12 @@ import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track } from './telemetry.ts';
-import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
+import {
+  fetchSkillFolderHash,
+  getGitHubToken,
+  fetchBitbucketSkillFolderHash,
+  getBitbucketAuthHeaders,
+} from './skill-lock.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -111,6 +116,7 @@ ${BOLD}Manage Skills:${RESET}
   add <package>        Add a skill package (alias: a)
                        e.g. vercel-labs/agent-skills
                             https://github.com/vercel-labs/agent-skills
+                            https://bitbucket.org/workspace/repo
   remove [skills]      Remove installed skills
   list, ls             List installed skills
   find [query]         Search for skills interactively
@@ -364,10 +370,11 @@ async function runCheck(args: string[] = []): Promise<void> {
     return;
   }
 
-  // Get GitHub token from user's environment for higher rate limits
+  // Get auth tokens/headers for higher rate limits
   const token = getGitHubToken();
+  const bbAuthHeaders = getBitbucketAuthHeaders();
 
-  // Group skills by source (owner/repo) to batch GitHub API calls
+  // Group skills by source (owner/repo) to batch API calls
   const skillsBySource = new Map<string, Array<{ name: string; entry: SkillLockEntry }>>();
   let skippedCount = 0;
 
@@ -375,8 +382,12 @@ async function runCheck(args: string[] = []): Promise<void> {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    // Only check GitHub-sourced skills with folder hash
-    if (entry.sourceType !== 'github' || !entry.skillFolderHash || !entry.skillPath) {
+    // Only check GitHub/Bitbucket-sourced skills with folder hash
+    if (
+      (entry.sourceType !== 'github' && entry.sourceType !== 'bitbucket') ||
+      !entry.skillFolderHash ||
+      !entry.skillPath
+    ) {
       skippedCount++;
       continue;
     }
@@ -388,7 +399,7 @@ async function runCheck(args: string[] = []): Promise<void> {
 
   const totalSkills = skillNames.length - skippedCount;
   if (totalSkills === 0) {
-    console.log(`${DIM}No GitHub skills to check.${RESET}`);
+    console.log(`${DIM}No trackable skills to check.${RESET}`);
     return;
   }
 
@@ -401,10 +412,16 @@ async function runCheck(args: string[] = []): Promise<void> {
   for (const [source, skills] of skillsBySource) {
     for (const { name, entry } of skills) {
       try {
-        const latestHash = await fetchSkillFolderHash(source, entry.skillPath!, token);
+        let latestHash: string | null = null;
+
+        if (entry.sourceType === 'github') {
+          latestHash = await fetchSkillFolderHash(source, entry.skillPath!, token);
+        } else if (entry.sourceType === 'bitbucket') {
+          latestHash = await fetchBitbucketSkillFolderHash(source, entry.skillPath!, bbAuthHeaders);
+        }
 
         if (!latestHash) {
-          errors.push({ name, source, error: 'Could not fetch from GitHub' });
+          errors.push({ name, source, error: `Could not fetch from ${entry.sourceType}` });
           continue;
         }
 
@@ -466,10 +483,11 @@ async function runUpdate(): Promise<void> {
     return;
   }
 
-  // Get GitHub token from user's environment for higher rate limits
+  // Get auth tokens/headers for higher rate limits
   const token = getGitHubToken();
+  const bbAuthHeaders = getBitbucketAuthHeaders();
 
-  // Find skills that need updates by checking GitHub directly
+  // Find skills that need updates by checking GitHub/Bitbucket directly
   const updates: Array<{ name: string; source: string; entry: SkillLockEntry }> = [];
   let checkedCount = 0;
 
@@ -477,15 +495,29 @@ async function runUpdate(): Promise<void> {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    // Only check GitHub-sourced skills with folder hash
-    if (entry.sourceType !== 'github' || !entry.skillFolderHash || !entry.skillPath) {
+    // Only check GitHub/Bitbucket-sourced skills with folder hash
+    if (
+      (entry.sourceType !== 'github' && entry.sourceType !== 'bitbucket') ||
+      !entry.skillFolderHash ||
+      !entry.skillPath
+    ) {
       continue;
     }
 
     checkedCount++;
 
     try {
-      const latestHash = await fetchSkillFolderHash(entry.source, entry.skillPath, token);
+      let latestHash: string | null = null;
+
+      if (entry.sourceType === 'github') {
+        latestHash = await fetchSkillFolderHash(entry.source, entry.skillPath, token);
+      } else if (entry.sourceType === 'bitbucket') {
+        latestHash = await fetchBitbucketSkillFolderHash(
+          entry.source,
+          entry.skillPath,
+          bbAuthHeaders
+        );
+      }
 
       if (latestHash && latestHash !== entry.skillFolderHash) {
         updates.push({ name: skillName, source: entry.source, entry });
@@ -531,10 +563,15 @@ async function runUpdate(): Promise<void> {
         skillFolder = skillFolder.slice(0, -1);
       }
 
-      // Convert git URL to tree URL with path
-      // https://github.com/owner/repo.git -> https://github.com/owner/repo/tree/main/path
+      // Convert git URL to browsable URL with path
       installUrl = update.entry.sourceUrl.replace(/\.git$/, '').replace(/\/$/, '');
-      installUrl = `${installUrl}/tree/main/${skillFolder}`;
+      if (update.entry.sourceType === 'bitbucket') {
+        // https://bitbucket.org/workspace/repo.git -> https://bitbucket.org/workspace/repo/src/main/path
+        installUrl = `${installUrl}/src/main/${skillFolder}`;
+      } else {
+        // https://github.com/owner/repo.git -> https://github.com/owner/repo/tree/main/path
+        installUrl = `${installUrl}/tree/main/${skillFolder}`;
+      }
     }
 
     // Use skills CLI to reinstall with -g -y flags

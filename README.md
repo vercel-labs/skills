@@ -27,6 +27,9 @@ npx skills add https://github.com/vercel-labs/agent-skills/tree/main/skills/web-
 # GitLab URL
 npx skills add https://gitlab.com/org/repo
 
+# Bitbucket URL
+npx skills add https://bitbucket.org/workspace/repo
+
 # Any git URL
 npx skills add git@github.com:vercel-labs/agent-skills.git
 

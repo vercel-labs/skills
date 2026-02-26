@@ -114,6 +114,9 @@ function isDirectSkillUrl(input: string): boolean {
   if (input.includes('gitlab.com/') && !input.includes('/-/raw/')) {
     return false;
   }
+  if (input.includes('bitbucket.org/')) {
+    return false;
+  }
 
   return true;
 }
@@ -233,6 +236,42 @@ export function parseSource(input: string): ParsedSource {
     }
   }
 
+  // Bitbucket URL with path: https://bitbucket.org/workspace/repo/src/branch/path/to/skill
+  const bitbucketSrcWithPathMatch = input.match(
+    /bitbucket\.org\/([^/]+)\/([^/]+)\/src\/([^/]+)\/(.+)/
+  );
+  if (bitbucketSrcWithPathMatch) {
+    const [, workspace, repo, ref, subpath] = bitbucketSrcWithPathMatch;
+    return {
+      type: 'bitbucket',
+      url: `https://bitbucket.org/${workspace}/${repo}.git`,
+      ref,
+      subpath,
+    };
+  }
+
+  // Bitbucket URL with branch only: https://bitbucket.org/workspace/repo/src/branch
+  const bitbucketSrcMatch = input.match(/bitbucket\.org\/([^/]+)\/([^/]+)\/src\/([^/]+)$/);
+  if (bitbucketSrcMatch) {
+    const [, workspace, repo, ref] = bitbucketSrcMatch;
+    return {
+      type: 'bitbucket',
+      url: `https://bitbucket.org/${workspace}/${repo}.git`,
+      ref,
+    };
+  }
+
+  // Bitbucket URL: https://bitbucket.org/workspace/repo
+  const bitbucketRepoMatch = input.match(/bitbucket\.org\/([^/]+)\/([^/]+)/);
+  if (bitbucketRepoMatch) {
+    const [, workspace, repo] = bitbucketRepoMatch;
+    const cleanRepo = repo!.replace(/\.git$/, '');
+    return {
+      type: 'bitbucket',
+      url: `https://bitbucket.org/${workspace}/${cleanRepo}.git`,
+    };
+  }
+
   // GitHub shorthand: owner/repo, owner/repo/path/to/skill, or owner/repo@skill-name
   // Exclude paths that start with . or / to avoid matching local paths
   // First check for @skill syntax: owner/repo@skill-name
@@ -289,6 +328,7 @@ function isWellKnownUrl(input: string): boolean {
     const excludedHosts = [
       'github.com',
       'gitlab.com',
+      'bitbucket.org',
       'huggingface.co',
       'raw.githubusercontent.com',
     ];

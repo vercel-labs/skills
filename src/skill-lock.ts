@@ -151,6 +151,87 @@ export function getGitHubToken(): string | null {
 }
 
 /**
+ * Get Bitbucket authentication headers from user's environment.
+ * Tries in order:
+ * 1. BITBUCKET_TOKEN environment variable → Bearer auth
+ * 2. BITBUCKET_USERNAME + BITBUCKET_APP_PASSWORD → Basic auth
+ * 3. Returns empty headers (unauthenticated, works for public repos)
+ */
+export function getBitbucketAuthHeaders(): Record<string, string> {
+  if (process.env.BITBUCKET_TOKEN) {
+    return { Authorization: `Bearer ${process.env.BITBUCKET_TOKEN}` };
+  }
+
+  if (process.env.BITBUCKET_USERNAME && process.env.BITBUCKET_APP_PASSWORD) {
+    const credentials = Buffer.from(
+      `${process.env.BITBUCKET_USERNAME}:${process.env.BITBUCKET_APP_PASSWORD}`
+    ).toString('base64');
+    return { Authorization: `Basic ${credentials}` };
+  }
+
+  return {};
+}
+
+/**
+ * Fetch the latest commit hash for a skill folder using Bitbucket's Commits API.
+ * Bitbucket doesn't have GitHub-style tree SHAs, so we use the latest commit
+ * hash affecting the skill folder path as a change-detection mechanism.
+ *
+ * @param ownerRepo - Bitbucket workspace/repo (e.g., "workspace/repo")
+ * @param skillPath - Path to skill folder or SKILL.md
+ * @param authHeaders - Optional auth headers from getBitbucketAuthHeaders()
+ * @returns The latest commit hash for the skill folder, or null if not found
+ */
+export async function fetchBitbucketSkillFolderHash(
+  ownerRepo: string,
+  skillPath: string,
+  authHeaders?: Record<string, string>
+): Promise<string | null> {
+  // Normalize to forward slashes
+  let folderPath = skillPath.replace(/\\/g, '/');
+
+  // Remove SKILL.md suffix to get folder path
+  if (folderPath.endsWith('/SKILL.md')) {
+    folderPath = folderPath.slice(0, -9);
+  } else if (folderPath.endsWith('SKILL.md')) {
+    folderPath = folderPath.slice(0, -8);
+  }
+
+  // Remove trailing slash
+  if (folderPath.endsWith('/')) {
+    folderPath = folderPath.slice(0, -1);
+  }
+
+  const branches = ['main', 'master'];
+
+  for (const branch of branches) {
+    try {
+      const url = `https://api.bitbucket.org/2.0/repositories/${ownerRepo}/commits?include=${branch}&path=${folderPath}&pagelen=1`;
+      const headers: Record<string, string> = {
+        'User-Agent': 'skills-cli',
+        ...authHeaders,
+      };
+
+      const response = await fetch(url, { headers });
+
+      if (!response.ok) continue;
+
+      const data = (await response.json()) as {
+        values?: Array<{ hash: string }>;
+      };
+
+      if (data.values && data.values.length > 0) {
+        return data.values[0]!.hash;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Fetch the tree SHA (folder hash) for a skill folder using GitHub's Trees API.
  * This makes ONE API call to get the entire repo tree, then extracts the SHA
  * for the specific skill folder.
