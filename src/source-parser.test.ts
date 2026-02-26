@@ -92,4 +92,154 @@ describe('source-parser', () => {
       });
     });
   });
+
+  describe('Custom GitHub Enterprise URLs (*.github.com and github.*.*)', () => {
+    it('parses shorthand without protocol: mycompany.github.com/org/repo', () => {
+      const result = parseSource('mycompany.github.com/org/repo');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://mycompany.github.com/org/repo.git',
+        ref: undefined,
+        subpath: undefined,
+      });
+    });
+
+    it('parses full URL: https://mycompany.github.com/org/repo', () => {
+      const result = parseSource('https://mycompany.github.com/org/repo');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://mycompany.github.com/org/repo.git',
+        ref: undefined,
+        subpath: undefined,
+      });
+    });
+
+    it('parses with tree/branch: mycompany.github.com/org/repo/tree/main', () => {
+      const result = parseSource('mycompany.github.com/org/repo/tree/main');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://mycompany.github.com/org/repo.git',
+        ref: 'main',
+        subpath: undefined,
+      });
+    });
+
+    it('parses with tree/branch/path: mycompany.github.com/org/repo/tree/main/skills', () => {
+      const result = parseSource('mycompany.github.com/org/repo/tree/main/skills');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://mycompany.github.com/org/repo.git',
+        ref: 'main',
+        subpath: 'skills',
+      });
+    });
+
+    it('parses with subpath (no tree): mycompany.github.com/org/repo/skills/my-skill', () => {
+      const result = parseSource('mycompany.github.com/org/repo/skills/my-skill');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://mycompany.github.com/org/repo.git',
+        subpath: 'skills/my-skill',
+      });
+    });
+
+    it('parses with @skill syntax: mycompany.github.com/org/repo@my-skill', () => {
+      const result = parseSource('mycompany.github.com/org/repo@my-skill');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://mycompany.github.com/org/repo.git',
+        skillFilter: 'my-skill',
+      });
+    });
+
+    it('parses with .git suffix: mycompany.github.com/org/repo.git', () => {
+      const result = parseSource('mycompany.github.com/org/repo.git');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://mycompany.github.com/org/repo.git',
+        ref: undefined,
+        subpath: undefined,
+      });
+    });
+
+    it('parses various subdomains: enterprise.github.com/team/project', () => {
+      const result = parseSource('enterprise.github.com/team/project');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://enterprise.github.com/team/project.git',
+        ref: undefined,
+        subpath: undefined,
+      });
+    });
+
+    it('does not match standard github.com as custom host', () => {
+      // Standard github.com should still work via the existing github.com patterns
+      const result = parseSource('github.com/owner/repo');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://github.com/owner/repo.git',
+      });
+    });
+
+    // GitHub Enterprise Server format: github.COMPANY.com
+    it('parses GHE Server URL: https://github.mycompany.com/org/repo', () => {
+      const result = parseSource('https://github.mycompany.com/org/repo');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://github.mycompany.com/org/repo.git',
+      });
+    });
+
+    it('parses GHE Server shorthand: github.mycompany.com/org/repo', () => {
+      const result = parseSource('github.mycompany.com/org/repo');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://github.mycompany.com/org/repo.git',
+      });
+    });
+
+    it('parses GHE Server with tree/branch/path: github.mycompany.com/org/repo/tree/main/skills', () => {
+      const result = parseSource('https://github.mycompany.com/org/repo/tree/main/skills');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://github.mycompany.com/org/repo.git',
+        ref: 'main',
+        subpath: 'skills',
+      });
+    });
+
+    it('parses GHE Server with @skill syntax: github.mycompany.com/org/repo@my-skill', () => {
+      const result = parseSource('github.mycompany.com/org/repo@my-skill');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://github.mycompany.com/org/repo.git',
+        skillFilter: 'my-skill',
+      });
+    });
+
+    it('parses GHE Server with subpath: github.mycompany.com/org/repo/path/to/skill', () => {
+      const result = parseSource('https://github.mycompany.com/org/repo/path/to/skill');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://github.mycompany.com/org/repo.git',
+        subpath: 'path/to/skill',
+      });
+    });
+
+    it('parses GHE Server with .git suffix: github.mycompany.com/org/repo.git', () => {
+      const result = parseSource('github.mycompany.com/org/repo.git');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://github.mycompany.com/org/repo.git',
+      });
+    });
+
+    it('parses GHE Server with different company domain: github.acme.com/team/project', () => {
+      const result = parseSource('https://github.acme.com/team/project');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://github.acme.com/team/project.git',
+      });
+    });
+  });
 });
