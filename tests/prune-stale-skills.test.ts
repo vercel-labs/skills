@@ -8,16 +8,16 @@ import { agents } from '../src/agents.ts';
 import type { AgentType } from '../src/types.ts';
 
 /**
- * Tests for the --prune stale skills functionality.
+ * Tests for the stale skills pruning functionality.
  *
  * When `fetchSkillFolderHash()` returns null for a skill (its path no longer
- * exists in the source repo), `skills update --prune` should:
+ * exists in the source repo), `skills update` should:
  * 1. Remove the canonical skill directory from disk
  * 2. Remove agent-specific symlinks pointing to it
  * 3. Remove the skill from the lock file
  *
  * These tests exercise the disk cleanup and lock file mechanics that
- * runUpdate() uses when --prune is set.
+ * runUpdate() uses to prune stale skills.
  */
 
 describe('prune stale skills - disk cleanup', () => {

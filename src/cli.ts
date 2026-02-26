@@ -97,9 +97,6 @@ function showBanner(): void {
   console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills update${RESET}               ${DIM}Update all skills${RESET}`
   );
-  console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills update --prune${RESET}       ${DIM}Remove stale skills${RESET}`
-  );
   console.log();
   console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills experimental_install${RESET} ${DIM}Restore from skills-lock.json${RESET}`
@@ -132,9 +129,6 @@ ${BOLD}Manage Skills:${RESET}
 ${BOLD}Updates:${RESET}
   check                Check for available skill updates
   update               Update all skills to latest versions
-
-${BOLD}Update Options:${RESET}
-  --prune              Remove skills no longer in their source repo
 
 ${BOLD}Project:${RESET}
   experimental_install Restore skills from skills-lock.json
@@ -185,7 +179,6 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills find typescript               ${DIM}# search by keyword${RESET}
   ${DIM}$${RESET} skills check
   ${DIM}$${RESET} skills update
-  ${DIM}$${RESET} skills update --prune                ${DIM}# remove stale skills${RESET}
   ${DIM}$${RESET} skills experimental_install            ${DIM}# restore from skills-lock.json${RESET}
   ${DIM}$${RESET} skills init my-skill
   ${DIM}$${RESET} skills experimental_sync              ${DIM}# sync from node_modules${RESET}
@@ -555,7 +548,7 @@ async function runCheck(args: string[] = []): Promise<void> {
       }
       console.log();
       console.log(
-        `${DIM}Run${RESET} ${TEXT}npx skills update --prune${RESET} ${DIM}to remove stale skills${RESET}`
+        `${DIM}Run${RESET} ${TEXT}npx skills update${RESET} ${DIM}to update and remove stale skills${RESET}`
       );
     }
   }
@@ -575,7 +568,7 @@ async function runCheck(args: string[] = []): Promise<void> {
   console.log();
 }
 
-async function runUpdate(options: { prune?: boolean } = {}): Promise<void> {
+async function runUpdate(): Promise<void> {
   console.log(`${TEXT}Checking for skill updates...${RESET}`);
   console.log();
 
@@ -657,21 +650,6 @@ async function runUpdate(options: { prune?: boolean } = {}): Promise<void> {
     return;
   }
 
-  if (updates.length === 0 && staleSkills.length > 0 && !options.prune) {
-    console.log(`${TEXT}✓ All skills are up to date${RESET}`);
-    console.log();
-    console.log(`${TEXT}${staleSkills.length} stale skill(s) no longer in source repo:${RESET}`);
-    for (const s of staleSkills) {
-      console.log(`  ${DIM}✗${RESET} ${s.name} ${DIM}(${s.source})${RESET}`);
-    }
-    console.log();
-    console.log(
-      `${DIM}Run${RESET} ${TEXT}npx skills update --prune${RESET} ${DIM}to remove stale skills${RESET}`
-    );
-    console.log();
-    return;
-  }
-
   if (updates.length > 0) {
     console.log(`${TEXT}Found ${updates.length} update(s)${RESET}`);
     console.log();
@@ -719,11 +697,11 @@ async function runUpdate(options: { prune?: boolean } = {}): Promise<void> {
     }
   }
 
-  // Prune stale skills if --prune flag is set
+  // Prune stale skills
   let pruneCount = 0;
   let pruneFailCount = 0;
 
-  if (options.prune && staleSkills.length > 0) {
+  if (staleSkills.length > 0) {
     console.log();
     console.log(`${TEXT}Pruning ${staleSkills.length} stale skill(s)...${RESET}`);
 
@@ -778,16 +756,6 @@ async function runUpdate(options: { prune?: boolean } = {}): Promise<void> {
         console.log(`  ${DIM}✗ Failed to prune ${stale.name}${RESET}`);
       }
     }
-  } else if (staleSkills.length > 0) {
-    console.log();
-    console.log(`${TEXT}${staleSkills.length} stale skill(s) no longer in source repo:${RESET}`);
-    for (const s of staleSkills) {
-      console.log(`  ${DIM}✗${RESET} ${s.name} ${DIM}(${s.source})${RESET}`);
-    }
-    console.log();
-    console.log(
-      `${DIM}Run${RESET} ${TEXT}npx skills update --prune${RESET} ${DIM}to remove stale skills${RESET}`
-    );
   }
 
   console.log();
@@ -810,7 +778,7 @@ async function runUpdate(options: { prune?: boolean } = {}): Promise<void> {
     skillCount: String(updates.length),
     successCount: String(successCount),
     failCount: String(failCount),
-    ...(options.prune && { pruneCount: String(pruneCount) }),
+    ...(pruneCount > 0 && { pruneCount: String(pruneCount) }),
     ...(staleSkills.length > 0 && { staleCount: String(staleSkills.length) }),
   });
 
@@ -885,11 +853,9 @@ async function main(): Promise<void> {
       runCheck(restArgs);
       break;
     case 'update':
-    case 'upgrade': {
-      const pruneFlag = restArgs.includes('--prune');
-      runUpdate({ prune: pruneFlag });
+    case 'upgrade':
+      runUpdate();
       break;
-    }
     case '--help':
     case '-h':
       showHelp();
