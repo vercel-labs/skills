@@ -50,6 +50,7 @@ import { wellKnownProvider, type WellKnownSkill } from './providers/index.ts';
 import {
   addSkillToLock,
   fetchSkillFolderHash,
+  getGitHubToken,
   isPromptDismissed,
   dismissPrompt,
   getLastSelectedAgents,
@@ -1477,6 +1478,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Add to skill lock file for update tracking (only for global installs)
     if (successful.length > 0 && installGlobally && normalizedSource) {
       const successfulSkillNames = new Set(successful.map((r) => r.skill));
+      const token = getGitHubToken();
       for (const skill of selectedSkills) {
         const skillDisplayName = getSkillDisplayName(skill);
         if (successfulSkillNames.has(skillDisplayName)) {
@@ -1485,7 +1487,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             let skillFolderHash = '';
             const skillPathValue = skillFiles[skill.name];
             if (parsed.type === 'github' && skillPathValue) {
-              const hash = await fetchSkillFolderHash(normalizedSource, skillPathValue);
+              const hash = await fetchSkillFolderHash(normalizedSource, skillPathValue, token);
               if (hash) skillFolderHash = hash;
             }
 
