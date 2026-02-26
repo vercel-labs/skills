@@ -7,6 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { sep } from 'path';
+import { normalizeSkillFolder } from '../src/skill-lock.ts';
 
 /**
  * Simulates the shortenPath function from add.ts (cross-platform version)
@@ -32,27 +33,6 @@ function isValidSkillFile(file: string): boolean {
   // Files must not start with / or \ or contain .. (path traversal prevention)
   if (file.startsWith('/') || file.startsWith('\\') || file.includes('..')) return false;
   return true;
-}
-
-/**
- * Simulates the SKILL.md path normalization from skill-lock.ts
- */
-function normalizeSkillPath(skillPath: string): string {
-  let folderPath = skillPath;
-
-  // Handle both forward and backslash separators for cross-platform compatibility
-  if (folderPath.endsWith('/SKILL.md') || folderPath.endsWith('\\SKILL.md')) {
-    folderPath = folderPath.slice(0, -9);
-  } else if (folderPath.endsWith('SKILL.md')) {
-    folderPath = folderPath.slice(0, -8);
-  }
-
-  if (folderPath.endsWith('/') || folderPath.endsWith('\\')) {
-    folderPath = folderPath.slice(0, -1);
-  }
-
-  // Convert to forward slashes for GitHub API
-  return folderPath.split('\\').join('/');
 }
 
 describe('shortenPath (Unix)', () => {
@@ -209,49 +189,49 @@ describe('isValidSkillFile', () => {
   });
 });
 
-describe('normalizeSkillPath', () => {
+describe('normalizeSkillFolder', () => {
   it('removes /SKILL.md suffix (Unix)', () => {
-    const result = normalizeSkillPath('skills/my-skill/SKILL.md');
+    const result = normalizeSkillFolder('skills/my-skill/SKILL.md');
     expect(result).toBe('skills/my-skill');
   });
 
   it('removes \\SKILL.md suffix (Windows)', () => {
-    const result = normalizeSkillPath('skills\\my-skill\\SKILL.md');
+    const result = normalizeSkillFolder('skills\\my-skill\\SKILL.md');
     expect(result).toBe('skills/my-skill');
   });
 
   it('removes SKILL.md without path separator', () => {
-    const result = normalizeSkillPath('SKILL.md');
+    const result = normalizeSkillFolder('SKILL.md');
     expect(result).toBe('');
   });
 
   it('removes trailing forward slash', () => {
-    const result = normalizeSkillPath('skills/my-skill/');
+    const result = normalizeSkillFolder('skills/my-skill/');
     expect(result).toBe('skills/my-skill');
   });
 
   it('removes trailing backslash', () => {
-    const result = normalizeSkillPath('skills\\my-skill\\');
+    const result = normalizeSkillFolder('skills\\my-skill\\');
     expect(result).toBe('skills/my-skill');
   });
 
   it('converts Windows paths to forward slashes', () => {
-    const result = normalizeSkillPath('skills\\.curated\\advanced-skill\\SKILL.md');
+    const result = normalizeSkillFolder('skills\\.curated\\advanced-skill\\SKILL.md');
     expect(result).toBe('skills/.curated/advanced-skill');
   });
 
   it('handles mixed separators', () => {
-    const result = normalizeSkillPath('skills/category\\my-skill/SKILL.md');
+    const result = normalizeSkillFolder('skills/category\\my-skill/SKILL.md');
     expect(result).toBe('skills/category/my-skill');
   });
 
   it('handles root-level skill', () => {
-    const result = normalizeSkillPath('/SKILL.md');
+    const result = normalizeSkillFolder('/SKILL.md');
     expect(result).toBe('');
   });
 
   it('handles deep nested paths (Windows)', () => {
-    const result = normalizeSkillPath('a\\b\\c\\d\\e\\SKILL.md');
+    const result = normalizeSkillFolder('a\\b\\c\\d\\e\\SKILL.md');
     expect(result).toBe('a/b/c/d/e');
   });
 });

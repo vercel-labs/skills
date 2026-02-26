@@ -13,7 +13,7 @@ import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track } from './telemetry.ts';
-import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
+import { fetchSkillFolderHash, getGitHubToken, normalizeSkillFolder } from './skill-lock.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -519,16 +519,7 @@ async function runUpdate(): Promise<void> {
     // Build the install specifier for the specific skill directory
     let installUrl = update.entry.sourceUrl;
     if (update.entry.skillPath) {
-      // Extract the skill folder path (remove /SKILL.md suffix)
-      let skillFolder = update.entry.skillPath;
-      if (skillFolder.endsWith('/SKILL.md')) {
-        skillFolder = skillFolder.slice(0, -9);
-      } else if (skillFolder.endsWith('SKILL.md')) {
-        skillFolder = skillFolder.slice(0, -8);
-      }
-      if (skillFolder.endsWith('/')) {
-        skillFolder = skillFolder.slice(0, -1);
-      }
+      const skillFolder = normalizeSkillFolder(update.entry.skillPath);
 
       // Use GitHub shorthand (owner/repo/path) so parseSource clones the
       // repo's default branch instead of assuming "main".
@@ -635,11 +626,11 @@ async function main(): Promise<void> {
       await runList(restArgs);
       break;
     case 'check':
-      runCheck(restArgs);
+      await runCheck(restArgs);
       break;
     case 'update':
     case 'upgrade':
-      runUpdate();
+      await runUpdate();
       break;
     case '--help':
     case '-h':

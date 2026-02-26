@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'fs';
+import { readFileSync, mkdtempSync } from 'fs';
 import { join } from 'path';
-import { runCliOutput, stripLogo, hasLogo } from './test-utils.ts';
+import { tmpdir } from 'os';
+import { runCli, runCliOutput, stripLogo, hasLogo } from './test-utils.ts';
 
 describe('skills CLI', () => {
   describe('--help', () => {
@@ -74,15 +75,16 @@ describe('skills CLI', () => {
     });
 
     it('should not display logo for check command', () => {
-      // Note: check command makes GitHub API calls, so we just verify initial output
-      const output = runCliOutput(['check']);
-      expect(hasLogo(output)).toBe(false);
-    }, 60000);
+      // Use isolated HOME so the lock file is empty and no GitHub API calls are made
+      const isolatedHome = mkdtempSync(join(tmpdir(), 'skills-test-'));
+      const { stdout, stderr } = runCli(['check'], undefined, { HOME: isolatedHome });
+      expect(hasLogo(stdout + stderr)).toBe(false);
+    });
 
     it('should not display logo for update command', () => {
-      // Note: update command makes GitHub API calls, so we just verify initial output
-      const output = runCliOutput(['update']);
-      expect(hasLogo(output)).toBe(false);
-    }, 60000);
+      const isolatedHome = mkdtempSync(join(tmpdir(), 'skills-test-'));
+      const { stdout, stderr } = runCli(['update'], undefined, { HOME: isolatedHome });
+      expect(hasLogo(stdout + stderr)).toBe(false);
+    });
   });
 });
