@@ -421,6 +421,372 @@ export interface AddOptions {
 }
 
 /**
+ * Handle remote skill installation from any supported host provider.
+ * This is the generic handler for direct URL skills (Mintlify, HuggingFace, etc.)
+ */
+async function handleRemoteSkill(
+  source: string,
+  url: string,
+  options: AddOptions,
+  spinner: ReturnType<typeof p.spinner>
+): Promise<void> {
+  // Find a provider that can handle this URL
+  const provider = findProvider(url);
+
+  if (!provider) {
+    // Fall back to legacy Mintlify handling for backwards compatibility
+    await handleDirectUrlSkillLegacy(source, url, options, spinner);
+    return;
+  }
+
+  spinner.start(`Fetching skill.md from ${provider.displayName}...`);
+  const providerSkill = await provider.fetchSkill(url);
+
+  if (!providerSkill) {
+    spinner.stop(pc.red('Invalid skill'));
+    p.outro(
+      pc.red('Could not fetch skill.md or missing required frontmatter (name, description).')
+    );
+    process.exit(1);
+  }
+
+  // Convert to RemoteSkill format with provider info
+  const remoteSkill: RemoteSkill = {
+    name: providerSkill.name,
+    description: providerSkill.description,
+    content: providerSkill.content,
+    installName: providerSkill.installName,
+    sourceUrl: providerSkill.sourceUrl,
+    providerId: provider.id,
+    sourceIdentifier: provider.getSourceIdentifier(url),
+    metadata: providerSkill.metadata,
+  };
+
+  spinner.stop(`Found skill: ${pc.cyan(remoteSkill.installName)}`);
+
+  p.log.info(`Skill: ${pc.cyan(remoteSkill.name)}`);
+  p.log.message(pc.dim(remoteSkill.description));
+  p.log.message(pc.dim(`Source: ${remoteSkill.sourceIdentifier}`));
+
+  if (options.list) {
+    console.log();
+    p.log.step(pc.bold('Skill Details'));
+    p.log.message(`  ${pc.cyan('Name:')} ${remoteSkill.name}`);
+    p.log.message(`  ${pc.cyan('Install as:')} ${remoteSkill.installName}`);
+    p.log.message(`  ${pc.cyan('Provider:')} ${provider.displayName}`);
+    p.log.message(`  ${pc.cyan('Description:')} ${remoteSkill.description}`);
+    console.log();
+    p.outro('Run without --list to install');
+    process.exit(0);
+  }
+
+  // Detect agents - universal agents are always included
+  let targetAgents: AgentType[];
+  const validAgents = Object.keys(agents);
+  const universalAgents = getUniversalAgents();
+
+  if (options.agent?.includes('*')) {
+    // --agent '*' selects all agents
+    targetAgents = validAgents as AgentType[];
+    p.log.info(`Installing to all ${targetAgents.length} agents`);
+  } else if (options.agent && options.agent.length > 0) {
+    const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
+
+    if (invalidAgents.length > 0) {
+      p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
+      p.log.info(`Valid agents: ${validAgents.join(', ')}`);
+      process.exit(1);
+    }
+
+    targetAgents = options.agent as AgentType[];
+  } else {
+    spinner.start('Loading agents...');
+    const installedAgents = await detectInstalledAgents();
+    const totalAgents = Object.keys(agents).length;
+    spinner.stop(`${totalAgents} agents`);
+
+    if (installedAgents.length === 0) {
+      if (options.yes) {
+        // With -y and no detected agents, install to universal agents only
+        targetAgents = universalAgents;
+        p.log.info(`Installing to universal agents`);
+      } else {
+        // Interactive selection with universal agents locked
+        const selected = await selectAgentsInteractive({ global: options.global });
+
+        if (p.isCancel(selected)) {
+          p.cancel('Installation cancelled');
+          process.exit(0);
+        }
+
+        targetAgents = selected as AgentType[];
+      }
+    } else if (installedAgents.length === 1 || options.yes) {
+      // Auto-select detected agents + ensure universal agents are included
+      targetAgents = ensureUniversalAgents(installedAgents);
+      const { universal, symlinked } = splitAgentsByType(targetAgents);
+      if (symlinked.length > 0) {
+        p.log.info(
+          `Installing to: ${pc.green('universal')} + ${symlinked.map((a) => pc.cyan(a)).join(', ')}`
+        );
+      } else {
+        p.log.info(`Installing to: ${pc.green('universal agents')}`);
+      }
+    } else {
+      const selected = await selectAgentsInteractive({ global: options.global });
+
+      if (p.isCancel(selected)) {
+        p.cancel('Installation cancelled');
+        process.exit(0);
+      }
+
+      targetAgents = selected as AgentType[];
+    }
+  }
+
+  let installGlobally = options.global ?? false;
+
+  // Check if any selected agents support global installation
+  const supportsGlobal = targetAgents.some((a) => agents[a].globalSkillsDir !== undefined);
+
+  if (options.global === undefined && !options.yes && supportsGlobal) {
+    const scope = await p.select({
+      message: 'Installation scope',
+      options: [
+        {
+          value: false,
+          label: 'Project',
+          hint: 'Install in current directory (committed with your project)',
+        },
+        {
+          value: true,
+          label: 'Global',
+          hint: 'Install in home directory (available across all projects)',
+        },
+      ],
+    });
+
+    if (p.isCancel(scope)) {
+      p.cancel('Installation cancelled');
+      process.exit(0);
+    }
+
+    installGlobally = scope as boolean;
+  }
+
+  // Determine install mode (symlink vs copy)
+  let installMode: InstallMode = options.copy ? 'copy' : 'symlink';
+
+  if (!options.copy && !options.yes) {
+    const modeChoice = await p.select({
+      message: 'Installation method',
+      options: [
+        {
+          value: 'symlink',
+          label: 'Symlink (Recommended)',
+          hint: 'Single source of truth, easy updates',
+        },
+        { value: 'copy', label: 'Copy to all agents', hint: 'Independent copies for each agent' },
+      ],
+    });
+
+    if (p.isCancel(modeChoice)) {
+      p.cancel('Installation cancelled');
+      process.exit(0);
+    }
+
+    installMode = modeChoice as InstallMode;
+  }
+
+  const cwd = process.cwd();
+
+  // Check for overwrites (parallel)
+  const overwriteChecks = await Promise.all(
+    targetAgents.map(async (agent) => ({
+      agent,
+      installed: await isSkillInstalled(remoteSkill.installName, agent, {
+        global: installGlobally,
+      }),
+    }))
+  );
+  const overwriteStatus = new Map(
+    overwriteChecks.map(({ agent, installed }) => [agent, installed])
+  );
+
+  // Build installation summary
+  const summaryLines: string[] = [];
+
+  const canonicalPath = getCanonicalPath(remoteSkill.installName, { global: installGlobally });
+  const shortCanonical = shortenPath(canonicalPath, cwd);
+  summaryLines.push(`${pc.cyan(shortCanonical)}`);
+  summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
+
+  const overwriteAgents = targetAgents
+    .filter((a) => overwriteStatus.get(a))
+    .map((a) => agents[a].displayName);
+
+  if (overwriteAgents.length > 0) {
+    summaryLines.push(`  ${pc.yellow('overwrites:')} ${formatList(overwriteAgents)}`);
+  }
+
+  console.log();
+  p.note(summaryLines.join('\n'), 'Installation Summary');
+
+  if (!options.yes) {
+    const confirmed = await p.confirm({
+      message: 'Proceed with installation?',
+    });
+
+    if (p.isCancel(confirmed) || !confirmed) {
+      p.cancel('Installation cancelled');
+      process.exit(0);
+    }
+  }
+
+  spinner.start('Installing skill...');
+
+  const results: {
+    skill: string;
+    agent: string;
+    success: boolean;
+    path: string;
+    canonicalPath?: string;
+    mode: InstallMode;
+    symlinkFailed?: boolean;
+    error?: string;
+  }[] = [];
+
+  for (const agent of targetAgents) {
+    const result = await installRemoteSkillForAgent(remoteSkill, agent, {
+      global: installGlobally,
+      mode: installMode,
+    });
+    results.push({
+      skill: remoteSkill.installName,
+      agent: agents[agent].displayName,
+      ...result,
+    });
+  }
+
+  spinner.stop('Installation complete');
+
+  console.log();
+  const successful = results.filter((r) => r.success);
+  const failed = results.filter((r) => !r.success);
+
+  // Track installation with provider-specific source identifier
+  // Skip telemetry for private GitHub repos
+  const isPrivate = await isSourcePrivate(remoteSkill.sourceIdentifier);
+  if (isPrivate !== true) {
+    // Only send telemetry if repo is public (isPrivate === false) or we can't determine (null for non-GitHub sources)
+    track({
+      event: 'install',
+      source: remoteSkill.sourceIdentifier,
+      skills: remoteSkill.installName,
+      agents: targetAgents.join(','),
+      ...(installGlobally && { global: '1' }),
+      skillFiles: JSON.stringify({ [remoteSkill.installName]: url }),
+      sourceType: remoteSkill.providerId,
+    });
+  }
+
+  // Add to skill lock file for update tracking (only for global installs)
+  if (successful.length > 0 && installGlobally) {
+    try {
+      // Try to fetch the folder hash from GitHub Trees API
+      let skillFolderHash = '';
+      if (remoteSkill.providerId === 'github') {
+        const token = getGitHubToken();
+        const hash = await fetchSkillFolderHash(remoteSkill.sourceIdentifier, url, token);
+        if (hash) skillFolderHash = hash;
+      }
+
+      await addSkillToLock(remoteSkill.installName, {
+        source: remoteSkill.sourceIdentifier,
+        sourceType: remoteSkill.providerId,
+        sourceUrl: url,
+        skillFolderHash,
+      });
+    } catch {
+      // Don't fail installation if lock file update fails
+    }
+  }
+
+  // Add to local lock file for project-scoped installs
+  if (successful.length > 0 && !installGlobally) {
+    try {
+      const firstResult = successful[0]!;
+      const installDir = firstResult.canonicalPath || firstResult.path;
+      const computedHash = await computeSkillFolderHash(installDir);
+      await addSkillToLocalLock(
+        remoteSkill.installName,
+        {
+          source: remoteSkill.sourceIdentifier,
+          sourceType: remoteSkill.providerId,
+          computedHash,
+        },
+        cwd
+      );
+    } catch {
+      // Don't fail installation if lock file update fails
+    }
+  }
+
+  if (successful.length > 0) {
+    const resultLines: string[] = [];
+    const firstResult = successful[0]!;
+
+    if (firstResult.mode === 'copy') {
+      resultLines.push(`${pc.green('✓')} ${remoteSkill.installName} ${pc.dim('(copied)')}`);
+      for (const r of successful) {
+        const shortPath = shortenPath(r.path, cwd);
+        resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
+      }
+    } else {
+      // Symlink mode
+      if (firstResult.canonicalPath) {
+        const shortPath = shortenPath(firstResult.canonicalPath, cwd);
+        resultLines.push(`${pc.green('✓')} ${shortPath}`);
+      } else {
+        resultLines.push(`${pc.green('✓')} ${remoteSkill.installName}`);
+      }
+      resultLines.push(...buildResultLines(successful, targetAgents));
+    }
+
+    const title = pc.green('Installed 1 skill');
+    p.note(resultLines.join('\n'), title);
+
+    // Show symlink failure warning
+    const symlinkFailures = successful.filter((r) => r.mode === 'symlink' && r.symlinkFailed);
+    if (symlinkFailures.length > 0) {
+      const copiedAgentNames = symlinkFailures.map((r) => r.agent);
+      p.log.warn(pc.yellow(`Symlinks failed for: ${formatList(copiedAgentNames)}`));
+      p.log.message(
+        pc.dim(
+          '  Files were copied instead. On Windows, enable Developer Mode for symlink support.'
+        )
+      );
+    }
+  }
+
+  if (failed.length > 0) {
+    console.log();
+    p.log.error(pc.red(`Failed to install ${failed.length}`));
+    for (const r of failed) {
+      p.log.message(`  ${pc.red('✗')} ${r.skill} → ${r.agent}: ${pc.dim(r.error)}`);
+    }
+  }
+
+  console.log();
+  p.outro(
+    pc.green('Done!') + pc.dim('  Review skills before use; they run with full agent permissions.')
+  );
+
+  // Prompt for find-skills after successful install
+  await promptForFindSkills(options, targetAgents);
+}
+
+/**
  * Handle skills from a well-known endpoint (RFC 8615).
  * Discovers skills from /.well-known/skills/index.json
  */
@@ -1478,7 +1844,6 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Add to skill lock file for update tracking (only for global installs)
     if (successful.length > 0 && installGlobally && normalizedSource) {
       const successfulSkillNames = new Set(successful.map((r) => r.skill));
-      const token = getGitHubToken();
       for (const skill of selectedSkills) {
         const skillDisplayName = getSkillDisplayName(skill);
         if (successfulSkillNames.has(skillDisplayName)) {
@@ -1487,6 +1852,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             let skillFolderHash = '';
             const skillPathValue = skillFiles[skill.name];
             if (parsed.type === 'github' && skillPathValue) {
+              const token = getGitHubToken();
               const hash = await fetchSkillFolderHash(normalizedSource, skillPathValue, token);
               if (hash) skillFolderHash = hash;
             }
