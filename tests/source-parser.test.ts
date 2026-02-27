@@ -161,6 +161,13 @@ describe('parseSource', () => {
       expect(result.url).toBe('https://github.com/vercel-labs/agent-skills.git');
       expect(result.skillFilter).toBe('find-skills');
     });
+
+    it('GitHub shorthand - owner/repo#branch', () => {
+      const result = parseSource('owner/repo#feature-branch');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+      expect(result.ref).toBe('feature-branch');
+    });
   });
 
   describe('Local path tests', () => {
@@ -196,6 +203,20 @@ describe('parseSource', () => {
       const result = parseSource('git@github.com:owner/repo.git');
       expect(result.type).toBe('git');
       expect(result.url).toBe('git@github.com:owner/repo.git');
+    });
+
+    it('Git URL - SSH format with branch', () => {
+      const result = parseSource('git@github.com:owner/repo.git#feature-branch');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@github.com:owner/repo.git');
+      expect(result.ref).toBe('feature-branch');
+    });
+
+    it('Git URL - SSH protocol with branch', () => {
+      const result = parseSource('ssh://git@github.com/owner/repo.git#feature-branch');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('ssh://git@github.com/owner/repo.git');
+      expect(result.ref).toBe('feature-branch');
     });
 
     it('Git URL - custom host', () => {
