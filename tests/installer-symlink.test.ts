@@ -16,7 +16,7 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { installSkillForAgent } from '../src/installer.ts';
+import { installSkillForAgent, getAgentBaseDir } from '../src/installer.ts';
 
 async function makeSkillSource(root: string, name: string): Promise<string> {
   const dir = join(root, 'source-skill');
@@ -147,38 +147,28 @@ describe('installer symlink regression', () => {
     }
   });
 
-  // Regression test for #294: universal-only global install should not create agent-specific symlinks
-  it('does not create agent-specific symlinks for universal agents on global install', async () => {
+  // Regression test for #294: project-level universal agents should not create redundant symlinks
+  it('does not create redundant symlinks for universal agents on project install', async () => {
     const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
 
     const skillName = 'universal-only-skill';
     const skillDir = await makeSkillSource(root, skillName);
 
-    // We test with 'github-copilot', a universal agent (skillsDir: '.agents/skills')
-    // whose globalSkillsDir is different from canonical (~/.copilot/skills vs ~/.agents/skills)
-    // For testing, we use a project-level install to avoid writing to actual home dir.
-    // But the bug only manifests with global: true.
-    // We can't safely test with global: true in unit tests (it would write to ~/.copilot/skills).
-    // Instead, we verify that the installSkillForAgent function returns the canonical path
-    // as both path and canonicalPath for universal agents with global install.
-
-    // For a project-level install, universal agents have matching canonical and agent dirs,
-    // so we just verify the function works correctly.
+    // For project-level installs, universal agents all share .agents/skills,
+    // so canonical and agent dirs are the same -- no symlink needed.
     const projectDir = join(root, 'project');
     await mkdir(projectDir, { recursive: true });
 
     try {
       const result = await installSkillForAgent(
         { name: skillName, description: 'test', path: skillDir },
-        'github-copilot', // Universal agent
+        'github-copilot',
         { cwd: projectDir, mode: 'symlink', global: false }
       );
 
       expect(result.success).toBe(true);
       expect(result.symlinkFailed).toBeUndefined();
 
-      // For a project-level universal agent, canonical and agent dir are the same
-      // (.agents/skills), so no symlink should be created
       const installedPath = join(projectDir, '.agents/skills', skillName);
       const stats = await lstat(installedPath);
       expect(stats.isDirectory()).toBe(true);
@@ -186,5 +176,30 @@ describe('installer symlink regression', () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  // Regression test for #421: universal agents with their own globalSkillsDir should
+  // return the agent-specific path for global installs, not the canonical path.
+  it('getAgentBaseDir returns agent-specific global dir for universal agents with distinct globalSkillsDir', () => {
+    const cursorGlobalDir = getAgentBaseDir('cursor', true);
+    expect(cursorGlobalDir).toContain('.cursor');
+    expect(cursorGlobalDir).not.toContain('.agents');
+
+    const copilotGlobalDir = getAgentBaseDir('github-copilot', true);
+    expect(copilotGlobalDir).toContain('.copilot');
+    expect(copilotGlobalDir).not.toContain('.agents');
+
+    const geminiGlobalDir = getAgentBaseDir('gemini-cli', true);
+    expect(geminiGlobalDir).toContain('.gemini');
+    expect(geminiGlobalDir).not.toContain('.agents');
+  });
+
+  // Universal agents should still use canonical .agents/skills for project-level installs
+  it('getAgentBaseDir returns canonical dir for universal agents on project install', () => {
+    const projectDir = getAgentBaseDir('cursor', false, '/tmp/test-project');
+    expect(projectDir).toBe(join('/tmp/test-project', '.agents', 'skills'));
+
+    const copilotDir = getAgentBaseDir('github-copilot', false, '/tmp/test-project');
+    expect(copilotDir).toBe(join('/tmp/test-project', '.agents', 'skills'));
   });
 });
