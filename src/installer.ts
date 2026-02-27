@@ -455,8 +455,10 @@ export async function installMintlifySkillForAgent(
     };
   }
 
-  // Use mintlify-proj as the skill directory name (e.g., "bun.com")
-  const skillName = sanitizeName(skill.mintlifySite);
+  // Use front-matter name for directory name to maintain invariant:
+  // the skill folder name must match the SKILL.md front-matter name.
+  // Falls back to mintlifySite if front-matter name is not available.
+  const skillName = sanitizeName(skill.name || skill.mintlifySite);
 
   // Canonical location: .agents/skills/<skill-name>
   const canonicalBase = getCanonicalSkillsDir(isGlobal, cwd);
@@ -573,8 +575,10 @@ export async function installRemoteSkillForAgent(
     };
   }
 
-  // Use installName as the skill directory name
-  const skillName = sanitizeName(skill.installName);
+  // Use front-matter name for directory name to maintain invariant:
+  // the skill folder name must match the SKILL.md front-matter name.
+  // Falls back to installName if front-matter name is not available.
+  const skillName = sanitizeName(skill.name || skill.installName);
 
   // Canonical location: .agents/skills/<skill-name>
   const canonicalBase = getCanonicalSkillsDir(isGlobal, cwd);
@@ -692,8 +696,10 @@ export async function installWellKnownSkillForAgent(
     };
   }
 
-  // Use installName as the skill directory name
-  const skillName = sanitizeName(skill.installName);
+  // Use front-matter name for directory name to maintain invariant:
+  // the skill folder name must match the SKILL.md front-matter name.
+  // Falls back to installName if front-matter name is not available.
+  const skillName = sanitizeName(skill.name || skill.installName);
 
   // Canonical location: .agents/skills/<skill-name>
   const canonicalBase = getCanonicalSkillsDir(isGlobal, cwd);
