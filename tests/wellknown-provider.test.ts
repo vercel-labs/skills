@@ -36,20 +36,34 @@ describe('WellKnownProvider', () => {
   });
 
   describe('getSourceIdentifier', () => {
-    it('should return domain in owner/repo format (sld/tld)', () => {
-      expect(provider.getSourceIdentifier('https://example.com')).toBe('example/com');
-      expect(provider.getSourceIdentifier('https://mintlify.com')).toBe('mintlify/com');
-      expect(provider.getSourceIdentifier('https://lovable.dev')).toBe('lovable/dev');
+    it('should return full hostname', () => {
+      expect(provider.getSourceIdentifier('https://example.com')).toBe('example.com');
+      expect(provider.getSourceIdentifier('https://mintlify.com')).toBe('mintlify.com');
+      expect(provider.getSourceIdentifier('https://lovable.dev')).toBe('lovable.dev');
     });
 
     it('should return same identifier regardless of path', () => {
-      expect(provider.getSourceIdentifier('https://example.com/docs')).toBe('example/com');
-      expect(provider.getSourceIdentifier('https://example.com/api/v1')).toBe('example/com');
+      expect(provider.getSourceIdentifier('https://example.com/docs')).toBe('example.com');
+      expect(provider.getSourceIdentifier('https://example.com/api/v1')).toBe('example.com');
     });
 
-    it('should strip subdomains and use main domain', () => {
-      expect(provider.getSourceIdentifier('https://docs.example.com')).toBe('example/com');
-      expect(provider.getSourceIdentifier('https://api.mintlify.com/docs')).toBe('mintlify/com');
+    it('should preserve subdomains', () => {
+      expect(provider.getSourceIdentifier('https://docs.example.com')).toBe('docs.example.com');
+      expect(provider.getSourceIdentifier('https://api.mintlify.com/docs')).toBe(
+        'api.mintlify.com'
+      );
+      expect(provider.getSourceIdentifier('https://mppx-discovery-skills.vercel.app')).toBe(
+        'mppx-discovery-skills.vercel.app'
+      );
+    });
+
+    it('should strip www. prefix', () => {
+      expect(provider.getSourceIdentifier('https://www.example.com')).toBe('example.com');
+      expect(provider.getSourceIdentifier('https://www.mintlify.com/docs')).toBe('mintlify.com');
+    });
+
+    it('should return unknown for invalid URLs', () => {
+      expect(provider.getSourceIdentifier('not-a-url')).toBe('unknown');
     });
   });
 
@@ -109,8 +123,8 @@ describe('parseSource with well-known URLs', async () => {
     expect(result.type).toBe('git');
   });
 
-  it('should not parse direct skill.md URL as well-known', () => {
+  it('should parse direct skill.md URL as well-known (no more direct-url type)', () => {
     const result = parseSource('https://docs.example.com/skill.md');
-    expect(result.type).toBe('direct-url');
+    expect(result.type).toBe('well-known');
   });
 });

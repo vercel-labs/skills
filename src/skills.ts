@@ -1,8 +1,8 @@
 import { readdir, readFile, stat } from 'fs/promises';
-import { join, basename, dirname } from 'path';
+import { join, basename, dirname, resolve } from 'path';
 import matter from 'gray-matter';
 import type { Skill } from './types.ts';
-import { getPluginSkillPaths } from './plugin-manifest.ts';
+import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
 
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
 
@@ -102,10 +102,24 @@ export async function discoverSkills(
   const seenNames = new Set<string>();
   const searchPath = subpath ? join(basePath, subpath) : basePath;
 
+  // Get plugin groupings to map skills to their parent plugin
+  // We search for plugin definitions from the base search path
+  const pluginGroupings = await getPluginGroupings(searchPath);
+
+  // Helper to assign plugin name if available
+  const enhanceSkill = (skill: Skill) => {
+    const resolvedPath = resolve(skill.path);
+    if (pluginGroupings.has(resolvedPath)) {
+      skill.pluginName = pluginGroupings.get(resolvedPath);
+    }
+    return skill;
+  };
+
   // If pointing directly at a skill, add it (and return early unless fullDepth is set)
   if (await hasSkillMd(searchPath)) {
-    const skill = await parseSkillMd(join(searchPath, 'SKILL.md'), options);
+    let skill = await parseSkillMd(join(searchPath, 'SKILL.md'), options);
     if (skill) {
+      skill = enhanceSkill(skill);
       skills.push(skill);
       seenNames.add(skill.name);
       // Only return early if fullDepth is not set
@@ -160,8 +174,9 @@ export async function discoverSkills(
         if (entry.isDirectory()) {
           const skillDir = join(dir, entry.name);
           if (await hasSkillMd(skillDir)) {
-            const skill = await parseSkillMd(join(skillDir, 'SKILL.md'), options);
+            let skill = await parseSkillMd(join(skillDir, 'SKILL.md'), options);
             if (skill && !seenNames.has(skill.name)) {
+              skill = enhanceSkill(skill);
               skills.push(skill);
               seenNames.add(skill.name);
             }
@@ -178,8 +193,9 @@ export async function discoverSkills(
     const allSkillDirs = await findSkillDirs(searchPath);
 
     for (const skillDir of allSkillDirs) {
-      const skill = await parseSkillMd(join(skillDir, 'SKILL.md'), options);
+      let skill = await parseSkillMd(join(skillDir, 'SKILL.md'), options);
       if (skill && !seenNames.has(skill.name)) {
+        skill = enhanceSkill(skill);
         skills.push(skill);
         seenNames.add(skill.name);
       }

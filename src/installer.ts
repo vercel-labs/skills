@@ -13,7 +13,7 @@ import {
 } from 'fs/promises';
 import { join, basename, normalize, resolve, sep, relative, dirname } from 'path';
 import { homedir, platform } from 'os';
-import type { Skill, AgentType, MintlifySkill, RemoteSkill } from './types.ts';
+import type { Skill, AgentType, RemoteSkill } from './types.ts';
 import type { WellKnownSkill } from './providers/wellknown.ts';
 import { agents, detectInstalledAgents, isUniversalAgent } from './agents.ts';
 import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
@@ -426,125 +426,6 @@ export function getCanonicalPath(
   }
 
   return canonicalPath;
-}
-
-/**
- * Install a Mintlify skill from a direct URL
- * The skill name is derived from the mintlify-proj frontmatter
- * Supports symlink mode (writes to canonical location and symlinks to agent dirs)
- * or copy mode (writes directly to each agent dir).
- * @deprecated Use installRemoteSkillForAgent instead
- */
-export async function installMintlifySkillForAgent(
-  skill: MintlifySkill,
-  agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
-): Promise<InstallResult> {
-  const agent = agents[agentType];
-  const isGlobal = options.global ?? false;
-  const cwd = options.cwd || process.cwd();
-  const installMode = options.mode ?? 'symlink';
-
-  // Check if agent supports global installation
-  if (isGlobal && agent.globalSkillsDir === undefined) {
-    return {
-      success: false,
-      path: '',
-      mode: installMode,
-      error: `${agent.displayName} does not support global skill installation`,
-    };
-  }
-
-  // Use mintlify-proj as the skill directory name (e.g., "bun.com")
-  const skillName = sanitizeName(skill.mintlifySite);
-
-  // Canonical location: .agents/skills/<skill-name>
-  const canonicalBase = getCanonicalSkillsDir(isGlobal, cwd);
-  const canonicalDir = join(canonicalBase, skillName);
-
-  // Agent-specific location (for symlink)
-  const agentBase = isGlobal ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
-  const agentDir = join(agentBase, skillName);
-
-  // Validate paths
-  if (!isPathSafe(canonicalBase, canonicalDir)) {
-    return {
-      success: false,
-      path: agentDir,
-      mode: installMode,
-      error: 'Invalid skill name: potential path traversal detected',
-    };
-  }
-
-  if (!isPathSafe(agentBase, agentDir)) {
-    return {
-      success: false,
-      path: agentDir,
-      mode: installMode,
-      error: 'Invalid skill name: potential path traversal detected',
-    };
-  }
-
-  try {
-    // For copy mode, write directly to agent location
-    if (installMode === 'copy') {
-      await cleanAndCreateDirectory(agentDir);
-      const skillMdPath = join(agentDir, 'SKILL.md');
-      await writeFile(skillMdPath, skill.content, 'utf-8');
-
-      return {
-        success: true,
-        path: agentDir,
-        mode: 'copy',
-      };
-    }
-
-    // Symlink mode: write to canonical location and symlink to agent location
-    await cleanAndCreateDirectory(canonicalDir);
-    const skillMdPath = join(canonicalDir, 'SKILL.md');
-    await writeFile(skillMdPath, skill.content, 'utf-8');
-
-    // For universal agents with global install, skip creating agent-specific symlink
-    if (isGlobal && isUniversalAgent(agentType)) {
-      return {
-        success: true,
-        path: canonicalDir,
-        canonicalPath: canonicalDir,
-        mode: 'symlink',
-      };
-    }
-
-    const symlinkCreated = await createSymlink(canonicalDir, agentDir);
-
-    if (!symlinkCreated) {
-      // Symlink failed, fall back to copy
-      await cleanAndCreateDirectory(agentDir);
-      const agentSkillMdPath = join(agentDir, 'SKILL.md');
-      await writeFile(agentSkillMdPath, skill.content, 'utf-8');
-
-      return {
-        success: true,
-        path: agentDir,
-        canonicalPath: canonicalDir,
-        mode: 'symlink',
-        symlinkFailed: true,
-      };
-    }
-
-    return {
-      success: true,
-      path: agentDir,
-      canonicalPath: canonicalDir,
-      mode: 'symlink',
-    };
-  } catch (error) {
-    return {
-      success: false,
-      path: agentDir,
-      mode: installMode,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
-  }
 }
 
 /**
