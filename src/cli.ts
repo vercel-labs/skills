@@ -1,7 +1,16 @@
 #!/usr/bin/env node
 
 import { spawn, spawnSync } from 'child_process';
-import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs';
+import {
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  statSync,
+  rmSync,
+  lstatSync,
+} from 'fs';
 import { basename, join, dirname } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
@@ -13,7 +22,9 @@ import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track } from './telemetry.ts';
-import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
+import { fetchSkillFolderHash, getGitHubToken, removeSkillFromLock } from './skill-lock.ts';
+import { getCanonicalPath, getInstallPath, sanitizeName } from './installer.ts';
+import { agents } from './agents.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -280,6 +291,78 @@ const LOCK_FILE = '.skill-lock.json';
 const CHECK_UPDATES_API_URL = 'https://add-skill.vercel.sh/check-updates';
 const CURRENT_LOCK_VERSION = 3; // Bumped from 2 to 3 for folder hash support
 
+// Cache repo trees so we only hit GitHub once per owner/repo
+const repoTreeCache = new Map<
+  string,
+  { tree: Array<{ path: string; type: string; sha: string }>; rootSha: string } | null
+>();
+
+async function fetchRepoTree(
+  ownerRepo: string,
+  token?: string | null
+): Promise<{ tree: Array<{ path: string; type: string; sha: string }>; rootSha: string } | null> {
+  if (repoTreeCache.has(ownerRepo)) {
+    return repoTreeCache.get(ownerRepo)!;
+  }
+
+  const branches = ['main', 'master'];
+  for (const branch of branches) {
+    try {
+      const url = `https://api.github.com/repos/${ownerRepo}/git/trees/${branch}?recursive=1`;
+      const headers: Record<string, string> = {
+        Accept: 'application/vnd.github.v3+json',
+        'User-Agent': 'skills-cli',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(url, { headers });
+      if (!response.ok) continue;
+
+      const data = (await response.json()) as {
+        sha: string;
+        tree: Array<{ path: string; type: string; sha: string }>;
+      };
+
+      const result = { tree: data.tree, rootSha: data.sha };
+      repoTreeCache.set(ownerRepo, result);
+      return result;
+    } catch {
+      continue;
+    }
+  }
+
+  repoTreeCache.set(ownerRepo, null);
+  return null;
+}
+
+function lookupSkillHashFromTree(
+  repoTree: { tree: Array<{ path: string; type: string; sha: string }>; rootSha: string },
+  skillPath: string
+): string | null {
+  // Normalize path
+  let folderPath = skillPath.replace(/\\/g, '/');
+  if (folderPath.endsWith('/SKILL.md')) {
+    folderPath = folderPath.slice(0, -9);
+  } else if (folderPath.endsWith('SKILL.md')) {
+    folderPath = folderPath.slice(0, -8);
+  }
+  if (folderPath.endsWith('/')) {
+    folderPath = folderPath.slice(0, -1);
+  }
+
+  // Root-level skill
+  if (!folderPath) {
+    return repoTree.rootSha;
+  }
+
+  const folderEntry = repoTree.tree.find(
+    (entry) => entry.type === 'tree' && entry.path === folderPath
+  );
+  return folderEntry ? folderEntry.sha : null;
+}
+
 interface SkillLockEntry {
   source: string;
   sourceType: string;
@@ -367,7 +450,7 @@ async function runCheck(args: string[] = []): Promise<void> {
   // Get GitHub token from user's environment for higher rate limits
   const token = getGitHubToken();
 
-  // Group skills by source (owner/repo) to batch GitHub API calls
+  // Group skills by source (owner/repo) to batch API calls
   const skillsBySource = new Map<string, Array<{ name: string; entry: SkillLockEntry }>>();
   let skippedCount = 0;
 
@@ -375,8 +458,9 @@ async function runCheck(args: string[] = []): Promise<void> {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    // Only check GitHub-sourced skills with folder hash
-    if (entry.sourceType !== 'github' || !entry.skillFolderHash || !entry.skillPath) {
+    // Skip non-GitHub skills or those without a path
+    // (skillFolderHash may be empty for older installs, that's fine)
+    if (entry.sourceType !== 'github' || !entry.skillPath) {
       skippedCount++;
       continue;
     }
@@ -395,47 +479,78 @@ async function runCheck(args: string[] = []): Promise<void> {
   console.log(`${DIM}Checking ${totalSkills} skill(s) for updates...${RESET}`);
 
   const updates: Array<{ name: string; source: string }> = [];
+  const stale: Array<{ name: string; source: string }> = [];
   const errors: Array<{ name: string; source: string; error: string }> = [];
 
-  // Check each source (one API call per repo)
+  // Check each source repo
   for (const [source, skills] of skillsBySource) {
-    for (const { name, entry } of skills) {
-      try {
-        const latestHash = await fetchSkillFolderHash(source, entry.skillPath!, token);
-
-        if (!latestHash) {
-          errors.push({ name, source, error: 'Could not fetch from GitHub' });
-          continue;
-        }
-
-        if (latestHash !== entry.skillFolderHash) {
-          updates.push({ name, source });
-        }
-      } catch (err) {
+    let repoTree: Awaited<ReturnType<typeof fetchRepoTree>>;
+    try {
+      repoTree = await fetchRepoTree(source, token);
+    } catch (err) {
+      for (const { name } of skills) {
         errors.push({
           name,
           source,
           error: err instanceof Error ? err.message : 'Unknown error',
         });
       }
+      continue;
+    }
+
+    if (!repoTree) {
+      // Can't confirm the path is gone, so treat as error not stale
+      for (const { name } of skills) {
+        errors.push({ name, source, error: 'Could not fetch repository tree' });
+      }
+      continue;
+    }
+
+    for (const { name, entry } of skills) {
+      const latestHash = lookupSkillHashFromTree(repoTree, entry.skillPath!);
+
+      if (!latestHash) {
+        stale.push({ name, source });
+        continue;
+      }
+
+      if (entry.skillFolderHash && latestHash !== entry.skillFolderHash) {
+        updates.push({ name, source });
+      }
     }
   }
 
   console.log();
 
-  if (updates.length === 0) {
+  if (updates.length === 0 && stale.length === 0) {
     console.log(`${TEXT}✓ All skills are up to date${RESET}`);
   } else {
-    console.log(`${TEXT}${updates.length} update(s) available:${RESET}`);
-    console.log();
-    for (const update of updates) {
-      console.log(`  ${TEXT}↑${RESET} ${update.name}`);
-      console.log(`    ${DIM}source: ${update.source}${RESET}`);
+    if (updates.length > 0) {
+      console.log(`${TEXT}${updates.length} update(s) available:${RESET}`);
+      console.log();
+      for (const update of updates) {
+        console.log(`  ${TEXT}↑${RESET} ${update.name}`);
+        console.log(`    ${DIM}source: ${update.source}${RESET}`);
+      }
+      console.log();
+      console.log(
+        `${DIM}Run${RESET} ${TEXT}npx skills update${RESET} ${DIM}to update all skills${RESET}`
+      );
     }
-    console.log();
-    console.log(
-      `${DIM}Run${RESET} ${TEXT}npx skills update${RESET} ${DIM}to update all skills${RESET}`
-    );
+
+    if (stale.length > 0) {
+      console.log();
+      console.log(`${TEXT}${stale.length} stale skill(s) no longer in source repo:${RESET}`);
+      console.log();
+      for (const s of stale) {
+        console.log(`  ${DIM}✗${RESET} ${s.name}`);
+        console.log(`    ${DIM}source: ${s.source}${RESET}`);
+      }
+      console.log();
+      console.log(
+        `${DIM}Run${RESET} ${TEXT}npx skills update${RESET} ${DIM}to update and remove stale skills${RESET}`
+      );
+    }
   }
 
   if (errors.length > 0) {
@@ -469,29 +584,58 @@ async function runUpdate(): Promise<void> {
   // Get GitHub token from user's environment for higher rate limits
   const token = getGitHubToken();
 
-  // Find skills that need updates by checking GitHub directly
+  // Group skills by source for batched API calls
+  const skillsBySource = new Map<string, Array<{ name: string; entry: SkillLockEntry }>>();
+
+  // Find skills that need updates
   const updates: Array<{ name: string; source: string; entry: SkillLockEntry }> = [];
+  const staleSkills: Array<{ name: string; source: string; entry: SkillLockEntry }> = [];
   let checkedCount = 0;
 
   for (const skillName of skillNames) {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    // Only check GitHub-sourced skills with folder hash
-    if (entry.sourceType !== 'github' || !entry.skillFolderHash || !entry.skillPath) {
+    // Skip non-GitHub skills or those without a path
+    if (entry.sourceType !== 'github' || !entry.skillPath) {
       continue;
     }
 
     checkedCount++;
 
-    try {
-      const latestHash = await fetchSkillFolderHash(entry.source, entry.skillPath, token);
+    const existing = skillsBySource.get(entry.source) || [];
+    existing.push({ name: skillName, entry });
+    skillsBySource.set(entry.source, existing);
+  }
 
-      if (latestHash && latestHash !== entry.skillFolderHash) {
-        updates.push({ name: skillName, source: entry.source, entry });
-      }
+  // Fetch trees and check all skills
+  for (const [source, skills] of skillsBySource) {
+    let repoTree: Awaited<ReturnType<typeof fetchRepoTree>>;
+    try {
+      repoTree = await fetchRepoTree(source, token);
     } catch {
-      // Skip skills that fail to check
+      // Skip skills from repos we can't fetch
+      continue;
+    }
+
+    if (!repoTree) {
+      // Repo not accessible — skip (don't treat as stale, we can't confirm)
+      continue;
+    }
+
+    for (const { name, entry } of skills) {
+      const latestHash = lookupSkillHashFromTree(repoTree, entry.skillPath!);
+
+      if (!latestHash) {
+        // Skill path no longer exists in the source repo
+        staleSkills.push({ name, source, entry });
+        continue;
+      }
+
+      // Only report as update if we have a previous hash to compare against
+      if (entry.skillFolderHash && latestHash !== entry.skillFolderHash) {
+        updates.push({ name, source, entry });
+      }
     }
   }
 
@@ -500,14 +644,16 @@ async function runUpdate(): Promise<void> {
     return;
   }
 
-  if (updates.length === 0) {
+  if (updates.length === 0 && staleSkills.length === 0) {
     console.log(`${TEXT}✓ All skills are up to date${RESET}`);
     console.log();
     return;
   }
 
-  console.log(`${TEXT}Found ${updates.length} update(s)${RESET}`);
-  console.log();
+  if (updates.length > 0) {
+    console.log(`${TEXT}Found ${updates.length} update(s)${RESET}`);
+    console.log();
+  }
 
   // Reinstall each skill that has an update
   let successCount = 0;
@@ -551,12 +697,79 @@ async function runUpdate(): Promise<void> {
     }
   }
 
+  // Prune stale skills
+  let pruneCount = 0;
+  let pruneFailCount = 0;
+
+  if (staleSkills.length > 0) {
+    console.log();
+    console.log(`${TEXT}Pruning ${staleSkills.length} stale skill(s)...${RESET}`);
+
+    for (const stale of staleSkills) {
+      try {
+        // Remove from disk: canonical path and agent symlinks
+        const canonicalPath = getCanonicalPath(stale.name, { global: true });
+        const sanitizedName = sanitizeName(stale.name);
+
+        // Remove agent-specific symlinks/copies, including legacy paths
+        for (const [agentKey, agent] of Object.entries(agents)) {
+          try {
+            const pathsToCleanup = new Set<string>();
+            const skillPath = getInstallPath(stale.name, agentKey as any, { global: true });
+            pathsToCleanup.add(skillPath);
+
+            // Also check the agent's native globalSkillsDir for legacy symlinks
+            if (agent.globalSkillsDir) {
+              pathsToCleanup.add(join(agent.globalSkillsDir, sanitizedName));
+            }
+
+            for (const pathToCleanup of pathsToCleanup) {
+              // Skip canonical path here — we handle it after all agents
+              if (pathToCleanup === canonicalPath) continue;
+              try {
+                lstatSync(pathToCleanup);
+                rmSync(pathToCleanup, { recursive: true, force: true });
+              } catch {
+                // Path doesn't exist, skip
+              }
+            }
+          } catch {
+            // Skip agents that don't support global installation
+          }
+        }
+
+        // Remove canonical directory
+        try {
+          lstatSync(canonicalPath);
+          rmSync(canonicalPath, { recursive: true, force: true });
+        } catch {
+          // Already gone, that's fine
+        }
+
+        // Remove from lock file
+        await removeSkillFromLock(stale.name);
+
+        pruneCount++;
+        console.log(`  ${TEXT}✓${RESET} Pruned ${stale.name} ${DIM}(${stale.source})${RESET}`);
+      } catch (err) {
+        pruneFailCount++;
+        console.log(`  ${DIM}✗ Failed to prune ${stale.name}${RESET}`);
+      }
+    }
+  }
+
   console.log();
   if (successCount > 0) {
     console.log(`${TEXT}✓ Updated ${successCount} skill(s)${RESET}`);
   }
   if (failCount > 0) {
     console.log(`${DIM}Failed to update ${failCount} skill(s)${RESET}`);
+  }
+  if (pruneCount > 0) {
+    console.log(`${TEXT}✓ Pruned ${pruneCount} stale skill(s)${RESET}`);
+  }
+  if (pruneFailCount > 0) {
+    console.log(`${DIM}Failed to prune ${pruneFailCount} skill(s)${RESET}`);
   }
 
   // Track telemetry
@@ -565,6 +778,8 @@ async function runUpdate(): Promise<void> {
     skillCount: String(updates.length),
     successCount: String(successCount),
     failCount: String(failCount),
+    ...(pruneCount > 0 && { pruneCount: String(pruneCount) }),
+    ...(staleSkills.length > 0 && { staleCount: String(staleSkills.length) }),
   });
 
   console.log();
