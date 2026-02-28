@@ -46,7 +46,11 @@ import {
   type SkillAuditData,
   type PartnerAudit,
 } from './telemetry.ts';
-import { wellKnownProvider, type WellKnownSkill } from './providers/index.ts';
+import {
+  wellKnownProvider,
+  type WellKnownSkill,
+  type WellKnownSkillEntry,
+} from './providers/index.ts';
 import {
   addSkillToLock,
   fetchSkillFolderHash,
@@ -431,10 +435,11 @@ async function handleWellKnownSkills(
 ): Promise<void> {
   spinner.start('Discovering skills from well-known endpoint...');
 
-  // Fetch all skills from the well-known endpoint
-  const skills = await wellKnownProvider.fetchAllSkills(url);
+  // Fetch only the index to get skill metadata for selection
+  const indexResult = await wellKnownProvider.fetchIndex(url);
+  const entries = indexResult?.index.skills ?? [];
 
-  if (skills.length === 0) {
+  if (entries.length === 0) {
     spinner.stop(pc.red('No skills found'));
     p.outro(
       pc.red(
@@ -444,25 +449,25 @@ async function handleWellKnownSkills(
     process.exit(1);
   }
 
-  spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
+  spinner.stop(`Found ${pc.green(entries.length)} skill${entries.length > 1 ? 's' : ''}`);
 
   // Log discovered skills
-  for (const skill of skills) {
-    p.log.info(`Skill: ${pc.cyan(skill.installName)}`);
-    p.log.message(pc.dim(skill.description));
-    if (skill.files.size > 1) {
-      p.log.message(pc.dim(`  Files: ${Array.from(skill.files.keys()).join(', ')}`));
+  for (const entry of entries) {
+    p.log.info(`Skill: ${pc.cyan(entry.name)}`);
+    p.log.message(pc.dim(entry.description));
+    if (entry.files.length > 1) {
+      p.log.message(pc.dim(`  Files: ${entry.files.join(', ')}`));
     }
   }
 
   if (options.list) {
     console.log();
     p.log.step(pc.bold('Available Skills'));
-    for (const skill of skills) {
-      p.log.message(`  ${pc.cyan(skill.installName)}`);
-      p.log.message(`    ${pc.dim(skill.description)}`);
-      if (skill.files.size > 1) {
-        p.log.message(`    ${pc.dim(`Files: ${skill.files.size}`)}`);
+    for (const entry of entries) {
+      p.log.message(`  ${pc.cyan(entry.name)}`);
+      p.log.message(`    ${pc.dim(entry.description)}`);
+      if (entry.files.length > 1) {
+        p.log.message(`    ${pc.dim(`Files: ${entry.files.length}`)}`);
       }
     }
     console.log();
@@ -470,43 +475,38 @@ async function handleWellKnownSkills(
     process.exit(0);
   }
 
-  // Filter skills if --skill option is provided
-  let selectedSkills: WellKnownSkill[];
+  // Filter or select entries before downloading any files
+  let selectedEntries: WellKnownSkillEntry[];
 
   if (options.skill?.includes('*')) {
     // --skill '*' selects all skills
-    selectedSkills = skills;
-    p.log.info(`Installing all ${skills.length} skills`);
+    selectedEntries = entries;
+    p.log.info(`Installing all ${entries.length} skills`);
   } else if (options.skill && options.skill.length > 0) {
-    selectedSkills = skills.filter((s) =>
-      options.skill!.some(
-        (name) =>
-          s.installName.toLowerCase() === name.toLowerCase() ||
-          s.name.toLowerCase() === name.toLowerCase()
-      )
+    selectedEntries = entries.filter((e) =>
+      options.skill!.some((name) => e.name.toLowerCase() === name.toLowerCase())
     );
 
-    if (selectedSkills.length === 0) {
+    if (selectedEntries.length === 0) {
       p.log.error(`No matching skills found for: ${options.skill.join(', ')}`);
       p.log.info('Available skills:');
-      for (const s of skills) {
-        p.log.message(`  - ${s.installName}`);
+      for (const e of entries) {
+        p.log.message(`  - ${e.name}`);
       }
       process.exit(1);
     }
-  } else if (skills.length === 1) {
-    selectedSkills = skills;
-    const firstSkill = skills[0]!;
-    p.log.info(`Skill: ${pc.cyan(firstSkill.installName)}`);
+  } else if (entries.length === 1) {
+    selectedEntries = entries;
+    p.log.info(`Skill: ${pc.cyan(entries[0]!.name)}`);
   } else if (options.yes) {
-    selectedSkills = skills;
-    p.log.info(`Installing all ${skills.length} skills`);
+    selectedEntries = entries;
+    p.log.info(`Installing all ${entries.length} skills`);
   } else {
     // Prompt user to select skills
-    const skillChoices = skills.map((s) => ({
-      value: s,
-      label: s.installName,
-      hint: s.description.length > 60 ? s.description.slice(0, 57) + '...' : s.description,
+    const skillChoices = entries.map((e) => ({
+      value: e,
+      label: e.name,
+      hint: e.description.length > 60 ? e.description.slice(0, 57) + '...' : e.description,
     }));
 
     const selected = await multiselect({
@@ -520,7 +520,33 @@ async function handleWellKnownSkills(
       process.exit(0);
     }
 
-    selectedSkills = selected as WellKnownSkill[];
+    selectedEntries = selected as WellKnownSkillEntry[];
+  }
+
+  // Download files for selected skills only
+  const { resolvedBaseUrl } = indexResult!;
+  spinner.start(
+    `Downloading ${selectedEntries.length} skill${selectedEntries.length > 1 ? 's' : ''}...`
+  );
+  const downloadResults = await Promise.all(
+    selectedEntries.map((e) => wellKnownProvider.fetchSkillByEntry(resolvedBaseUrl, e))
+  );
+  spinner.stop('Download complete');
+
+  const selectedSkills: WellKnownSkill[] = downloadResults.filter(
+    (s): s is WellKnownSkill => s !== null
+  );
+
+  if (selectedSkills.length === 0) {
+    p.outro(pc.red('Failed to download selected skills. Please check the server and try again.'));
+    process.exit(1);
+  }
+
+  if (selectedSkills.length < selectedEntries.length) {
+    const failed = selectedEntries
+      .filter((e) => !selectedSkills.some((s) => s.installName === e.name))
+      .map((e) => e.name);
+    p.log.warn(`Could not download: ${failed.join(', ')}. Continuing with remaining skills.`);
   }
 
   // Detect agents
