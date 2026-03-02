@@ -25,6 +25,8 @@ function isValidRelativePath(path: string): boolean {
 interface PluginManifestEntry {
   source?: string | { source: string; repo?: string };
   skills?: string[];
+  /** Optional name for grouping skills (e.g., "document-skills") */
+  name?: string;
 }
 
 interface MarketplaceManifest {
@@ -34,6 +36,7 @@ interface MarketplaceManifest {
 
 interface PluginManifest {
   skills?: string[];
+  name?: string;
 }
 
 /**
@@ -106,4 +109,75 @@ export async function getPluginSkillPaths(basePath: string): Promise<string[]> {
   }
 
   return searchDirs;
+}
+
+/**
+ * Get a map of skill directory paths to plugin names from plugin manifests.
+ * This allows grouping skills by their parent plugin.
+ *
+ * Returns Map<AbsolutePath, PluginName>
+ */
+export async function getPluginGroupings(basePath: string): Promise<Map<string, string>> {
+  const groupings = new Map<string, string>();
+
+  // Try marketplace.json (multi-plugin catalog)
+  try {
+    const content = await readFile(join(basePath, '.claude-plugin/marketplace.json'), 'utf-8');
+    const manifest: MarketplaceManifest = JSON.parse(content);
+    const pluginRoot = manifest.metadata?.pluginRoot;
+
+    // Validate pluginRoot starts with './' if provided (per Claude Code convention)
+    const validPluginRoot = pluginRoot === undefined || isValidRelativePath(pluginRoot);
+
+    if (validPluginRoot) {
+      for (const plugin of manifest.plugins ?? []) {
+        if (!plugin.name) continue;
+
+        // Skip remote sources (object with source/repo) - only handle local string paths
+        if (typeof plugin.source !== 'string' && plugin.source !== undefined) continue;
+
+        // Validate source starts with './' if provided (per Claude Code convention)
+        if (plugin.source !== undefined && !isValidRelativePath(plugin.source)) continue;
+
+        const pluginBase = join(basePath, pluginRoot ?? '', plugin.source ?? '');
+
+        // Validate pluginBase itself is contained
+        if (!isContainedIn(pluginBase, basePath)) continue;
+
+        if (plugin.skills && plugin.skills.length > 0) {
+          for (const skillPath of plugin.skills) {
+            // Validate skill path starts with './' (per Claude Code convention)
+            if (!isValidRelativePath(skillPath)) continue;
+
+            const skillDir = join(pluginBase, skillPath);
+            if (isContainedIn(skillDir, basePath)) {
+              // Store absolute path as key for reliable matching
+              groupings.set(resolve(skillDir), plugin.name);
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    // File doesn't exist or invalid JSON
+  }
+
+  // Try plugin.json (single plugin at root)
+  try {
+    const content = await readFile(join(basePath, '.claude-plugin/plugin.json'), 'utf-8');
+    const manifest: PluginManifest = JSON.parse(content);
+    if (manifest.name && manifest.skills && manifest.skills.length > 0) {
+      for (const skillPath of manifest.skills) {
+        if (!isValidRelativePath(skillPath)) continue;
+        const skillDir = join(basePath, skillPath);
+        if (isContainedIn(skillDir, basePath)) {
+          groupings.set(resolve(skillDir), manifest.name);
+        }
+      }
+    }
+  } catch {
+    // File doesn't exist or invalid JSON
+  }
+
+  return groupings;
 }

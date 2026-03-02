@@ -315,3 +315,11 @@ describe('getOwnerRepo', () => {
     expect(getOwnerRepo(parsed)).toBe('division/team/repo');
   });
 });
+
+describe('Source aliases', () => {
+  it('resolves coinbase/agentWallet to coinbase/agentic-wallet-skills', () => {
+    const result = parseSource('coinbase/agentWallet');
+    expect(result.type).toBe('github');
+    expect(result.url).toBe('https://github.com/coinbase/agentic-wallet-skills.git');
+  });
+});

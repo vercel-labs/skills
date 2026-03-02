@@ -8,7 +8,7 @@ describe('skills CLI', () => {
     it('should display help message', () => {
       const output = runCliOutput(['--help']);
       expect(output).toContain('Usage: skills <command> [options]');
-      expect(output).toContain('Commands:');
+      expect(output).toContain('Manage Skills:');
       expect(output).toContain('init [name]');
       expect(output).toContain('add <package>');
       expect(output).toContain('check');

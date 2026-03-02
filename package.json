@@ -1,6 +1,6 @@
 {
   "name": "skills",
-  "version": "1.3.7",
+  "version": "1.4.3",
   "description": "The open agent skills ecosystem",
   "type": "module",
   "bin": {
@@ -46,6 +46,7 @@
     "codex",
     "command-code",
     "continue",
+    "cortex",
     "crush",
     "cursor",
     "droid",
@@ -74,7 +75,8 @@
     "zencoder",
     "neovate",
     "pochi",
-    "adal"
+    "adal",
+    "universal"
   ],
   "repository": {
     "type": "git",
