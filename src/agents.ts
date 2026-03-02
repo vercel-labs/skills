@@ -36,6 +36,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(configHome, 'amp'));
     },
   },
+  astrbot: {
+    name: 'astrbot',
+    displayName: 'AstrBot',
+    skillsDir: 'data/skills',
+    globalSkillsDir: join(home, '.astrbot/data/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(process.cwd(), 'data/skills')) || existsSync(join(home, '.astrbot'));
+    },
+  },
   antigravity: {
     name: 'antigravity',
     displayName: 'Antigravity',
