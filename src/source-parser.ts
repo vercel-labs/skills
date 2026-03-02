@@ -92,7 +92,11 @@ const SOURCE_ALIASES: Record<string, string> = {
   'coinbase/agentWallet': 'coinbase/agentic-wallet-skills',
 };
 
-export function parseSource(input: string): ParsedSource {
+/**
+ * @param input - The source string to parse
+ * @param explicitBranch - Optional explicit branch name (useful for branches with slashes like feature/some-skill)
+ */
+export function parseSource(input: string, explicitBranch?: string): ParsedSource {
   // Resolve source aliases before parsing
   const alias = SOURCE_ALIASES[input];
   if (alias) {
@@ -108,6 +112,38 @@ export function parseSource(input: string): ParsedSource {
       url: resolvedPath, // Store resolved path in url for consistency
       localPath: resolvedPath,
     };
+  }
+
+  // If explicitBranch is provided, handle GitHub URLs and shorthand specially
+  // Extract owner/repo and use the explicit branch, ignoring any path-like segments
+  if (explicitBranch) {
+    // Handle GitHub URLs
+    const githubMatch = input.match(/github\.com\/([^/]+)\/([^/]+)/);
+    if (githubMatch) {
+      const [, owner, repo] = githubMatch;
+      const cleanRepo = repo!.replace(/\.git$/, '').replace(/\/.*$/, '');
+      return {
+        type: 'github',
+        url: `https://github.com/${owner}/${cleanRepo}.git`,
+        ref: explicitBranch,
+      };
+    }
+
+    // Handle GitHub shorthand: owner/repo
+    const shorthandMatch = input.match(/^([^/]+)\/([^/]+)(?:\/.*)?$/);
+    if (
+      shorthandMatch &&
+      !input.includes(':') &&
+      !input.startsWith('.') &&
+      !input.startsWith('/')
+    ) {
+      const [, owner, repo] = shorthandMatch;
+      return {
+        type: 'github',
+        url: `https://github.com/${owner}/${repo}.git`,
+        ref: explicitBranch,
+      };
+    }
   }
 
   // GitHub URL with path: https://github.com/owner/repo/tree/branch/path/to/skill
