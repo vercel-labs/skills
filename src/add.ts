@@ -1489,12 +1489,16 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               if (hash) skillFolderHash = hash;
             }
 
+            // For global installs, compute a hash of the files on disk to detect local changes
+            const computedHash = await computeSkillFolderHash(skill.path);
+
             await addSkillToLock(skill.name, {
               source: normalizedSource,
               sourceType: parsed.type,
               sourceUrl: parsed.url,
               skillPath: skillPathValue,
               skillFolderHash,
+              computedHash, // Add hash of local files
               pluginName: skill.pluginName,
             });
           } catch {
