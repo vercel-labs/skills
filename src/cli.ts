@@ -28,6 +28,7 @@ function getVersion(): string {
     return '0.0.0';
   }
 }
+
 const VERSION = getVersion();
 initTelemetry(VERSION);
 
@@ -487,7 +488,10 @@ async function runUpdate(args: string[]): Promise<void> {
     return;
   }
 
+  // Get GitHub token from user's environment for higher rate limits
   const token = getGitHubToken();
+
+  // Find skills that need updates by checking GitHub directly
   const updates: Array<{ name: string; source: string; entry: SkillLockEntry }> = [];
   const skipped: string[] = [];
   let checkedCount = 0;
@@ -496,6 +500,7 @@ async function runUpdate(args: string[]): Promise<void> {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
+    // Only check GitHub-sourced skills with folder hash
     if (entry.sourceType !== 'github' || !entry.skillFolderHash || !entry.skillPath) {
       continue;
     }
@@ -504,6 +509,7 @@ async function runUpdate(args: string[]): Promise<void> {
 
     try {
       const latestHash = await fetchSkillFolderHash(entry.source, entry.skillPath, token);
+
       if (latestHash && latestHash !== entry.skillFolderHash) {
         if (skipModified && (await hasSkillBeenUpdated(skillName, entry))) {
           skipped.push(skillName);
@@ -532,13 +538,18 @@ async function runUpdate(args: string[]): Promise<void> {
     console.log();
   }
 
+  // Reinstall each skill that has an update
   let successCount = 0;
   let failCount = 0;
 
   for (const update of updates) {
     console.log(`${TEXT}Updating ${update.name}...${RESET}`);
+
+    // Build the URL with subpath to target the specific skill directory
+    // e.g., https://github.com/owner/repo/tree/main/skills/my-skill
     let installUrl = update.entry.sourceUrl;
     if (update.entry.skillPath) {
+      // Extract the skill folder path (remove /SKILL.md suffix)
       let skillFolder = update.entry.skillPath;
       if (skillFolder.endsWith('/SKILL.md')) {
         skillFolder = skillFolder.slice(0, -9);
@@ -548,10 +559,14 @@ async function runUpdate(args: string[]): Promise<void> {
       if (skillFolder.endsWith('/')) {
         skillFolder = skillFolder.slice(0, -1);
       }
+
+      // Convert git URL to tree URL with path
+      // https://github.com/owner/repo.git -> https://github.com/owner/repo/tree/main/path
       installUrl = update.entry.sourceUrl.replace(/\.git$/, '').replace(/\/$/, '');
       installUrl = `${installUrl}/tree/main/${skillFolder}`;
     }
 
+    // Use skills CLI to reinstall with -g -y flags
     const result = spawnSync('npx', ['-y', 'skills', 'add', installUrl, '-g', '-y'], {
       stdio: ['inherit', 'pipe', 'pipe'],
     });
@@ -587,7 +602,9 @@ async function runUpdate(args: string[]): Promise<void> {
     );
   }
 
+  // Track telemetry
   track({
+    // Track telemetry
     event: 'update',
     skillCount: String(updates.length),
     successCount: String(successCount),
