@@ -2,6 +2,7 @@ import { homedir } from 'os';
 import type { AgentType } from './types.ts';
 import { agents } from './agents.ts';
 import { listInstalledSkills, type InstalledSkill } from './installer.ts';
+import { getAllLockedSkills } from './skill-lock.ts';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -86,6 +87,9 @@ export async function runList(args: string[]): Promise<void> {
     agentFilter,
   });
 
+  // Fetch lock entries to get plugin grouping info
+  const lockedSkills = await getAllLockedSkills();
+
   const cwd = process.cwd();
   const scopeLabel = scope ? 'Global' : 'Project';
 
@@ -99,19 +103,71 @@ export async function runList(args: string[]): Promise<void> {
     return;
   }
 
-  function printSkill(skill: InstalledSkill): void {
+  function printSkill(skill: InstalledSkill, indent: boolean = false): void {
+    const prefix = indent ? '  ' : '';
     const shortPath = shortenPath(skill.canonicalPath, cwd);
     const agentNames = skill.agents.map((a) => agents[a].displayName);
     const agentInfo =
       skill.agents.length > 0 ? formatList(agentNames) : `${YELLOW}not linked${RESET}`;
-    console.log(`${CYAN}${skill.name}${RESET} ${DIM}${shortPath}${RESET}`);
-    console.log(`  ${DIM}Agents:${RESET} ${agentInfo}`);
+    console.log(`${prefix}${CYAN}${skill.name}${RESET} ${DIM}${shortPath}${RESET}`);
+    console.log(`${prefix}  ${DIM}Agents:${RESET} ${agentInfo}`);
   }
 
   console.log(`${BOLD}${scopeLabel} Skills${RESET}`);
   console.log();
+
+  // Group skills by plugin
+  const groupedSkills: Record<string, InstalledSkill[]> = {};
+  const ungroupedSkills: InstalledSkill[] = [];
+
   for (const skill of installedSkills) {
-    printSkill(skill);
+    const lockEntry = lockedSkills[skill.name];
+    if (lockEntry?.pluginName) {
+      const group = lockEntry.pluginName;
+      if (!groupedSkills[group]) {
+        groupedSkills[group] = [];
+      }
+      groupedSkills[group].push(skill);
+    } else {
+      ungroupedSkills.push(skill);
+    }
   }
-  console.log();
+
+  const hasGroups = Object.keys(groupedSkills).length > 0;
+
+  if (hasGroups) {
+    // Print groups sorted alphabetically
+    const sortedGroups = Object.keys(groupedSkills).sort();
+    for (const group of sortedGroups) {
+      // Convert kebab-case to Title Case for display header
+      const title = group
+        .split('-')
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ');
+
+      console.log(`${BOLD}${title}${RESET}`);
+      const skills = groupedSkills[group];
+      if (skills) {
+        for (const skill of skills) {
+          printSkill(skill, true);
+        }
+      }
+      console.log();
+    }
+
+    // Print ungrouped skills if any exist
+    if (ungroupedSkills.length > 0) {
+      console.log(`${BOLD}General${RESET}`);
+      for (const skill of ungroupedSkills) {
+        printSkill(skill, true);
+      }
+      console.log();
+    }
+  } else {
+    // No groups, print flat list as before
+    for (const skill of installedSkills) {
+      printSkill(skill);
+    }
+    console.log();
+  }
 }

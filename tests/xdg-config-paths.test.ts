@@ -66,8 +66,8 @@ describe('XDG config paths', () => {
       expect(agents.cursor.globalSkillsDir).toBe(expected);
     });
 
-    it('cline uses ~/.cline/skills (home-based, not XDG)', () => {
-      const expected = join(home, '.cline', 'skills');
+    it('cline uses ~/.agents/skills (home-based, not XDG)', () => {
+      const expected = join(home, '.agents', 'skills');
       expect(agents.cline.globalSkillsDir).toBe(expected);
     });
   });

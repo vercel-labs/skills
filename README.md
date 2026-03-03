@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [35 more](#available-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [37 more](#available-agents).
 <!-- agent-list:end -->
 
 ## Install a Skill
@@ -42,6 +42,7 @@ npx skills add ./my-local-skills
 | `-a, --agent <agents...>` | <!-- agent-names:start -->Target specific agents (e.g., `claude-code`, `codex`). See [Available Agents](#available-agents)<!-- agent-names:end -->                  |
 | `-s, --skill <skills...>` | Install specific skills by name (use `'*'` for all skills)                                                                                         |
 | `-l, --list`              | List available skills without installing                                                                                                           |
+| `--copy`                  | Copy files instead of symlinking to agent directories                                                                                              |
 | `-y, --yes`               | Skip all confirmation prompts                                                                                                                      |
 | `--all`                   | Install all skills to all agents without prompts                                                                                                   |
 
@@ -91,14 +92,14 @@ When installing interactively, you can choose:
 
 ## Other Commands
 
-| Command                      | Description                                             |
-| ---------------------------- | ------------------------------------------------------- |
-| `npx skills list`            | List installed skills (alias: `ls`)                     |
-| `npx skills find [query]`    | Search for skills interactively or by keyword           |
-| `npx skills remove [skills]` | Remove installed skills from agents                     |
-| `npx skills check`           | Check for available skill updates                       |
-| `npx skills update`          | Update all installed skills to latest versions          |
-| `npx skills init [name]`     | Create a new SKILL.md template                          |
+| Command                      | Description                                    |
+| ---------------------------- | ---------------------------------------------- |
+| `npx skills list`            | List installed skills (alias: `ls`)            |
+| `npx skills find [query]`    | Search for skills interactively or by keyword  |
+| `npx skills remove [skills]` | Remove installed skills from agents            |
+| `npx skills check`           | Check for available skill updates              |
+| `npx skills update`          | Update all installed skills to latest versions |
+| `npx skills init [name]`     | Create a new SKILL.md template                 |
 
 ### `skills list`
 
@@ -180,13 +181,13 @@ npx skills remove my-skill --agent '*'
 npx skills rm my-skill
 ```
 
-| Option              | Description                                          |
-| ------------------- | ---------------------------------------------------- |
-| `-g, --global`      | Remove from global scope (~/) instead of project      |
-| `-a, --agent`       | Remove from specific agents (use `'*'` for all)      |
-| `-s, --skill`       | Specify skills to remove (use `'*'` for all)         |
-| `-y, --yes`         | Skip confirmation prompts                            |
-| `--all`             | Shorthand for `--skill '*' --agent '*' -y`           |
+| Option         | Description                                      |
+| -------------- | ------------------------------------------------ |
+| `-g, --global` | Remove from global scope (~/) instead of project |
+| `-a, --agent`  | Remove from specific agents (use `'*'` for all)  |
+| `-s, --skill`  | Specify skills to remove (use `'*'` for all)     |
+| `-y, --yes`    | Skip confirmation prompts                        |
+| `--all`        | Shorthand for `--skill '*' --agent '*' -y`       |
 
 ## What are Agent Skills?
 
@@ -208,18 +209,19 @@ Skills can be installed to any of these agents:
 <!-- supported-agents:start -->
 | Agent | `--agent` | Project Path | Global Path |
 |-------|-----------|--------------|-------------|
-| Amp, Kimi Code CLI | `amp`, `kimi-cli` | `.agents/skills/` | `~/.config/agents/skills/` |
+| Amp, Kimi Code CLI, Replit, Universal | `amp`, `kimi-cli`, `replit`, `universal` | `.agents/skills/` | `~/.config/agents/skills/` |
 | Antigravity | `antigravity` | `.agent/skills/` | `~/.gemini/antigravity/skills/` |
-| Augment | `augment` | `.augment/rules/` | `~/.augment/rules/` |
+| Augment | `augment` | `.augment/skills/` | `~/.augment/skills/` |
 | Claude Code | `claude-code` | `.claude/skills/` | `~/.claude/skills/` |
-| OpenClaw | `openclaw` | `skills/` | `~/.moltbot/skills/` |
-| Cline | `cline` | `.cline/skills/` | `~/.cline/skills/` |
+| OpenClaw | `openclaw` | `skills/` | `~/.openclaw/skills/` |
+| Cline | `cline` | `.agents/skills/` | `~/.agents/skills/` |
 | CodeBuddy | `codebuddy` | `.codebuddy/skills/` | `~/.codebuddy/skills/` |
 | Codex | `codex` | `.agents/skills/` | `~/.codex/skills/` |
 | Command Code | `command-code` | `.commandcode/skills/` | `~/.commandcode/skills/` |
 | Continue | `continue` | `.continue/skills/` | `~/.continue/skills/` |
+| Cortex Code | `cortex` | `.cortex/skills/` | `~/.snowflake/cortex/skills/` |
 | Crush | `crush` | `.crush/skills/` | `~/.config/crush/skills/` |
-| Cursor | `cursor` | `.cursor/skills/` | `~/.cursor/skills/` |
+| Cursor | `cursor` | `.agents/skills/` | `~/.cursor/skills/` |
 | Droid | `droid` | `.factory/skills/` | `~/.factory/skills/` |
 | Gemini CLI | `gemini-cli` | `.agents/skills/` | `~/.gemini/skills/` |
 | GitHub Copilot | `github-copilot` | `.agents/skills/` | `~/.copilot/skills/` |
@@ -237,7 +239,6 @@ Skills can be installed to any of these agents:
 | Pi | `pi` | `.pi/skills/` | `~/.pi/agent/skills/` |
 | Qoder | `qoder` | `.qoder/skills/` | `~/.qoder/skills/` |
 | Qwen Code | `qwen-code` | `.qwen/skills/` | `~/.qwen/skills/` |
-| Replit | `replit` | `.agents/skills/` | N/A (project-only) |
 | Roo Code | `roo` | `.roo/skills/` | `~/.roo/skills/` |
 | Trae | `trae` | `.trae/skills/` | `~/.trae/skills/` |
 | Trae CN | `trae-cn` | `.trae/skills/` | `~/.trae-cn/skills/` |
@@ -318,15 +319,14 @@ The CLI searches for skills in these locations within a repository:
 - `skills/.system/`
 - `.agents/skills/`
 - `.agent/skills/`
-- `.augment/rules/`
+- `.augment/skills/`
 - `.claude/skills/`
 - `./skills/`
-- `.cline/skills/`
 - `.codebuddy/skills/`
 - `.commandcode/skills/`
 - `.continue/skills/`
+- `.cortex/skills/`
 - `.crush/skills/`
-- `.cursor/skills/`
 - `.factory/skills/`
 - `.goose/skills/`
 - `.junie/skills/`
@@ -359,11 +359,13 @@ If `.claude-plugin/marketplace.json` or `.claude-plugin/plugin.json` exists, ski
 // .claude-plugin/marketplace.json
 {
   "metadata": { "pluginRoot": "./plugins" },
-  "plugins": [{
-    "name": "my-plugin",
-    "source": "my-plugin",
-    "skills": ["./skills/review", "./skills/test"]
-  }]
+  "plugins": [
+    {
+      "name": "my-plugin",
+      "source": "my-plugin",
+      "skills": ["./skills/review", "./skills/test"]
+    }
+  ]
 }
 ```
 
@@ -376,7 +378,7 @@ If no skills are found in standard locations, a recursive search is performed.
 Skills are generally compatible across agents since they follow a
 shared [Agent Skills specification](https://agentskills.io). However, some features may be agent-specific:
 
-| Feature         | OpenCode | OpenHands | Claude Code | Cline | CodeBuddy | Codex | Command Code | Kiro CLI | Cursor | Antigravity | Roo Code | Github Copilot | Amp | Clawdbot | Neovate | Pi  | Qoder | Zencoder |
+| Feature         | OpenCode | OpenHands | Claude Code | Cline | CodeBuddy | Codex | Command Code | Kiro CLI | Cursor | Antigravity | Roo Code | Github Copilot | Amp | OpenClaw | Neovate | Pi  | Qoder | Zencoder |
 | --------------- | -------- | --------- | ----------- | ----- | --------- | ----- | ------------ | -------- | ------ | ----------- | -------- | -------------- | --- | -------- | ------- | --- | ----- | -------- |
 | Basic skills    | Yes      | Yes       | Yes         | Yes   | Yes       | Yes   | Yes          | Yes      | Yes    | Yes         | Yes      | Yes            | Yes | Yes      | Yes     | Yes | Yes   | Yes      |
 | `allowed-tools` | Yes      | Yes       | Yes         | Yes   | Yes       | Yes   | Yes          | No       | Yes    | Yes         | Yes      | Yes            | Yes | Yes      | Yes     | Yes | Yes   | No       |
@@ -426,7 +428,7 @@ Telemetry is automatically disabled in CI environments.
 - [Antigravity Skills Documentation](https://antigravity.google/docs/skills)
 - [Factory AI / Droid Skills Documentation](https://docs.factory.ai/cli/configuration/skills)
 - [Claude Code Skills Documentation](https://code.claude.com/docs/en/skills)
-- [Clawdbot Skills Documentation](https://docs.clawd.bot/tools/skills)
+- [OpenClaw Skills Documentation](https://docs.openclaw.ai/tools/skills)
 - [Cline Skills Documentation](https://docs.cline.bot/features/skills)
 - [CodeBuddy Skills Documentation](https://www.codebuddy.ai/docs/ide/Features/Skills)
 - [Codex Skills Documentation](https://developers.openai.com/codex/skills)

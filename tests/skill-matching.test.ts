@@ -5,8 +5,11 @@
  * must be quoted on the command line (e.g., --skill "Convex Best Practices").
  */
 
-import { describe, it, expect } from 'vitest';
-import { filterSkills } from '../src/skills.ts';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdirSync, rmSync, writeFileSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { filterSkills, parseSkillMd } from '../src/skills.ts';
 import type { Skill } from '../src/types.ts';
 
 // Mock skill factory
@@ -89,5 +92,101 @@ describe('filterSkills', () => {
       const result = filterSkills(skills, []);
       expect(result.length).toBe(0);
     });
+  });
+});
+
+describe('parseSkillMd with non-string frontmatter values', () => {
+  let testDir: string;
+
+  beforeEach(() => {
+    testDir = join(tmpdir(), `skills-nonstring-test-${Date.now()}`);
+    mkdirSync(testDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(testDir, { recursive: true, force: true });
+  });
+
+  it('rejects skill with numeric name', async () => {
+    const skillPath = join(testDir, 'SKILL.md');
+    writeFileSync(
+      skillPath,
+      `---
+name: 123
+description: A skill with numeric name
+---
+
+# Numeric Name Skill
+`
+    );
+    const result = await parseSkillMd(skillPath);
+    expect(result).toBeNull();
+  });
+
+  it('rejects skill with boolean name', async () => {
+    const skillPath = join(testDir, 'SKILL.md');
+    writeFileSync(
+      skillPath,
+      `---
+name: true
+description: A skill with boolean name
+---
+
+# Boolean Name Skill
+`
+    );
+    const result = await parseSkillMd(skillPath);
+    expect(result).toBeNull();
+  });
+
+  it('rejects skill with array name', async () => {
+    const skillPath = join(testDir, 'SKILL.md');
+    writeFileSync(
+      skillPath,
+      `---
+name:
+  - foo
+  - bar
+description: A skill with array name
+---
+
+# Array Name Skill
+`
+    );
+    const result = await parseSkillMd(skillPath);
+    expect(result).toBeNull();
+  });
+
+  it('rejects skill with numeric description', async () => {
+    const skillPath = join(testDir, 'SKILL.md');
+    writeFileSync(
+      skillPath,
+      `---
+name: valid-name
+description: 456
+---
+
+# Numeric Description Skill
+`
+    );
+    const result = await parseSkillMd(skillPath);
+    expect(result).toBeNull();
+  });
+
+  it('accepts skill with valid string name and description', async () => {
+    const skillPath = join(testDir, 'SKILL.md');
+    writeFileSync(
+      skillPath,
+      `---
+name: valid-skill
+description: A valid skill
+---
+
+# Valid Skill
+`
+    );
+    const result = await parseSkillMd(skillPath);
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('valid-skill');
   });
 });

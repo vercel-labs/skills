@@ -10,6 +10,22 @@ const configHome = xdgConfig ?? join(home, '.config');
 const codexHome = process.env.CODEX_HOME?.trim() || join(home, '.codex');
 const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude');
 
+export function getOpenClawGlobalSkillsDir(
+  homeDir = home,
+  pathExists: (path: string) => boolean = existsSync
+) {
+  if (pathExists(join(homeDir, '.openclaw'))) {
+    return join(homeDir, '.openclaw/skills');
+  }
+  if (pathExists(join(homeDir, '.clawdbot'))) {
+    return join(homeDir, '.clawdbot/skills');
+  }
+  if (pathExists(join(homeDir, '.moltbot'))) {
+    return join(homeDir, '.moltbot/skills');
+  }
+  return join(homeDir, '.openclaw/skills');
+}
+
 export const agents: Record<AgentType, AgentConfig> = {
   amp: {
     name: 'amp',
@@ -26,16 +42,14 @@ export const agents: Record<AgentType, AgentConfig> = {
     skillsDir: '.agent/skills',
     globalSkillsDir: join(home, '.gemini/antigravity/skills'),
     detectInstalled: async () => {
-      return (
-        existsSync(join(process.cwd(), '.agent')) || existsSync(join(home, '.gemini/antigravity'))
-      );
+      return existsSync(join(home, '.gemini/antigravity'));
     },
   },
   augment: {
     name: 'augment',
     displayName: 'Augment',
-    skillsDir: '.augment/rules',
-    globalSkillsDir: join(home, '.augment/rules'),
+    skillsDir: '.augment/skills',
+    globalSkillsDir: join(home, '.augment/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.augment'));
     },
@@ -53,11 +67,7 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'openclaw',
     displayName: 'OpenClaw',
     skillsDir: 'skills',
-    globalSkillsDir: existsSync(join(home, '.openclaw'))
-      ? join(home, '.openclaw/skills')
-      : existsSync(join(home, '.clawdbot'))
-        ? join(home, '.clawdbot/skills')
-        : join(home, '.moltbot/skills'),
+    globalSkillsDir: getOpenClawGlobalSkillsDir(),
     detectInstalled: async () => {
       return (
         existsSync(join(home, '.openclaw')) ||
@@ -69,8 +79,8 @@ export const agents: Record<AgentType, AgentConfig> = {
   cline: {
     name: 'cline',
     displayName: 'Cline',
-    skillsDir: '.cline/skills',
-    globalSkillsDir: join(home, '.cline/skills'),
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents', 'skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.cline'));
     },
@@ -111,6 +121,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(process.cwd(), '.continue')) || existsSync(join(home, '.continue'));
     },
   },
+  cortex: {
+    name: 'cortex',
+    displayName: 'Cortex Code',
+    skillsDir: '.cortex/skills',
+    globalSkillsDir: join(home, '.snowflake/cortex/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.snowflake/cortex'));
+    },
+  },
   crush: {
     name: 'crush',
     displayName: 'Crush',
@@ -123,7 +142,7 @@ export const agents: Record<AgentType, AgentConfig> = {
   cursor: {
     name: 'cursor',
     displayName: 'Cursor',
-    skillsDir: '.cursor/skills',
+    skillsDir: '.agents/skills',
     globalSkillsDir: join(home, '.cursor/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.cursor'));
@@ -153,7 +172,7 @@ export const agents: Record<AgentType, AgentConfig> = {
     skillsDir: '.agents/skills',
     globalSkillsDir: join(home, '.copilot/skills'),
     detectInstalled: async () => {
-      return existsSync(join(process.cwd(), '.github')) || existsSync(join(home, '.copilot'));
+      return existsSync(join(home, '.copilot'));
     },
   },
   goose: {
@@ -252,7 +271,7 @@ export const agents: Record<AgentType, AgentConfig> = {
     skillsDir: '.agents/skills',
     globalSkillsDir: join(configHome, 'opencode/skills'),
     detectInstalled: async () => {
-      return existsSync(join(configHome, 'opencode')) || existsSync(join(claudeHome, 'skills'));
+      return existsSync(join(configHome, 'opencode'));
     },
   },
   openhands: {
@@ -295,9 +314,10 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'replit',
     displayName: 'Replit',
     skillsDir: '.agents/skills',
-    globalSkillsDir: undefined,
+    globalSkillsDir: join(configHome, 'agents/skills'),
+    showInUniversalList: false,
     detectInstalled: async () => {
-      return existsSync(join(process.cwd(), '.agents'));
+      return existsSync(join(process.cwd(), '.replit'));
     },
   },
   roo: {
@@ -380,6 +400,14 @@ export const agents: Record<AgentType, AgentConfig> = {
     detectInstalled: async () => {
       return existsSync(join(home, '.purecode'));
     },
+  },
+  universal: {
+    name: 'universal',
+    displayName: 'Universal',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(configHome, 'agents/skills'),
+    showInUniversalList: false,
+    detectInstalled: async () => false,
   }
 };
 
@@ -400,10 +428,13 @@ export function getAgentConfig(type: AgentType): AgentConfig {
 /**
  * Returns agents that use the universal .agents/skills directory.
  * These agents share a common skill location and don't need symlinks.
+ * Agents with showInUniversalList: false are excluded.
  */
 export function getUniversalAgents(): AgentType[] {
   return (Object.entries(agents) as [AgentType, AgentConfig][])
-    .filter(([_, config]) => config.skillsDir === '.agents/skills')
+    .filter(
+      ([_, config]) => config.skillsDir === '.agents/skills' && config.showInUniversalList !== false
+    )
     .map(([type]) => type);
 }
 
