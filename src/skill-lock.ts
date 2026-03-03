@@ -26,6 +26,8 @@ export interface SkillLockEntry {
    * Fetched via GitHub Trees API by the telemetry server.
    */
   skillFolderHash: string;
+  /** Hash of the skill folder contents at time of install */
+  computedHash?: string;
   /** ISO timestamp when the skill was first installed */
   installedAt: string;
   /** ISO timestamp when the skill was last updated */

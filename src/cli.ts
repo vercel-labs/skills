@@ -14,6 +14,8 @@ import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track } from './telemetry.ts';
 import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
+import { computeSkillFolderHash } from './local-lock.ts';
+import { getCanonicalPath } from './installer.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -26,7 +28,6 @@ function getVersion(): string {
     return '0.0.0';
   }
 }
-
 const VERSION = getVersion();
 initTelemetry(VERSION);
 
@@ -118,6 +119,9 @@ ${BOLD}Manage Skills:${RESET}
 ${BOLD}Updates:${RESET}
   check                Check for available skill updates
   update               Update all skills to latest versions
+
+${BOLD}Update Options:${RESET}
+  --skip-modified      Skip updating skills with local changes
 
 ${BOLD}Project:${RESET}
   experimental_install Restore skills from skills-lock.json
@@ -287,6 +291,8 @@ interface SkillLockEntry {
   skillPath?: string;
   /** GitHub tree SHA for the entire skill folder (v3) */
   skillFolderHash: string;
+  /** Hash of the skill folder contents at time of install */
+  computedHash?: string;
   installedAt: string;
   updatedAt: string;
 }
@@ -349,6 +355,19 @@ function writeSkillLock(lock: SkillLockFile): void {
     mkdirSync(dir, { recursive: true });
   }
   writeFileSync(lockPath, JSON.stringify(lock, null, 2), 'utf-8');
+}
+
+async function hasSkillBeenUpdated(skillName: string, entry: SkillLockEntry) {
+  if (!entry.computedHash) {
+    return true; // as we can't determine diff, we skip to be safe
+  }
+  try {
+    const canonicalPath = getCanonicalPath(skillName, { global: true });
+    const currentHash = await computeSkillFolderHash(canonicalPath);
+    return currentHash !== entry.computedHash;
+  } catch {
+    return true; // skip to be safe
+  }
 }
 
 async function runCheck(args: string[] = []): Promise<void> {
@@ -453,7 +472,9 @@ async function runCheck(args: string[] = []): Promise<void> {
   console.log();
 }
 
-async function runUpdate(): Promise<void> {
+async function runUpdate(args: string[]): Promise<void> {
+  const skipModified = args.includes('--skip-modified');
+
   console.log(`${TEXT}Checking for skill updates...${RESET}`);
   console.log();
 
@@ -466,18 +487,15 @@ async function runUpdate(): Promise<void> {
     return;
   }
 
-  // Get GitHub token from user's environment for higher rate limits
   const token = getGitHubToken();
-
-  // Find skills that need updates by checking GitHub directly
   const updates: Array<{ name: string; source: string; entry: SkillLockEntry }> = [];
+  const skipped: string[] = [];
   let checkedCount = 0;
 
   for (const skillName of skillNames) {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    // Only check GitHub-sourced skills with folder hash
     if (entry.sourceType !== 'github' || !entry.skillFolderHash || !entry.skillPath) {
       continue;
     }
@@ -486,9 +504,12 @@ async function runUpdate(): Promise<void> {
 
     try {
       const latestHash = await fetchSkillFolderHash(entry.source, entry.skillPath, token);
-
       if (latestHash && latestHash !== entry.skillFolderHash) {
-        updates.push({ name: skillName, source: entry.source, entry });
+        if (skipModified && (await hasSkillBeenUpdated(skillName, entry))) {
+          skipped.push(skillName);
+        } else {
+          updates.push({ name: skillName, source: entry.source, entry });
+        }
       }
     } catch {
       // Skip skills that fail to check
@@ -500,27 +521,24 @@ async function runUpdate(): Promise<void> {
     return;
   }
 
-  if (updates.length === 0) {
+  if (updates.length === 0 && skipped.length === 0) {
     console.log(`${TEXT}✓ All skills are up to date${RESET}`);
     console.log();
     return;
   }
 
-  console.log(`${TEXT}Found ${updates.length} update(s)${RESET}`);
-  console.log();
+  if (updates.length > 0) {
+    console.log(`${TEXT}Found ${updates.length} update(s)${RESET}`);
+    console.log();
+  }
 
-  // Reinstall each skill that has an update
   let successCount = 0;
   let failCount = 0;
 
   for (const update of updates) {
     console.log(`${TEXT}Updating ${update.name}...${RESET}`);
-
-    // Build the URL with subpath to target the specific skill directory
-    // e.g., https://github.com/owner/repo/tree/main/skills/my-skill
     let installUrl = update.entry.sourceUrl;
     if (update.entry.skillPath) {
-      // Extract the skill folder path (remove /SKILL.md suffix)
       let skillFolder = update.entry.skillPath;
       if (skillFolder.endsWith('/SKILL.md')) {
         skillFolder = skillFolder.slice(0, -9);
@@ -530,14 +548,10 @@ async function runUpdate(): Promise<void> {
       if (skillFolder.endsWith('/')) {
         skillFolder = skillFolder.slice(0, -1);
       }
-
-      // Convert git URL to tree URL with path
-      // https://github.com/owner/repo.git -> https://github.com/owner/repo/tree/main/path
       installUrl = update.entry.sourceUrl.replace(/\.git$/, '').replace(/\/$/, '');
       installUrl = `${installUrl}/tree/main/${skillFolder}`;
     }
 
-    // Use skills CLI to reinstall with -g -y flags
     const result = spawnSync('npx', ['-y', 'skills', 'add', installUrl, '-g', '-y'], {
       stdio: ['inherit', 'pipe', 'pipe'],
     });
@@ -559,7 +573,20 @@ async function runUpdate(): Promise<void> {
     console.log(`${DIM}Failed to update ${failCount} skill(s)${RESET}`);
   }
 
-  // Track telemetry
+  if (skipped.length > 0) {
+    console.log();
+    console.log(
+      `${DIM}Skipped ${skipped.length} skill(s) due to local changes or older installations:${RESET}`
+    );
+    for (const skill of skipped) {
+      console.log(`  - ${skill}`);
+    }
+    console.log();
+    console.log(
+      `${DIM}To force an update, run 'npx skills update' without the --skip-modified flag.${RESET}`
+    );
+  }
+
   track({
     event: 'update',
     skillCount: String(updates.length),
@@ -639,7 +666,7 @@ async function main(): Promise<void> {
       break;
     case 'update':
     case 'upgrade':
-      runUpdate();
+      runUpdate(restArgs);
       break;
     case '--help':
     case '-h':
