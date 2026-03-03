@@ -54,6 +54,7 @@ import {
   fetchAuditData,
   type AuditResponse,
   type PartnerAudit,
+  type SkillAuditData,
 } from './telemetry.ts';
 import { detectAgent, getAgentType } from './detect-agent.ts';
 import { wellKnownProvider, type WellKnownSkill } from './providers/index.ts';
@@ -164,6 +165,36 @@ function buildSecurityLines(
   lines.push(`${pc.dim('Details:')} ${pc.dim(`https://skills.sh/${source}`)}`);
 
   return lines;
+}
+
+export function hasUnsafeAudit(data: SkillAuditData | undefined): boolean {
+  if (!data) return false;
+
+  for (const partner of Object.values(data)) {
+    if (partner.risk === 'medium' || partner.risk === 'high' || partner.risk === 'critical') {
+      return true;
+    }
+    if ((partner.alerts ?? 0) > 0) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function getUnsafeSkills(
+  auditData: AuditResponse | null,
+  skills: Array<{ slug: string; displayName: string }>
+): string[] {
+  if (!auditData) return [];
+
+  const unsafe: string[] = [];
+  for (const skill of skills) {
+    if (hasUnsafeAudit(auditData[skill.slug])) {
+      unsafe.push(skill.displayName);
+    }
+  }
+  return unsafe;
 }
 
 /**
@@ -1522,19 +1553,27 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     // Await and display security audit results (started earlier in parallel)
     // Wrapped in try/catch so a failed audit fetch never blocks installation.
+    let hasUnsafeResults = false;
     try {
       const auditData = await auditPromise;
       if (auditData && ownerRepoForAudit) {
-        const securityLines = buildSecurityLines(
-          auditData,
-          selectedSkills.map((s) => ({
-            slug: getSkillDisplayName(s),
-            displayName: getSkillDisplayName(s),
-          })),
-          ownerRepoForAudit
-        );
+        const selectedSkillRows = selectedSkills.map((s) => ({
+          slug: getSkillDisplayName(s),
+          displayName: getSkillDisplayName(s),
+        }));
+        const securityLines = buildSecurityLines(auditData, selectedSkillRows, ownerRepoForAudit);
         if (securityLines.length > 0) {
           p.note(securityLines.join('\n'), 'Security Risk Assessments');
+
+          const unsafeSkills = getUnsafeSkills(auditData, selectedSkillRows);
+          if (unsafeSkills.length > 0) {
+            hasUnsafeResults = true;
+            p.log.warn(
+              pc.red(
+                pc.bold(`Potentially unsafe audit results detected for: ${unsafeSkills.join(', ')}`)
+              )
+            );
+          }
         }
       }
     } catch {
@@ -1542,7 +1581,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     if (!options.yes) {
-      const confirmed = await p.confirm({ message: 'Proceed with installation?' });
+      const confirmed = await p.confirm({
+        message: 'Proceed with installation?',
+        initialValue: !hasUnsafeResults,
+      });
 
       if (p.isCancel(confirmed) || !confirmed) {
         p.cancel('Installation cancelled');

@@ -1,7 +1,7 @@
 import * as readline from 'readline';
 import { runAdd, parseAddOptions } from './add.ts';
 import { sanitizeMetadata } from './sanitize.ts';
-import { track } from './telemetry.ts';
+import { track, fetchAuditData, type SkillAuditData } from './telemetry.ts';
 import { isRepoPrivate } from './source-parser.ts';
 import { isRunningInAgent } from './detect-agent.ts';
 
@@ -12,6 +12,8 @@ const TEXT = '\x1b[38;5;145m';
 const CYAN = '\x1b[36m';
 const MAGENTA = '\x1b[35m';
 const YELLOW = '\x1b[33m';
+const GREEN = '\x1b[32m';
+const RED = '\x1b[31m';
 
 // API endpoint for skills search
 const SEARCH_API_BASE = process.env.SKILLS_API_URL || 'https://skills.sh';
@@ -28,10 +30,101 @@ export interface SearchSkill {
   slug: string;
   source: string;
   installs: number;
+  audit?: SkillAuditData;
+}
+
+type RiskLevel = 'safe' | 'low' | 'medium' | 'high' | 'critical' | 'unknown';
+
+const RISK_RANK: Record<RiskLevel, number> = {
+  safe: 0,
+  low: 1,
+  medium: 2,
+  high: 3,
+  critical: 4,
+  unknown: 5,
+};
+
+function isRiskLevel(value: unknown): value is RiskLevel {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(RISK_RANK, value);
+}
+
+function getEffectiveRisk(audit: SkillAuditData | undefined): RiskLevel {
+  if (!audit || Object.keys(audit).length === 0) {
+    return 'unknown';
+  }
+
+  let worst: RiskLevel = 'safe';
+  let hasRiskData = false;
+  let hasSocketAlerts = false;
+
+  for (const partner of Object.values(audit)) {
+    if (isRiskLevel(partner.risk)) {
+      hasRiskData = true;
+      if (RISK_RANK[partner.risk] > RISK_RANK[worst]) {
+        worst = partner.risk;
+      }
+    }
+    if ((partner.alerts ?? 0) > 0) {
+      hasSocketAlerts = true;
+    }
+  }
+
+  if (!hasRiskData) {
+    return hasSocketAlerts ? 'medium' : 'unknown';
+  }
+
+  if (hasSocketAlerts && RISK_RANK[worst] < RISK_RANK.medium) {
+    return 'medium';
+  }
+
+  return worst;
+}
+
+function formatAuditBadge(audit: SkillAuditData | undefined): string {
+  const risk = getEffectiveRisk(audit);
+  switch (risk) {
+    case 'safe':
+    case 'low':
+      return `${GREEN}audit: pass${RESET}`;
+    case 'medium':
+      return `${YELLOW}audit: medium risk${RESET}`;
+    case 'high':
+      return `${RED}audit: high risk${RESET}`;
+    case 'critical':
+      return `${RED}audit: critical risk${RESET}`;
+    default:
+      return `${DIM}audit: unknown${RESET}`;
+  }
+}
+
+function isSafeForFilter(audit: SkillAuditData | undefined): boolean {
+  const risk = getEffectiveRisk(audit);
+  return risk === 'safe' || risk === 'low';
+}
+
+export function parseFindArgs(args: string[]): { query: string; allowUnsafe: boolean } {
+  const queryParts: string[] = [];
+  let allowUnsafe = false;
+
+  for (const arg of args) {
+    if (arg === '--unsafe') {
+      allowUnsafe = true;
+      continue;
+    }
+    queryParts.push(arg);
+  }
+
+  return {
+    query: queryParts.join(' ').trim(),
+    allowUnsafe,
+  };
 }
 
 // Search via API
-export async function searchSkillsAPI(query: string): Promise<SearchSkill[]> {
+export async function searchSkillsAPI(
+  query: string,
+  options: { allowUnsafe?: boolean } = {}
+): Promise<SearchSkill[]> {
   try {
     const url = `${SEARCH_API_BASE}/api/search?q=${encodeURIComponent(query)}&limit=10`;
     const res = await fetch(url);
@@ -47,7 +140,7 @@ export async function searchSkillsAPI(query: string): Promise<SearchSkill[]> {
       }>;
     };
 
-    return data.skills
+    const mapped = data.skills
       .map((skill) => ({
         name: sanitizeMetadata(skill.name),
         slug: sanitizeMetadata(skill.id),
@@ -55,6 +148,39 @@ export async function searchSkillsAPI(query: string): Promise<SearchSkill[]> {
         installs: skill.installs,
       }))
       .sort((a, b) => (b.installs || 0) - (a.installs || 0));
+
+    const sourceToSkillNames = new Map<string, Set<string>>();
+    for (const skill of mapped) {
+      if (!skill.source) continue;
+      if (!sourceToSkillNames.has(skill.source)) {
+        sourceToSkillNames.set(skill.source, new Set());
+      }
+      sourceToSkillNames.get(skill.source)!.add(skill.name);
+    }
+
+    const auditsBySource = new Map<string, Record<string, SkillAuditData>>();
+    await Promise.all(
+      Array.from(sourceToSkillNames.entries()).map(async ([source, names]) => {
+        const auditData = await fetchAuditData(source, Array.from(names), 1500);
+        if (auditData) {
+          auditsBySource.set(source, auditData);
+        }
+      })
+    );
+
+    const withAudits = mapped.map((skill) => {
+      const sourceAudits = auditsBySource.get(skill.source);
+      return {
+        ...skill,
+        audit: sourceAudits?.[skill.name] || sourceAudits?.[skill.slug],
+      };
+    });
+
+    if (!options.allowUnsafe) {
+      return withAudits.filter((skill) => isSafeForFilter(skill.audit));
+    }
+
+    return withAudits;
   } catch {
     return [];
   }
@@ -68,7 +194,10 @@ const MOVE_UP = (n: number) => `\x1b[${n}A`;
 const MOVE_TO_COL = (n: number) => `\x1b[${n}G`;
 
 // Custom fzf-style search prompt using raw readline
-async function runSearchPrompt(initialQuery = ''): Promise<SearchSkill | null> {
+async function runSearchPrompt(
+  initialQuery = '',
+  allowUnsafe = false
+): Promise<SearchSkill | null> {
   let results: SearchSkill[] = [];
   let selectedIndex = 0;
   let query = initialQuery;
@@ -104,6 +233,9 @@ async function runSearchPrompt(initialQuery = ''): Promise<SearchSkill | null> {
     // Search input line with cursor
     const cursor = `${BOLD}_${RESET}`;
     lines.push(`${TEXT}Search skills:${RESET} ${query}${cursor}`);
+    if (!allowUnsafe) {
+      lines.push(`${DIM}Filter: safe audits only (use --unsafe to show risky skills)${RESET}`);
+    }
     lines.push('');
 
     // Results - keep showing existing results while loading new ones
@@ -112,7 +244,11 @@ async function runSearchPrompt(initialQuery = ''): Promise<SearchSkill | null> {
     } else if (results.length === 0 && loading) {
       lines.push(`${DIM}Searching...${RESET}`);
     } else if (results.length === 0) {
-      lines.push(`${DIM}No skills found${RESET}`);
+      lines.push(
+        !allowUnsafe
+          ? `${DIM}No safe skills found (use --unsafe to show risky skills)${RESET}`
+          : `${DIM}No skills found${RESET}`
+      );
     } else {
       const maxVisible = 8;
       const visible = results.slice(0, maxVisible);
@@ -125,9 +261,10 @@ async function runSearchPrompt(initialQuery = ''): Promise<SearchSkill | null> {
         const source = skill.source ? ` ${DIM}${skill.source}${RESET}` : '';
         const installs = formatInstalls(skill.installs);
         const installsBadge = installs ? ` ${CYAN}${installs}${RESET}` : '';
+        const auditBadge = ` ${formatAuditBadge(skill.audit)}`;
         const loadingIndicator = loading && i === 0 ? ` ${DIM}...${RESET}` : '';
 
-        lines.push(`  ${arrow} ${name}${source}${installsBadge}${loadingIndicator}`);
+        lines.push(`  ${arrow} ${name}${source}${installsBadge}${auditBadge}${loadingIndicator}`);
       }
     }
 
@@ -169,7 +306,7 @@ async function runSearchPrompt(initialQuery = ''): Promise<SearchSkill | null> {
 
     debounceTimer = setTimeout(async () => {
       try {
-        results = await searchSkillsAPI(q);
+        results = await searchSkillsAPI(q, { allowUnsafe });
         selectedIndex = 0;
       } catch {
         results = [];
@@ -269,7 +406,7 @@ async function isRepoPublic(owner: string, repo: string): Promise<boolean> {
 }
 
 export async function runFind(args: string[]): Promise<void> {
-  const query = args.join(' ');
+  const { query, allowUnsafe } = parseFindArgs(args);
   const isNonInteractive = !process.stdin.isTTY;
   const agentTip = `${DIM}Tip: if running in a coding agent, follow these steps:${RESET}
 ${DIM}  1) npx skills find [query]${RESET}
@@ -277,7 +414,7 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
 
   // Non-interactive mode: just print results and exit
   if (query) {
-    const results = await searchSkillsAPI(query);
+    const results = await searchSkillsAPI(query, { allowUnsafe });
 
     // Track telemetry for non-interactive search
     track({
@@ -287,8 +424,18 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
     });
 
     if (results.length === 0) {
-      console.log(`${DIM}No skills found for "${query}"${RESET}`);
+      if (!allowUnsafe) {
+        console.log(`${DIM}No safe skills found for "${query}"${RESET}`);
+        console.log(`${DIM}Use --unsafe to show risky/unknown skills${RESET}`);
+      } else {
+        console.log(`${DIM}No skills found for "${query}"${RESET}`);
+      }
       return;
+    }
+
+    if (!allowUnsafe) {
+      console.log(`${DIM}Showing only skills with safe/low audit results${RESET}`);
+      console.log();
     }
 
     console.log(`${DIM}Install with${RESET} npx skills add <owner/repo@skill>`);
@@ -297,8 +444,9 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
     for (const skill of results.slice(0, 6)) {
       const pkg = skill.source || skill.slug;
       const installs = formatInstalls(skill.installs);
+      const audit = formatAuditBadge(skill.audit);
       console.log(
-        `${TEXT}${pkg}@${skill.name}${RESET}${installs ? ` ${CYAN}${installs}${RESET}` : ''}`
+        `${TEXT}${pkg}@${skill.name}${RESET}${installs ? ` ${CYAN}${installs}${RESET}` : ''} ${audit}`
       );
       console.log(`${DIM}└ https://skills.sh/${skill.slug}${RESET}`);
       console.log();
@@ -314,7 +462,7 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
     return;
   }
 
-  const selected = await runSearchPrompt();
+  const selected = await runSearchPrompt('', allowUnsafe);
 
   // Track telemetry for interactive search
   track({
