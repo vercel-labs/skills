@@ -604,7 +604,6 @@ async function runUpdate(args: string[]): Promise<void> {
 
   // Track telemetry
   track({
-    // Track telemetry
     event: 'update',
     skillCount: String(updates.length),
     successCount: String(successCount),
