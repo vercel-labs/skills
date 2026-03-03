@@ -160,7 +160,7 @@ export const agents: Record<AgentType, AgentConfig> = {
   firebender: {
     name: 'firebender',
     displayName: 'Firebender',
-    skillsDir: '.firebender/skills',
+    skillsDir: '.agents/skills',
     globalSkillsDir: join(home, '.firebender/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.firebender'));
