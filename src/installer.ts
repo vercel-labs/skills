@@ -215,7 +215,7 @@ export async function installSkillForAgent(
 ): Promise<InstallResult> {
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
-  const cwd = options.cwd || process.cwd();
+  const cwd = isGlobal ? undefined : (options.cwd || process.cwd());
 
   // Check if agent supports global installation
   if (isGlobal && agent.globalSkillsDir === undefined) {

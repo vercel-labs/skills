@@ -2,7 +2,7 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
-import { sep } from 'path';
+import { sep, join } from 'path';
 import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
 import { searchMultiselect, cancelSymbol } from './prompts/search-multiselect.ts';
 
@@ -29,6 +29,7 @@ import {
   getInstallPath,
   getCanonicalPath,
   installWellKnownSkillForAgent,
+  getAgentBaseDir,
   type InstallMode,
 } from './installer.ts';
 import {
@@ -676,9 +677,22 @@ async function handleWellKnownSkills(
   for (const skill of selectedSkills) {
     if (summaryLines.length > 0) summaryLines.push('');
 
-    const canonicalPath = getCanonicalPath(skill.installName, { global: installGlobally });
-    const shortCanonical = shortenPath(canonicalPath, cwd);
-    summaryLines.push(`${pc.cyan(shortCanonical)}`);
+    // Determine which path to display based on agent types
+    const { universal } = splitAgentsByType(targetAgents);
+    let displayPath: string;
+    
+    if (universal.length > 0 || targetAgents.length > 1) {
+      // Show canonical path if there are universal agents or multiple agents
+      displayPath = getCanonicalPath(skill.installName, { global: installGlobally });
+    } else {
+      // Show agent-specific path for single non-universal agent
+      const agentType = targetAgents[0];
+      const agentBase = getAgentBaseDir(agentType, installGlobally, installGlobally ? undefined : cwd);
+      displayPath = join(agentBase, skill.installName);
+    }
+    
+    const shortPath = shortenPath(displayPath, cwd);
+    summaryLines.push(`${pc.cyan(shortPath)}`);
     summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
     if (skill.files.size > 1) {
       summaryLines.push(`  ${pc.dim('files:')} ${skill.files.size}`);
@@ -1309,9 +1323,22 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       for (const skill of skills) {
         if (summaryLines.length > 0) summaryLines.push('');
 
-        const canonicalPath = getCanonicalPath(skill.name, { global: installGlobally });
-        const shortCanonical = shortenPath(canonicalPath, cwd);
-        summaryLines.push(`${pc.cyan(shortCanonical)}`);
+        // Determine which path to display based on agent types
+        const { universal } = splitAgentsByType(targetAgents);
+        let displayPath: string;
+        
+        if (universal.length > 0 || targetAgents.length > 1) {
+          // Show canonical path if there are universal agents or multiple agents
+          displayPath = getCanonicalPath(skill.name, { global: installGlobally });
+        } else {
+          // Show agent-specific path for single non-universal agent
+          const agentType = targetAgents[0];
+          const agentBase = getAgentBaseDir(agentType, installGlobally, installGlobally ? undefined : cwd);
+          displayPath = join(agentBase, skill.name);
+        }
+        
+        const shortPath = shortenPath(displayPath, cwd);
+        summaryLines.push(`${pc.cyan(shortPath)}`);
         summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
 
         const skillOverwrites = overwriteStatus.get(skill.name);
