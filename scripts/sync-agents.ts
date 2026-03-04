@@ -5,6 +5,8 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { agents } from '../src/agents.ts';
 
+const CANONICAL_GLOBAL_SKILLS_DIR = join(homedir(), '.agents', 'skills');
+
 const ROOT = join(import.meta.dirname, '..');
 const README_PATH = join(ROOT, 'README.md');
 const PACKAGE_PATH = join(ROOT, 'package.json');
@@ -32,13 +34,15 @@ function generateAvailableAgentsTable(): string {
   >();
 
   for (const [key, a] of Object.entries(agents)) {
-    const pathKey = `${a.skillsDir}|${a.globalSkillsDir}`;
+    const globalInstallDir =
+      a.skillsDir === '.agents/skills' ? CANONICAL_GLOBAL_SKILLS_DIR : a.globalSkillsDir;
+    const pathKey = `${a.skillsDir}|${globalInstallDir}`;
     if (!pathGroups.has(pathKey)) {
       pathGroups.set(pathKey, {
         keys: [],
         displayNames: [],
         skillsDir: a.skillsDir,
-        globalSkillsDir: a.globalSkillsDir,
+        globalSkillsDir: globalInstallDir,
       });
     }
     const group = pathGroups.get(pathKey)!;
