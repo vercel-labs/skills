@@ -169,6 +169,9 @@ export const agents: Record<AgentType, AgentConfig> = {
   'github-copilot': {
     name: 'github-copilot',
     displayName: 'GitHub Copilot',
+    // Intentionally '.copilot/skills' (not '.agents/skills') so GitHub Copilot is treated
+    // as a non-universal agent. Copilot reads skills from ~/.copilot/skills/ (global) and
+    // <project>/.copilot/skills/ (local), not from the shared .agents/skills directory.
     skillsDir: '.copilot/skills',
     globalSkillsDir: join(home, '.copilot/skills'),
     detectInstalled: async () => {

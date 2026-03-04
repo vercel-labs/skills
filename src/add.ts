@@ -199,8 +199,28 @@ function splitAgentsByType(agentTypes: AgentType[]): {
 }
 
 /**
- * Builds summary lines showing universal vs symlinked agents
+ * Returns the path to display in the install summary for a given skill.
+ * Shows the canonical path when multiple agents are targeted or any are universal;
+ * otherwise shows the agent-specific path for the single non-universal agent.
  */
+function getSkillDisplayPath(
+  skillName: string,
+  targetAgents: AgentType[],
+  installGlobally: boolean,
+  cwd: string
+): string {
+  const { universal } = splitAgentsByType(targetAgents);
+  if (universal.length > 0 || targetAgents.length > 1) {
+    return getCanonicalPath(skillName, { global: installGlobally });
+  }
+  const agentBase = getAgentBaseDir(
+    targetAgents[0]!,
+    installGlobally,
+    installGlobally ? undefined : cwd
+  );
+  return join(agentBase, skillName);
+}
+
 function buildAgentSummaryLines(targetAgents: AgentType[], installMode: InstallMode): string[] {
   const lines: string[] = [];
   const { universal, symlinked } = splitAgentsByType(targetAgents);
@@ -678,19 +698,7 @@ async function handleWellKnownSkills(
     if (summaryLines.length > 0) summaryLines.push('');
 
     // Determine which path to display based on agent types
-    const { universal } = splitAgentsByType(targetAgents);
-    let displayPath: string;
-    
-    if (universal.length > 0 || targetAgents.length > 1) {
-      // Show canonical path if there are universal agents or multiple agents
-      displayPath = getCanonicalPath(skill.installName, { global: installGlobally });
-    } else {
-      // Show agent-specific path for single non-universal agent
-      const agentType = targetAgents[0];
-      const agentBase = getAgentBaseDir(agentType, installGlobally, installGlobally ? undefined : cwd);
-      displayPath = join(agentBase, skill.installName);
-    }
-    
+    const displayPath = getSkillDisplayPath(skill.installName, targetAgents, installGlobally, cwd);
     const shortPath = shortenPath(displayPath, cwd);
     summaryLines.push(`${pc.cyan(shortPath)}`);
     summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
@@ -1324,19 +1332,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         if (summaryLines.length > 0) summaryLines.push('');
 
         // Determine which path to display based on agent types
-        const { universal } = splitAgentsByType(targetAgents);
-        let displayPath: string;
-        
-        if (universal.length > 0 || targetAgents.length > 1) {
-          // Show canonical path if there are universal agents or multiple agents
-          displayPath = getCanonicalPath(skill.name, { global: installGlobally });
-        } else {
-          // Show agent-specific path for single non-universal agent
-          const agentType = targetAgents[0];
-          const agentBase = getAgentBaseDir(agentType, installGlobally, installGlobally ? undefined : cwd);
-          displayPath = join(agentBase, skill.name);
-        }
-        
+        const displayPath = getSkillDisplayPath(skill.name, targetAgents, installGlobally, cwd);
         const shortPath = shortenPath(displayPath, cwd);
         summaryLines.push(`${pc.cyan(shortPath)}`);
         summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
