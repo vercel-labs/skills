@@ -369,6 +369,43 @@ export function parseSource(input: string): ParsedSource {
     };
   }
 
+  // SSH URLs with tree path: git@host:owner/repo/tree/branch/path
+  // e.g., git@github.com:owner/repo/tree/main/path/to/skill
+  const sshTreeMatch = input.match(/^git@([^:]+):([^/]+\/[^/]+)\/tree\/([^/]+)\/(.+)$/);
+  if (sshTreeMatch) {
+    const [, hostname, repoPath, ref, subpath] = sshTreeMatch;
+    const sshUrl = `git@${hostname}:${repoPath}.git`;
+    if (hostname === 'github.com' || hostname === 'gitlab.com') {
+      return {
+        type: hostname === 'github.com' ? 'github' : 'gitlab',
+        url: sshUrl,
+        ref,
+        subpath,
+      };
+    }
+  }
+
+  // SSH URLs: git@host:owner/repo.git
+  // Detect GitHub and GitLab SSH URLs so they get the correct sourceType
+  // for lock file tracking and update detection. We preserve the original
+  // SSH URL so cloning still works for private repos.
+  const sshUrlMatch = input.match(/^git@([^:]+):(.+?)(?:\.git)?$/);
+  if (sshUrlMatch) {
+    const [, hostname] = sshUrlMatch;
+    if (hostname === 'github.com') {
+      return {
+        type: 'github',
+        url: input,
+      };
+    }
+    if (hostname === 'gitlab.com') {
+      return {
+        type: 'gitlab',
+        url: input,
+      };
+    }
+  }
+
   // Well-known skills: arbitrary HTTP(S) URLs that aren't GitHub/GitLab
   // This is the final fallback for URLs - we'll check for /.well-known/agent-skills/index.json
   // then fall back to /.well-known/skills/index.json

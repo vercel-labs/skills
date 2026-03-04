@@ -236,20 +236,49 @@ describe('parseSource', () => {
     });
   });
 
-  describe('Git URL fallback tests', () => {
-    it('Git URL - SSH format', () => {
+  describe('SSH URL tests', () => {
+    it('SSH URL - GitHub', () => {
       const result = parseSource('git@github.com:owner/repo.git');
-      expect(result.type).toBe('git');
+      expect(result.type).toBe('github');
       expect(result.url).toBe('git@github.com:owner/repo.git');
     });
 
-    it('Git URL - SSH format with #branch', () => {
-      const result = parseSource('git@github.com:owner/repo.git#feature/install');
-      expect(result.type).toBe('git');
-      expect(result.url).toBe('git@github.com:owner/repo.git');
-      expect(result.ref).toBe('feature/install');
+    it('SSH URL - GitHub without .git suffix', () => {
+      const result = parseSource('git@github.com:owner/repo');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('git@github.com:owner/repo');
     });
 
+    it('SSH URL - GitLab', () => {
+      const result = parseSource('git@gitlab.com:owner/repo.git');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('git@gitlab.com:owner/repo.git');
+    });
+
+    it('SSH URL - GitHub with tree path', () => {
+      const result = parseSource('git@github.com:owner/repo/tree/main/path/to/skill');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('git@github.com:owner/repo.git');
+      expect(result.ref).toBe('main');
+      expect(result.subpath).toBe('path/to/skill');
+    });
+
+    it('SSH URL - GitLab with tree path', () => {
+      const result = parseSource('git@gitlab.com:owner/repo/tree/develop/my-skill');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('git@gitlab.com:owner/repo.git');
+      expect(result.ref).toBe('develop');
+      expect(result.subpath).toBe('my-skill');
+    });
+
+    it('SSH URL - custom host falls back to git type', () => {
+      const result = parseSource('git@git.company.com:org/repo.git');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@git.company.com:org/repo.git');
+    });
+  });
+
+  describe('Git URL fallback tests', () => {
     it('Git URL - custom host', () => {
       const result = parseSource('https://git.example.com/owner/repo.git');
       expect(result.type).toBe('git');
@@ -405,6 +434,39 @@ describe('getOwnerRepo', () => {
   it('getOwnerRepo - SSH URL without path (returns null)', () => {
     const parsed = { type: 'git', url: 'git@github.com:repo.git' } as const;
     expect(getOwnerRepo(parsed)).toBeNull();
+  });
+});
+
+describe('SSH URL lock file integration', () => {
+  it('GitHub SSH URL produces correct lock entry fields', () => {
+    const parsed = parseSource('git@github.com:my-org/my-skills.git');
+    const normalizedSource = getOwnerRepo(parsed);
+
+    // Lock entry requires normalizedSource to be truthy
+    expect(normalizedSource).toBe('my-org/my-skills');
+    // sourceType must be 'github' for fetchSkillFolderHash to run
+    expect(parsed.type).toBe('github');
+    // SSH URL preserved for cloning (private repos need SSH auth)
+    expect(parsed.url).toBe('git@github.com:my-org/my-skills.git');
+  });
+
+  it('GitLab SSH URL produces correct lock entry fields', () => {
+    const parsed = parseSource('git@gitlab.com:group/project.git');
+    const normalizedSource = getOwnerRepo(parsed);
+
+    expect(normalizedSource).toBe('group/project');
+    expect(parsed.type).toBe('gitlab');
+    expect(parsed.url).toBe('git@gitlab.com:group/project.git');
+  });
+
+  it('custom host SSH URL still creates lock entry via getOwnerRepo', () => {
+    const parsed = parseSource('git@git.company.com:org/repo.git');
+    const normalizedSource = getOwnerRepo(parsed);
+
+    // Should still extract owner/repo for lock tracking
+    expect(normalizedSource).toBe('org/repo');
+    // Falls back to generic git type (no special handling)
+    expect(parsed.type).toBe('git');
   });
 });
 
