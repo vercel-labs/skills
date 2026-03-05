@@ -435,7 +435,7 @@ export function parseSyncOptions(args: string[]): { options: SyncOptions } {
       i++;
       let nextArg = args[i];
       while (i < args.length && nextArg && !nextArg.startsWith('-')) {
-        options.agent.push(nextArg);
+        options.agent.push(...nextArg.split(','));
         i++;
         nextArg = args[i];
       }

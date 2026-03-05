@@ -389,6 +389,24 @@ describe('parseAddOptions', () => {
     expect(result.options.list).toBe(true);
     expect(result.options.global).toBe(true);
   });
+
+  it('should parse comma-separated agents', () => {
+    const result = parseAddOptions(['source', '-a', 'claude-code,cursor,codex']);
+    expect(result.source).toEqual(['source']);
+    expect(result.options.agent).toEqual(['claude-code', 'cursor', 'codex']);
+  });
+
+  it('should parse comma-separated skills', () => {
+    const result = parseAddOptions(['source', '-s', 'skill-a,skill-b']);
+    expect(result.source).toEqual(['source']);
+    expect(result.options.skill).toEqual(['skill-a', 'skill-b']);
+  });
+
+  it('should parse mixed comma-separated and space-separated agents', () => {
+    const result = parseAddOptions(['source', '-a', 'claude-code,cursor', 'codex']);
+    expect(result.source).toEqual(['source']);
+    expect(result.options.agent).toEqual(['claude-code', 'cursor', 'codex']);
+  });
 });
 
 describe('find-skills prompt with -y flag', () => {

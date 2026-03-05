@@ -314,5 +314,13 @@ This is a test skill.
       );
       expect(result.stdout).not.toContain('Invalid agents');
     });
+
+    it('should handle comma-separated values for --agent', () => {
+      const result = runCli(
+        ['remove', 'parse-test-skill', '--agent', 'claude-code,cursor', '-y'],
+        testDir
+      );
+      expect(result.stdout).not.toContain('Invalid agents');
+    });
   });
 });

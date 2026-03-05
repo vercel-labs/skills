@@ -61,6 +61,16 @@ describe('list command', () => {
       expect(options.agent).toEqual(['claude-code']);
       expect(options.global).toBe(true);
     });
+
+    it('should parse comma-separated agents', () => {
+      const options = parseListOptions(['-a', 'claude-code,cursor,codex']);
+      expect(options.agent).toEqual(['claude-code', 'cursor', 'codex']);
+    });
+
+    it('should parse mixed comma-separated and space-separated agents', () => {
+      const options = parseListOptions(['-a', 'claude-code,cursor', 'codex']);
+      expect(options.agent).toEqual(['claude-code', 'cursor', 'codex']);
+    });
   });
 
   describe('CLI integration', () => {
