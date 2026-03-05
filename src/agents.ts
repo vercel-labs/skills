@@ -383,6 +383,18 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.pochi'));
     },
   },
+  promptscript: {
+    name: 'promptscript',
+    displayName: 'PromptScript',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: undefined,
+    detectInstalled: async () => {
+      return (
+        existsSync(join(process.cwd(), '.promptscript')) ||
+        existsSync(join(process.cwd(), 'promptscript.yaml'))
+      );
+    },
+  },
   adal: {
     name: 'adal',
     displayName: 'AdaL',

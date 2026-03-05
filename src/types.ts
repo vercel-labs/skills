@@ -38,6 +38,7 @@ export type AgentType =
   | 'windsurf'
   | 'zencoder'
   | 'pochi'
+  | 'promptscript'
   | 'adal'
   | 'universal';
 
