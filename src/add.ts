@@ -418,6 +418,7 @@ export interface AddOptions {
   all?: boolean;
   fullDepth?: boolean;
   copy?: boolean;
+  token?: string;
 }
 
 /**
@@ -433,7 +434,7 @@ async function handleWellKnownSkills(
   spinner.start('Discovering skills from well-known endpoint...');
 
   // Fetch all skills from the well-known endpoint
-  const skills = await wellKnownProvider.fetchAllSkills(url);
+  const skills = await wellKnownProvider.fetchAllSkills(url, options.token);
 
   if (skills.length === 0) {
     spinner.stop(pc.red('No skills found'));
@@ -1781,6 +1782,9 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       options.fullDepth = true;
     } else if (arg === '--copy') {
       options.copy = true;
+    } else if (arg === '--token') {
+      i++;
+      options.token = args[i];
     } else if (arg && !arg.startsWith('-')) {
       source.push(arg);
     }

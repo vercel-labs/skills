@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { WellKnownProvider } from '../src/providers/wellknown.ts';
 
 describe('WellKnownProvider', () => {
@@ -94,6 +94,55 @@ describe('WellKnownProvider', () => {
     it('provider should have display name "Well-Known Skills"', () => {
       expect(provider.displayName).toBe('Well-Known Skills');
     });
+  });
+});
+
+describe('WellKnownProvider token authentication', () => {
+  const provider = new WellKnownProvider();
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('fetchIndex should send Authorization header when token is provided', async () => {
+    const mockFetch = vi.mocked(fetch);
+    mockFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          skills: [{ name: 'test-skill', description: 'A test skill', files: ['SKILL.md'] }],
+        }),
+        { status: 200 }
+      )
+    );
+
+    await provider.fetchIndex('https://example.com', 'my-secret-token');
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer my-secret-token' }),
+      })
+    );
+  });
+
+  it('fetchIndex should not send Authorization header when no token is provided', async () => {
+    const mockFetch = vi.mocked(fetch);
+    mockFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          skills: [{ name: 'test-skill', description: 'A test skill', files: ['SKILL.md'] }],
+        }),
+        { status: 200 }
+      )
+    );
+
+    await provider.fetchIndex('https://example.com');
+
+    expect(mockFetch).toHaveBeenCalledWith(expect.any(String), {});
   });
 });
 

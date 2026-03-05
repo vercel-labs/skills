@@ -389,6 +389,26 @@ describe('parseAddOptions', () => {
     expect(result.options.list).toBe(true);
     expect(result.options.global).toBe(true);
   });
+
+  it('should parse --token flag', () => {
+    const result = parseAddOptions(['https://example.com', '--token', 'my-secret-token']);
+    expect(result.source).toEqual(['https://example.com']);
+    expect(result.options.token).toBe('my-secret-token');
+  });
+
+  it('should parse --token with other flags', () => {
+    const result = parseAddOptions([
+      'https://example.com',
+      '--token',
+      'my-secret-token',
+      '-g',
+      '-y',
+    ]);
+    expect(result.source).toEqual(['https://example.com']);
+    expect(result.options.token).toBe('my-secret-token');
+    expect(result.options.global).toBe(true);
+    expect(result.options.yes).toBe(true);
+  });
 });
 
 describe('find-skills prompt with -y flag', () => {

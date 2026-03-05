@@ -82,11 +82,20 @@ export class WellKnownProvider implements HostProvider {
   }
 
   /**
+   * Build fetch init options with optional Bearer token authorization.
+   */
+  private buildFetchOptions(token?: string): RequestInit {
+    if (!token) return {};
+    return { headers: { Authorization: `Bearer ${token}` } };
+  }
+
+  /**
    * Fetch the skills index from a well-known endpoint.
    * Tries both the path-relative .well-known and the root .well-known.
    */
   async fetchIndex(
-    baseUrl: string
+    baseUrl: string,
+    token?: string
   ): Promise<{ index: WellKnownIndex; resolvedBaseUrl: string } | null> {
     try {
       const parsed = new URL(baseUrl);
@@ -110,9 +119,11 @@ export class WellKnownProvider implements HostProvider {
         });
       }
 
+      const fetchOptions = this.buildFetchOptions(token);
+
       for (const { indexUrl, baseUrl: resolvedBase } of urlsToTry) {
         try {
-          const response = await fetch(indexUrl);
+          const response = await fetch(indexUrl, fetchOptions);
 
           if (!response.ok) {
             continue;
@@ -188,12 +199,12 @@ export class WellKnownProvider implements HostProvider {
   /**
    * Fetch a single skill and all its files from a well-known endpoint.
    */
-  async fetchSkill(url: string): Promise<RemoteSkill | null> {
+  async fetchSkill(url: string, token?: string): Promise<RemoteSkill | null> {
     try {
       const parsed = new URL(url);
 
       // First, fetch the index to get skill metadata
-      const result = await this.fetchIndex(url);
+      const result = await this.fetchIndex(url, token);
       if (!result) {
         return null;
       }
@@ -223,7 +234,7 @@ export class WellKnownProvider implements HostProvider {
         return null;
       }
 
-      return this.fetchSkillByEntry(resolvedBaseUrl, skillEntry);
+      return this.fetchSkillByEntry(resolvedBaseUrl, skillEntry, token);
     } catch {
       return null;
     }
@@ -233,18 +244,22 @@ export class WellKnownProvider implements HostProvider {
    * Fetch a skill by its index entry.
    * @param baseUrl - The base URL (e.g., https://example.com or https://example.com/docs)
    * @param entry - The skill entry from index.json
+   * @param token - Optional Bearer token for authentication
    */
   async fetchSkillByEntry(
     baseUrl: string,
-    entry: WellKnownSkillEntry
+    entry: WellKnownSkillEntry,
+    token?: string
   ): Promise<WellKnownSkill | null> {
     try {
       // Build the skill base URL: {baseUrl}/.well-known/skills/{skill-name}
       const skillBaseUrl = `${baseUrl.replace(/\/$/, '')}/${this.WELL_KNOWN_PATH}/${entry.name}`;
 
+      const fetchOptions = this.buildFetchOptions(token);
+
       // Fetch SKILL.md first (required)
       const skillMdUrl = `${skillBaseUrl}/SKILL.md`;
-      const response = await fetch(skillMdUrl);
+      const response = await fetch(skillMdUrl, fetchOptions);
 
       if (!response.ok) {
         return null;
@@ -267,7 +282,7 @@ export class WellKnownProvider implements HostProvider {
       const filePromises = otherFiles.map(async (filePath) => {
         try {
           const fileUrl = `${skillBaseUrl}/${filePath}`;
-          const fileResponse = await fetch(fileUrl);
+          const fileResponse = await fetch(fileUrl, fetchOptions);
           if (fileResponse.ok) {
             const fileContent = await fileResponse.text();
             return { path: filePath, content: fileContent };
@@ -303,9 +318,9 @@ export class WellKnownProvider implements HostProvider {
   /**
    * Fetch all skills from a well-known endpoint.
    */
-  async fetchAllSkills(url: string): Promise<WellKnownSkill[]> {
+  async fetchAllSkills(url: string, token?: string): Promise<WellKnownSkill[]> {
     try {
-      const result = await this.fetchIndex(url);
+      const result = await this.fetchIndex(url, token);
       if (!result) {
         return [];
       }
@@ -314,7 +329,7 @@ export class WellKnownProvider implements HostProvider {
 
       // Fetch all skills in parallel
       const skillPromises = index.skills.map((entry: WellKnownSkillEntry) =>
-        this.fetchSkillByEntry(resolvedBaseUrl, entry)
+        this.fetchSkillByEntry(resolvedBaseUrl, entry, token)
       );
       const results = await Promise.all(skillPromises);
 
@@ -372,8 +387,8 @@ export class WellKnownProvider implements HostProvider {
   /**
    * Check if a URL has a well-known skills index.
    */
-  async hasSkillsIndex(url: string): Promise<boolean> {
-    const result = await this.fetchIndex(url);
+  async hasSkillsIndex(url: string, token?: string): Promise<boolean> {
+    const result = await this.fetchIndex(url, token);
     return result !== null;
   }
 }
