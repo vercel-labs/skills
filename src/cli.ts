@@ -12,6 +12,7 @@ import { runInstallFromLock } from './install.ts';
 import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
+import { runGroups } from './groups-command.ts';
 import { track } from './telemetry.ts';
 import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
 
@@ -88,6 +89,9 @@ function showBanner(): void {
   );
   console.log();
   console.log(
+    `  ${DIM}$${RESET} ${TEXT}npx skills groups${RESET}              ${DIM}Manage skill groups${RESET}`
+  );
+  console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills experimental_install${RESET} ${DIM}Restore from skills-lock.json${RESET}`
   );
   console.log(
@@ -118,6 +122,14 @@ ${BOLD}Manage Skills:${RESET}
 ${BOLD}Updates:${RESET}
   check                Check for available skill updates
   update               Update all skills to latest versions
+
+${BOLD}Groups:${RESET}
+  groups               Manage skill groups
+  groups show <group>  Show group details
+  groups create <name> Create a new group (-d "description")
+  groups add <g> <s>   Add a skill to a group
+  groups remove <g> <s> Remove a skill from a group
+  groups delete <name> Delete a group
 
 ${BOLD}Project:${RESET}
   experimental_install Restore skills from skills-lock.json
@@ -678,6 +690,10 @@ async function main(): Promise<void> {
     case 'list':
     case 'ls':
       await runList(restArgs);
+      break;
+    case 'groups':
+    case 'group':
+      await runGroups(restArgs);
       break;
     case 'check':
       runCheck(restArgs);

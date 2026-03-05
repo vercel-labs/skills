@@ -3,6 +3,7 @@ import type { AgentType } from './types.ts';
 import { agents } from './agents.ts';
 import { listInstalledSkills, type InstalledSkill } from './installer.ts';
 import { getAllLockedSkills } from './skill-lock.ts';
+import { readGroupsConfig } from './groups.ts';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -14,6 +15,7 @@ const YELLOW = '\x1b[33m';
 interface ListOptions {
   global?: boolean;
   agent?: string[];
+  byGroup?: boolean;
 }
 
 /**
@@ -49,6 +51,8 @@ export function parseListOptions(args: string[]): ListOptions {
     const arg = args[i];
     if (arg === '-g' || arg === '--global') {
       options.global = true;
+    } else if (arg === '--by-group') {
+      options.byGroup = true;
     } else if (arg === '-a' || arg === '--agent') {
       options.agent = options.agent || [];
       // Collect all following arguments until next flag
@@ -116,7 +120,58 @@ export async function runList(args: string[]): Promise<void> {
   console.log(`${BOLD}${scopeLabel} Skills${RESET}`);
   console.log();
 
-  // Group skills by plugin
+  // --by-group: organize by skills.groups.json
+  if (options.byGroup) {
+    const groupsConfig = await readGroupsConfig();
+    const groupedSkills: Record<string, InstalledSkill[]> = {};
+    const ungroupedSkills: InstalledSkill[] = [];
+
+    if (groupsConfig) {
+      const skillToGroup = new Map<string, string>();
+      for (const [gName, gDef] of Object.entries(groupsConfig.groups)) {
+        for (const sName of gDef.skills) {
+          skillToGroup.set(sName, gName);
+        }
+      }
+
+      for (const skill of installedSkills) {
+        const gName = skillToGroup.get(skill.name);
+        if (gName) {
+          if (!groupedSkills[gName]) groupedSkills[gName] = [];
+          groupedSkills[gName].push(skill);
+        } else {
+          ungroupedSkills.push(skill);
+        }
+      }
+    } else {
+      ungroupedSkills.push(...installedSkills);
+    }
+
+    for (const gName of Object.keys(groupedSkills).sort()) {
+      const title = gName
+        .split('-')
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ');
+      const desc = groupsConfig?.groups[gName]?.description;
+      const suffix = desc ? ` ${DIM}— ${desc}${RESET}` : '';
+      console.log(`${BOLD}${title}${RESET}${suffix}`);
+      for (const skill of groupedSkills[gName]!) {
+        printSkill(skill, true);
+      }
+      console.log();
+    }
+
+    if (ungroupedSkills.length > 0) {
+      console.log(`${BOLD}Ungrouped${RESET}`);
+      for (const skill of ungroupedSkills) {
+        printSkill(skill, true);
+      }
+      console.log();
+    }
+    return;
+  }
+
+  // Default: group skills by plugin (existing behavior)
   const groupedSkills: Record<string, InstalledSkill[]> = {};
   const ungroupedSkills: InstalledSkill[] = [];
 

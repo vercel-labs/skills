@@ -12,15 +12,36 @@ import {
   getCanonicalSkillsDir,
   sanitizeName,
 } from './installer.ts';
+import { readGroupsConfig, deleteGroup } from './groups.ts';
 
 export interface RemoveOptions {
   global?: boolean;
   agent?: string[];
   yes?: boolean;
   all?: boolean;
+  group?: string;
 }
 
 export async function removeCommand(skillNames: string[], options: RemoveOptions) {
+  // If --group specified, resolve skill names from group config
+  if (options.group) {
+    const config = await readGroupsConfig();
+    if (!config || !config.groups[options.group]) {
+      p.log.error(`Group "${options.group}" not found.`);
+      return;
+    }
+    const groupSkills = config.groups[options.group]!.skills;
+    if (groupSkills.length === 0) {
+      p.log.warn(`Group "${options.group}" has no skills.`);
+      return;
+    }
+    skillNames = [...groupSkills];
+    // Auto-confirm unless explicitly not
+    if (options.yes === undefined) {
+      options.yes = false; // still prompt for group removal
+    }
+  }
+
   const isGlobal = options.global ?? false;
   const cwd = process.cwd();
 
@@ -264,6 +285,14 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     p.log.success(pc.green(`Successfully removed ${successful.length} skill(s)`));
   }
 
+  // Clean up group entry if --group was used
+  if (options.group && successful.length > 0) {
+    const deleted = await deleteGroup(options.group);
+    if (deleted) {
+      p.log.info(`Removed group "${options.group}"`);
+    }
+  }
+
   if (failed.length > 0) {
     p.log.error(pc.red(`Failed to remove ${failed.length} skill(s)`));
     for (const r of failed) {
@@ -302,6 +331,11 @@ export function parseRemoveOptions(args: string[]): { skills: string[]; options:
         nextArg = args[i];
       }
       i--; // Back up one since the loop will increment
+    } else if (arg === '--group') {
+      i++;
+      if (i < args.length && args[i] && !args[i]!.startsWith('-')) {
+        options.group = args[i];
+      }
     } else if (arg && !arg.startsWith('-')) {
       skills.push(arg);
     }

@@ -57,6 +57,7 @@ import {
   saveSelectedAgents,
 } from './skill-lock.ts';
 import { addSkillToLocalLock, computeSkillFolderHash } from './local-lock.ts';
+import { addSkillToGroup } from './groups.ts';
 import type { Skill, AgentType } from './types.ts';
 import packageJson from '../package.json' with { type: 'json' };
 export function initTelemetry(version: string): void {
@@ -418,6 +419,7 @@ export interface AddOptions {
   all?: boolean;
   fullDepth?: boolean;
   copy?: boolean;
+  group?: string;
 }
 
 /**
@@ -857,6 +859,15 @@ async function handleWellKnownSkills(
         )
       );
     }
+  }
+
+  // Add successfully installed skills to group if --group was specified
+  if (options.group && successful.length > 0) {
+    const installedNames = [...new Set(successful.map((r) => r.skill))];
+    for (const name of installedNames) {
+      await addSkillToGroup(name, options.group);
+    }
+    p.log.info(`Added ${installedNames.length} skill(s) to group "${options.group}"`);
   }
 
   if (failed.length > 0) {
@@ -1621,6 +1632,15 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
+    // Add successfully installed skills to group if --group was specified
+    if (options.group && successful.length > 0) {
+      const installedNames = [...new Set(successful.map((r) => r.skill))];
+      for (const name of installedNames) {
+        await addSkillToGroup(name, options.group);
+      }
+      p.log.info(`Added ${installedNames.length} skill(s) to group "${options.group}"`);
+    }
+
     if (failed.length > 0) {
       console.log();
       p.log.error(pc.red(`Failed to install ${failed.length}`));
@@ -1781,6 +1801,11 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       options.fullDepth = true;
     } else if (arg === '--copy') {
       options.copy = true;
+    } else if (arg === '--group') {
+      i++;
+      if (i < args.length && args[i] && !args[i]!.startsWith('-')) {
+        options.group = args[i];
+      }
     } else if (arg && !arg.startsWith('-')) {
       source.push(arg);
     }
