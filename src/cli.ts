@@ -320,6 +320,10 @@ interface CheckUpdatesResponse {
 }
 
 function getSkillLockPath(): string {
+  const xdgStateHome = process.env.XDG_STATE_HOME;
+  if (xdgStateHome) {
+    return join(xdgStateHome, 'skills', LOCK_FILE);
+  }
   return join(homedir(), AGENTS_DIR, LOCK_FILE);
 }
 
@@ -344,7 +348,7 @@ function readSkillLock(): SkillLockFile {
 
 function writeSkillLock(lock: SkillLockFile): void {
   const lockPath = getSkillLockPath();
-  const dir = join(homedir(), AGENTS_DIR);
+  const dir = dirname(lockPath);
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
