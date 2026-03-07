@@ -84,7 +84,7 @@ function showBanner(): void {
     `  ${DIM}$${RESET} ${TEXT}npx skills check${RESET}                ${DIM}Check for updates${RESET}`
   );
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills update${RESET}               ${DIM}Update all skills${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}npx skills update ${DIM}[name]${RESET}          ${DIM}Update skills (or a specific one)${RESET}`
   );
   console.log();
   console.log(
@@ -117,7 +117,7 @@ ${BOLD}Manage Skills:${RESET}
 
 ${BOLD}Updates:${RESET}
   check                Check for available skill updates
-  update               Update all skills to latest versions
+  update [name]        Update all skills, or a specific skill by name
 
 ${BOLD}Project:${RESET}
   experimental_install Restore skills from skills-lock.json
@@ -167,7 +167,8 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills find                          ${DIM}# interactive search${RESET}
   ${DIM}$${RESET} skills find typescript               ${DIM}# search by keyword${RESET}
   ${DIM}$${RESET} skills check
-  ${DIM}$${RESET} skills update
+  ${DIM}$${RESET} skills update                          ${DIM}# update all skills${RESET}
+  ${DIM}$${RESET} skills update my-skill                 ${DIM}# update a specific skill${RESET}
   ${DIM}$${RESET} skills experimental_install            ${DIM}# restore from skills-lock.json${RESET}
   ${DIM}$${RESET} skills init my-skill
   ${DIM}$${RESET} skills experimental_sync              ${DIM}# sync from node_modules${RESET}
@@ -495,18 +496,45 @@ async function runCheck(args: string[] = []): Promise<void> {
   console.log();
 }
 
-async function runUpdate(): Promise<void> {
-  console.log(`${TEXT}Checking for skill updates...${RESET}`);
+async function runUpdate(args: string[] = []): Promise<void> {
+  const targetSkill = args.find((a) => !a.startsWith('-'));
+
+  if (targetSkill) {
+    console.log(`${TEXT}Checking for updates to ${targetSkill}...${RESET}`);
+  } else {
+    console.log(`${TEXT}Checking for skill updates...${RESET}`);
+  }
   console.log();
 
   const lock = readSkillLock();
-  const skillNames = Object.keys(lock.skills);
+  const allSkillNames = Object.keys(lock.skills);
 
-  if (skillNames.length === 0) {
+  if (allSkillNames.length === 0) {
     console.log(`${DIM}No skills tracked in lock file.${RESET}`);
     console.log(`${DIM}Install skills with${RESET} ${TEXT}npx skills add <package>${RESET}`);
     return;
   }
+
+  // If a target skill is specified, validate it exists in the lock file
+  if (targetSkill) {
+    const match = allSkillNames.find(
+      (name) => name === targetSkill || name.toLowerCase() === targetSkill.toLowerCase()
+    );
+    if (!match) {
+      console.log(`${DIM}Skill "${targetSkill}" not found in lock file.${RESET}`);
+      console.log(`${DIM}Installed skills:${RESET}`);
+      for (const name of allSkillNames) {
+        console.log(`  ${TEXT}•${RESET} ${name}`);
+      }
+      return;
+    }
+  }
+
+  const skillNames = targetSkill
+    ? allSkillNames.filter(
+        (name) => name === targetSkill || name.toLowerCase() === targetSkill.toLowerCase()
+      )
+    : allSkillNames;
 
   // Get GitHub token from user's environment for higher rate limits
   const token = getGitHubToken();
@@ -684,7 +712,7 @@ async function main(): Promise<void> {
       break;
     case 'update':
     case 'upgrade':
-      runUpdate();
+      runUpdate(restArgs);
       break;
     case '--help':
     case '-h':
