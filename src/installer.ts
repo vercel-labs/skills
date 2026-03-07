@@ -261,6 +261,10 @@ export async function installSkillForAgent(
   }
 
   try {
+    if (isGlobal && agent.globalSkillsDir) {
+      await mkdir(agentBase, { recursive: true });
+    }
+
     // For copy mode, skip canonical directory and copy directly to agent location
     if (installMode === 'copy') {
       await cleanAndCreateDirectory(agentDir);
@@ -485,6 +489,10 @@ export async function installRemoteSkillForAgent(
   }
 
   try {
+    if (isGlobal && agent.globalSkillsDir) {
+      await mkdir(agentBase, { recursive: true });
+    }
+
     // For copy mode, write directly to agent location
     if (installMode === 'copy') {
       await cleanAndCreateDirectory(agentDir);
@@ -603,28 +611,32 @@ export async function installWellKnownSkillForAgent(
     };
   }
 
-  /**
-   * Write all skill files to a directory (assumes directory already exists)
-   */
-  async function writeSkillFiles(targetDir: string): Promise<void> {
-    for (const [filePath, content] of skill.files) {
-      // Validate file path doesn't escape the target directory
-      const fullPath = join(targetDir, filePath);
-      if (!isPathSafe(targetDir, fullPath)) {
-        continue; // Skip files that would escape the directory
-      }
-
-      // Create parent directories if needed
-      const parentDir = dirname(fullPath);
-      if (parentDir !== targetDir) {
-        await mkdir(parentDir, { recursive: true });
-      }
-
-      await writeFile(fullPath, content, 'utf-8');
-    }
-  }
-
   try {
+    if (isGlobal && agent.globalSkillsDir) {
+      await mkdir(agentBase, { recursive: true });
+    }
+
+    /**
+     * Write all skill files to a directory (assumes directory already exists)
+     */
+    async function writeSkillFiles(targetDir: string): Promise<void> {
+      for (const [filePath, content] of skill.files) {
+        // Validate file path doesn't escape the target directory
+        const fullPath = join(targetDir, filePath);
+        if (!isPathSafe(targetDir, fullPath)) {
+          continue; // Skip files that would escape the directory
+        }
+
+        // Create parent directories if needed
+        const parentDir = dirname(fullPath);
+        if (parentDir !== targetDir) {
+          await mkdir(parentDir, { recursive: true });
+        }
+
+        await writeFile(fullPath, content, 'utf-8');
+      }
+    }
+
     // For copy mode, write directly to agent location
     if (installMode === 'copy') {
       await cleanAndCreateDirectory(agentDir);
