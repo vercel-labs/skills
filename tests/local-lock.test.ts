@@ -45,6 +45,8 @@ describe('local-lock', () => {
               source: 'vercel-labs/skills',
               sourceType: 'github',
               computedHash: 'abc123',
+              installMode: 'copy',
+              agents: ['claude-code', 'cursor'],
             },
           },
         };
@@ -56,6 +58,8 @@ describe('local-lock', () => {
           source: 'vercel-labs/skills',
           sourceType: 'github',
           computedHash: 'abc123',
+          installMode: 'copy',
+          agents: ['claude-code', 'cursor'],
         });
       } finally {
         await rm(dir, { recursive: true, force: true });
@@ -108,6 +112,8 @@ describe('local-lock', () => {
                 source: 'org/z',
                 sourceType: 'github',
                 computedHash: 'zzz',
+                installMode: 'symlink',
+                agents: ['cursor'],
               },
               'alpha-skill': {
                 source: 'org/a',
@@ -142,7 +148,13 @@ describe('local-lock', () => {
       try {
         await addSkillToLocalLock(
           'new-skill',
-          { source: 'org/repo', sourceType: 'github', computedHash: 'hash123' },
+          {
+            source: 'org/repo',
+            sourceType: 'github',
+            computedHash: 'hash123',
+            installMode: 'copy',
+            agents: ['cline'],
+          },
           dir
         );
 
@@ -151,6 +163,8 @@ describe('local-lock', () => {
           source: 'org/repo',
           sourceType: 'github',
           computedHash: 'hash123',
+          installMode: 'copy',
+          agents: ['cline'],
         });
       } finally {
         await rm(dir, { recursive: true, force: true });
