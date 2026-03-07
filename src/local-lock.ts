@@ -23,6 +23,8 @@ export interface LocalSkillLockEntry {
    * computes the hash from actual file contents on disk.
    */
   computedHash: string;
+  /** The installation mode used ('symlink' or 'copy') */
+  installMode?: 'symlink' | 'copy';
 }
 
 /**

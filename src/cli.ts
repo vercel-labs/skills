@@ -289,6 +289,8 @@ interface SkillLockEntry {
   skillFolderHash: string;
   installedAt: string;
   updatedAt: string;
+  /** The installation mode used ('symlink' or 'copy') */
+  installMode?: 'symlink' | 'copy';
 }
 
 interface SkillLockFile {
@@ -582,7 +584,13 @@ async function runUpdate(): Promise<void> {
     }
 
     // Use skills CLI to reinstall with -g -y flags
-    const result = spawnSync('npx', ['-y', 'skills', 'add', installUrl, '-g', '-y'], {
+    // If the skill was originally installed with --copy, preserve that mode.
+    const updateArgs = ['-y', 'skills', 'add', installUrl, '-g', '-y'];
+    if (update.entry.installMode === 'copy') {
+      updateArgs.push('--copy');
+    }
+
+    const result = spawnSync('npx', updateArgs, {
       stdio: ['inherit', 'pipe', 'pipe'],
       shell: process.platform === 'win32',
     });
