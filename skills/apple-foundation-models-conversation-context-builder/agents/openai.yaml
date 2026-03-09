@@ -1,0 +1,3 @@
+name: apple-foundation-models-conversation-context-builder
+description: Extract conversation text from transcripts and build continuation instructions
+tools: []
