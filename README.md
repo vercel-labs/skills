@@ -221,7 +221,7 @@ Skills can be installed to any of these agents:
 | Continue | `continue` | `.continue/skills/` | `~/.continue/skills/` |
 | Cortex Code | `cortex` | `.cortex/skills/` | `~/.snowflake/cortex/skills/` |
 | Crush | `crush` | `.crush/skills/` | `~/.config/crush/skills/` |
-| Cursor | `cursor` | `.agents/skills/` | `~/.cursor/skills/` |
+| Cursor | `cursor` | `.cursor/skills/` | `~/.cursor/skills/` |
 | Droid | `droid` | `.factory/skills/` | `~/.factory/skills/` |
 | Gemini CLI | `gemini-cli` | `.agents/skills/` | `~/.gemini/skills/` |
 | GitHub Copilot | `github-copilot` | `.agents/skills/` | `~/.copilot/skills/` |
