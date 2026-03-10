@@ -18,20 +18,77 @@ npx skills add vercel-labs/agent-skills
 # GitHub shorthand (owner/repo)
 npx skills add vercel-labs/agent-skills
 
+# GitHub prefix shorthand
+npx skills add github:vercel-labs/agent-skills
+
 # Full GitHub URL
 npx skills add https://github.com/vercel-labs/agent-skills
 
 # Direct path to a skill in a repo
 npx skills add https://github.com/vercel-labs/agent-skills/tree/main/skills/web-design-guidelines
 
+# GitLab shorthand
+npx skills add gitlab:group/project
+
 # GitLab URL
 npx skills add https://gitlab.com/org/repo
+
+# Custom GitLab instance
+npx skills add https://git.corp.com/group/subgroup/project/-/tree/main/skills/review
+
+# Well-known provider from a site root
+npx skills add https://example.com
+
+# Well-known provider from a subpath
+npx skills add https://example.com/docs
+
+# Specific skill from a well-known provider
+npx skills add https://example.com/.well-known/skills/api-review
 
 # Any git URL
 npx skills add git@github.com:vercel-labs/agent-skills.git
 
+# Custom git host
+npx skills add https://git.example.com/org/repo.git
+
 # Local path
 npx skills add ./my-local-skills
+```
+
+### Skill Providers
+
+`skills add` chooses a provider from the source you pass:
+
+| Provider       | Matches                                                                                   | What it does                                                                                         |
+| -------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **GitHub**     | `owner/repo`, `github:owner/repo`, `github.com/...`                                       | Clones the repository and discovers skills in standard skill directories or the selected subpath     |
+| **GitLab**     | `gitlab:group/project`, `gitlab.com/...`, custom GitLab `/-/tree/...` URLs                | Clones the repository, including subgroup paths and custom GitLab instances                          |
+| **Well-known** | Arbitrary HTTP(S) URLs such as `https://example.com` or `https://example.com/docs`        | Looks for a published skill index at `/.well-known/skills/index.json` and installs the listed skills |
+| **Git**        | Direct git URLs such as `git@host:org/repo.git` or `https://git.example.com/org/repo.git` | Clones from any git host and performs normal repository skill discovery                              |
+| **Local**      | Relative or absolute paths                                                                | Reads skills directly from your filesystem                                                           |
+
+GitHub and GitLab URLs use dedicated handlers first. Other HTTP(S) URLs are treated as well-known skill providers, while URLs ending in `.git` are treated as direct git repositories.
+
+### Well-Known Skill Providers
+
+The well-known provider lets a website publish skills without exposing a git repository directly.
+
+When you run `npx skills add https://example.com/docs`, the CLI tries these locations in order:
+
+1. `https://example.com/docs/.well-known/skills/index.json`
+2. `https://example.com/.well-known/skills/index.json`
+
+If the index contains multiple skills, `skills add` can list them with `--list`, prompt you to choose interactively, or install specific ones with `--skill`.
+
+```bash
+# List published skills without installing
+npx skills add https://example.com --list
+
+# Install a specific skill from a multi-skill provider
+npx skills add https://example.com --skill api-review
+
+# Install all published skills
+npx skills add https://example.com --skill '*'
 ```
 
 ### Options
@@ -39,7 +96,7 @@ npx skills add ./my-local-skills
 | Option                    | Description                                                                                                                                        |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `-g, --global`            | Install to user directory instead of project                                                                                                       |
-| `-a, --agent <agents...>` | <!-- agent-names:start -->Target specific agents (e.g., `claude-code`, `codex`). See [Available Agents](#available-agents)<!-- agent-names:end -->                  |
+| `-a, --agent <agents...>` | <!-- agent-names:start -->Target specific agents (e.g., `claude-code`, `codex`). See [Available Agents](#available-agents)<!-- agent-names:end --> |
 | `-s, --skill <skills...>` | Install specific skills by name (use `'*'` for all skills)                                                                                         |
 | `-l, --list`              | List available skills without installing                                                                                                           |
 | `--copy`                  | Copy files instead of symlinking to agent directories                                                                                              |
@@ -306,9 +363,9 @@ metadata:
 ---
 ```
 
-### Skill Discovery
+### Repository Skill Discovery
 
-The CLI searches for skills in these locations within a repository:
+For GitHub, GitLab, direct git, and local sources, the CLI searches for skills in these locations within a repository:
 
 <!-- skill-discovery:start -->
 - Root directory (if it contains `SKILL.md`)
@@ -371,6 +428,47 @@ This enables compatibility with the [Claude Code plugin marketplace](https://cod
 
 If no skills are found in standard locations, a recursive search is performed.
 
+### Well-Known Provider Format
+
+Websites can publish skills using the RFC 8615 well-known path:
+
+```text
+https://example.com/.well-known/skills/
+```
+
+The provider must expose an `index.json` file:
+
+```json
+{
+  "skills": [
+    {
+      "name": "api-review",
+      "description": "Review API changes and integration risks",
+      "files": ["SKILL.md", "examples/checklist.md"]
+    }
+  ]
+}
+```
+
+Each entry must:
+
+- include a `name`, `description`, and non-empty `files` array
+- include `SKILL.md` in `files`
+- use a lowercase skill name with letters, numbers, and hyphens
+- use file paths that stay inside the skill directory
+
+The corresponding hosted files look like this:
+
+```text
+/.well-known/skills/
+  index.json
+  api-review/
+    SKILL.md
+    examples/checklist.md
+```
+
+`SKILL.md` still needs valid frontmatter with `name` and `description`. Any additional files listed in `index.json` are fetched and installed alongside it.
+
 ## Compatibility
 
 Skills are generally compatible across agents since they follow a
@@ -388,6 +486,8 @@ shared [Agent Skills specification](https://agentskills.io). However, some featu
 ### "No skills found"
 
 Ensure the repository contains valid `SKILL.md` files with both `name` and `description` in the frontmatter.
+
+For well-known providers, also verify that the site serves a valid `/.well-known/skills/index.json` (or a path-relative equivalent such as `/docs/.well-known/skills/index.json`).
 
 ### Skill not loading in agent
 
