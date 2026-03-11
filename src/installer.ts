@@ -347,14 +347,29 @@ async function copyDirectory(src: string, dest: string): Promise<void> {
         if (entry.isDirectory()) {
           await copyDirectory(srcPath, destPath);
         } else {
-          await cp(srcPath, destPath, {
-            // If the file is a symlink to elsewhere in a remote skill, it may not
-            // resolve correctly once it has been copied to the local location.
-            // `dereference: true` tells Node to copy the file instead of copying
-            // the symlink. `recursive: true` handles symlinks pointing to directories.
-            dereference: true,
-            recursive: true,
-          });
+          try {
+            await cp(srcPath, destPath, {
+              // If the file is a symlink to elsewhere in a remote skill, it may not
+              // resolve correctly once it has been copied to the local location.
+              // `dereference: true` tells Node to copy the file instead of copying
+              // the symlink. `recursive: true` handles symlinks pointing to directories.
+              dereference: true,
+              recursive: true,
+            });
+          } catch (err: unknown) {
+            // Skip broken symlinks (e.g., pointing to absolute paths on another machine)
+            // instead of aborting the entire install.
+            if (
+              err instanceof Error &&
+              'code' in err &&
+              (err as NodeJS.ErrnoException).code === 'ENOENT' &&
+              entry.isSymbolicLink()
+            ) {
+              console.warn(`Skipping broken symlink: ${srcPath}`);
+            } else {
+              throw err;
+            }
+          }
         }
       })
   );
