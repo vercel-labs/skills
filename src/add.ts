@@ -205,12 +205,12 @@ function buildAgentSummaryLines(targetAgents: AgentType[], installMode: InstallM
   const lines: string[] = [];
   const { universal, symlinked } = splitAgentsByType(targetAgents);
 
-  if (installMode === 'link') {
+  if (installMode === 'dev') {
     if (universal.length > 0) {
       lines.push(`  ${pc.green('universal:')} ${formatList(universal)}`);
     }
     if (symlinked.length > 0) {
-      lines.push(`  ${pc.dim('link →')} ${formatList(symlinked)}`);
+      lines.push(`  ${pc.dim('dev →')} ${formatList(symlinked)}`);
     }
   } else if (installMode === 'symlink') {
     if (universal.length > 0) {
@@ -425,7 +425,7 @@ export interface AddOptions {
   all?: boolean;
   fullDepth?: boolean;
   copy?: boolean;
-  link?: boolean;
+  dev?: boolean;
 }
 
 /**
@@ -936,11 +936,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
     );
 
-    // --link requires a local path
-    if (options.link && parsed.type !== 'local') {
+    // --dev requires a local path
+    if (options.dev && parsed.type !== 'local') {
       p.outro(
         pc.red(
-          'The --link flag requires a local path (e.g., ./my-skills or /path/to/repo).\n' +
+          'The --dev flag requires a local path (e.g., ./my-skills or /path/to/repo).\n' +
             'It symlinks agent directories directly to your local clone for development.'
         )
       );
@@ -1261,10 +1261,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       installGlobally = scope as boolean;
     }
 
-    // Determine install mode (symlink vs copy vs link)
-    let installMode: InstallMode = options.link ? 'link' : options.copy ? 'copy' : 'symlink';
+    // Determine install mode (symlink vs copy vs dev)
+    let installMode: InstallMode = options.dev ? 'dev' : options.copy ? 'copy' : 'symlink';
 
-    if (!options.link && !options.copy && !options.yes) {
+    if (!options.dev && !options.copy && !options.yes) {
       const modeOptions: Array<{ value: string; label: string; hint: string }> = [
         {
           value: 'symlink',
@@ -1274,12 +1274,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         { value: 'copy', label: 'Copy to all agents', hint: 'Independent copies for each agent' },
       ];
 
-      // Only show link option for local sources
+      // Only show dev option for local sources
       if (parsed.type === 'local') {
         modeOptions.push({
-          value: 'link',
-          label: 'Link to source (Developer)',
-          hint: 'Symlink directly to local clone, edits are live',
+          value: 'dev',
+          label: 'Dev mode',
+          hint: 'Symlink to local clone — edits are live',
         });
       }
 
@@ -1505,8 +1505,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
-    // Add to skill lock file for update tracking (only for global installs, skip link mode)
-    if (successful.length > 0 && installGlobally && normalizedSource && installMode !== 'link') {
+    // Add to skill lock file for update tracking (only for global installs, skip dev mode)
+    if (successful.length > 0 && installGlobally && normalizedSource && installMode !== 'dev') {
       const successfulSkillNames = new Set(successful.map((r) => r.skill));
       for (const skill of selectedSkills) {
         const skillDisplayName = getSkillDisplayName(skill);
@@ -1536,8 +1536,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
-    // Add to local lock file for project-scoped installs (skip link mode)
-    if (successful.length > 0 && !installGlobally && installMode !== 'link') {
+    // Add to local lock file for project-scoped installs (skip dev mode)
+    if (successful.length > 0 && !installGlobally && installMode !== 'dev') {
       const successfulSkillNames = new Set(successful.map((r) => r.skill));
       for (const skill of selectedSkills) {
         const skillDisplayName = getSkillDisplayName(skill);
@@ -1602,13 +1602,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               const shortPath = shortenPath(r.path, cwd);
               resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
             }
-          } else if (firstResult.mode === 'link') {
-            // Link mode: show the source path being linked to
+          } else if (firstResult.mode === 'dev') {
+            // Dev mode: show the source path being linked to
             if (firstResult.canonicalPath) {
               const shortPath = shortenPath(firstResult.canonicalPath, cwd);
-              resultLines.push(`${pc.green('✓')} ${shortPath} ${pc.dim('(linked)')}`);
+              resultLines.push(`${pc.green('✓')} ${shortPath} ${pc.dim('(dev)')}`);
             } else {
-              resultLines.push(`${pc.green('✓')} ${entry.skill} ${pc.dim('(linked)')}`);
+              resultLines.push(`${pc.green('✓')} ${entry.skill} ${pc.dim('(dev)')}`);
             }
             resultLines.push(...buildResultLines(skillResults, targetAgents));
           } else {
@@ -1820,8 +1820,8 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       options.fullDepth = true;
     } else if (arg === '--copy') {
       options.copy = true;
-    } else if (arg === '--link') {
-      options.link = true;
+    } else if (arg === '--dev') {
+      options.dev = true;
     } else if (arg && !arg.startsWith('-')) {
       source.push(arg);
     }

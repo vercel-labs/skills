@@ -19,7 +19,7 @@ import { agents, detectInstalledAgents, isUniversalAgent } from './agents.ts';
 import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
 import { parseSkillMd } from './skills.ts';
 
-export type InstallMode = 'symlink' | 'copy' | 'link';
+export type InstallMode = 'symlink' | 'copy' | 'dev';
 
 interface InstallResult {
   success: boolean;
@@ -274,7 +274,7 @@ export async function installSkillForAgent(
     }
 
     // Link mode: symlink canonical location directly to source path (no copy)
-    if (installMode === 'link') {
+    if (installMode === 'dev') {
       // Remove existing canonical dir (could be a previous copy or broken symlink)
       try {
         await rm(canonicalDir, { recursive: true, force: true });
@@ -288,7 +288,7 @@ export async function installSkillForAgent(
         return {
           success: false,
           path: canonicalDir,
-          mode: 'link',
+          mode: 'dev',
           error: 'Failed to create symlink to source directory',
         };
       }
@@ -300,7 +300,7 @@ export async function installSkillForAgent(
           success: true,
           path: canonicalDir,
           canonicalPath: canonicalDir,
-          mode: 'link',
+          mode: 'dev',
         };
       }
 
@@ -310,7 +310,7 @@ export async function installSkillForAgent(
         success: true,
         path: agentDir,
         canonicalPath: canonicalDir,
-        mode: 'link',
+        mode: 'dev',
         symlinkFailed: !agentSymlinkCreated,
       };
     }
