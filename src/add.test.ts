@@ -158,6 +158,41 @@ description: Test
     expect(result.stdout).toContain('No project skills found in skills-lock.json');
   });
 
+  it('should install skill from local path with --dev flag', () => {
+    const skillDir = join(testDir, 'skills', 'link-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: link-skill
+description: A skill installed via link mode
+---
+
+# Link Skill
+
+Instructions here.
+`
+    );
+
+    const targetDir = join(testDir, 'project');
+    mkdirSync(targetDir, { recursive: true });
+
+    const result = runCli(
+      ['add', testDir, '--dev', '-y', '-g', '--agent', 'claude-code'],
+      targetDir
+    );
+    expect(result.stdout).toContain('link-skill');
+    expect(result.stdout).toContain('dev');
+    expect(result.stdout).toContain('Done!');
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('should error when --dev is used with remote source', () => {
+    const result = runCli(['add', 'vercel-labs/agent-skills', '--dev', '-y'], testDir);
+    expect(result.stdout).toContain('--dev flag requires a local path');
+    expect(result.exitCode).toBe(1);
+  });
+
   describe('internal skills', () => {
     it('should skip internal skills by default', () => {
       // Create an internal skill
@@ -388,6 +423,14 @@ describe('parseAddOptions', () => {
     expect(result.options.fullDepth).toBe(true);
     expect(result.options.list).toBe(true);
     expect(result.options.global).toBe(true);
+  });
+
+  it('should parse --dev flag', () => {
+    const result = parseAddOptions(['./my-skills', '--dev', '-g', '-y']);
+    expect(result.source).toEqual(['./my-skills']);
+    expect(result.options.dev).toBe(true);
+    expect(result.options.global).toBe(true);
+    expect(result.options.yes).toBe(true);
   });
 });
 
