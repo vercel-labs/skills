@@ -23,6 +23,14 @@ export interface LocalSkillLockEntry {
    * computes the hash from actual file contents on disk.
    */
   computedHash: string;
+  /** GitHub tree SHA for the skill folder (for remote change detection) */
+  skillFolderHash?: string;
+  /** Path to SKILL.md relative to repo root */
+  skillPath?: string;
+  /** Git ref (branch/tag) used during installation */
+  ref?: string;
+  /** The original URL used to install the skill */
+  sourceUrl?: string;
 }
 
 /**

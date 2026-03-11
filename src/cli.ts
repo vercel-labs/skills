@@ -14,6 +14,7 @@ import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track } from './telemetry.ts';
 import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
+import { readLocalLock } from './local-lock.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -395,9 +396,17 @@ async function runCheck(args: string[] = []): Promise<void> {
   console.log();
 
   const lock = readSkillLock();
-  const skillNames = Object.keys(lock.skills);
+  const globalSkillNames = Object.keys(lock.skills);
 
-  if (skillNames.length === 0) {
+  // Also check local (project-scoped) lock file
+  const localLock = await readLocalLock();
+  const localSkillNames = Object.keys(localLock.skills).filter(
+    (name) => !lock.skills[name] // avoid duplicates with global lock
+  );
+
+  const allSkillCount = globalSkillNames.length + localSkillNames.length;
+
+  if (allSkillCount === 0) {
     console.log(`${DIM}No skills tracked in lock file.${RESET}`);
     console.log(`${DIM}Install skills with${RESET} ${TEXT}npx skills add <package>${RESET}`);
     return;
@@ -410,7 +419,8 @@ async function runCheck(args: string[] = []): Promise<void> {
   const skillsBySource = new Map<string, Array<{ name: string; entry: SkillLockEntry }>>();
   const skipped: SkippedSkill[] = [];
 
-  for (const skillName of skillNames) {
+  // Add global skills
+  for (const skillName of globalSkillNames) {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
@@ -425,7 +435,39 @@ async function runCheck(args: string[] = []): Promise<void> {
     skillsBySource.set(entry.source, existing);
   }
 
-  const totalSkills = skillNames.length - skipped.length;
+  // Add local skills with GitHub tracking
+  for (const skillName of localSkillNames) {
+    const localEntry = localLock.skills[skillName];
+    if (!localEntry) continue;
+
+    if (!localEntry.skillFolderHash || !localEntry.skillPath) {
+      if (localEntry.sourceUrl) {
+        skipped.push({
+          name: skillName,
+          reason: 'No remote hash tracking (reinstall to enable)',
+          sourceUrl: localEntry.sourceUrl,
+        });
+      }
+      continue;
+    }
+
+    // Convert to SkillLockEntry-compatible for uniform processing
+    const entry: SkillLockEntry = {
+      source: localEntry.source,
+      sourceType: localEntry.sourceType,
+      sourceUrl: localEntry.sourceUrl || '',
+      skillPath: localEntry.skillPath,
+      skillFolderHash: localEntry.skillFolderHash,
+      installedAt: '',
+      updatedAt: '',
+    };
+
+    const existing = skillsBySource.get(localEntry.source) || [];
+    existing.push({ name: skillName, entry });
+    skillsBySource.set(localEntry.source, existing);
+  }
+
+  const totalSkills = allSkillCount - skipped.length;
   if (totalSkills === 0) {
     console.log(`${DIM}No GitHub skills to check.${RESET}`);
     printSkippedSkills(skipped);
@@ -500,9 +542,17 @@ async function runUpdate(): Promise<void> {
   console.log();
 
   const lock = readSkillLock();
-  const skillNames = Object.keys(lock.skills);
+  const globalSkillNames = Object.keys(lock.skills);
 
-  if (skillNames.length === 0) {
+  // Also check local (project-scoped) lock file
+  const localLock = await readLocalLock();
+  const localSkillNames = Object.keys(localLock.skills).filter(
+    (name) => !lock.skills[name] // avoid duplicates with global lock
+  );
+
+  const allSkillCount = globalSkillNames.length + localSkillNames.length;
+
+  if (allSkillCount === 0) {
     console.log(`${DIM}No skills tracked in lock file.${RESET}`);
     console.log(`${DIM}Install skills with${RESET} ${TEXT}npx skills add <package>${RESET}`);
     return;
@@ -515,7 +565,8 @@ async function runUpdate(): Promise<void> {
   const updates: Array<{ name: string; source: string; entry: SkillLockEntry }> = [];
   const skipped: SkippedSkill[] = [];
 
-  for (const skillName of skillNames) {
+  // Check global skills
+  for (const skillName of globalSkillNames) {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
@@ -536,7 +587,47 @@ async function runUpdate(): Promise<void> {
     }
   }
 
-  const checkedCount = skillNames.length - skipped.length;
+  // Check local (project-scoped) skills with GitHub tracking
+  for (const skillName of localSkillNames) {
+    const localEntry = localLock.skills[skillName];
+    if (!localEntry) continue;
+
+    // Only check skills with GitHub tree SHA tracking
+    if (!localEntry.skillFolderHash || !localEntry.skillPath) {
+      if (localEntry.sourceUrl) {
+        skipped.push({
+          name: skillName,
+          reason: 'No remote hash tracking (reinstall to enable)',
+          sourceUrl: localEntry.sourceUrl,
+        });
+      }
+      continue;
+    }
+
+    try {
+      const latestHash = await fetchSkillFolderHash(localEntry.source, localEntry.skillPath, token);
+
+      if (latestHash && latestHash !== localEntry.skillFolderHash) {
+        updates.push({
+          name: skillName,
+          source: localEntry.source,
+          entry: {
+            source: localEntry.source,
+            sourceType: localEntry.sourceType,
+            sourceUrl: localEntry.sourceUrl || '',
+            skillPath: localEntry.skillPath,
+            skillFolderHash: localEntry.skillFolderHash,
+            installedAt: '',
+            updatedAt: '',
+          },
+        });
+      }
+    } catch {
+      // Skip skills that fail to check
+    }
+  }
+
+  const checkedCount = allSkillCount - skipped.length;
 
   if (checkedCount === 0) {
     console.log(`${DIM}No skills to check.${RESET}`);
