@@ -287,6 +287,8 @@ interface SkillLockEntry {
   skillPath?: string;
   /** GitHub tree SHA for the entire skill folder (v3) */
   skillFolderHash: string;
+  /** Git ref (branch/tag) used during installation */
+  ref?: string;
   installedAt: string;
   updatedAt: string;
 }
@@ -441,7 +443,7 @@ async function runCheck(args: string[] = []): Promise<void> {
   for (const [source, skills] of skillsBySource) {
     for (const { name, entry } of skills) {
       try {
-        const latestHash = await fetchSkillFolderHash(source, entry.skillPath!, token);
+        const latestHash = await fetchSkillFolderHash(source, entry.skillPath!, token, entry.ref);
 
         if (!latestHash) {
           errors.push({ name, source, error: 'Could not fetch from GitHub' });
@@ -526,7 +528,7 @@ async function runUpdate(): Promise<void> {
     }
 
     try {
-      const latestHash = await fetchSkillFolderHash(entry.source, entry.skillPath, token);
+      const latestHash = await fetchSkillFolderHash(entry.source, entry.skillPath, token, entry.ref);
 
       if (latestHash && latestHash !== entry.skillFolderHash) {
         updates.push({ name: skillName, source: entry.source, entry });
