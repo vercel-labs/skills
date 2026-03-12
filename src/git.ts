@@ -19,16 +19,33 @@ export class GitCloneError extends Error {
   }
 }
 
-export async function cloneRepo(url: string, ref?: string): Promise<string> {
+export async function cloneRepo(url: string, ref?: string, subpath?: string): Promise<string> {
   const tempDir = await mkdtemp(join(tmpdir(), 'skills-'));
+  const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
   const git = simpleGit({
     timeout: { block: CLONE_TIMEOUT_MS },
-    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    env: gitEnv,
   });
-  const cloneOptions = ref ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
 
   try {
-    await git.clone(url, tempDir, cloneOptions);
+    if (subpath) {
+      // Use sparse-checkout to only fetch the target subdirectory.
+      // This dramatically reduces clone time for large monorepos.
+      const cloneOptions = ['--depth', '1', '--filter=blob:none', '--sparse'];
+      if (ref) cloneOptions.push('--branch', ref);
+      await git.clone(url, tempDir, cloneOptions);
+
+      const repoGit = simpleGit({
+        baseDir: tempDir,
+        timeout: { block: CLONE_TIMEOUT_MS },
+        env: gitEnv,
+      });
+      await repoGit.raw(['sparse-checkout', 'set', subpath]);
+    } else {
+      const cloneOptions = ref ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
+      await git.clone(url, tempDir, cloneOptions);
+    }
+
     return tempDir;
   } catch (error) {
     // Clean up temp dir on failure
