@@ -15,6 +15,7 @@ import { runSync, parseSyncOptions } from './sync.ts';
 import { track } from './telemetry.ts';
 import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
 import { getRemoteHeadCommit } from './git.ts';
+import { readLocalLock } from './local-lock.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -292,6 +293,8 @@ interface SkillLockEntry {
   skillFolderHash: string;
   installedAt: string;
   updatedAt: string;
+  /** Whether this entry comes from the local (project-scoped) lock file */
+  isLocal?: boolean;
 }
 
 interface SkillLockFile {
@@ -354,6 +357,38 @@ function writeSkillLock(lock: SkillLockFile): void {
   writeFileSync(lockPath, JSON.stringify(lock, null, 2), 'utf-8');
 }
 
+/**
+ * Read both global and local (project-scoped) lock files and merge them.
+ * Local lock entries are converted to SkillLockEntry format.
+ * If a skill exists in both, the global lock takes precedence.
+ */
+async function readMergedSkillLock(): Promise<SkillLockFile> {
+  const globalLock = readSkillLock();
+  const localLock = await readLocalLock();
+
+  // Merge local lock entries into the result, but don't overwrite global entries
+  for (const [skillName, localEntry] of Object.entries(localLock.skills)) {
+    if (globalLock.skills[skillName]) {
+      // Global lock already has this skill, skip
+      continue;
+    }
+
+    // Convert local lock entry to SkillLockEntry format
+    globalLock.skills[skillName] = {
+      source: localEntry.source,
+      sourceType: localEntry.sourceType,
+      sourceUrl: localEntry.sourceUrl || '',
+      skillPath: localEntry.skillPath,
+      skillFolderHash: localEntry.skillFolderHash || '',
+      installedAt: '',
+      updatedAt: '',
+      isLocal: true,
+    };
+  }
+
+  return globalLock;
+}
+
 interface SkippedSkill {
   name: string;
   reason: string;
@@ -397,7 +432,7 @@ async function runCheck(args: string[] = []): Promise<void> {
   console.log(`${TEXT}Checking for skill updates...${RESET}`);
   console.log();
 
-  const lock = readSkillLock();
+  const lock = await readMergedSkillLock();
   const skillNames = Object.keys(lock.skills);
 
   if (skillNames.length === 0) {
@@ -535,7 +570,7 @@ async function runUpdate(): Promise<void> {
   console.log(`${TEXT}Checking for skill updates...${RESET}`);
   console.log();
 
-  const lock = readSkillLock();
+  const lock = await readMergedSkillLock();
   const skillNames = Object.keys(lock.skills);
 
   if (skillNames.length === 0) {
@@ -614,7 +649,11 @@ async function runUpdate(): Promise<void> {
       // For git/gitlab sources, use the original sourceUrl directly
       // e.g., git@git.example.com:owner/repo.git
       // The --skill flag targets the specific skill within the repo
-      const addArgs = ['-y', 'skills', 'add', installUrl, '-g', '-y'];
+      const addArgs = ['-y', 'skills', 'add', installUrl, '-y'];
+      // Only add -g flag for globally installed skills
+      if (!update.entry.isLocal) {
+        addArgs.push('-g');
+      }
       // If we know the skill name, add --skill flag to target it
       addArgs.push('--skill', update.name);
 
@@ -650,8 +689,13 @@ async function runUpdate(): Promise<void> {
         installUrl = `${installUrl}/tree/main/${skillFolder}`;
       }
 
-      // Use skills CLI to reinstall with -g -y flags
-      const result = spawnSync('npx', ['-y', 'skills', 'add', installUrl, '-g', '-y'], {
+      // Use skills CLI to reinstall with -y flags (add -g only for global installs)
+      const addArgs = ['-y', 'skills', 'add', installUrl, '-y'];
+      if (!update.entry.isLocal) {
+        addArgs.push('-g');
+      }
+
+      const result = spawnSync('npx', addArgs, {
         stdio: ['inherit', 'pipe', 'pipe'],
         shell: process.platform === 'win32',
       });

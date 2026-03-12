@@ -1519,12 +1519,32 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         if (successfulSkillNames.has(skillDisplayName)) {
           try {
             const computedHash = await computeSkillFolderHash(skill.path);
+            const skillPathValue = skillFiles[skill.name];
+
+            // Build extended local lock entry with update tracking info
+            let skillFolderHash: string | undefined;
+            if (parsed.type === 'github' && skillPathValue) {
+              const token = getGitHubToken();
+              const hash = await fetchSkillFolderHash(
+                normalizedSource || parsed.url,
+                skillPathValue,
+                token
+              );
+              if (hash) skillFolderHash = hash;
+            } else if ((parsed.type === 'git' || parsed.type === 'gitlab') && tempDir) {
+              const commitHash = await getLocalHeadCommit(tempDir);
+              if (commitHash) skillFolderHash = commitHash;
+            }
+
             await addSkillToLocalLock(
               skill.name,
               {
                 source: normalizedSource || parsed.url,
                 sourceType: parsed.type,
                 computedHash,
+                sourceUrl: parsed.url,
+                skillFolderHash,
+                skillPath: skillPathValue,
               },
               cwd
             );
