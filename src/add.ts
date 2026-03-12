@@ -21,7 +21,7 @@ async function isSourcePrivate(source: string): Promise<boolean | null> {
   }
   return isRepoPrivate(ownerRepo.owner, ownerRepo.repo);
 }
-import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
+import { cloneRepo, cleanupTempDir, GitCloneError, getLocalHeadCommit } from './git.ts';
 import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
 import {
   installSkillForAgent,
@@ -1482,13 +1482,18 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         const skillDisplayName = getSkillDisplayName(skill);
         if (successfulSkillNames.has(skillDisplayName)) {
           try {
-            // Fetch the folder hash from GitHub Trees API
+            // Fetch the folder hash for update tracking
             let skillFolderHash = '';
             const skillPathValue = skillFiles[skill.name];
             if (parsed.type === 'github' && skillPathValue) {
+              // Use GitHub Trees API for GitHub sources
               const token = getGitHubToken();
               const hash = await fetchSkillFolderHash(normalizedSource, skillPathValue, token);
               if (hash) skillFolderHash = hash;
+            } else if ((parsed.type === 'git' || parsed.type === 'gitlab') && tempDir) {
+              // Use git HEAD commit SHA for generic git/gitlab sources
+              const commitHash = await getLocalHeadCommit(tempDir);
+              if (commitHash) skillFolderHash = commitHash;
             }
 
             await addSkillToLock(skill.name, {

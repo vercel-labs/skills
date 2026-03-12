@@ -14,6 +14,7 @@ import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track } from './telemetry.ts';
 import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
+import { getRemoteHeadCommit } from './git.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -366,13 +367,13 @@ function getSkipReason(entry: SkillLockEntry): string {
   if (entry.sourceType === 'local') {
     return 'Local path';
   }
-  if (entry.sourceType === 'git') {
-    return 'Git URL (hash tracking not supported)';
-  }
   if (!entry.skillFolderHash) {
+    if (entry.sourceType === 'git' || entry.sourceType === 'gitlab') {
+      return 'Git URL (no commit hash recorded - reinstall to enable update tracking)';
+    }
     return 'No version hash available';
   }
-  if (!entry.skillPath) {
+  if (entry.sourceType === 'github' && !entry.skillPath) {
     return 'No skill path recorded';
   }
   return 'No version tracking';
@@ -408,28 +409,41 @@ async function runCheck(args: string[] = []): Promise<void> {
   // Get GitHub token from user's environment for higher rate limits
   const token = getGitHubToken();
 
-  // Group skills by source (owner/repo) to batch GitHub API calls
-  const skillsBySource = new Map<string, Array<{ name: string; entry: SkillLockEntry }>>();
+  // Separate skills into checkable and skipped
+  const githubSkills: Array<{ name: string; entry: SkillLockEntry }> = [];
+  const gitSkills: Array<{ name: string; entry: SkillLockEntry }> = [];
   const skipped: SkippedSkill[] = [];
 
   for (const skillName of skillNames) {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    // Only check skills with folder hash and skill path
-    if (!entry.skillFolderHash || !entry.skillPath) {
+    if (entry.sourceType === 'local') {
       skipped.push({ name: skillName, reason: getSkipReason(entry), sourceUrl: entry.sourceUrl });
       continue;
     }
 
-    const existing = skillsBySource.get(entry.source) || [];
-    existing.push({ name: skillName, entry });
-    skillsBySource.set(entry.source, existing);
+    if (!entry.skillFolderHash) {
+      skipped.push({ name: skillName, reason: getSkipReason(entry), sourceUrl: entry.sourceUrl });
+      continue;
+    }
+
+    if (entry.sourceType === 'git' || entry.sourceType === 'gitlab') {
+      // Git/GitLab skills: use git ls-remote to check for updates
+      gitSkills.push({ name: skillName, entry });
+    } else {
+      // GitHub skills: need skillPath for Trees API
+      if (!entry.skillPath) {
+        skipped.push({ name: skillName, reason: getSkipReason(entry), sourceUrl: entry.sourceUrl });
+        continue;
+      }
+      githubSkills.push({ name: skillName, entry });
+    }
   }
 
-  const totalSkills = skillNames.length - skipped.length;
+  const totalSkills = githubSkills.length + gitSkills.length;
   if (totalSkills === 0) {
-    console.log(`${DIM}No GitHub skills to check.${RESET}`);
+    console.log(`${DIM}No skills to check.${RESET}`);
     printSkippedSkills(skipped);
     return;
   }
@@ -439,27 +453,47 @@ async function runCheck(args: string[] = []): Promise<void> {
   const updates: Array<{ name: string; source: string }> = [];
   const errors: Array<{ name: string; source: string; error: string }> = [];
 
-  // Check each source (one API call per repo)
-  for (const [source, skills] of skillsBySource) {
-    for (const { name, entry } of skills) {
-      try {
-        const latestHash = await fetchSkillFolderHash(source, entry.skillPath!, token);
+  // Check GitHub skills via Trees API
+  for (const { name, entry } of githubSkills) {
+    try {
+      const latestHash = await fetchSkillFolderHash(entry.source, entry.skillPath!, token);
 
-        if (!latestHash) {
-          errors.push({ name, source, error: 'Could not fetch from GitHub' });
-          continue;
-        }
-
-        if (latestHash !== entry.skillFolderHash) {
-          updates.push({ name, source });
-        }
-      } catch (err) {
-        errors.push({
-          name,
-          source,
-          error: err instanceof Error ? err.message : 'Unknown error',
-        });
+      if (!latestHash) {
+        errors.push({ name, source: entry.source, error: 'Could not fetch from GitHub' });
+        continue;
       }
+
+      if (latestHash !== entry.skillFolderHash) {
+        updates.push({ name, source: entry.source });
+      }
+    } catch (err) {
+      errors.push({
+        name,
+        source: entry.source,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      });
+    }
+  }
+
+  // Check git/gitlab skills via git ls-remote
+  for (const { name, entry } of gitSkills) {
+    try {
+      const latestCommit = await getRemoteHeadCommit(entry.sourceUrl);
+
+      if (!latestCommit) {
+        errors.push({ name, source: entry.source, error: 'Could not fetch from git remote' });
+        continue;
+      }
+
+      if (latestCommit !== entry.skillFolderHash) {
+        updates.push({ name, source: entry.source });
+      }
+    } catch (err) {
+      errors.push({
+        name,
+        source: entry.source,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      });
     }
   }
 
@@ -513,7 +547,7 @@ async function runUpdate(): Promise<void> {
   // Get GitHub token from user's environment for higher rate limits
   const token = getGitHubToken();
 
-  // Find skills that need updates by checking GitHub directly
+  // Find skills that need updates
   const updates: Array<{ name: string; source: string; entry: SkillLockEntry }> = [];
   const skipped: SkippedSkill[] = [];
 
@@ -521,14 +555,26 @@ async function runUpdate(): Promise<void> {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    // Only check skills with folder hash and skill path
-    if (!entry.skillFolderHash || !entry.skillPath) {
+    if (entry.sourceType === 'local') {
+      skipped.push({ name: skillName, reason: getSkipReason(entry), sourceUrl: entry.sourceUrl });
+      continue;
+    }
+
+    if (!entry.skillFolderHash) {
       skipped.push({ name: skillName, reason: getSkipReason(entry), sourceUrl: entry.sourceUrl });
       continue;
     }
 
     try {
-      const latestHash = await fetchSkillFolderHash(entry.source, entry.skillPath, token);
+      let latestHash: string | null = null;
+
+      if (entry.sourceType === 'git' || entry.sourceType === 'gitlab') {
+        // Use git ls-remote to check for updates
+        latestHash = await getRemoteHeadCommit(entry.sourceUrl);
+      } else if (entry.sourceType === 'github' && entry.skillPath) {
+        // Use GitHub Trees API
+        latestHash = await fetchSkillFolderHash(entry.source, entry.skillPath, token);
+      }
 
       if (latestHash && latestHash !== entry.skillFolderHash) {
         updates.push({ name: skillName, source: entry.source, entry });
@@ -562,39 +608,61 @@ async function runUpdate(): Promise<void> {
   for (const update of updates) {
     console.log(`${TEXT}Updating ${update.name}...${RESET}`);
 
-    // Build the URL with subpath to target the specific skill directory
-    // e.g., https://github.com/owner/repo/tree/main/skills/my-skill
     let installUrl = update.entry.sourceUrl;
-    if (update.entry.skillPath) {
-      // Extract the skill folder path (remove /SKILL.md suffix)
-      let skillFolder = update.entry.skillPath;
-      if (skillFolder.endsWith('/SKILL.md')) {
-        skillFolder = skillFolder.slice(0, -9);
-      } else if (skillFolder.endsWith('SKILL.md')) {
-        skillFolder = skillFolder.slice(0, -8);
+
+    if (update.entry.sourceType === 'git' || update.entry.sourceType === 'gitlab') {
+      // For git/gitlab sources, use the original sourceUrl directly
+      // e.g., git@git.example.com:owner/repo.git
+      // The --skill flag targets the specific skill within the repo
+      const addArgs = ['-y', 'skills', 'add', installUrl, '-g', '-y'];
+      // If we know the skill name, add --skill flag to target it
+      addArgs.push('--skill', update.name);
+
+      const result = spawnSync('npx', addArgs, {
+        stdio: ['inherit', 'pipe', 'pipe'],
+        shell: process.platform === 'win32',
+      });
+
+      if (result.status === 0) {
+        successCount++;
+        console.log(`  ${TEXT}✓${RESET} Updated ${update.name}`);
+      } else {
+        failCount++;
+        console.log(`  ${DIM}✗ Failed to update ${update.name}${RESET}`);
       }
-      if (skillFolder.endsWith('/')) {
-        skillFolder = skillFolder.slice(0, -1);
-      }
-
-      // Convert git URL to tree URL with path
-      // https://github.com/owner/repo.git -> https://github.com/owner/repo/tree/main/path
-      installUrl = update.entry.sourceUrl.replace(/\.git$/, '').replace(/\/$/, '');
-      installUrl = `${installUrl}/tree/main/${skillFolder}`;
-    }
-
-    // Use skills CLI to reinstall with -g -y flags
-    const result = spawnSync('npx', ['-y', 'skills', 'add', installUrl, '-g', '-y'], {
-      stdio: ['inherit', 'pipe', 'pipe'],
-      shell: process.platform === 'win32',
-    });
-
-    if (result.status === 0) {
-      successCount++;
-      console.log(`  ${TEXT}✓${RESET} Updated ${update.name}`);
     } else {
-      failCount++;
-      console.log(`  ${DIM}✗ Failed to update ${update.name}${RESET}`);
+      // GitHub sources: build tree URL with subpath
+      if (update.entry.skillPath) {
+        // Extract the skill folder path (remove /SKILL.md suffix)
+        let skillFolder = update.entry.skillPath;
+        if (skillFolder.endsWith('/SKILL.md')) {
+          skillFolder = skillFolder.slice(0, -9);
+        } else if (skillFolder.endsWith('SKILL.md')) {
+          skillFolder = skillFolder.slice(0, -8);
+        }
+        if (skillFolder.endsWith('/')) {
+          skillFolder = skillFolder.slice(0, -1);
+        }
+
+        // Convert git URL to tree URL with path
+        // https://github.com/owner/repo.git -> https://github.com/owner/repo/tree/main/path
+        installUrl = update.entry.sourceUrl.replace(/\.git$/, '').replace(/\/$/, '');
+        installUrl = `${installUrl}/tree/main/${skillFolder}`;
+      }
+
+      // Use skills CLI to reinstall with -g -y flags
+      const result = spawnSync('npx', ['-y', 'skills', 'add', installUrl, '-g', '-y'], {
+        stdio: ['inherit', 'pipe', 'pipe'],
+        shell: process.platform === 'win32',
+      });
+
+      if (result.status === 0) {
+        successCount++;
+        console.log(`  ${TEXT}✓${RESET} Updated ${update.name}`);
+      } else {
+        failCount++;
+        console.log(`  ${DIM}✗ Failed to update ${update.name}${RESET}`);
+      }
     }
   }
 
