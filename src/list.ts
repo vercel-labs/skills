@@ -15,6 +15,7 @@ interface ListOptions {
   global?: boolean;
   agent?: string[];
   json?: boolean;
+  short?: boolean;
 }
 
 /**
@@ -52,6 +53,8 @@ export function parseListOptions(args: string[]): ListOptions {
       options.global = true;
     } else if (arg === '--json') {
       options.json = true;
+    } else if (arg === '--short') {
+      options.short = true;
     } else if (arg === '-a' || arg === '--agent') {
       options.agent = options.agent || [];
       // Collect all following arguments until next flag
@@ -99,6 +102,13 @@ export async function runList(args: string[]): Promise<void> {
       agents: skill.agents.map((a) => agents[a].displayName),
     }));
     console.log(JSON.stringify(jsonOutput, null, 2));
+    return;
+  }
+
+  // Concise output mode: one skill name per line, no verbose metadata
+  if (options.short) {
+    const names = installedSkills.map((skill) => skill.name);
+    console.log(names.join('\n'));
     return;
   }
 
