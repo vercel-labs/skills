@@ -49,6 +49,8 @@ export interface Skill {
   rawContent?: string;
   /** Name of the plugin this skill belongs to (if any) */
   pluginName?: string;
+  /** Whether this skill is internal (excluded from discovery by default) */
+  internal?: boolean;
   metadata?: Record<string, unknown>;
 }
 

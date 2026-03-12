@@ -258,6 +258,11 @@ export class WellKnownProvider implements HostProvider {
         return null;
       }
 
+      // Skip internal skills during discovery
+      if (data.internal === true || data.metadata?.internal === true) {
+        return null;
+      }
+
       // Fetch all other files
       const files = new Map<string, string>();
       files.set('SKILL.md', content);

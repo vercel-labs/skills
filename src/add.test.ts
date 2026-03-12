@@ -293,6 +293,62 @@ metadata:
       const result = runCli(['add', testDir, '--list'], testDir);
       expect(result.stdout).toContain('not-internal-skill');
     });
+
+    it('should skip skills with top-level internal: true', () => {
+      const skillDir = join(testDir, 'top-level-internal');
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---
+name: top-level-internal
+description: A top-level internal skill
+internal: true
+---
+# Top-Level Internal
+`
+      );
+
+      const result = runCli(['add', testDir, '--list'], testDir);
+      expect(result.stdout).not.toContain('top-level-internal');
+    });
+
+    it('should show top-level internal skills when INSTALL_INTERNAL_SKILLS=1', () => {
+      const skillDir = join(testDir, 'top-level-internal');
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---
+name: top-level-internal
+description: A top-level internal skill
+internal: true
+---
+# Top-Level Internal
+`
+      );
+
+      const result = runCli(['add', testDir, '--list'], testDir, {
+        INSTALL_INTERNAL_SKILLS: '1',
+      });
+      expect(result.stdout).toContain('top-level-internal');
+    });
+
+    it('should not treat top-level internal: false as internal', () => {
+      const skillDir = join(testDir, 'not-internal-top');
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---
+name: not-internal-top
+description: Explicitly not internal at top level
+internal: false
+---
+# Not Internal
+`
+      );
+
+      const result = runCli(['add', testDir, '--list'], testDir);
+      expect(result.stdout).toContain('not-internal-top');
+    });
   });
 });
 
