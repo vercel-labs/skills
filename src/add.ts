@@ -418,6 +418,7 @@ export interface AddOptions {
   all?: boolean;
   fullDepth?: boolean;
   copy?: boolean;
+  ref?: string;
 }
 
 /**
@@ -925,7 +926,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     spinner.start('Parsing source...');
     const parsed = parseSource(source);
     spinner.stop(
-      `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
+      `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${(options.ref ?? parsed.ref) ? ` @ ${pc.yellow((options.ref ?? parsed.ref)!)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
     );
 
     // Handle well-known skills from arbitrary URLs
@@ -949,7 +950,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     } else {
       // Clone repository for remote sources
       spinner.start('Cloning repository...');
-      tempDir = await cloneRepo(parsed.url, parsed.ref);
+      tempDir = await cloneRepo(parsed.url, options.ref ?? parsed.ref);
       skillsDir = tempDir;
       spinner.stop('Repository cloned');
     }
@@ -1779,6 +1780,9 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       i--; // Back up one since the loop will increment
     } else if (arg === '--full-depth') {
       options.fullDepth = true;
+    } else if (arg === '--ref') {
+      i++;
+      options.ref = args[i];
     } else if (arg === '--copy') {
       options.copy = true;
     } else if (arg && !arg.startsWith('-')) {

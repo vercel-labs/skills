@@ -389,6 +389,20 @@ describe('parseAddOptions', () => {
     expect(result.options.list).toBe(true);
     expect(result.options.global).toBe(true);
   });
+
+  it('should parse --ref flag', () => {
+    const result = parseAddOptions(['source', '--ref', 'feat/my-branch']);
+    expect(result.source).toEqual(['source']);
+    expect(result.options.ref).toBe('feat/my-branch');
+  });
+
+  it('should parse --ref with other flags', () => {
+    const result = parseAddOptions(['source', '--ref', 'v2.0.0', '--skill', 'my-skill', '-y']);
+    expect(result.source).toEqual(['source']);
+    expect(result.options.ref).toBe('v2.0.0');
+    expect(result.options.skill).toEqual(['my-skill']);
+    expect(result.options.yes).toBe(true);
+  });
 });
 
 describe('find-skills prompt with -y flag', () => {
