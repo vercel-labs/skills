@@ -75,6 +75,32 @@ describe('list command', () => {
   });
 
   describe('CLI integration', () => {
+    it('should show list-specific help with --help', () => {
+      const result = runCli(['list', '--help'], testDir);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Usage:');
+      expect(result.stdout).toContain('skills list [options]');
+      expect(result.stdout).toContain('List installed skills from project scope by default.');
+      expect(result.stdout).toContain('--json');
+    });
+
+    it('should show list-specific help with -h', () => {
+      const longHelp = runCli(['list', '--help'], testDir);
+      const shortHelp = runCli(['list', '-h'], testDir);
+
+      expect(shortHelp.exitCode).toBe(0);
+      expect(shortHelp.stdout).toContain('skills list [options]');
+      expect(shortHelp.stdout).toBe(longHelp.stdout);
+    });
+
+    it('should show list-specific help with help subcommand', () => {
+      const result = runCli(['list', 'help'], testDir);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('skills list [options]');
+      expect(result.stdout).toContain('Aliases:');
+      expect(result.stdout).toContain('ls');
+    });
+
     it('should run list command', () => {
       const result = runCli(['list'], testDir);
       // Empty project dir shows "No project skills found"

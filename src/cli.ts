@@ -210,6 +210,33 @@ Discover more skills at ${TEXT}https://skills.sh/${RESET}
 `);
 }
 
+function showListHelp(): void {
+  console.log(`
+${BOLD}Usage:${RESET} skills list [options]
+
+${BOLD}Description:${RESET}
+  List installed skills from project scope by default.
+  Use --global to list globally installed skills.
+
+${BOLD}Aliases:${RESET}
+  ls
+
+${BOLD}Options:${RESET}
+  -g, --global       List global skills instead of project skills
+  -a, --agent        Filter by specific agents (use '*' for all agents)
+  --json             Output as JSON (machine-readable, no ANSI codes)
+  -h, --help         Show this help message
+
+${BOLD}Examples:${RESET}
+  ${DIM}$${RESET} skills list                         ${DIM}# list project skills${RESET}
+  ${DIM}$${RESET} skills ls -g                        ${DIM}# list global skills${RESET}
+  ${DIM}$${RESET} skills list -a claude-code cursor   ${DIM}# filter by agents${RESET}
+  ${DIM}$${RESET} skills list --json                  ${DIM}# JSON output${RESET}
+
+Discover more skills at ${TEXT}https://skills.sh/${RESET}
+`);
+}
+
 function runInit(args: string[]): void {
   const cwd = process.cwd();
   const skillName = args[0] || basename(cwd);
@@ -679,6 +706,14 @@ async function main(): Promise<void> {
     }
     case 'list':
     case 'ls':
+      if (
+        restArgs.includes('--help') ||
+        restArgs.includes('-h') ||
+        (restArgs.length > 0 && restArgs[0] === 'help')
+      ) {
+        showListHelp();
+        break;
+      }
       await runList(restArgs);
       break;
     case 'check':
