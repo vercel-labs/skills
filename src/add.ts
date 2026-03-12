@@ -1444,6 +1444,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Normalize source to owner/repo format for telemetry
     const normalizedSource = getOwnerRepo(parsed);
 
+    // Preserve SSH URLs in lock files instead of normalizing to owner/repo shorthand.
+    // When normalizedSource is used, parseSource() later resolves it to HTTPS,
+    // breaking restore for private repos that require SSH authentication.
+    const isSSH = parsed.url.startsWith('git@');
+    const lockSource = isSSH ? parsed.url : normalizedSource;
+
     // Only track if we have a valid remote source and it's not a private repo
     if (normalizedSource) {
       const ownerRepo = parseOwnerRepo(normalizedSource);
@@ -1492,7 +1498,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             }
 
             await addSkillToLock(skill.name, {
-              source: normalizedSource,
+              source: lockSource || normalizedSource,
               sourceType: parsed.type,
               sourceUrl: parsed.url,
               skillPath: skillPathValue,
@@ -1517,7 +1523,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             await addSkillToLocalLock(
               skill.name,
               {
-                source: normalizedSource || parsed.url,
+                source: lockSource || parsed.url,
                 sourceType: parsed.type,
                 computedHash,
               },
