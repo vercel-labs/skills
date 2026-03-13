@@ -59,26 +59,51 @@ export function parseOwnerRepo(ownerRepo: string): { owner: string; repo: string
   return null;
 }
 
+const PRIVACY_CACHE_LIMIT = 128;
+const repoPrivacyCache = new Map<string, Promise<boolean | null>>();
+
+function getRepoCacheKey(owner: string, repo: string): string {
+  return `${owner}/${repo}`;
+}
+
 /**
  * Check if a GitHub repository is private.
  * Returns true if private, false if public, null if unable to determine.
  * Only works for GitHub repositories (GitLab not supported).
  */
 export async function isRepoPrivate(owner: string, repo: string): Promise<boolean | null> {
-  try {
-    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
-
-    // If repo doesn't exist or we don't have access, assume private to be safe
-    if (!res.ok) {
-      return null; // Unable to determine
-    }
-
-    const data = (await res.json()) as { private?: boolean };
-    return data.private === true;
-  } catch {
-    // On error, return null to indicate we couldn't determine
-    return null;
+  const cacheKey = getRepoCacheKey(owner, repo);
+  const cached = repoPrivacyCache.get(cacheKey);
+  if (cached) {
+    return cached;
   }
+
+  const promise = (async (): Promise<boolean | null> => {
+    try {
+      const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
+
+      // If repo doesn't exist or we don't have access, assume private to be safe
+      if (!res.ok) {
+        return null; // Unable to determine
+      }
+
+      const data = (await res.json()) as { private?: boolean };
+      return data.private === true;
+    } catch {
+      // On error, return null to indicate we couldn't determine
+      return null;
+    }
+  })();
+
+  repoPrivacyCache.set(cacheKey, promise);
+  if (repoPrivacyCache.size > PRIVACY_CACHE_LIMIT) {
+    const oldestKey = repoPrivacyCache.keys().next().value;
+    if (oldestKey) {
+      repoPrivacyCache.delete(oldestKey);
+    }
+  }
+
+  return promise;
 }
 
 /**
