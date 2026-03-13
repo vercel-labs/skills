@@ -4,7 +4,7 @@ import { readdir, rm, lstat } from 'fs/promises';
 import { join } from 'path';
 import { agents, detectInstalledAgents } from './agents.ts';
 import { track } from './telemetry.ts';
-import { removeSkillFromLock, getSkillFromLock } from './skill-lock.ts';
+import { removeSkillFromLock, getSkillFromLock, getAllLockedSkills } from './skill-lock.ts';
 import type { AgentType } from './types.ts';
 import {
   getInstallPath,
@@ -61,7 +61,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   const installedSkills = Array.from(skillNamesSet).sort();
   spinner.stop(`Found ${installedSkills.length} unique installed skill(s)`);
 
-  if (installedSkills.length === 0) {
+  if (installedSkills.length === 0 && !(options.all && isGlobal)) {
     p.outro(pc.yellow('No skills found to remove.'));
     return;
   }
@@ -80,7 +80,10 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
   let selectedSkills: string[] = [];
 
-  if (options.all) {
+  if (options.all && isGlobal) {
+    const lockedSkills = Object.keys(await getAllLockedSkills()).sort();
+    selectedSkills = lockedSkills;
+  } else if (options.all) {
     selectedSkills = installedSkills;
   } else if (skillNames.length > 0) {
     selectedSkills = installedSkills.filter((s) =>
@@ -109,6 +112,15 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     }
 
     selectedSkills = selected as string[];
+  }
+
+  if (selectedSkills.length === 0) {
+    if (options.all && isGlobal) {
+      p.outro(pc.yellow('No globally managed skills found to remove.'));
+    } else {
+      p.outro(pc.yellow('No skills found to remove.'));
+    }
+    return;
   }
 
   let targetAgents: AgentType[];
