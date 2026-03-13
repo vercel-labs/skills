@@ -55,6 +55,7 @@ import {
   saveSelectedAgents,
 } from './skill-lock.ts';
 import { addSkillToLocalLock, computeSkillFolderHash } from './local-lock.ts';
+import { computeTextFileHash, computeTrackedSkillDirectoryHash } from './skill-hash.ts';
 import type { Skill, AgentType } from './types.ts';
 import packageJson from '../package.json' with { type: 'json' };
 export function initTelemetry(version: string): void {
@@ -780,7 +781,7 @@ async function handleWellKnownSkills(
             source: sourceIdentifier,
             sourceType: 'well-known',
             sourceUrl: skill.sourceUrl,
-            skillFolderHash: '', // Well-known skills don't have a folder hash
+            skillFolderHash: computeTextFileHash(skill.files),
           });
         } catch {
           // Don't fail installation if lock file update fails
@@ -1501,7 +1502,6 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         const skillDisplayName = getSkillDisplayName(skill);
         if (successfulSkillNames.has(skillDisplayName)) {
           try {
-            // Fetch the folder hash from GitHub Trees API
             let skillFolderHash = '';
             const skillPathValue = skillFiles[skill.name];
             if (parsed.type === 'github' && skillPathValue) {
@@ -1513,6 +1513,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
                 parsed.ref
               );
               if (hash) skillFolderHash = hash;
+            } else {
+              const matchingResult = successful.find((result) => result.skill === skillDisplayName);
+              const installDir = matchingResult?.canonicalPath || matchingResult?.path;
+              if (installDir) {
+                skillFolderHash = await computeTrackedSkillDirectoryHash(installDir);
+              }
             }
 
             await addSkillToLock(skill.name, {

@@ -12,7 +12,12 @@ import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track } from './telemetry.ts';
-import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
+import { getGitHubToken } from './skill-lock.ts';
+import {
+  buildUpdateCommandArgs,
+  getInstalledTrackingHash,
+  getLatestTrackingHash,
+} from './update-tracking.ts';
 import { buildUpdateInstallSource, formatSourceInput } from './update-source.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -287,7 +292,7 @@ interface SkillLockEntry {
   sourceUrl: string;
   ref?: string;
   skillPath?: string;
-  /** GitHub tree SHA for the entire skill folder (v3) */
+  /** Version tracking hash for the skill folder (v3) */
   skillFolderHash: string;
   installedAt: string;
   updatedAt: string;
@@ -325,6 +330,17 @@ function readSkillLock(): SkillLockFile {
   }
 }
 
+function writeSkillLock(lock: SkillLockFile): void {
+  const lockPath = getSkillLockPath();
+  const lockDir = dirname(lockPath);
+
+  if (!existsSync(lockDir)) {
+    mkdirSync(lockDir, { recursive: true });
+  }
+
+  writeFileSync(lockPath, JSON.stringify(lock, null, 2), 'utf-8');
+}
+
 interface SkippedSkill {
   name: string;
   reason: string;
@@ -339,13 +355,13 @@ function getSkipReason(entry: SkillLockEntry): string {
   if (entry.sourceType === 'local') {
     return 'Local path';
   }
-  if (entry.sourceType === 'git') {
-    return 'Git URL (hash tracking not supported)';
+  if (!entry.sourceUrl) {
+    return 'No source URL recorded';
   }
-  if (!entry.skillFolderHash) {
+  if (entry.sourceType === 'github' && !entry.skillFolderHash) {
     return 'No version hash available';
   }
-  if (!entry.skillPath) {
+  if (entry.sourceType === 'github' && !entry.skillPath) {
     return 'No skill path recorded';
   }
   return 'No version tracking';
@@ -383,16 +399,16 @@ async function runCheck(args: string[] = []): Promise<void> {
   // Get GitHub token from user's environment for higher rate limits
   const token = getGitHubToken();
 
-  // Group skills by source (owner/repo) to batch GitHub API calls
-  const skillsBySource = new Map<string, Array<{ name: string; entry: SkillLockEntry }>>();
+  const trackedSkills: Array<{ name: string; entry: SkillLockEntry; currentHash: string }> = [];
   const skipped: SkippedSkill[] = [];
+  let lockChanged = false;
 
   for (const skillName of skillNames) {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    // Only check skills with folder hash and skill path
-    if (!entry.skillFolderHash || !entry.skillPath) {
+    const currentHash = await getInstalledTrackingHash(skillName, entry);
+    if (!currentHash) {
       skipped.push({
         name: skillName,
         reason: getSkipReason(entry),
@@ -402,14 +418,21 @@ async function runCheck(args: string[] = []): Promise<void> {
       continue;
     }
 
-    const existing = skillsBySource.get(entry.source) || [];
-    existing.push({ name: skillName, entry });
-    skillsBySource.set(entry.source, existing);
+    if (!entry.skillFolderHash) {
+      entry.skillFolderHash = currentHash;
+      lockChanged = true;
+    }
+
+    trackedSkills.push({ name: skillName, entry, currentHash });
   }
 
-  const totalSkills = skillNames.length - skipped.length;
+  if (lockChanged) {
+    writeSkillLock(lock);
+  }
+
+  const totalSkills = trackedSkills.length;
   if (totalSkills === 0) {
-    console.log(`${DIM}No GitHub skills to check.${RESET}`);
+    console.log(`${DIM}No skills to check.${RESET}`);
     printSkippedSkills(skipped);
     return;
   }
@@ -419,27 +442,24 @@ async function runCheck(args: string[] = []): Promise<void> {
   const updates: Array<{ name: string; source: string }> = [];
   const errors: Array<{ name: string; source: string; error: string }> = [];
 
-  // Check each source (one API call per repo)
-  for (const [source, skills] of skillsBySource) {
-    for (const { name, entry } of skills) {
-      try {
-        const latestHash = await fetchSkillFolderHash(source, entry.skillPath!, token, entry.ref);
+  for (const { name, entry, currentHash } of trackedSkills) {
+    try {
+      const latestHash = await getLatestTrackingHash(name, entry, token);
 
-        if (!latestHash) {
-          errors.push({ name, source, error: 'Could not fetch from GitHub' });
-          continue;
-        }
-
-        if (latestHash !== entry.skillFolderHash) {
-          updates.push({ name, source });
-        }
-      } catch (err) {
-        errors.push({
-          name,
-          source,
-          error: err instanceof Error ? err.message : 'Unknown error',
-        });
+      if (!latestHash) {
+        errors.push({ name, source: entry.source, error: 'Could not fetch latest version' });
+        continue;
       }
+
+      if (latestHash !== currentHash) {
+        updates.push({ name, source: entry.source });
+      }
+    } catch (err) {
+      errors.push({
+        name,
+        source: entry.source,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      });
     }
   }
 
@@ -498,16 +518,16 @@ async function runUpdate(): Promise<void> {
   // Get GitHub token from user's environment for higher rate limits
   const token = getGitHubToken();
 
-  // Find skills that need updates by checking GitHub directly
   const updates: Array<{ name: string; source: string; entry: SkillLockEntry }> = [];
   const skipped: SkippedSkill[] = [];
+  let lockChanged = false;
 
   for (const skillName of skillNames) {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    // Only check skills with folder hash and skill path
-    if (!entry.skillFolderHash || !entry.skillPath) {
+    const currentHash = await getInstalledTrackingHash(skillName, entry);
+    if (!currentHash) {
       skipped.push({
         name: skillName,
         reason: getSkipReason(entry),
@@ -517,20 +537,24 @@ async function runUpdate(): Promise<void> {
       continue;
     }
 
-    try {
-      const latestHash = await fetchSkillFolderHash(
-        entry.source,
-        entry.skillPath,
-        token,
-        entry.ref
-      );
+    if (!entry.skillFolderHash) {
+      entry.skillFolderHash = currentHash;
+      lockChanged = true;
+    }
 
-      if (latestHash && latestHash !== entry.skillFolderHash) {
+    try {
+      const latestHash = await getLatestTrackingHash(skillName, entry, token);
+
+      if (latestHash && latestHash !== currentHash) {
         updates.push({ name: skillName, source: entry.source, entry });
       }
     } catch {
       // Skip skills that fail to check
     }
+  }
+
+  if (lockChanged) {
+    writeSkillLock(lock);
   }
 
   const checkedCount = skillNames.length - skipped.length;
@@ -559,7 +583,7 @@ async function runUpdate(): Promise<void> {
 
     // Build the source input to target the specific skill directory/ref.
     // e.g., owner/repo/skills/my-skill#feature-branch
-    const installUrl = buildUpdateInstallSource(update.entry);
+    const installSource = buildUpdateInstallSource(update.entry);
 
     // Reinstall using the current CLI entrypoint directly (avoid nested npm exec/npx)
     const cliEntry = join(__dirname, '..', 'bin', 'cli.mjs');
@@ -570,11 +594,15 @@ async function runUpdate(): Promise<void> {
       );
       continue;
     }
-    const result = spawnSync(process.execPath, [cliEntry, 'add', installUrl, '-g', '-y'], {
-      stdio: ['inherit', 'pipe', 'pipe'],
-      encoding: 'utf-8',
-      shell: process.platform === 'win32',
-    });
+    const result = spawnSync(
+      process.execPath,
+      [cliEntry, ...buildUpdateCommandArgs(update.name, installSource)],
+      {
+        stdio: ['inherit', 'pipe', 'pipe'],
+        encoding: 'utf-8',
+        shell: process.platform === 'win32',
+      }
+    );
 
     if (result.status === 0) {
       successCount++;
