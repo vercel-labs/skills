@@ -1498,6 +1498,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Add to skill lock file for update tracking (only for global installs)
     if (successful.length > 0 && installGlobally && normalizedSource) {
       const successfulSkillNames = new Set(successful.map((r) => r.skill));
+      const githubToken = parsed.type === 'github' ? getGitHubToken() : null;
       for (const skill of selectedSkills) {
         const skillDisplayName = getSkillDisplayName(skill);
         if (successfulSkillNames.has(skillDisplayName)) {
@@ -1506,8 +1507,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             let skillFolderHash = '';
             const skillPathValue = skillFiles[skill.name];
             if (parsed.type === 'github' && skillPathValue) {
-              const token = getGitHubToken();
-              const hash = await fetchSkillFolderHash(normalizedSource, skillPathValue, token);
+              const hash = await fetchSkillFolderHash(
+                normalizedSource,
+                skillPathValue,
+                githubToken
+              );
               if (hash) skillFolderHash = hash;
             }
 
