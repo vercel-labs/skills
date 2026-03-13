@@ -160,6 +160,17 @@ export function getGitHubToken(): string | null {
  * @param token - Optional GitHub token for authenticated requests (higher rate limits)
  * @returns The tree SHA for the skill folder, or null if not found
  */
+const repoTreeCache = new Map<
+  string,
+  Promise<
+    | {
+        sha: string;
+        tree: Array<{ path: string; type: string; sha: string }>;
+      }
+    | null
+  >
+>();
+
 export async function fetchSkillFolderHash(
   ownerRepo: string,
   skillPath: string,
@@ -184,23 +195,35 @@ export async function fetchSkillFolderHash(
 
   for (const branch of branches) {
     try {
-      const url = `https://api.github.com/repos/${ownerRepo}/git/trees/${branch}?recursive=1`;
-      const headers: Record<string, string> = {
-        Accept: 'application/vnd.github.v3+json',
-        'User-Agent': 'skills-cli',
-      };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
+      const cacheKey = `${ownerRepo}@${branch}`;
+      let treePromise = repoTreeCache.get(cacheKey);
+
+      if (!treePromise) {
+        treePromise = (async () => {
+          const url = `https://api.github.com/repos/${ownerRepo}/git/trees/${branch}?recursive=1`;
+          const headers: Record<string, string> = {
+            Accept: 'application/vnd.github.v3+json',
+            'User-Agent': 'skills-cli',
+          };
+          if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+          }
+
+          const response = await fetch(url, { headers });
+          if (!response.ok) {
+            return null;
+          }
+
+          return (await response.json()) as {
+            sha: string;
+            tree: Array<{ path: string; type: string; sha: string }>;
+          };
+        })();
+        repoTreeCache.set(cacheKey, treePromise);
       }
 
-      const response = await fetch(url, { headers });
-
-      if (!response.ok) continue;
-
-      const data = (await response.json()) as {
-        sha: string;
-        tree: Array<{ path: string; type: string; sha: string }>;
-      };
+      const data = await treePromise;
+      if (!data) continue;
 
       // If folderPath is empty, this is a root-level skill - use the root tree SHA
       if (!folderPath) {
