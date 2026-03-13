@@ -1,4 +1,6 @@
 import pc from 'picocolors';
+import { readdir, readFile } from 'fs/promises';
+import { join, relative } from 'path';
 
 /**
  * Represents a hidden HTML comment found in skill content.
@@ -65,7 +67,79 @@ export function checkForHtmlComments(
 }
 
 /**
+ * Recursively collect all markdown files in a directory.
+ */
+async function collectMarkdownFiles(
+  dir: string,
+  base?: string
+): Promise<{ path: string; relativePath: string }[]> {
+  const root = base ?? dir;
+  const results: { path: string; relativePath: string }[] = [];
+
+  try {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
+        results.push(...(await collectMarkdownFiles(fullPath, root)));
+      } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) {
+        results.push({ path: fullPath, relativePath: relative(root, fullPath) });
+      }
+    }
+  } catch {
+    // Directory not readable — skip
+  }
+
+  return results;
+}
+
+/**
+ * Check all markdown files in a skill directory for HTML comments.
+ * Returns an array of hidden comments found across all .md files.
+ */
+export async function checkSkillDirectoryForHtmlComments(
+  skillName: string,
+  skillPath: string
+): Promise<HiddenComment[]> {
+  const mdFiles = await collectMarkdownFiles(skillPath);
+  const allComments: HiddenComment[] = [];
+
+  for (const mdFile of mdFiles) {
+    try {
+      const content = await readFile(mdFile.path, 'utf-8');
+      const label = mdFiles.length === 1 ? skillName : `${skillName}/${mdFile.relativePath}`;
+      const comments = checkForHtmlComments(label, content);
+      allComments.push(...comments);
+    } catch {
+      // File not readable — skip
+    }
+  }
+
+  return allComments;
+}
+
+/**
  * Check multiple skills for HTML comments and return formatted warning lines.
+ * Scans all markdown files in each skill's directory (not just SKILL.md).
+ */
+export async function buildHtmlCommentWarningFromDirs(
+  skills: Array<{ name: string; path: string }>
+): Promise<string[]> {
+  const allComments: HiddenComment[] = [];
+
+  for (const skill of skills) {
+    const comments = await checkSkillDirectoryForHtmlComments(skill.name, skill.path);
+    allComments.push(...comments);
+  }
+
+  if (allComments.length === 0) return [];
+
+  return formatCommentWarning(allComments);
+}
+
+/**
+ * Check multiple skills for HTML comments and return formatted warning lines.
+ * Uses rawContent (SKILL.md only) — for well-known skills without local directories.
  */
 export function buildHtmlCommentWarning(
   skills: Array<{ name: string; rawContent?: string }>
@@ -79,6 +153,10 @@ export function buildHtmlCommentWarning(
 
   if (allComments.length === 0) return [];
 
+  return formatCommentWarning(allComments);
+}
+
+function formatCommentWarning(allComments: HiddenComment[]): string[] {
   const lines: string[] = [
     pc.yellow(
       pc.bold(

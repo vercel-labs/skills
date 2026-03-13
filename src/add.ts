@@ -5,7 +5,7 @@ import { homedir } from 'os';
 import { sep } from 'path';
 import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
-import { buildHtmlCommentWarning } from './security.ts';
+import { buildHtmlCommentWarning, buildHtmlCommentWarningFromDirs } from './security.ts';
 
 // Helper to check if a value is a cancel symbol (works with both clack and our custom prompts)
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
@@ -1395,8 +1395,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       // Silently skip — security info is advisory only
     }
 
-    // Check for hidden HTML comments in SKILL.md files
-    const htmlWarningLines = buildHtmlCommentWarning(selectedSkills);
+    // Check for hidden HTML comments in all markdown files in skill directories
+    const htmlWarningLines = await buildHtmlCommentWarningFromDirs(selectedSkills);
     if (htmlWarningLines.length > 0) {
       p.note(htmlWarningLines.join('\n'), 'Hidden Content Warning');
     }

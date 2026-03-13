@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { checkForHtmlComments, buildHtmlCommentWarning } from './security.ts';
+import {
+  checkForHtmlComments,
+  buildHtmlCommentWarning,
+  checkSkillDirectoryForHtmlComments,
+} from './security.ts';
+import { mkdtemp, writeFile, mkdir, rm } from 'fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
 
 describe('checkForHtmlComments', () => {
   it('should detect single-line HTML comments', () => {
@@ -98,5 +105,51 @@ describe('buildHtmlCommentWarning', () => {
       { name: 'dirty', rawContent: '# Dirty\n<!-- inject -->' },
     ]);
     expect(lines.length).toBeGreaterThan(0);
+  });
+});
+
+describe('checkSkillDirectoryForHtmlComments', () => {
+  it('should scan all markdown files in a skill directory', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'skill-test-'));
+    try {
+      await writeFile(join(dir, 'SKILL.md'), '# Skill\n<!-- hidden in skill -->');
+      await writeFile(join(dir, 'README.md'), '# Readme\n<!-- hidden in readme -->');
+      await writeFile(join(dir, 'index.ts'), '// no markdown here');
+
+      const comments = await checkSkillDirectoryForHtmlComments('test', dir);
+      expect(comments.length).toBe(2);
+      expect(comments.some((c) => c.content === 'hidden in skill')).toBe(true);
+      expect(comments.some((c) => c.content === 'hidden in readme')).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true });
+    }
+  });
+
+  it('should scan nested markdown files', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'skill-test-'));
+    try {
+      await writeFile(join(dir, 'SKILL.md'), '# Clean skill');
+      await mkdir(join(dir, 'docs'));
+      await writeFile(join(dir, 'docs', 'guide.md'), '# Guide\n<!-- sneaky injection -->');
+
+      const comments = await checkSkillDirectoryForHtmlComments('nested', dir);
+      expect(comments.length).toBe(1);
+      expect(comments[0]!.content).toBe('sneaky injection');
+    } finally {
+      await rm(dir, { recursive: true });
+    }
+  });
+
+  it('should return empty for directory with no comments', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'skill-test-'));
+    try {
+      await writeFile(join(dir, 'SKILL.md'), '# Safe Skill\nNo comments.');
+      await writeFile(join(dir, 'README.md'), '# Readme\nAlso safe.');
+
+      const comments = await checkSkillDirectoryForHtmlComments('safe', dir);
+      expect(comments.length).toBe(0);
+    } finally {
+      await rm(dir, { recursive: true });
+    }
   });
 });
