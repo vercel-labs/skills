@@ -90,6 +90,36 @@ Instructions here.
     expect(result.exitCode).toBe(0);
   });
 
+  it('should isolate global installs under a test home', () => {
+    const skillName = 'isolated-global-add-test-skill';
+    const skillDir = join(testDir, 'skills', skillName);
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: ${skillName}
+description: Isolated global install test skill
+---
+
+# Isolated Global Install Test Skill
+
+Instructions here.
+`
+    );
+
+    const targetDir = join(testDir, 'project');
+    mkdirSync(targetDir, { recursive: true });
+
+    const result = runCli(['add', testDir, '-y', '-g', '--agent', 'claude-code'], targetDir);
+
+    expect(result.exitCode).toBe(0);
+    expect(
+      existsSync(
+        join(targetDir, '.skills-cli-test-home', '.agents', 'skills', skillName, 'SKILL.md')
+      )
+    ).toBe(true);
+  });
+
   it('should filter skills by name with --skill flag', () => {
     // Create multiple test skills
     const skill1Dir = join(testDir, 'skills', 'skill-one');

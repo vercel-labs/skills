@@ -1,5 +1,7 @@
 import { execSync } from 'child_process';
+import { mkdirSync } from 'fs';
 import { join } from 'path';
+import { tmpdir } from 'os';
 
 // const PROJECT_ROOT = join(import.meta.dirname, '..');
 const CLI_PATH = join(import.meta.dirname, 'cli.ts');
@@ -20,6 +22,27 @@ export function hasLogo(str: string): boolean {
   return str.includes('███') || str.includes('╔') || str.includes('╚');
 }
 
+function getIsolatedHome(cwd?: string): string {
+  const baseDir = cwd ?? join(tmpdir(), `skills-cli-test-home-${process.pid}`);
+  const isolatedHome = join(baseDir, '.skills-cli-test-home');
+  mkdirSync(join(isolatedHome, '.config'), { recursive: true });
+  return isolatedHome;
+}
+
+function getCliEnv(cwd?: string, env?: Record<string, string>) {
+  const isolatedHome = getIsolatedHome(cwd);
+
+  return {
+    ...process.env,
+    HOME: isolatedHome,
+    USERPROFILE: isolatedHome,
+    XDG_CONFIG_HOME: join(isolatedHome, '.config'),
+    CODEX_HOME: join(isolatedHome, '.codex'),
+    CLAUDE_CONFIG_DIR: join(isolatedHome, '.claude'),
+    ...env,
+  };
+}
+
 export function runCli(
   args: string[],
   cwd?: string,
@@ -31,7 +54,7 @@ export function runCli(
       encoding: 'utf-8',
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: env ? { ...process.env, ...env } : undefined,
+      env: getCliEnv(cwd, env),
       timeout: timeout ?? 30000,
     });
     return { stdout: stripAnsi(output), stderr: '', exitCode: 0 };
@@ -60,6 +83,7 @@ export function runCliWithInput(
       cwd,
       input: input + '\n',
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: getCliEnv(cwd),
     });
     return { stdout: stripAnsi(output), stderr: '', exitCode: 0 };
   } catch (error: any) {
