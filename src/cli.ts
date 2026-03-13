@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 
-import { spawn, spawnSync } from 'child_process';
 import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs';
 import { basename, join, dirname } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
-import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
+import { runAdd, parseAddOptions, initTelemetry, type AddOptions } from './add.ts';
 import { runFind } from './find.ts';
 import { runInstallFromLock } from './install.ts';
 import { runList } from './list.ts';
@@ -588,15 +587,12 @@ async function runUpdate(): Promise<void> {
     }
 
     // Use skills CLI to reinstall with -g -y flags
-    const result = spawnSync('npx', ['-y', 'skills', 'add', installUrl, '-g', '-y'], {
-      stdio: ['inherit', 'pipe', 'pipe'],
-      shell: process.platform === 'win32',
-    });
+    try {
+      await runAdd([installUrl], { global: true, yes: true });
 
-    if (result.status === 0) {
       successCount++;
       console.log(`  ${TEXT}✓${RESET} Updated ${update.name}`);
-    } else {
+    } catch {
       failCount++;
       console.log(`  ${DIM}✗ Failed to update ${update.name}${RESET}`);
     }
