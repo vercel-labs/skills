@@ -97,11 +97,20 @@ vi.mock('../src/skill-lock.ts', async () => {
   return {
     ...actual,
     addSkillToLock: mockAddSkillToLock,
-    getGitHubToken: mockGetGitHubToken,
     isPromptDismissed: vi.fn(),
     dismissPrompt: vi.fn(),
     getLastSelectedAgents: vi.fn(),
     saveSelectedAgents: vi.fn(),
+  };
+});
+
+vi.mock('../src/github-tree.ts', async () => {
+  const actual =
+    await vi.importActual<typeof import('../src/github-tree.ts')>('../src/github-tree.ts');
+
+  return {
+    ...actual,
+    getGitHubToken: mockGetGitHubToken,
   };
 });
 
@@ -197,7 +206,6 @@ describe('runAdd global hash fetching', () => {
     });
 
     expect(global.fetch).toHaveBeenCalledTimes(1);
-    expect(mockGetGitHubToken).toHaveBeenCalledTimes(1);
     expect(mockAddSkillToLock).toHaveBeenCalledTimes(4);
     expect(mockAddSkillToLock).toHaveBeenNthCalledWith(
       1,

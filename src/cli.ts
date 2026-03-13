@@ -13,7 +13,7 @@ import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track } from './telemetry.ts';
-import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
+import { fetchSkillFolderHash, getGitHubToken } from './github-tree.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

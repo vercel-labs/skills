@@ -25,7 +25,7 @@ describe('fetchSkillFolderHash retry behavior', () => {
         }),
       }) as typeof fetch;
 
-    const { fetchSkillFolderHash } = await import('../src/skill-lock.ts');
+    const { fetchSkillFolderHash } = await import('../src/github-tree.ts');
 
     expect(await fetchSkillFolderHash('org/repo', 'skills/alpha/SKILL.md')).toBeNull();
     expect(await fetchSkillFolderHash('org/repo', 'skills/alpha/SKILL.md')).toBe('tree-alpha');
@@ -45,7 +45,7 @@ describe('fetchSkillFolderHash retry behavior', () => {
         }),
       }) as typeof fetch;
 
-    const { fetchSkillFolderHash } = await import('../src/skill-lock.ts');
+    const { fetchSkillFolderHash } = await import('../src/github-tree.ts');
 
     expect(await fetchSkillFolderHash('org/repo', 'skills/alpha/SKILL.md')).toBeNull();
     expect(await fetchSkillFolderHash('org/repo', 'skills/alpha/SKILL.md')).toBe('tree-alpha');

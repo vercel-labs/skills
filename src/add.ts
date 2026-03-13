@@ -49,13 +49,12 @@ import {
 import { wellKnownProvider, type WellKnownSkill } from './providers/index.ts';
 import {
   addSkillToLock,
-  fetchSkillFolderHash,
-  getGitHubToken,
   isPromptDismissed,
   dismissPrompt,
   getLastSelectedAgents,
   saveSelectedAgents,
 } from './skill-lock.ts';
+import { fetchSkillFolderHash, getGitHubToken } from './github-tree.ts';
 import { addSkillToLocalLock, computeSkillFolderHash } from './local-lock.ts';
 import type { Skill, AgentType } from './types.ts';
 import packageJson from '../package.json' with { type: 'json' };
