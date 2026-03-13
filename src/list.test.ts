@@ -61,10 +61,21 @@ describe('list command', () => {
       expect(options.json).toBe(true);
     });
 
+    it('should parse --audit flag', () => {
+      const options = parseListOptions(['--audit']);
+      expect(options.audit).toBe(true);
+    });
+
     it('should parse combined --json and -g flags', () => {
       const options = parseListOptions(['-g', '--json']);
       expect(options.global).toBe(true);
       expect(options.json).toBe(true);
+    });
+
+    it('should parse combined --json and --audit flags', () => {
+      const options = parseListOptions(['--json', '--audit']);
+      expect(options.json).toBe(true);
+      expect(options.audit).toBe(true);
     });
 
     it('should stop collecting agents at next flag', () => {
