@@ -195,35 +195,38 @@ export async function fetchSkillFolderHash(
   const branches = ['main', 'master'];
 
   for (const branch of branches) {
+    const cacheKey = `${ownerRepo}@${branch}`;
+    let treePromise = repoTreeCache.get(cacheKey);
+
+    if (!treePromise) {
+      treePromise = (async () => {
+        const url = `https://api.github.com/repos/${ownerRepo}/git/trees/${branch}?recursive=1`;
+        const headers: Record<string, string> = {
+          Accept: 'application/vnd.github.v3+json',
+          'User-Agent': 'skills-cli',
+        };
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const response = await fetch(url, { headers });
+
+        if (!response.ok) return null;
+
+        return (await response.json()) as {
+          sha: string;
+          tree: Array<{ path: string; type: string; sha: string }>;
+        };
+      })();
+      repoTreeCache.set(cacheKey, treePromise);
+    }
+
     try {
-      const cacheKey = `${ownerRepo}@${branch}`;
-      let treePromise = repoTreeCache.get(cacheKey);
-
-      if (!treePromise) {
-        treePromise = (async () => {
-          const url = `https://api.github.com/repos/${ownerRepo}/git/trees/${branch}?recursive=1`;
-          const headers: Record<string, string> = {
-            Accept: 'application/vnd.github.v3+json',
-            'User-Agent': 'skills-cli',
-          };
-          if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
-          }
-
-          const response = await fetch(url, { headers });
-
-          if (!response.ok) return null;
-
-          return (await response.json()) as {
-            sha: string;
-            tree: Array<{ path: string; type: string; sha: string }>;
-          };
-        })();
-        repoTreeCache.set(cacheKey, treePromise);
-      }
-
       const data = await treePromise;
-      if (!data) continue;
+      if (!data) {
+        repoTreeCache.delete(cacheKey);
+        continue;
+      }
 
       // If folderPath is empty, this is a root-level skill - use the root tree SHA
       if (!folderPath) {
@@ -239,6 +242,7 @@ export async function fetchSkillFolderHash(
         return folderEntry.sha;
       }
     } catch {
+      repoTreeCache.delete(cacheKey);
       continue;
     }
   }
