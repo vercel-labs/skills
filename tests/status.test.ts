@@ -43,9 +43,14 @@ describe('evaluateSkillStatus', () => {
   it('flags a tracked skill when the lock hash matches', async () => {
     const hashFn = vi.fn(async () => 'expected-hash');
 
-    const statuses = await evaluateSkillStatus([baseLocalSkill], emptyGlobalLock, localLock, {
-      hashFn,
-    });
+    const statuses = await evaluateSkillStatus(
+      [baseLocalSkill],
+      emptyGlobalLock.skills,
+      localLock,
+      {
+        hashFn,
+      }
+    );
 
     expect(statuses).toHaveLength(1);
     expect(statuses[0]).toEqual({
@@ -62,7 +67,7 @@ describe('evaluateSkillStatus', () => {
   });
 
   it('reports missing lock entry when the skill is not tracked', async () => {
-    const statuses = await evaluateSkillStatus([baseLocalSkill], emptyGlobalLock, {
+    const statuses = await evaluateSkillStatus([baseLocalSkill], emptyGlobalLock.skills, {
       version: 1,
       skills: {},
     });
@@ -96,7 +101,7 @@ describe('evaluateSkillStatus', () => {
           },
         },
         dismissed: {},
-      },
+      }.skills,
       { version: 1, skills: {} },
       { hashFn }
     );
