@@ -134,6 +134,8 @@ export async function writeSkillLock(lock: SkillLockFile): Promise<void> {
 
 const SKILL_LOCK_KEY_SEPARATOR = '::';
 
+// Keep lock entries keyed by source+skill so identically named skills from different
+// providers (for example, an official source and a fork) do not overwrite each other.
 function makeSkillLockKey(source: string, skillName: string): string {
   return `${source}${SKILL_LOCK_KEY_SEPARATOR}${skillName}`;
 }
