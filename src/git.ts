@@ -25,8 +25,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
     timeout: { block: CLONE_TIMEOUT_MS },
   });
   const cloneOptions = ref ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
-  const previousPromptSetting = process.env.GIT_TERMINAL_PROMPT;
-  process.env.GIT_TERMINAL_PROMPT = '0';
+  git.env('GIT_TERMINAL_PROMPT', '0');
 
   try {
     await git.clone(url, tempDir, cloneOptions);
@@ -68,12 +67,6 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
     }
 
     throw new GitCloneError(`Failed to clone ${url}: ${errorMessage}`, url, false, false);
-  } finally {
-    if (previousPromptSetting === undefined) {
-      delete process.env.GIT_TERMINAL_PROMPT;
-    } else {
-      process.env.GIT_TERMINAL_PROMPT = previousPromptSetting;
-    }
   }
 }
 
