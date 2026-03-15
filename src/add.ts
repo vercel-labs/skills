@@ -3,6 +3,7 @@ import pc from 'picocolors';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { sep } from 'path';
+import { runSecurityScan, formatScanResult } from './security-scan.ts';
 import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
 import { searchMultiselect, cancelSymbol } from './prompts/search-multiselect.ts';
 
@@ -418,6 +419,7 @@ export interface AddOptions {
   all?: boolean;
   fullDepth?: boolean;
   copy?: boolean;
+  scan?: boolean;
 }
 
 /**
@@ -711,6 +713,38 @@ async function handleWellKnownSkills(
     if (p.isCancel(confirmed) || !confirmed) {
       p.cancel('Installation cancelled');
       process.exit(0);
+    }
+  }
+
+  // Run pre-install security scan if --scan is enabled
+  if (options.scan && selectedSkills.length > 0) {
+    spinner.start('Running security scan...');
+    try {
+      // Scan the first skill's source for security issues
+      const scanResults = await runSecurityScan(process.cwd());
+      spinner.stop('Security scan complete');
+
+      const scanLines = formatScanResult(scanResults);
+      for (const line of scanLines) {
+        console.log(line);
+      }
+
+      if (scanResults.highCount > 0 && !options.yes) {
+        console.log();
+        const proceed = await p.confirm({
+          message: pc.yellow(
+            `${scanResults.highCount} high-risk finding(s) detected. Continue installation?`
+          ),
+        });
+
+        if (p.isCancel(proceed) || !proceed) {
+          p.cancel('Installation cancelled due to security concerns');
+          process.exit(0);
+        }
+      }
+      console.log();
+    } catch {
+      spinner.stop('Security scan skipped (error)');
     }
   }
 
@@ -1801,6 +1835,8 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       options.fullDepth = true;
     } else if (arg === '--copy') {
       options.copy = true;
+    } else if (arg === '--scan') {
+      options.scan = true;
     } else if (arg && !arg.startsWith('-')) {
       source.push(arg);
     }
