@@ -157,6 +157,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.factory'));
     },
   },
+  forgecode: {
+    name: 'forgecode',
+    displayName: 'ForgeCode',
+    skillsDir: '.forge/skills',
+    globalSkillsDir: join(home, 'forge/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, 'forge'));
+    },
+  },
   'gemini-cli': {
     name: 'gemini-cli',
     displayName: 'Gemini CLI',
