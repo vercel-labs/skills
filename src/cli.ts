@@ -14,6 +14,7 @@ import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track } from './telemetry.ts';
 import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
+import { readLocalLock } from './local-lock.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -400,14 +401,44 @@ async function runCheck(args: string[] = []): Promise<void> {
   console.log(`${TEXT}Checking for skill updates...${RESET}`);
   console.log();
 
-  const lock = readSkillLock();
-  const skillNames = Object.keys(lock.skills);
+  const globalLock = readSkillLock();
+
+  // When a project-level skills-lock.json exists, scope the check to
+  // only the skills tracked by this project instead of every global skill.
+  const localLock = await readLocalLock();
+  const localSkillNames = Object.keys(localLock.skills);
+  const useProjectScope = localSkillNames.length > 0;
+
+  const skillNames = useProjectScope
+    ? localSkillNames.filter((name) => name in globalLock.skills)
+    : Object.keys(globalLock.skills);
 
   if (skillNames.length === 0) {
-    console.log(`${DIM}No skills tracked in lock file.${RESET}`);
-    console.log(`${DIM}Install skills with${RESET} ${TEXT}npx skills add <package>${RESET}`);
+    if (useProjectScope && localSkillNames.length > 0) {
+      console.log(
+        `${DIM}Project skills found in skills-lock.json but not in the global lock.${RESET}`
+      );
+      console.log(
+        `${DIM}Run${RESET} ${TEXT}npx skills install${RESET} ${DIM}to restore them first.${RESET}`
+      );
+    } else {
+      console.log(`${DIM}No skills tracked in lock file.${RESET}`);
+      console.log(`${DIM}Install skills with${RESET} ${TEXT}npx skills add <package>${RESET}`);
+    }
     return;
   }
+
+  if (useProjectScope) {
+    console.log(
+      `${DIM}Checking project skills (${skillNames.length} of ${Object.keys(globalLock.skills).length} global)${RESET}`
+    );
+  }
+
+  // Use global lock entries (which have full metadata for GitHub API checks)
+  const lock = {
+    ...globalLock,
+    skills: Object.fromEntries(skillNames.map((name) => [name, globalLock.skills[name]!])),
+  };
 
   // Get GitHub token from user's environment for higher rate limits
   const token = getGitHubToken();
@@ -505,13 +536,37 @@ async function runUpdate(): Promise<void> {
   console.log(`${TEXT}Checking for skill updates...${RESET}`);
   console.log();
 
-  const lock = readSkillLock();
-  const skillNames = Object.keys(lock.skills);
+  const globalLock = readSkillLock();
+
+  // When a project-level skills-lock.json exists, scope the update to
+  // only the skills tracked by this project.
+  const localLock = await readLocalLock();
+  const localSkillNames = Object.keys(localLock.skills);
+  const useProjectScope = localSkillNames.length > 0;
+
+  const skillNames = useProjectScope
+    ? localSkillNames.filter((name) => name in globalLock.skills)
+    : Object.keys(globalLock.skills);
 
   if (skillNames.length === 0) {
-    console.log(`${DIM}No skills tracked in lock file.${RESET}`);
-    console.log(`${DIM}Install skills with${RESET} ${TEXT}npx skills add <package>${RESET}`);
+    if (useProjectScope && localSkillNames.length > 0) {
+      console.log(
+        `${DIM}Project skills found in skills-lock.json but not in the global lock.${RESET}`
+      );
+      console.log(
+        `${DIM}Run${RESET} ${TEXT}npx skills install${RESET} ${DIM}to restore them first.${RESET}`
+      );
+    } else {
+      console.log(`${DIM}No skills tracked in lock file.${RESET}`);
+      console.log(`${DIM}Install skills with${RESET} ${TEXT}npx skills add <package>${RESET}`);
+    }
     return;
+  }
+
+  if (useProjectScope) {
+    console.log(
+      `${DIM}Updating project skills (${skillNames.length} of ${Object.keys(globalLock.skills).length} global)${RESET}`
+    );
   }
 
   // Get GitHub token from user's environment for higher rate limits
@@ -522,7 +577,7 @@ async function runUpdate(): Promise<void> {
   const skipped: SkippedSkill[] = [];
 
   for (const skillName of skillNames) {
-    const entry = lock.skills[skillName];
+    const entry = globalLock.skills[skillName];
     if (!entry) continue;
 
     // Only check skills with folder hash and skill path
