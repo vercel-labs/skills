@@ -2,7 +2,7 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
-import { sep } from 'path';
+import { relative, sep } from 'path';
 import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
 import { searchMultiselect, cancelSymbol } from './prompts/search-multiselect.ts';
 
@@ -1511,10 +1511,19 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               if (hash) skillFolderHash = hash;
             }
 
+            // For local sources, store relative path instead of absolute
+            // to make the lockfile portable across machines
+            const effectiveSource =
+              parsed.type === 'local'
+                ? relative(cwd, parsed.url) || '.'
+                : lockSource || normalizedSource;
+            const effectiveSourceUrl =
+              parsed.type === 'local' ? relative(cwd, parsed.url) || '.' : parsed.url;
+
             await addSkillToLock(skill.name, {
-              source: lockSource || normalizedSource,
+              source: effectiveSource,
               sourceType: parsed.type,
-              sourceUrl: parsed.url,
+              sourceUrl: effectiveSourceUrl,
               skillPath: skillPathValue,
               skillFolderHash,
               pluginName: skill.pluginName,
@@ -1534,10 +1543,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         if (successfulSkillNames.has(skillDisplayName)) {
           try {
             const computedHash = await computeSkillFolderHash(skill.path);
+            // For local sources, store relative path instead of absolute
+            const localLockSource =
+              parsed.type === 'local' ? relative(cwd, parsed.url) || '.' : lockSource || parsed.url;
             await addSkillToLocalLock(
               skill.name,
               {
-                source: lockSource || parsed.url,
+                source: localLockSource,
                 sourceType: parsed.type,
                 computedHash,
               },
