@@ -3,7 +3,7 @@
 import { spawnSync } from 'child_process';
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { basename, join, dirname } from 'path';
-import { homedir } from 'os';
+
 import { fileURLToPath } from 'url';
 import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
 import { runFind } from './find.ts';
@@ -12,7 +12,14 @@ import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track } from './telemetry.ts';
-import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
+import {
+  type SkillLockEntry,
+  type SkillLockFile,
+  fetchSkillFolderHash,
+  getGitHubToken,
+  getSkillLockPath,
+  readSkillLock,
+} from './skill-lock.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -276,53 +283,6 @@ Describe when this skill should be used.
 // Check and Update Commands
 // ============================================
 
-const AGENTS_DIR = '.agents';
-const LOCK_FILE = '.skill-lock.json';
-const CURRENT_LOCK_VERSION = 3; // Bumped from 2 to 3 for folder hash support
-
-interface SkillLockEntry {
-  source: string;
-  sourceType: string;
-  sourceUrl: string;
-  skillPath?: string;
-  /** GitHub tree SHA for the entire skill folder (v3) */
-  skillFolderHash: string;
-  installedAt: string;
-  updatedAt: string;
-}
-
-interface SkillLockFile {
-  version: number;
-  skills: Record<string, SkillLockEntry>;
-}
-
-function getSkillLockPath(): string {
-  const xdgStateHome = process.env.XDG_STATE_HOME;
-  if (xdgStateHome) {
-    return join(xdgStateHome, 'skills', LOCK_FILE);
-  }
-  return join(homedir(), AGENTS_DIR, LOCK_FILE);
-}
-
-function readSkillLock(): SkillLockFile {
-  const lockPath = getSkillLockPath();
-  try {
-    const content = readFileSync(lockPath, 'utf-8');
-    const parsed = JSON.parse(content) as SkillLockFile;
-    if (typeof parsed.version !== 'number' || !parsed.skills) {
-      return { version: CURRENT_LOCK_VERSION, skills: {} };
-    }
-    // If old version, wipe and start fresh (backwards incompatible change)
-    // v3 adds skillFolderHash - we want fresh installs to populate it
-    if (parsed.version < CURRENT_LOCK_VERSION) {
-      return { version: CURRENT_LOCK_VERSION, skills: {} };
-    }
-    return parsed;
-  } catch {
-    return { version: CURRENT_LOCK_VERSION, skills: {} };
-  }
-}
-
 interface SkippedSkill {
   name: string;
   reason: string;
@@ -366,7 +326,7 @@ async function runCheck(args: string[] = []): Promise<void> {
   console.log(`${TEXT}Checking for skill updates...${RESET}`);
   console.log();
 
-  const lock = readSkillLock();
+  const lock = await readSkillLock();
   const skillNames = Object.keys(lock.skills);
 
   if (skillNames.length === 0) {
@@ -476,7 +436,7 @@ async function runUpdate(): Promise<void> {
   console.log(`${TEXT}Checking for skill updates...${RESET}`);
   console.log();
 
-  const lock = readSkillLock();
+  const lock = await readSkillLock();
   const skillNames = Object.keys(lock.skills);
 
   if (skillNames.length === 0) {
