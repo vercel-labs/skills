@@ -14,6 +14,7 @@ import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track } from './telemetry.ts';
 import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
+import { verifySkillSignature, formatVerificationResult } from './signature.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -113,6 +114,7 @@ ${BOLD}Manage Skills:${RESET}
                             https://github.com/vercel-labs/agent-skills
   remove [skills]      Remove installed skills
   list, ls             List installed skills
+  verify [skills]      Verify skill signatures
   find [query]         Search for skills interactively
 
 ${BOLD}Updates:${RESET}
@@ -161,6 +163,8 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills add vercel-labs/agent-skills --skill pr-review commit
   ${DIM}$${RESET} skills remove                        ${DIM}# interactive remove${RESET}
   ${DIM}$${RESET} skills remove web-design             ${DIM}# remove by name${RESET}
+  ${DIM}$${RESET} skills verify                        ${DIM}# verify all skill signatures${RESET}
+  ${DIM}$${RESET} skills verify web-design             ${DIM}# verify specific skill${RESET}
   ${DIM}$${RESET} skills rm --global frontend-design
   ${DIM}$${RESET} skills list                          ${DIM}# list project skills${RESET}
   ${DIM}$${RESET} skills ls -g                         ${DIM}# list global skills${RESET}
@@ -393,6 +397,87 @@ function printSkippedSkills(skipped: SkippedSkill[]): void {
   for (const skill of skipped) {
     console.log(`  ${TEXT}•${RESET} ${skill.name} ${DIM}(${skill.reason})${RESET}`);
     console.log(`    ${DIM}To update: ${TEXT}npx skills add ${skill.sourceUrl} -g -y${RESET}`);
+  }
+}
+
+/**
+ * Verify signatures of installed skills.
+ */
+async function runVerify(args: string[]): Promise<void> {
+  const isGlobal = args.includes('-g') || args.includes('--global');
+  const skillFilter = args.filter((a) => !a.startsWith('-'));
+
+  console.log(`${TEXT}Verifying skill signatures...${RESET}`);
+  console.log();
+
+  const lock = readSkillLock();
+  const skillNames = Object.keys(lock.skills);
+
+  if (skillNames.length === 0) {
+    console.log(`${DIM}No skills tracked in lock file.${RESET}`);
+    return;
+  }
+
+  // Filter to specific skills if provided
+  const toVerify =
+    skillFilter.length > 0
+      ? skillNames.filter((n) => skillFilter.some((f) => n.toLowerCase().includes(f.toLowerCase())))
+      : skillNames;
+
+  if (toVerify.length === 0) {
+    console.log(`${DIM}No matching skills found.${RESET}`);
+    return;
+  }
+
+  let verified = 0;
+  let unsigned = 0;
+  let failed = 0;
+
+  for (const skillName of toVerify) {
+    const entry = lock.skills[skillName];
+    if (!entry) continue;
+
+    // Find the installed SKILL.md
+    const canonicalDir = join(homedir(), '.agents', 'skills', skillName);
+    const skillMdPath = join(canonicalDir, 'SKILL.md');
+
+    try {
+      if (!existsSync(skillMdPath)) {
+        console.log(`  ${DIM}○${RESET} ${skillName} ${DIM}(not found on disk)${RESET}`);
+        continue;
+      }
+
+      const content = readFileSync(skillMdPath, 'utf-8');
+      const result = await verifySkillSignature(content);
+      const formatted = formatVerificationResult(result);
+
+      if (result.status === 'verified') {
+        console.log(`  ${TEXT}✓${RESET} ${skillName} ${DIM}${formatted}${RESET}`);
+        verified++;
+      } else if (result.status === 'no-signature') {
+        console.log(`  ${DIM}○${RESET} ${skillName} ${DIM}${formatted}${RESET}`);
+        unsigned++;
+      } else {
+        console.log(`  ${TEXT}✗${RESET} ${skillName} ${formatted}`);
+        failed++;
+      }
+    } catch (err) {
+      console.log(
+        `  ${TEXT}✗${RESET} ${skillName} ${DIM}(error: ${err instanceof Error ? err.message : String(err)})${RESET}`
+      );
+      failed++;
+    }
+  }
+
+  console.log();
+  console.log(
+    `${TEXT}Results:${RESET} ${verified} verified, ${unsigned} unsigned, ${failed} failed`
+  );
+
+  if (failed > 0) {
+    console.log();
+    console.log(`${DIM}⚠ Skills with failed verification may have been tampered with.${RESET}`);
+    console.log(`${DIM}  Reinstall from a trusted source: npx skills add <source> -g -y${RESET}`);
   }
 }
 
@@ -684,6 +769,9 @@ async function main(): Promise<void> {
     case 'list':
     case 'ls':
       await runList(restArgs);
+      break;
+    case 'verify':
+      await runVerify(restArgs);
       break;
     case 'check':
       runCheck(restArgs);
