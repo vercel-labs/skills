@@ -29,6 +29,19 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
 
   try {
     await git.clone(url, tempDir, cloneOptions);
+
+    // Initialize submodules if any exist
+    try {
+      const repoGit = simpleGit({
+        timeout: { block: CLONE_TIMEOUT_MS },
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+      });
+      await repoGit.cwd(tempDir);
+      await repoGit.submoduleUpdate(['--init', '--recursive', '--depth', '1']);
+    } catch {
+      // Submodule init is best-effort — skip silently if no submodules or if it fails
+    }
+
     return tempDir;
   } catch (error) {
     // Clean up temp dir on failure
