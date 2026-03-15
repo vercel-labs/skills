@@ -32,6 +32,8 @@ export interface SkillLockEntry {
   updatedAt: string;
   /** Name of the plugin this skill belongs to (if any) */
   pluginName?: string;
+  /** Whether the skill is enabled. Defaults to true when absent. */
+  enabled?: boolean;
 }
 
 /**
@@ -347,4 +349,34 @@ export async function saveSelectedAgents(agents: string[]): Promise<void> {
   const lock = await readSkillLock();
   lock.lastSelectedAgents = agents;
   await writeSkillLock(lock);
+}
+
+/**
+ * Set the enabled state of a skill in the lock file.
+ * Returns the updated entry, or null if the skill is not found.
+ */
+export async function setSkillEnabled(
+  skillName: string,
+  enabled: boolean
+): Promise<SkillLockEntry | null> {
+  const lock = await readSkillLock();
+  const entry = lock.skills[skillName];
+  if (!entry) return null;
+
+  if (enabled) {
+    // Remove the field entirely when re-enabling (default is enabled)
+    delete entry.enabled;
+  } else {
+    entry.enabled = false;
+  }
+
+  await writeSkillLock(lock);
+  return entry;
+}
+
+/**
+ * Check if a skill is enabled. Defaults to true when the field is absent.
+ */
+export function isSkillEnabled(entry: SkillLockEntry): boolean {
+  return entry.enabled !== false;
 }
