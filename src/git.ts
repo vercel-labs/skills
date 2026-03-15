@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 
 const CLONE_TIMEOUT_MS = 60000; // 60 seconds
+const LS_REMOTE_TIMEOUT_MS = 15000; // 15 seconds for ls-remote
 
 export class GitCloneError extends Error {
   readonly url: string;
@@ -80,4 +81,50 @@ export async function cleanupTempDir(dir: string): Promise<void> {
   }
 
   await rm(dir, { recursive: true, force: true });
+}
+
+/**
+ * Get the HEAD commit SHA of a remote git repository using `git ls-remote`.
+ * This works with any git URL (GitHub, GitLab, self-hosted, SSH, HTTPS).
+ *
+ * @param url - The git remote URL (e.g., "git@git.example.com:owner/repo.git")
+ * @param ref - Optional ref to check (defaults to "HEAD")
+ * @returns The commit SHA string, or null if unable to fetch
+ */
+export async function getRemoteHeadCommit(url: string, ref?: string): Promise<string | null> {
+  const git = simpleGit({
+    timeout: { block: LS_REMOTE_TIMEOUT_MS },
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+  });
+
+  try {
+    const result = await git.listRemote([url, ref || 'HEAD']);
+    const sha = result.trim().split(/\s+/)[0];
+    if (sha && /^[0-9a-f]{40}$/i.test(sha)) {
+      return sha;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get the HEAD commit SHA of a local git repository clone.
+ *
+ * @param repoDir - Path to the cloned repository directory
+ * @returns The commit SHA string, or null if not a git repo or unable to read
+ */
+export async function getLocalHeadCommit(repoDir: string): Promise<string | null> {
+  const git = simpleGit(repoDir);
+  try {
+    const result = await git.revparse(['HEAD']);
+    const sha = result.trim();
+    if (sha && /^[0-9a-f]{40}$/i.test(sha)) {
+      return sha;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }

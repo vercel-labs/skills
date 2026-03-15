@@ -23,6 +23,15 @@ export interface LocalSkillLockEntry {
    * computes the hash from actual file contents on disk.
    */
   computedHash: string;
+  /** The original URL used to install the skill (for re-fetching updates) */
+  sourceUrl?: string;
+  /**
+   * For git/gitlab sources: the HEAD commit SHA at install time.
+   * Used by check/update to detect remote changes via git ls-remote.
+   */
+  skillFolderHash?: string;
+  /** Subpath within the source repo, if applicable */
+  skillPath?: string;
 }
 
 /**
