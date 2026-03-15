@@ -23,8 +23,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
   const tempDir = await mkdtemp(join(tmpdir(), 'skills-'));
   const git = simpleGit({
     timeout: { block: CLONE_TIMEOUT_MS },
-    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
-  });
+  }).env('GIT_TERMINAL_PROMPT', '0');
   const cloneOptions = ref ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
 
   try {
