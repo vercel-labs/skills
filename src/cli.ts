@@ -8,6 +8,7 @@ import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
 import { runFind } from './find.ts';
+import { runInfo } from './info.ts';
 import { runInstallFromLock } from './install.ts';
 import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
@@ -117,6 +118,7 @@ ${BOLD}Manage Skills:${RESET}
 
 ${BOLD}Updates:${RESET}
   check                Check for available skill updates
+  info <name>          Show skill info and SKILL.md content
   update               Update all skills to latest versions
 
 ${BOLD}Project:${RESET}
@@ -167,6 +169,8 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills find                          ${DIM}# interactive search${RESET}
   ${DIM}$${RESET} skills find typescript               ${DIM}# search by keyword${RESET}
   ${DIM}$${RESET} skills check
+  ${DIM}$${RESET} skills info my-skill                 ${DIM}# show installed skill info${RESET}
+  ${DIM}$${RESET} skills info owner/repo@skill          ${DIM}# fetch remote skill info${RESET}
   ${DIM}$${RESET} skills update
   ${DIM}$${RESET} skills experimental_install            ${DIM}# restore from skills-lock.json${RESET}
   ${DIM}$${RESET} skills init my-skill
@@ -681,6 +685,9 @@ async function main(): Promise<void> {
       break;
     case 'check':
       runCheck(restArgs);
+      break;
+    case 'info':
+      await runInfo(restArgs);
       break;
     case 'update':
     case 'upgrade':
