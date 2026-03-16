@@ -11,6 +11,7 @@ import { runFind } from './find.ts';
 import { runInstallFromLock } from './install.ts';
 import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
+import { runLink, parseLinkOptions } from './link.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track } from './telemetry.ts';
 import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
@@ -77,6 +78,9 @@ function showBanner(): void {
     `  ${DIM}$${RESET} ${TEXT}npx skills list${RESET}                 ${DIM}List installed skills${RESET}`
   );
   console.log(
+    `  ${DIM}$${RESET} ${TEXT}npx skills link ${DIM}[agent]${RESET}         ${DIM}Link skills from .agents/skills${RESET}`
+  );
+  console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills find ${DIM}[query]${RESET}         ${DIM}Search for skills${RESET}`
   );
   console.log();
@@ -113,6 +117,7 @@ ${BOLD}Manage Skills:${RESET}
                             https://github.com/vercel-labs/agent-skills
   remove [skills]      Remove installed skills
   list, ls             List installed skills
+  link [agent]         Link canonical .agents/skills into agent directories
   find [query]         Search for skills interactively
 
 ${BOLD}Updates:${RESET}
@@ -140,6 +145,10 @@ ${BOLD}Remove Options:${RESET}
   -s, --skill <skills>   Specify skills to remove (use '*' for all skills)
   -y, --yes              Skip confirmation prompts
   --all                  Shorthand for --skill '*' --agent '*' -y
+
+${BOLD}Link Options:${RESET}
+  -a, --agent <agents>   Specify agents to materialize skills for
+  --copy                 Copy skill directories instead of linking
   
 ${BOLD}Experimental Sync Options:${RESET}
   -a, --agent <agents>   Specify agents to install to (use '*' for all agents)
@@ -166,6 +175,8 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills ls -g                         ${DIM}# list global skills${RESET}
   ${DIM}$${RESET} skills ls -a claude-code             ${DIM}# filter by agent${RESET}
   ${DIM}$${RESET} skills ls --json                      ${DIM}# JSON output${RESET}
+  ${DIM}$${RESET} skills link claude-code             ${DIM}# link from .agents/skills${RESET}
+  ${DIM}$${RESET} skills link --copy continue         ${DIM}# force local copies${RESET}
   ${DIM}$${RESET} skills find                          ${DIM}# interactive search${RESET}
   ${DIM}$${RESET} skills find typescript               ${DIM}# search by keyword${RESET}
   ${DIM}$${RESET} skills check
@@ -679,6 +690,12 @@ async function main(): Promise<void> {
       showLogo();
       const { options: syncOptions } = parseSyncOptions(restArgs);
       await runSync(restArgs, syncOptions);
+      break;
+    }
+    case 'link': {
+      showLogo();
+      const { agents: linkAgents, options: linkOptions } = parseLinkOptions(restArgs);
+      await runLink(linkAgents, linkOptions);
       break;
     }
     case 'list':

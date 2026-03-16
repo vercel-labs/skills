@@ -22,7 +22,7 @@ import { parseSkillMd } from './skills.ts';
 
 export type InstallMode = 'symlink' | 'copy';
 
-interface InstallResult {
+export interface InstallResult {
   success: boolean;
   path: string;
   canonicalPath?: string;
@@ -277,41 +277,11 @@ export async function installSkillForAgent(
     // Symlink mode: copy to canonical location and symlink to agent location
     await cleanAndCreateDirectory(canonicalDir);
     await copyDirectory(skill.path, canonicalDir);
-
-    // For universal agents with global install, the skill is already in the canonical
-    // ~/.agents/skills directory. Skip creating a symlink to the agent-specific global dir
-    // (e.g. ~/.copilot/skills) to avoid duplicates.
-    if (isGlobal && isUniversalAgent(agentType)) {
-      return {
-        success: true,
-        path: canonicalDir,
-        canonicalPath: canonicalDir,
-        mode: 'symlink',
-      };
-    }
-
-    const symlinkCreated = await createSymlink(canonicalDir, agentDir);
-
-    if (!symlinkCreated) {
-      // Symlink failed, fall back to copy
-      await cleanAndCreateDirectory(agentDir);
-      await copyDirectory(skill.path, agentDir);
-
-      return {
-        success: true,
-        path: agentDir,
-        canonicalPath: canonicalDir,
-        mode: 'symlink',
-        symlinkFailed: true,
-      };
-    }
-
-    return {
-      success: true,
-      path: agentDir,
-      canonicalPath: canonicalDir,
+    return await materializeCanonicalSkillForAgent(skillName, agentType, {
+      global: isGlobal,
+      cwd,
       mode: 'symlink',
-    };
+    });
   } catch (error) {
     return {
       success: false,
@@ -445,6 +415,123 @@ export function getCanonicalPath(
 }
 
 /**
+ * Materialize an already-installed canonical skill into an agent-specific location.
+ * This is used both by `skills link` and by the install flows after they finish
+ * writing canonical content into .agents/skills.
+ */
+export async function materializeCanonicalSkillForAgent(
+  skillName: string,
+  agentType: AgentType,
+  options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
+): Promise<InstallResult> {
+  const agent = agents[agentType];
+  const isGlobal = options.global ?? false;
+  const cwd = options.cwd || process.cwd();
+  const installMode = options.mode ?? 'symlink';
+
+  if (isGlobal && agent.globalSkillsDir === undefined) {
+    return {
+      success: false,
+      path: '',
+      mode: installMode,
+      error: `${agent.displayName} does not support global skill installation`,
+    };
+  }
+
+  const canonicalDir = getCanonicalPath(skillName, { global: isGlobal, cwd });
+  const agentBase = getAgentBaseDir(agentType, isGlobal, cwd);
+  const agentDir = join(agentBase, sanitizeName(skillName));
+
+  if (!isPathSafe(agentBase, agentDir)) {
+    return {
+      success: false,
+      path: agentDir,
+      mode: installMode,
+      error: 'Invalid skill name: potential path traversal detected',
+    };
+  }
+
+  try {
+    const canonicalStats = await stat(canonicalDir);
+    if (!canonicalStats.isDirectory()) {
+      return {
+        success: false,
+        path: agentDir,
+        canonicalPath: canonicalDir,
+        mode: installMode,
+        error: 'Canonical skill is not a directory',
+      };
+    }
+  } catch {
+    return {
+      success: false,
+      path: agentDir,
+      canonicalPath: canonicalDir,
+      mode: installMode,
+      error: 'Canonical skill not found',
+    };
+  }
+
+  const [realCanonicalDir, realAgentDir] = await Promise.all([
+    resolveParentSymlinks(canonicalDir),
+    resolveParentSymlinks(agentDir),
+  ]);
+
+  if (realCanonicalDir === realAgentDir) {
+    return {
+      success: true,
+      path: canonicalDir,
+      canonicalPath: canonicalDir,
+      mode: installMode,
+    };
+  }
+
+  try {
+    if (installMode === 'copy') {
+      await cleanAndCreateDirectory(agentDir);
+      await copyDirectory(canonicalDir, agentDir);
+
+      return {
+        success: true,
+        path: agentDir,
+        canonicalPath: canonicalDir,
+        mode: 'copy',
+      };
+    }
+
+    const symlinkCreated = await createSymlink(canonicalDir, agentDir);
+
+    if (!symlinkCreated) {
+      await cleanAndCreateDirectory(agentDir);
+      await copyDirectory(canonicalDir, agentDir);
+
+      return {
+        success: true,
+        path: agentDir,
+        canonicalPath: canonicalDir,
+        mode: 'symlink',
+        symlinkFailed: true,
+      };
+    }
+
+    return {
+      success: true,
+      path: agentDir,
+      canonicalPath: canonicalDir,
+      mode: 'symlink',
+    };
+  } catch (error) {
+    return {
+      success: false,
+      path: agentDir,
+      canonicalPath: canonicalDir,
+      mode: installMode,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+/**
  * Install a remote skill from any host provider.
  * The skill directory name is derived from the installName field.
  * Supports symlink mode (writes to canonical location and symlinks to agent dirs)
@@ -518,40 +605,11 @@ export async function installRemoteSkillForAgent(
     await cleanAndCreateDirectory(canonicalDir);
     const skillMdPath = join(canonicalDir, 'SKILL.md');
     await writeFile(skillMdPath, skill.content, 'utf-8');
-
-    // For universal agents with global install, skip creating agent-specific symlink
-    if (isGlobal && isUniversalAgent(agentType)) {
-      return {
-        success: true,
-        path: canonicalDir,
-        canonicalPath: canonicalDir,
-        mode: 'symlink',
-      };
-    }
-
-    const symlinkCreated = await createSymlink(canonicalDir, agentDir);
-
-    if (!symlinkCreated) {
-      // Symlink failed, fall back to copy
-      await cleanAndCreateDirectory(agentDir);
-      const agentSkillMdPath = join(agentDir, 'SKILL.md');
-      await writeFile(agentSkillMdPath, skill.content, 'utf-8');
-
-      return {
-        success: true,
-        path: agentDir,
-        canonicalPath: canonicalDir,
-        mode: 'symlink',
-        symlinkFailed: true,
-      };
-    }
-
-    return {
-      success: true,
-      path: agentDir,
-      canonicalPath: canonicalDir,
+    return await materializeCanonicalSkillForAgent(skillName, agentType, {
+      global: isGlobal,
+      cwd,
       mode: 'symlink',
-    };
+    });
   } catch (error) {
     return {
       success: false,
@@ -656,39 +714,11 @@ export async function installWellKnownSkillForAgent(
     // Symlink mode: write to canonical location and symlink to agent location
     await cleanAndCreateDirectory(canonicalDir);
     await writeSkillFiles(canonicalDir);
-
-    // For universal agents with global install, skip creating agent-specific symlink
-    if (isGlobal && isUniversalAgent(agentType)) {
-      return {
-        success: true,
-        path: canonicalDir,
-        canonicalPath: canonicalDir,
-        mode: 'symlink',
-      };
-    }
-
-    const symlinkCreated = await createSymlink(canonicalDir, agentDir);
-
-    if (!symlinkCreated) {
-      // Symlink failed, fall back to copy
-      await cleanAndCreateDirectory(agentDir);
-      await writeSkillFiles(agentDir);
-
-      return {
-        success: true,
-        path: agentDir,
-        canonicalPath: canonicalDir,
-        mode: 'symlink',
-        symlinkFailed: true,
-      };
-    }
-
-    return {
-      success: true,
-      path: agentDir,
-      canonicalPath: canonicalDir,
+    return await materializeCanonicalSkillForAgent(skillName, agentType, {
+      global: isGlobal,
+      cwd,
       mode: 'symlink',
-    };
+    });
   } catch (error) {
     return {
       success: false,
