@@ -1,8 +1,9 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { existsSync } from 'fs';
+import { mkdir } from 'fs/promises';
 import { homedir } from 'os';
-import { sep } from 'path';
+import { sep, basename, join, resolve } from 'path';
 import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
 import { searchMultiselect, cancelSymbol } from './prompts/search-multiselect.ts';
 
@@ -418,6 +419,7 @@ export interface AddOptions {
   all?: boolean;
   fullDepth?: boolean;
   copy?: boolean;
+  dir?: string;
 }
 
 /**
@@ -522,6 +524,64 @@ async function handleWellKnownSkills(
     }
 
     selectedSkills = selected as WellKnownSkill[];
+  }
+
+  // --dir: install directly to user-specified directory, skip agent detection
+  if (options.dir) {
+    const customDir = resolve(options.dir);
+    p.log.info(`Installing to custom directory: ${customDir}`);
+
+    const spinner = p.spinner();
+    spinner.start('Installing skills...');
+
+    const results: {
+      skill: string;
+      success: boolean;
+      path: string;
+      error?: string;
+    }[] = [];
+
+    for (const skill of selectedSkills) {
+      const skillName = skill.name || basename(skill.path);
+      const targetDir = join(customDir, skillName);
+      try {
+        await mkdir(targetDir, { recursive: true });
+        await copyDirectory(skill.path, targetDir);
+        results.push({ skill: getSkillDisplayName(skill), success: true, path: targetDir });
+      } catch (err) {
+        results.push({
+          skill: getSkillDisplayName(skill),
+          success: false,
+          path: targetDir,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    spinner.stop('Installation complete');
+    console.log();
+
+    const successful = results.filter((r) => r.success);
+    const failed = results.filter((r) => !r.success);
+
+    if (successful.length > 0) {
+      for (const r of successful) {
+        console.log(`  ${pc.green('✓')} ${r.skill} → ${pc.dim(r.path)}`);
+      }
+    }
+
+    if (failed.length > 0) {
+      for (const r of failed) {
+        console.log(`  ${pc.red('✗')} ${r.skill}: ${r.error}`);
+      }
+    }
+
+    // Clean up temp dir if needed
+    if (tempDir) {
+      await cleanupTempDir(tempDir);
+    }
+
+    return;
   }
 
   // Detect agents
@@ -1801,6 +1861,11 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       options.fullDepth = true;
     } else if (arg === '--copy') {
       options.copy = true;
+    } else if (arg === '-d' || arg === '--dir') {
+      i++;
+      if (i < args.length) {
+        options.dir = args[i];
+      }
     } else if (arg && !arg.startsWith('-')) {
       source.push(arg);
     }
