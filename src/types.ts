@@ -33,6 +33,7 @@ export type AgentType =
   | 'qwen-code'
   | 'replit'
   | 'roo'
+  | 'swival'
   | 'trae'
   | 'trae-cn'
   | 'warp'

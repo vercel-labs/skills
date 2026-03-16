@@ -329,6 +329,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.roo'));
     },
   },
+  swival: {
+    name: 'swival',
+    displayName: 'Swival',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(configHome, 'swival')) || existsSync(join(process.cwd(), '.swival'));
+    },
+  },
   trae: {
     name: 'trae',
     displayName: 'Trae',
