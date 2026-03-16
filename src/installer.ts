@@ -11,6 +11,7 @@ import {
   stat,
   realpath,
 } from 'fs/promises';
+import { existsSync } from 'fs';
 import { join, basename, normalize, resolve, sep, relative, dirname } from 'path';
 import { homedir, platform } from 'os';
 import type { Skill, AgentType, RemoteSkill } from './types.ts';
@@ -771,6 +772,22 @@ export async function listInstalledSkills(
       const agentDir = isGlobal ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
       // Avoid duplicate paths
       if (!scopes.some((s) => s.path === agentDir && s.global === isGlobal)) {
+        scopes.push({ global: isGlobal, path: agentDir, agentType });
+      }
+    }
+
+    // Also scan skill directories for agents NOT in agentsToCheck, in case
+    // skills were installed with `--agent <name>` but the agent is no longer
+    // detected (e.g. ~/.openclaw was removed).  Only add dirs that actually
+    // exist on disk to avoid unnecessary readdir errors.
+    const allAgentTypes = Object.keys(agents) as AgentType[];
+    for (const agentType of allAgentTypes) {
+      if (agentsToCheck.includes(agentType)) continue;
+      const agent = agents[agentType];
+      if (isGlobal && agent.globalSkillsDir === undefined) continue;
+      const agentDir = isGlobal ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
+      if (scopes.some((s) => s.path === agentDir && s.global === isGlobal)) continue;
+      if (existsSync(agentDir)) {
         scopes.push({ global: isGlobal, path: agentDir, agentType });
       }
     }
