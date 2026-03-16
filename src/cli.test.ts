@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'fs';
+import { readFileSync, mkdtempSync } from 'fs';
 import { join } from 'path';
-import { runCliOutput, stripLogo, hasLogo } from './test-utils.ts';
+import { tmpdir } from 'os';
+import { runCli, runCliOutput, stripLogo, hasLogo } from './test-utils.ts';
 
 describe('skills CLI', () => {
   describe('--help', () => {
@@ -14,6 +15,7 @@ describe('skills CLI', () => {
       expect(output).toContain('check');
       expect(output).toContain('update');
       expect(output).toContain('Add Options:');
+      expect(output).toContain('Check Options:');
       expect(output).toContain('-g, --global');
       expect(output).toContain('-a, --agent');
       expect(output).toContain('-s, --skill');
@@ -64,6 +66,28 @@ describe('skills CLI', () => {
         Run skills --help for usage.
         "
       `);
+    });
+  });
+
+  describe('check --json', () => {
+    it('should output valid JSON with no skills', () => {
+      const tempState = mkdtempSync(join(tmpdir(), 'skills-check-test-'));
+      const result = runCli(['check', '--json'], undefined, { XDG_STATE_HOME: tempState });
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed).toEqual([]);
+    });
+
+    it('should output an array', () => {
+      const tempState = mkdtempSync(join(tmpdir(), 'skills-check-test-'));
+      const result = runCli(['check', '--json'], undefined, { XDG_STATE_HOME: tempState });
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(Array.isArray(parsed)).toBe(true);
+    });
+
+    it('should not contain ANSI codes', () => {
+      const tempState = mkdtempSync(join(tmpdir(), 'skills-check-test-'));
+      const result = runCli(['check', '--json'], undefined, { XDG_STATE_HOME: tempState });
+      expect(result.stdout).not.toMatch(/\x1b\[/);
     });
   });
 
