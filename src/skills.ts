@@ -45,7 +45,7 @@ export async function parseSkillMd(
     // Skip internal skills unless:
     // 1. INSTALL_INTERNAL_SKILLS=1 is set, OR
     // 2. includeInternal option is true (e.g., when user explicitly requests a skill)
-    const isInternal = data.metadata?.internal === true;
+    const isInternal = data.internal === true || data.metadata?.internal === true;
     if (isInternal && !shouldInstallInternalSkills() && !options?.includeInternal) {
       return null;
     }
