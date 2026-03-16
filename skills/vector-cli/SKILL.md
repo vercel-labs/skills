@@ -36,7 +36,7 @@ Every command accepts these flags:
 | Flag | Description |
 |---|---|
 | `--app-url <url>` | Vector app URL (or set `NEXT_PUBLIC_APP_URL`) |
-| `--convex-url <url>` | Convex deployment URL (or set `NEXT_PUBLIC_CONVEX_URL`) |
+| `--convex-url <url>` | Convex deployment URL (auto-resolved from app URL, or set `NEXT_PUBLIC_CONVEX_URL`) |
 | `--org <slug>` | Organization slug override |
 | `--profile <name>` | CLI profile (default: `default`) |
 | `--json` | Output as JSON for scripting |
@@ -52,6 +52,10 @@ Profiles let you keep separate CLI sessions on one machine. Each profile stores 
 vcli --profile work auth login you@example.com --password 'secret'
 vcli --profile staging --app-url https://staging.example.com auth whoami
 ```
+
+### Convex URL Auto-Resolution
+
+You typically only need to provide `--app-url`. The CLI automatically fetches the Convex deployment URL from the app's `/api/config` endpoint when it's not specified via `--convex-url`, a saved session, or environment variables. The resolved URL is cached in your profile for subsequent commands.
 
 ### Organization Context
 
@@ -532,5 +536,5 @@ Tips for scripting:
 | `app URL is required` | Pass `--app-url <url>`, set `NEXT_PUBLIC_APP_URL`, or log in once with `--app-url` so the profile stores it |
 | `Organization slug is required` | Pass `--org <slug>` or run `vcli org use <slug>` |
 | Auth errors against wrong server | Verify `--app-url` matches the running app origin |
-| Convex connection errors | Check `NEXT_PUBLIC_CONVEX_URL` or pass `--convex-url` |
+| Convex connection errors | Usually auto-resolved from the app URL. If not, check `NEXT_PUBLIC_CONVEX_URL` or pass `--convex-url` |
 | Validation errors on create/update | Check keys, slugs, and required options. Use `vcli refdata` to discover valid values first |
