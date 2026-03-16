@@ -74,10 +74,10 @@ describe('source-parser', () => {
 
   describe('Existing GitHub Support', () => {
     it('parses github shorthand', () => {
-      const result = parseSource('vercel-labs/agent-skills');
+      const result = parseSource('vercel-labs/agent-agents');
       expect(result).toEqual({
         type: 'github',
-        url: 'https://github.com/vercel-labs/agent-skills.git',
+        url: 'https://github.com/vercel-labs/agent-agents.git',
         subpath: undefined,
       });
     });

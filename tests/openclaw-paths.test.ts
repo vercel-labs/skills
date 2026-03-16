@@ -1,6 +1,6 @@
 import { join } from 'path';
 import { describe, it, expect } from 'vitest';
-import { getOpenClawGlobalSkillsDir } from '../src/agents.ts';
+import { getOpenClawGlobalAgentsDir } from '../src/agents.ts';
 
 describe('openclaw global path resolution', () => {
   const home = '/tmp/home';
@@ -10,21 +10,21 @@ describe('openclaw global path resolution', () => {
       path === join(home, '.openclaw') ||
       path === join(home, '.clawdbot') ||
       path === join(home, '.moltbot');
-    expect(getOpenClawGlobalSkillsDir(home, exists)).toBe(join(home, '.openclaw/skills'));
+    expect(getOpenClawGlobalAgentsDir(home, exists)).toBe(join(home, '.openclaw/agents'));
   });
 
   it('falls back to ~/.clawdbot when ~/.openclaw is missing', () => {
     const exists = (path: string) =>
       path === join(home, '.clawdbot') || path === join(home, '.moltbot');
-    expect(getOpenClawGlobalSkillsDir(home, exists)).toBe(join(home, '.clawdbot/skills'));
+    expect(getOpenClawGlobalAgentsDir(home, exists)).toBe(join(home, '.clawdbot/agents'));
   });
 
   it('falls back to ~/.moltbot when only legacy path exists', () => {
     const exists = (path: string) => path === join(home, '.moltbot');
-    expect(getOpenClawGlobalSkillsDir(home, exists)).toBe(join(home, '.moltbot/skills'));
+    expect(getOpenClawGlobalAgentsDir(home, exists)).toBe(join(home, '.moltbot/agents'));
   });
 
   it('defaults to ~/.openclaw when no known path exists', () => {
-    expect(getOpenClawGlobalSkillsDir(home, () => false)).toBe(join(home, '.openclaw/skills'));
+    expect(getOpenClawGlobalAgentsDir(home, () => false)).toBe(join(home, '.openclaw/agents'));
   });
 });

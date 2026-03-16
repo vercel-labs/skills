@@ -2,23 +2,23 @@ import { readFile, writeFile, readdir, stat } from 'fs/promises';
 import { join, relative } from 'path';
 import { createHash } from 'crypto';
 
-const LOCAL_LOCK_FILE = 'skills-lock.json';
+const LOCAL_LOCK_FILE = 'agents-lock.json';
 const CURRENT_VERSION = 1;
 
 /**
- * Represents a single skill entry in the local (project) lock file.
+ * Represents a single agent entry in the local (project) lock file.
  *
  * Intentionally minimal and timestamp-free to minimize merge conflicts.
- * Two branches adding different skills produce non-overlapping JSON keys
+ * Two branches adding different agents produce non-overlapping JSON keys
  * that git can auto-merge cleanly.
  */
-export interface LocalSkillLockEntry {
-  /** Where the skill came from: npm package name, owner/repo, local path, etc. */
+export interface LocalAgentLockEntry {
+  /** Where the agent came from: npm package name, owner/repo, local path, etc. */
   source: string;
   /** The provider/source type (e.g., "github", "node_modules", "local") */
   sourceType: string;
   /**
-   * SHA-256 hash computed from all files in the skill folder.
+   * SHA-256 hash computed from all files in the agent folder.
    * Unlike the global lock which uses GitHub tree SHA, the local lock
    * computes the hash from actual file contents on disk.
    */
@@ -26,39 +26,39 @@ export interface LocalSkillLockEntry {
 }
 
 /**
- * The structure of the local (project-scoped) skill lock file.
+ * The structure of the local (project-scoped) agent lock file.
  * This file is meant to be checked into version control.
  *
- * Skills are sorted alphabetically by name when written to produce
+ * Agents are sorted alphabetically by name when written to produce
  * deterministic output and minimize merge conflicts.
  */
-export interface LocalSkillLockFile {
+export interface LocalAgentLockFile {
   /** Schema version for future migrations */
   version: number;
-  /** Map of skill name to its lock entry (sorted alphabetically) */
-  skills: Record<string, LocalSkillLockEntry>;
+  /** Map of agent name to its lock entry (sorted alphabetically) */
+  agents: Record<string, LocalAgentLockEntry>;
 }
 
 /**
- * Get the path to the local skill lock file for a project.
+ * Get the path to the local agent lock file for a project.
  */
 export function getLocalLockPath(cwd?: string): string {
   return join(cwd || process.cwd(), LOCAL_LOCK_FILE);
 }
 
 /**
- * Read the local skill lock file.
+ * Read the local agent lock file.
  * Returns an empty lock file structure if the file doesn't exist
  * or is corrupted (e.g., merge conflict markers).
  */
-export async function readLocalLock(cwd?: string): Promise<LocalSkillLockFile> {
+export async function readLocalLock(cwd?: string): Promise<LocalAgentLockFile> {
   const lockPath = getLocalLockPath(cwd);
 
   try {
     const content = await readFile(lockPath, 'utf-8');
-    const parsed = JSON.parse(content) as LocalSkillLockFile;
+    const parsed = JSON.parse(content) as LocalAgentLockFile;
 
-    if (typeof parsed.version !== 'number' || !parsed.skills) {
+    if (typeof parsed.version !== 'number' || !parsed.agents) {
       return createEmptyLocalLock();
     }
 
@@ -73,31 +73,31 @@ export async function readLocalLock(cwd?: string): Promise<LocalSkillLockFile> {
 }
 
 /**
- * Write the local skill lock file.
- * Skills are sorted alphabetically by name for deterministic output.
+ * Write the local agent lock file.
+ * Agents are sorted alphabetically by name for deterministic output.
  */
-export async function writeLocalLock(lock: LocalSkillLockFile, cwd?: string): Promise<void> {
+export async function writeLocalLock(lock: LocalAgentLockFile, cwd?: string): Promise<void> {
   const lockPath = getLocalLockPath(cwd);
 
-  // Sort skills alphabetically for deterministic output / clean diffs
-  const sortedSkills: Record<string, LocalSkillLockEntry> = {};
-  for (const key of Object.keys(lock.skills).sort()) {
-    sortedSkills[key] = lock.skills[key]!;
+  // Sort agents alphabetically for deterministic output / clean diffs
+  const sortedAgents: Record<string, LocalAgentLockEntry> = {};
+  for (const key of Object.keys(lock.agents).sort()) {
+    sortedAgents[key] = lock.agents[key]!;
   }
 
-  const sorted: LocalSkillLockFile = { version: lock.version, skills: sortedSkills };
+  const sorted: LocalAgentLockFile = { version: lock.version, agents: sortedAgents };
   const content = JSON.stringify(sorted, null, 2) + '\n';
   await writeFile(lockPath, content, 'utf-8');
 }
 
 /**
- * Compute a SHA-256 hash from all files in a skill directory.
+ * Compute a SHA-256 hash from all files in a agent directory.
  * Reads all files recursively, sorts them by relative path for determinism,
  * and produces a single hash from their concatenated contents.
  */
-export async function computeSkillFolderHash(skillDir: string): Promise<string> {
+export async function computeAgentFolderHash(agentDir: string): Promise<string> {
   const files: Array<{ relativePath: string; content: Buffer }> = [];
-  await collectFiles(skillDir, skillDir, files);
+  await collectFiles(agentDir, agentDir, files);
 
   // Sort by relative path for deterministic hashing
   files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
@@ -124,7 +124,7 @@ async function collectFiles(
       const fullPath = join(currentDir, entry.name);
 
       if (entry.isDirectory()) {
-        // Skip .git and node_modules within skill dirs
+        // Skip .git and node_modules within agent dirs
         if (entry.name === '.git' || entry.name === 'node_modules') return;
         await collectFiles(baseDir, fullPath, results);
       } else if (entry.isFile()) {
@@ -137,36 +137,36 @@ async function collectFiles(
 }
 
 /**
- * Add or update a skill entry in the local lock file.
+ * Add or update a agent entry in the local lock file.
  */
-export async function addSkillToLocalLock(
-  skillName: string,
-  entry: LocalSkillLockEntry,
+export async function addAgentToLocalLock(
+  agentName: string,
+  entry: LocalAgentLockEntry,
   cwd?: string
 ): Promise<void> {
   const lock = await readLocalLock(cwd);
-  lock.skills[skillName] = entry;
+  lock.agents[agentName] = entry;
   await writeLocalLock(lock, cwd);
 }
 
 /**
- * Remove a skill from the local lock file.
+ * Remove a agent from the local lock file.
  */
-export async function removeSkillFromLocalLock(skillName: string, cwd?: string): Promise<boolean> {
+export async function removeAgentFromLocalLock(agentName: string, cwd?: string): Promise<boolean> {
   const lock = await readLocalLock(cwd);
 
-  if (!(skillName in lock.skills)) {
+  if (!(agentName in lock.agents)) {
     return false;
   }
 
-  delete lock.skills[skillName];
+  delete lock.agents[agentName];
   await writeLocalLock(lock, cwd);
   return true;
 }
 
-function createEmptyLocalLock(): LocalSkillLockFile {
+function createEmptyLocalLock(): LocalAgentLockFile {
   return {
     version: CURRENT_VERSION,
-    skills: {},
+    agents: {},
   };
 }

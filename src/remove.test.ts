@@ -6,15 +6,15 @@ import { runCli, runCliWithInput } from './test-utils.js';
 
 describe('remove command', { timeout: 30000 }, () => {
   let testDir: string;
-  let skillsDir: string;
+  let agentsDir: string;
 
   beforeEach(() => {
-    testDir = join(tmpdir(), `skills-remove-test-${Date.now()}`);
+    testDir = join(tmpdir(), `agents-remove-test-${Date.now()}`);
     mkdirSync(testDir, { recursive: true });
 
-    // Create .agents/skills directory (canonical location)
-    skillsDir = join(testDir, '.agents', 'skills');
-    mkdirSync(skillsDir, { recursive: true });
+    // Create .agents/agents directory (canonical location)
+    agentsDir = join(testDir, '.agents', 'agents');
+    mkdirSync(agentsDir, { recursive: true });
   });
 
   afterEach(() => {
@@ -23,35 +23,35 @@ describe('remove command', { timeout: 30000 }, () => {
     }
   });
 
-  function createTestSkill(name: string, description?: string) {
-    const skillDir = join(skillsDir, name);
-    mkdirSync(skillDir, { recursive: true });
+  function createTestAgent(name: string, description?: string) {
+    const agentDir = join(agentsDir, name);
+    mkdirSync(agentDir, { recursive: true });
     writeFileSync(
-      join(skillDir, 'SKILL.md'),
+      join(agentDir, 'AGENT.md'),
       `---
 name: ${name}
-description: ${description || `A test skill called ${name}`}
+description: ${description || `A test agent called ${name}`}
 ---
 
 # ${name}
 
-This is a test skill.
+This is a test agent.
 `
     );
   }
 
-  function createAgentSkillsDir(agentName: string) {
-    const agentSkillsDir = join(testDir, agentName, 'skills');
-    mkdirSync(agentSkillsDir, { recursive: true });
-    return agentSkillsDir;
+  function createTargetAgentsDir(targetName: string) {
+    const targetAgentsDir = join(testDir, targetName, 'agents');
+    mkdirSync(targetAgentsDir, { recursive: true });
+    return targetAgentsDir;
   }
 
-  function createSymlink(skillName: string, targetDir: string) {
-    const skillPath = join(skillsDir, skillName);
-    const linkPath = join(targetDir, skillName);
+  function createSymlink(agentName: string, targetDir: string) {
+    const agentPath = join(agentsDir, agentName);
+    const linkPath = join(targetDir, agentName);
     try {
       // Create relative symlink
-      const relativePath = join('..', '..', '.agents', 'skills', skillName);
+      const relativePath = join('..', '..', '.agents', 'agents', agentName);
       const { symlinkSync } = require('fs');
       symlinkSync(relativePath, linkPath);
     } catch {
@@ -59,140 +59,140 @@ This is a test skill.
     }
   }
 
-  describe('with no skills installed', () => {
-    it('should show message when no skills found', () => {
+  describe('with no agents installed', () => {
+    it('should show message when no agents found', () => {
       const result = runCli(['remove', '-y'], testDir);
-      expect(result.stdout).toContain('No skills found');
+      expect(result.stdout).toContain('No agents found');
       expect(result.stdout).toContain('to remove');
       expect(result.exitCode).toBe(0);
     });
 
-    it('should show error for non-existent skill name', () => {
-      const result = runCli(['remove', 'non-existent-skill', '-y'], testDir);
-      expect(result.stdout).toContain('No skills found');
+    it('should show error for non-existent agent name', () => {
+      const result = runCli(['remove', 'non-existent-agent', '-y'], testDir);
+      expect(result.stdout).toContain('No agents found');
       expect(result.exitCode).toBe(0);
     });
   });
 
-  describe('with skills installed', () => {
+  describe('with agents installed', () => {
     beforeEach(() => {
-      createTestSkill('skill-one', 'First test skill');
-      createTestSkill('skill-two', 'Second test skill');
-      createTestSkill('skill-three', 'Third test skill');
+      createTestAgent('agent-one', 'First test agent');
+      createTestAgent('agent-two', 'Second test agent');
+      createTestAgent('agent-three', 'Third test agent');
 
       // Create symlinks in agent directories
-      const claudeSkillsDir = createAgentSkillsDir('.claude');
-      createSymlink('skill-one', claudeSkillsDir);
-      createSymlink('skill-two', claudeSkillsDir);
+      const claudeSkillsDir = createTargetAgentsDir('.claude');
+      createSymlink('agent-one', claudeSkillsDir);
+      createSymlink('agent-two', claudeSkillsDir);
 
-      const clineSkillsDir = createAgentSkillsDir('.cline');
-      createSymlink('skill-one', clineSkillsDir);
-      createSymlink('skill-three', clineSkillsDir);
+      const clineSkillsDir = createTargetAgentsDir('.cline');
+      createSymlink('agent-one', clineSkillsDir);
+      createSymlink('agent-three', clineSkillsDir);
     });
 
-    it('should remove specific skill by name with -y flag', () => {
-      const result = runCli(['remove', 'skill-one', '-y'], testDir);
+    it('should remove specific agent by name with -y flag', () => {
+      const result = runCli(['remove', 'agent-one', '-y'], testDir);
 
       expect(result.stdout).toContain('Successfully removed');
-      expect(result.stdout).toContain('1 skill');
+      expect(result.stdout).toContain('1 agent');
 
-      // Verify skill was removed from canonical location
-      expect(existsSync(join(skillsDir, 'skill-one'))).toBe(false);
+      // Verify agent was removed from canonical location
+      expect(existsSync(join(agentsDir, 'agent-one'))).toBe(false);
 
-      // Verify other skills still exist
-      expect(existsSync(join(skillsDir, 'skill-two'))).toBe(true);
-      expect(existsSync(join(skillsDir, 'skill-three'))).toBe(true);
+      // Verify other agents still exist
+      expect(existsSync(join(agentsDir, 'agent-two'))).toBe(true);
+      expect(existsSync(join(agentsDir, 'agent-three'))).toBe(true);
     });
 
-    it('should remove multiple skills by name', () => {
-      const result = runCli(['remove', 'skill-one', 'skill-two', '-y'], testDir);
+    it('should remove multiple agents by name', () => {
+      const result = runCli(['remove', 'agent-one', 'agent-two', '-y'], testDir);
 
       expect(result.stdout).toContain('Successfully removed');
-      expect(result.stdout).toContain('2 skill');
+      expect(result.stdout).toContain('2 agent');
 
-      expect(existsSync(join(skillsDir, 'skill-one'))).toBe(false);
-      expect(existsSync(join(skillsDir, 'skill-two'))).toBe(false);
-      expect(existsSync(join(skillsDir, 'skill-three'))).toBe(true);
+      expect(existsSync(join(agentsDir, 'agent-one'))).toBe(false);
+      expect(existsSync(join(agentsDir, 'agent-two'))).toBe(false);
+      expect(existsSync(join(agentsDir, 'agent-three'))).toBe(true);
     });
 
-    it('should remove all skills with --all flag', () => {
+    it('should remove all agents with --all flag', () => {
       const result = runCli(['remove', '--all', '-y'], testDir);
 
       expect(result.stdout).toContain('Successfully removed');
-      expect(result.stdout).toContain('3 skill');
+      expect(result.stdout).toContain('3 agent');
 
-      // All skills removed
-      expect(existsSync(join(skillsDir, 'skill-one'))).toBe(false);
-      expect(existsSync(join(skillsDir, 'skill-two'))).toBe(false);
-      expect(existsSync(join(skillsDir, 'skill-three'))).toBe(false);
+      // All agents removed
+      expect(existsSync(join(agentsDir, 'agent-one'))).toBe(false);
+      expect(existsSync(join(agentsDir, 'agent-two'))).toBe(false);
+      expect(existsSync(join(agentsDir, 'agent-three'))).toBe(false);
     });
 
-    it('should show error for non-existent skill name when skills exist', () => {
+    it('should show error for non-existent agent name when agents exist', () => {
       const result = runCli(['remove', 'non-existent', '-y'], testDir);
 
-      expect(result.stdout).toContain('No matching skills');
+      expect(result.stdout).toContain('No matching agents');
       expect(result.exitCode).toBe(0);
     });
 
-    it('should be case-insensitive when matching skill names', () => {
-      const result = runCli(['remove', 'SKILL-ONE', '-y'], testDir);
+    it('should be case-insensitive when matching agent names', () => {
+      const result = runCli(['remove', 'AGENT-ONE', '-y'], testDir);
 
       expect(result.stdout).toContain('Successfully removed');
-      expect(existsSync(join(skillsDir, 'skill-one'))).toBe(false);
+      expect(existsSync(join(agentsDir, 'agent-one'))).toBe(false);
     });
 
-    it('should remove only the specified skill and leave others', () => {
-      runCli(['remove', 'skill-two', '-y'], testDir);
+    it('should remove only the specified agent and leave others', () => {
+      runCli(['remove', 'agent-two', '-y'], testDir);
 
-      // skill-two removed
-      expect(existsSync(join(skillsDir, 'skill-two'))).toBe(false);
+      // agent-two removed
+      expect(existsSync(join(agentsDir, 'agent-two'))).toBe(false);
 
       // Others still exist
-      expect(existsSync(join(skillsDir, 'skill-one'))).toBe(true);
-      expect(existsSync(join(skillsDir, 'skill-three'))).toBe(true);
+      expect(existsSync(join(agentsDir, 'agent-one'))).toBe(true);
+      expect(existsSync(join(agentsDir, 'agent-three'))).toBe(true);
     });
 
-    it('should list skills to remove before confirmation', () => {
+    it('should list agents to remove before confirmation', () => {
       // Answer 'n' to cancel the confirmation prompt
-      const result = runCliWithInput(['remove', 'skill-one', 'skill-two'], 'n', testDir);
+      const result = runCliWithInput(['remove', 'agent-one', 'agent-two'], 'n', testDir);
 
-      // Should show the skills that will be removed
-      expect(result.stdout).toContain('Skills to remove');
-      expect(result.stdout).toContain('skill-one');
-      expect(result.stdout).toContain('skill-two');
+      // Should show the agents that will be removed
+      expect(result.stdout).toContain('Agents to remove');
+      expect(result.stdout).toContain('agent-one');
+      expect(result.stdout).toContain('agent-two');
       expect(result.stdout).toContain('uninstall');
 
-      // Skills should NOT be removed since we cancelled
-      expect(existsSync(join(skillsDir, 'skill-one'))).toBe(true);
-      expect(existsSync(join(skillsDir, 'skill-two'))).toBe(true);
+      // Agents should NOT be removed since we cancelled
+      expect(existsSync(join(agentsDir, 'agent-one'))).toBe(true);
+      expect(existsSync(join(agentsDir, 'agent-two'))).toBe(true);
     });
   });
 
   describe('agent filtering', () => {
     beforeEach(() => {
-      createTestSkill('test-skill');
-      createAgentSkillsDir('.claude');
-      createAgentSkillsDir('.cline');
+      createTestAgent('test-agent');
+      createTargetAgentsDir('.claude');
+      createTargetAgentsDir('.cline');
     });
 
-    it('should show error for invalid agent name', () => {
-      const result = runCli(['remove', 'test-skill', '--agent', 'invalid-agent', '-y'], testDir);
+    it('should show error for invalid target name', () => {
+      const result = runCli(['remove', 'test-agent', '--target', 'invalid-target', '-y'], testDir);
 
       expect(result.stdout).toContain('Invalid agents');
-      expect(result.stdout).toContain('invalid-agent');
+      expect(result.stdout).toContain('invalid-target');
       expect(result.stdout).toContain('Valid agents');
       expect(result.exitCode).toBe(1);
     });
 
-    it('should accept valid agent names', () => {
-      // This should not error on agent validation
-      const result = runCli(['remove', 'test-skill', '--agent', 'claude-code', '-y'], testDir);
+    it('should accept valid target names', () => {
+      // This should not error on target validation
+      const result = runCli(['remove', 'test-agent', '--target', 'claude-code', '-y'], testDir);
       expect(result.stdout).not.toContain('Invalid agents');
     });
 
-    it('should accept multiple agent names', () => {
+    it('should accept multiple target names', () => {
       const result = runCli(
-        ['remove', 'test-skill', '--agent', 'claude-code', 'cursor', '-y'],
+        ['remove', 'test-agent', '--target', 'claude-code', 'cursor', '-y'],
         testDir
       );
       expect(result.stdout).not.toContain('Invalid agents');
@@ -201,70 +201,70 @@ This is a test skill.
 
   describe('global flag', () => {
     beforeEach(() => {
-      createTestSkill('global-skill');
+      createTestAgent('global-agent');
     });
 
     it('should accept --global flag without error', () => {
-      const result = runCli(['remove', 'global-skill', '--global', '-y'], testDir);
-      // Command should run without error (skill may not be found in global scope from test dir)
+      const result = runCli(['remove', 'global-agent', '--global', '-y'], testDir);
+      // Command should run without error (agent may not be found in global scope from test dir)
       expect(result.exitCode).toBe(0);
     });
   });
 
   describe('command aliases', () => {
     beforeEach(() => {
-      createTestSkill('alias-test-skill');
+      createTestAgent('alias-test-agent');
     });
 
     it('should support "rm" alias', () => {
-      const result = runCli(['rm', 'alias-test-skill', '-y'], testDir);
+      const result = runCli(['rm', 'alias-test-agent', '-y'], testDir);
       expect(result.stdout).toContain('Successfully removed');
       expect(result.exitCode).toBe(0);
     });
 
     it('should support "r" alias', () => {
-      const result = runCli(['r', 'alias-test-skill', '-y'], testDir);
+      const result = runCli(['r', 'alias-test-agent', '-y'], testDir);
       expect(result.stdout).toContain('Successfully removed');
       expect(result.exitCode).toBe(0);
     });
   });
 
   describe('edge cases', () => {
-    it('should handle skill names with special characters', () => {
-      createTestSkill('skill-with-dashes');
-      createTestSkill('skill_with_underscores');
+    it('should handle agent names with special characters', () => {
+      createTestAgent('agent-with-dashes');
+      createTestAgent('skill_with_underscores');
 
-      const result = runCli(['remove', 'skill-with-dashes', '-y'], testDir);
+      const result = runCli(['remove', 'agent-with-dashes', '-y'], testDir);
       expect(result.stdout).toContain('Successfully removed');
-      expect(existsSync(join(skillsDir, 'skill-with-dashes'))).toBe(false);
-      expect(existsSync(join(skillsDir, 'skill_with_underscores'))).toBe(true);
+      expect(existsSync(join(agentsDir, 'agent-with-dashes'))).toBe(false);
+      expect(existsSync(join(agentsDir, 'skill_with_underscores'))).toBe(true);
     });
 
-    it('should handle removing last remaining skill', () => {
-      createTestSkill('last-skill');
+    it('should handle removing last remaining agent', () => {
+      createTestAgent('last-agent');
 
-      const result = runCli(['remove', 'last-skill', '-y'], testDir);
+      const result = runCli(['remove', 'last-agent', '-y'], testDir);
       expect(result.stdout).toContain('Successfully removed');
-      expect(result.stdout).toContain('1 skill');
+      expect(result.stdout).toContain('1 agent');
 
       // Directory should be empty or removed
-      const remaining = readdirSync(skillsDir);
+      const remaining = readdirSync(agentsDir);
       expect(remaining.length).toBe(0);
     });
 
-    it('should handle directory without SKILL.md file', () => {
-      // Create a directory without SKILL.md
-      const invalidSkillDir = join(skillsDir, 'invalid-skill');
-      mkdirSync(invalidSkillDir, { recursive: true });
-      writeFileSync(join(invalidSkillDir, 'README.md'), 'Just a readme');
+    it('should handle directory without AGENT.md file', () => {
+      // Create a directory without AGENT.md
+      const invalidAgentDir = join(agentsDir, 'invalid-agent');
+      mkdirSync(invalidAgentDir, { recursive: true });
+      writeFileSync(join(invalidAgentDir, 'README.md'), 'Just a readme');
 
-      createTestSkill('valid-skill');
+      createTestAgent('valid-agent');
 
-      const result = runCli(['remove', 'valid-skill', '-y'], testDir);
+      const result = runCli(['remove', 'valid-agent', '-y'], testDir);
       expect(result.stdout).toContain('Successfully removed');
 
       // Invalid directory should still be removed
-      expect(existsSync(join(skillsDir, 'invalid-skill'))).toBe(true);
+      expect(existsSync(join(agentsDir, 'invalid-agent'))).toBe(true);
     });
   });
 
@@ -274,7 +274,7 @@ This is a test skill.
       expect(result.stdout).toContain('Usage');
       expect(result.stdout).toContain('remove');
       expect(result.stdout).toContain('--global');
-      expect(result.stdout).toContain('--agent');
+      expect(result.stdout).toContain('--target');
       expect(result.stdout).toContain('--yes');
       expect(result.exitCode).toBe(0);
     });
@@ -288,28 +288,28 @@ This is a test skill.
 
   describe('option parsing', () => {
     beforeEach(() => {
-      createTestSkill('parse-test-skill');
+      createTestAgent('parse-test-agent');
     });
 
     it('should parse -g as global', () => {
-      const result = runCli(['remove', 'parse-test-skill', '-g', '-y'], testDir);
+      const result = runCli(['remove', 'parse-test-agent', '-g', '-y'], testDir);
       expect(result.stdout).not.toContain('error');
       expect(result.stdout).not.toContain('unrecognized');
     });
 
     it('should parse --yes flag', () => {
-      const result = runCli(['remove', 'parse-test-skill', '--yes'], testDir);
+      const result = runCli(['remove', 'parse-test-agent', '--yes'], testDir);
       expect(result.exitCode).toBe(0);
     });
 
     it('should parse -a as agent', () => {
-      const result = runCli(['remove', 'parse-test-skill', '-a', 'claude-code', '-y'], testDir);
+      const result = runCli(['remove', 'parse-test-agent', '-a', 'claude-code', '-y'], testDir);
       expect(result.stdout).not.toContain('Invalid agents');
     });
 
     it('should handle multiple values for --agent', () => {
       const result = runCli(
-        ['remove', 'parse-test-skill', '--agent', 'claude-code', 'cursor', '-y'],
+        ['remove', 'parse-test-agent', '--agent', 'claude-code', 'cursor', '-y'],
         testDir
       );
       expect(result.stdout).not.toContain('Invalid agents');

@@ -3,14 +3,14 @@ import { existsSync, rmSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from './test-utils.ts';
-import { shouldInstallInternalSkills } from './skills.ts';
+import { shouldInstallInternalAgents } from './agents.ts';
 import { parseAddOptions } from './add.ts';
 
 describe('add command', () => {
   let testDir: string;
 
   beforeEach(() => {
-    testDir = join(tmpdir(), `skills-add-test-${Date.now()}`);
+    testDir = join(tmpdir(), `agents-add-test-${Date.now()}`);
     mkdirSync(testDir, { recursive: true });
   });
 
@@ -33,48 +33,48 @@ describe('add command', () => {
     expect(result.exitCode).toBe(1);
   });
 
-  it('should list skills from local path with --list flag', () => {
-    // Create a test skill
-    const skillDir = join(testDir, 'test-skill');
-    mkdirSync(skillDir, { recursive: true });
+  it('should list agents from local path with --list flag', () => {
+    // Create a test agent
+    const agentDir = join(testDir, 'test-agent');
+    mkdirSync(agentDir, { recursive: true });
     writeFileSync(
-      join(skillDir, 'SKILL.md'),
+      join(agentDir, 'AGENT.md'),
       `---
-name: test-skill
-description: A test skill for testing
+name: test-agent
+description: A test agent for testing
 ---
 
-# Test Skill
+# Test Agent
 
-This is a test skill.
+This is a test agent.
 `
     );
 
     const result = runCli(['add', testDir, '--list'], testDir);
-    expect(result.stdout).toContain('test-skill');
-    expect(result.stdout).toContain('A test skill for testing');
+    expect(result.stdout).toContain('test-agent');
+    expect(result.stdout).toContain('A test agent for testing');
     expect(result.exitCode).toBe(0);
   });
 
-  it('should show no skills found for empty directory', () => {
+  it('should show no agents found for empty directory', () => {
     const result = runCli(['add', testDir, '-y'], testDir);
-    expect(result.stdout).toContain('No skills found');
-    expect(result.stdout).toContain('No valid skills found');
+    expect(result.stdout).toContain('No agents found');
+    expect(result.stdout).toContain('No valid agents found');
     expect(result.exitCode).toBe(1);
   });
 
-  it('should install skill from local path with -y flag', () => {
-    // Create a test skill
-    const skillDir = join(testDir, 'skills', 'my-skill');
-    mkdirSync(skillDir, { recursive: true });
+  it('should install agent from local path with -y flag', () => {
+    // Create a test agent
+    const agentDir = join(testDir, 'agents', 'my-agent');
+    mkdirSync(agentDir, { recursive: true });
     writeFileSync(
-      join(skillDir, 'SKILL.md'),
+      join(agentDir, 'AGENT.md'),
       `---
-name: my-skill
-description: My test skill
+name: my-agent
+description: My test agent
 ---
 
-# My Skill
+# My Agent
 
 Instructions here.
 `
@@ -84,60 +84,60 @@ Instructions here.
     const targetDir = join(testDir, 'project');
     mkdirSync(targetDir, { recursive: true });
 
-    const result = runCli(['add', testDir, '-y', '-g', '--agent', 'claude-code'], targetDir);
-    expect(result.stdout).toContain('my-skill');
+    const result = runCli(['add', testDir, '-y', '-g', '--target', 'claude-code'], targetDir);
+    expect(result.stdout).toContain('my-agent');
     expect(result.stdout).toContain('Done!');
     expect(result.exitCode).toBe(0);
   });
 
-  it('should filter skills by name with --skill flag', () => {
-    // Create multiple test skills
-    const skill1Dir = join(testDir, 'skills', 'skill-one');
-    const skill2Dir = join(testDir, 'skills', 'skill-two');
+  it('should filter agents by name with --agent flag', () => {
+    // Create multiple test agents
+    const skill1Dir = join(testDir, 'agents', 'agent-one');
+    const skill2Dir = join(testDir, 'agents', 'agent-two');
     mkdirSync(skill1Dir, { recursive: true });
     mkdirSync(skill2Dir, { recursive: true });
 
     writeFileSync(
-      join(skill1Dir, 'SKILL.md'),
+      join(skill1Dir, 'AGENT.md'),
       `---
-name: skill-one
-description: First skill
+name: agent-one
+description: First agent
 ---
-# Skill One
+# Agent One
 `
     );
 
     writeFileSync(
-      join(skill2Dir, 'SKILL.md'),
+      join(skill2Dir, 'AGENT.md'),
       `---
-name: skill-two
-description: Second skill
+name: agent-two
+description: Second agent
 ---
-# Skill Two
+# Agent Two
 `
     );
 
-    const result = runCli(['add', testDir, '--list', '--skill', 'skill-one'], testDir);
-    // With --list, it should show only the filtered skill info
-    expect(result.stdout).toContain('skill-one');
+    const result = runCli(['add', testDir, '--list', '--agent', 'agent-one'], testDir);
+    // With --list, it should show only the filtered agent info
+    expect(result.stdout).toContain('agent-one');
   });
 
-  it('should show error for invalid agent name', () => {
-    // Create a test skill
-    const skillDir = join(testDir, 'test-skill');
-    mkdirSync(skillDir, { recursive: true });
+  it('should show error for invalid target name', () => {
+    // Create a test agent
+    const agentDir = join(testDir, 'test-agent');
+    mkdirSync(agentDir, { recursive: true });
     writeFileSync(
-      join(skillDir, 'SKILL.md'),
+      join(agentDir, 'AGENT.md'),
       `---
-name: test-skill
+name: test-agent
 description: Test
 ---
 # Test
 `
     );
 
-    const result = runCli(['add', testDir, '-y', '--agent', 'invalid-agent'], testDir);
-    expect(result.stdout).toContain('Invalid agents');
+    const result = runCli(['add', testDir, '-y', '--target', 'invalid-target'], testDir);
+    expect(result.stdout).toContain('Invalid targets');
     expect(result.exitCode).toBe(1);
   });
 
@@ -155,133 +155,133 @@ description: Test
 
   it('should restore from lock file with experimental_install', () => {
     const result = runCli(['experimental_install'], testDir);
-    expect(result.stdout).toContain('No project skills found in skills-lock.json');
+    expect(result.stdout).toContain('No project agents found in agents-lock.json');
   });
 
-  describe('internal skills', () => {
-    it('should skip internal skills by default', () => {
-      // Create an internal skill
-      const skillDir = join(testDir, 'internal-skill');
-      mkdirSync(skillDir, { recursive: true });
+  describe('internal agents', () => {
+    it('should skip internal agents by default', () => {
+      // Create an internal agent
+      const agentDir = join(testDir, 'internal-agent');
+      mkdirSync(agentDir, { recursive: true });
       writeFileSync(
-        join(skillDir, 'SKILL.md'),
+        join(agentDir, 'AGENT.md'),
         `---
-name: internal-skill
-description: An internal skill
+name: internal-agent
+description: An internal agent
 metadata:
   internal: true
 ---
 
-# Internal Skill
+# Internal Agent
 
-This is an internal skill.
+This is an internal agent.
 `
       );
 
       const result = runCli(['add', testDir, '--list'], testDir);
-      expect(result.stdout).not.toContain('internal-skill');
+      expect(result.stdout).not.toContain('internal-agent');
     });
 
-    it('should show internal skills when INSTALL_INTERNAL_SKILLS=1', () => {
-      // Create an internal skill
-      const skillDir = join(testDir, 'internal-skill');
-      mkdirSync(skillDir, { recursive: true });
+    it('should show internal agents when INSTALL_INTERNAL_AGENTS=1', () => {
+      // Create an internal agent
+      const agentDir = join(testDir, 'internal-agent');
+      mkdirSync(agentDir, { recursive: true });
       writeFileSync(
-        join(skillDir, 'SKILL.md'),
+        join(agentDir, 'AGENT.md'),
         `---
-name: internal-skill
-description: An internal skill
+name: internal-agent
+description: An internal agent
 metadata:
   internal: true
 ---
 
-# Internal Skill
+# Internal Agent
 
-This is an internal skill.
+This is an internal agent.
 `
       );
 
       const result = runCli(['add', testDir, '--list'], testDir, {
-        INSTALL_INTERNAL_SKILLS: '1',
+        INSTALL_INTERNAL_AGENTS: '1',
       });
-      expect(result.stdout).toContain('internal-skill');
-      expect(result.stdout).toContain('An internal skill');
+      expect(result.stdout).toContain('internal-agent');
+      expect(result.stdout).toContain('An internal agent');
     });
 
-    it('should show internal skills when INSTALL_INTERNAL_SKILLS=true', () => {
-      // Create an internal skill
-      const skillDir = join(testDir, 'internal-skill');
-      mkdirSync(skillDir, { recursive: true });
+    it('should show internal agents when INSTALL_INTERNAL_AGENTS=true', () => {
+      // Create an internal agent
+      const agentDir = join(testDir, 'internal-agent');
+      mkdirSync(agentDir, { recursive: true });
       writeFileSync(
-        join(skillDir, 'SKILL.md'),
+        join(agentDir, 'AGENT.md'),
         `---
-name: internal-skill
-description: An internal skill
+name: internal-agent
+description: An internal agent
 metadata:
   internal: true
 ---
 
-# Internal Skill
+# Internal Agent
 
-This is an internal skill.
+This is an internal agent.
 `
       );
 
       const result = runCli(['add', testDir, '--list'], testDir, {
-        INSTALL_INTERNAL_SKILLS: 'true',
+        INSTALL_INTERNAL_AGENTS: 'true',
       });
-      expect(result.stdout).toContain('internal-skill');
+      expect(result.stdout).toContain('internal-agent');
     });
 
-    it('should show non-internal skills alongside internal when env var is set', () => {
-      // Create both internal and non-internal skills
-      const internalDir = join(testDir, 'skills', 'internal-skill');
-      const publicDir = join(testDir, 'skills', 'public-skill');
+    it('should show non-internal agents alongside internal when env var is set', () => {
+      // Create both internal and non-internal agents
+      const internalDir = join(testDir, 'agents', 'internal-agent');
+      const publicDir = join(testDir, 'agents', 'public-agent');
       mkdirSync(internalDir, { recursive: true });
       mkdirSync(publicDir, { recursive: true });
 
       writeFileSync(
-        join(internalDir, 'SKILL.md'),
+        join(internalDir, 'AGENT.md'),
         `---
-name: internal-skill
-description: An internal skill
+name: internal-agent
+description: An internal agent
 metadata:
   internal: true
 ---
-# Internal Skill
+# Internal Agent
 `
       );
 
       writeFileSync(
-        join(publicDir, 'SKILL.md'),
+        join(publicDir, 'AGENT.md'),
         `---
-name: public-skill
-description: A public skill
+name: public-agent
+description: A public agent
 ---
-# Public Skill
+# Public Agent
 `
       );
 
-      // Without env var - only public skill visible
+      // Without env var - only public agent visible
       const resultWithout = runCli(['add', testDir, '--list'], testDir);
-      expect(resultWithout.stdout).toContain('public-skill');
-      expect(resultWithout.stdout).not.toContain('internal-skill');
+      expect(resultWithout.stdout).toContain('public-agent');
+      expect(resultWithout.stdout).not.toContain('internal-agent');
 
       // With env var - both visible
       const resultWith = runCli(['add', testDir, '--list'], testDir, {
-        INSTALL_INTERNAL_SKILLS: '1',
+        INSTALL_INTERNAL_AGENTS: '1',
       });
-      expect(resultWith.stdout).toContain('public-skill');
-      expect(resultWith.stdout).toContain('internal-skill');
+      expect(resultWith.stdout).toContain('public-agent');
+      expect(resultWith.stdout).toContain('internal-agent');
     });
 
     it('should not treat metadata.internal: false as internal', () => {
-      const skillDir = join(testDir, 'not-internal-skill');
-      mkdirSync(skillDir, { recursive: true });
+      const agentDir = join(testDir, 'not-internal-agent');
+      mkdirSync(agentDir, { recursive: true });
       writeFileSync(
-        join(skillDir, 'SKILL.md'),
+        join(agentDir, 'AGENT.md'),
         `---
-name: not-internal-skill
+name: not-internal-agent
 description: Explicitly not internal
 metadata:
   internal: false
@@ -291,12 +291,12 @@ metadata:
       );
 
       const result = runCli(['add', testDir, '--list'], testDir);
-      expect(result.stdout).toContain('not-internal-skill');
+      expect(result.stdout).toContain('not-internal-agent');
     });
   });
 });
 
-describe('shouldInstallInternalSkills', () => {
+describe('shouldInstallInternalAgents', () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
@@ -308,30 +308,30 @@ describe('shouldInstallInternalSkills', () => {
     process.env = originalEnv;
   });
 
-  it('should return false when INSTALL_INTERNAL_SKILLS is not set', () => {
-    delete process.env.INSTALL_INTERNAL_SKILLS;
-    expect(shouldInstallInternalSkills()).toBe(false);
+  it('should return false when INSTALL_INTERNAL_AGENTS is not set', () => {
+    delete process.env.INSTALL_INTERNAL_AGENTS;
+    expect(shouldInstallInternalAgents()).toBe(false);
   });
 
-  it('should return true when INSTALL_INTERNAL_SKILLS=1', () => {
-    process.env.INSTALL_INTERNAL_SKILLS = '1';
-    expect(shouldInstallInternalSkills()).toBe(true);
+  it('should return true when INSTALL_INTERNAL_AGENTS=1', () => {
+    process.env.INSTALL_INTERNAL_AGENTS = '1';
+    expect(shouldInstallInternalAgents()).toBe(true);
   });
 
-  it('should return true when INSTALL_INTERNAL_SKILLS=true', () => {
-    process.env.INSTALL_INTERNAL_SKILLS = 'true';
-    expect(shouldInstallInternalSkills()).toBe(true);
+  it('should return true when INSTALL_INTERNAL_AGENTS=true', () => {
+    process.env.INSTALL_INTERNAL_AGENTS = 'true';
+    expect(shouldInstallInternalAgents()).toBe(true);
   });
 
   it('should return false for other values', () => {
-    process.env.INSTALL_INTERNAL_SKILLS = '0';
-    expect(shouldInstallInternalSkills()).toBe(false);
+    process.env.INSTALL_INTERNAL_AGENTS = '0';
+    expect(shouldInstallInternalAgents()).toBe(false);
 
-    process.env.INSTALL_INTERNAL_SKILLS = 'false';
-    expect(shouldInstallInternalSkills()).toBe(false);
+    process.env.INSTALL_INTERNAL_AGENTS = 'false';
+    expect(shouldInstallInternalAgents()).toBe(false);
 
-    process.env.INSTALL_INTERNAL_SKILLS = 'yes';
-    expect(shouldInstallInternalSkills()).toBe(false);
+    process.env.INSTALL_INTERNAL_AGENTS = 'yes';
+    expect(shouldInstallInternalAgents()).toBe(false);
   });
 });
 
@@ -342,10 +342,10 @@ describe('parseAddOptions', () => {
     expect(result.options.all).toBe(true);
   });
 
-  it('should parse --skill with wildcard', () => {
-    const result = parseAddOptions(['source', '--skill', '*']);
+  it('should parse --agent with wildcard', () => {
+    const result = parseAddOptions(['source', '--agent', '*']);
     expect(result.source).toEqual(['source']);
-    expect(result.options.skill).toEqual(['*']);
+    expect(result.options.agent).toEqual(['*']);
   });
 
   it('should parse --agent with wildcard', () => {
@@ -354,25 +354,25 @@ describe('parseAddOptions', () => {
     expect(result.options.agent).toEqual(['*']);
   });
 
-  it('should parse --skill wildcard with specific agents', () => {
-    const result = parseAddOptions(['source', '--skill', '*', '--agent', 'claude-code']);
-    expect(result.source).toEqual(['source']);
-    expect(result.options.skill).toEqual(['*']);
-    expect(result.options.agent).toEqual(['claude-code']);
-  });
-
-  it('should parse --agent wildcard with specific skills', () => {
-    const result = parseAddOptions(['source', '--agent', '*', '--skill', 'my-skill']);
+  it('should parse --agent wildcard with specific targets', () => {
+    const result = parseAddOptions(['source', '--agent', '*', '--target', 'claude-code']);
     expect(result.source).toEqual(['source']);
     expect(result.options.agent).toEqual(['*']);
-    expect(result.options.skill).toEqual(['my-skill']);
+    expect(result.options.target).toEqual(['claude-code']);
+  });
+
+  it('should parse --target wildcard with specific agents', () => {
+    const result = parseAddOptions(['source', '--target', '*', '--agent', 'my-agent']);
+    expect(result.source).toEqual(['source']);
+    expect(result.options.target).toEqual(['*']);
+    expect(result.options.agent).toEqual(['my-agent']);
   });
 
   it('should parse combined flags with wildcards', () => {
-    const result = parseAddOptions(['source', '-g', '--skill', '*', '-y']);
+    const result = parseAddOptions(['source', '-g', '--agent', '*', '-y']);
     expect(result.source).toEqual(['source']);
     expect(result.options.global).toBe(true);
-    expect(result.options.skill).toEqual(['*']);
+    expect(result.options.agent).toEqual(['*']);
     expect(result.options.yes).toBe(true);
   });
 
@@ -391,11 +391,11 @@ describe('parseAddOptions', () => {
   });
 });
 
-describe('find-skills prompt with -y flag', () => {
+describe('find-agents prompt with -y flag', () => {
   let testDir: string;
 
   beforeEach(() => {
-    testDir = join(tmpdir(), `skills-yes-flag-test-${Date.now()}`);
+    testDir = join(tmpdir(), `agents-yes-flag-test-${Date.now()}`);
     mkdirSync(testDir, { recursive: true });
   });
 
@@ -405,28 +405,28 @@ describe('find-skills prompt with -y flag', () => {
     }
   });
 
-  it('should skip find-skills prompt when -y flag is passed', () => {
-    // Create a test skill
-    const skillDir = join(testDir, 'test-skill');
-    mkdirSync(skillDir, { recursive: true });
+  it('should skip find-agents prompt when -y flag is passed', () => {
+    // Create a test agent
+    const agentDir = join(testDir, 'test-agent');
+    mkdirSync(agentDir, { recursive: true });
     writeFileSync(
-      join(skillDir, 'SKILL.md'),
+      join(agentDir, 'AGENT.md'),
       `---
-name: yes-flag-test-skill
-description: A test skill for -y flag testing
+name: yes-flag-test-agent
+description: A test agent for -y flag testing
 ---
 
-# Yes Flag Test Skill
+# Yes Flag Test Agent
 
-This is a test skill for -y flag mode testing.
+This is a test agent for -y flag mode testing.
 `
     );
 
     // Run with -y flag - should complete without hanging
-    const result = runCli(['add', testDir, '-g', '-y', '--skill', 'yes-flag-test-skill'], testDir);
+    const result = runCli(['add', testDir, '-g', '-y', '--agent', 'yes-flag-test-agent'], testDir);
 
-    // Should not contain the find-skills prompt
-    expect(result.stdout).not.toContain('Install the find-skills skill');
+    // Should not contain the find-agents prompt
+    expect(result.stdout).not.toContain('Install the find-agents agent');
     expect(result.stdout).not.toContain("One-time prompt - you won't be asked again");
     // Should complete successfully
     expect(result.exitCode).toBe(0);

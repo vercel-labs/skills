@@ -5,12 +5,12 @@ import { tmpdir } from 'node:os';
 import { removeCommand } from '../src/remove.ts';
 import * as agentsModule from '../src/agents.ts';
 
-// Mock detectInstalledAgents
+// Mock detectInstalledTargets
 vi.mock('../src/agents.ts', async () => {
   const actual = await vi.importActual('../src/agents.ts');
   return {
     ...actual,
-    detectInstalledAgents: vi.fn(),
+    detectInstalledTargets: vi.fn(),
   };
 });
 
@@ -19,21 +19,21 @@ describe('removeCommand canonical protection', () => {
   let oldCwd: string;
 
   beforeEach(async () => {
-    tempDir = await resolve(join(tmpdir(), 'skills-remove-test-' + Date.now()));
+    tempDir = await resolve(join(tmpdir(), 'agents-remove-test-' + Date.now()));
     await mkdir(tempDir, { recursive: true });
     oldCwd = process.cwd();
     process.chdir(tempDir);
 
     // Mock/Setup agent directories
     // We need to simulate the structure that getInstallPath and getCanonicalPath expect
-    // Default skills dir is .agents/skills
-    await mkdir(join(tempDir, '.agents/skills'), { recursive: true });
+    // Default agents dir is .agents/agents
+    await mkdir(join(tempDir, '.agents/agents'), { recursive: true });
 
     // Setup two agents that use different dirs
-    // Claude uses .claude/skills
-    await mkdir(join(tempDir, '.claude/skills'), { recursive: true });
-    // Continue uses .continue/skills
-    await mkdir(join(tempDir, '.continue/skills'), { recursive: true });
+    // Claude uses .claude/agents
+    await mkdir(join(tempDir, '.claude/agents'), { recursive: true });
+    // Continue uses .continue/agents
+    await mkdir(join(tempDir, '.continue/agents'), { recursive: true });
   });
 
   afterEach(async () => {
@@ -41,15 +41,15 @@ describe('removeCommand canonical protection', () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  it('should NOT remove canonical storage if other agents still have the skill installed', async () => {
-    const skillName = 'test-skill';
-    const canonicalPath = join(tempDir, '.agents/skills', skillName);
-    const claudePath = join(tempDir, '.claude/skills', skillName);
-    const continuePath = join(tempDir, '.continue/skills', skillName);
+  it('should NOT remove canonical storage if other agents still have the agent installed', async () => {
+    const agentName = 'test-agent';
+    const canonicalPath = join(tempDir, '.agents/agents', agentName);
+    const claudePath = join(tempDir, '.claude/agents', agentName);
+    const continuePath = join(tempDir, '.continue/agents', agentName);
 
     // 1. Create canonical storage
     await mkdir(canonicalPath, { recursive: true });
-    await writeFile(join(canonicalPath, 'SKILL.md'), '# Test');
+    await writeFile(join(canonicalPath, 'AGENT.md'), '# Test');
 
     // 2. Install (symlink) to Claude and Continue
     await symlink(canonicalPath, claudePath, 'junction');
@@ -64,11 +64,11 @@ describe('removeCommand canonical protection', () => {
     ).toBe(true);
 
     // Mock agents: Claude and Continue are installed
-    vi.mocked(agentsModule.detectInstalledAgents).mockResolvedValue(['claude-code', 'continue']);
+    vi.mocked(agentsModule.detectInstalledTargets).mockResolvedValue(['claude-code', 'continue']);
 
     // 3. Remove from Claude only
     // -a claude-code
-    await removeCommand([skillName], { agent: ['claude-code'], yes: true });
+    await removeCommand([agentName], { agent: ['claude-code'], yes: true });
 
     // 4. Verify results
     // Claude path should be gone
@@ -84,19 +84,19 @@ describe('removeCommand canonical protection', () => {
   });
 
   it('should remove canonical storage if NO other agents are using it', async () => {
-    const skillName = 'test-skill-2';
-    const canonicalPath = join(tempDir, '.agents/skills', skillName);
-    const claudePath = join(tempDir, '.claude/skills', skillName);
+    const agentName = 'test-agent-2';
+    const canonicalPath = join(tempDir, '.agents/agents', agentName);
+    const claudePath = join(tempDir, '.claude/agents', agentName);
 
     await mkdir(canonicalPath, { recursive: true });
-    await writeFile(join(canonicalPath, 'SKILL.md'), '# Test');
+    await writeFile(join(canonicalPath, 'AGENT.md'), '# Test');
     await symlink(canonicalPath, claudePath, 'junction');
 
     // Mock agents: Only Claude is installed
-    vi.mocked(agentsModule.detectInstalledAgents).mockResolvedValue(['claude-code']);
+    vi.mocked(agentsModule.detectInstalledTargets).mockResolvedValue(['claude-code']);
 
     // Remove from Claude
-    await removeCommand([skillName], { agent: ['claude-code'], yes: true });
+    await removeCommand([agentName], { agent: ['claude-code'], yes: true });
 
     // Both should be gone
     await expect(lstat(claudePath)).rejects.toThrow();

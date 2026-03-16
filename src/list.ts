@@ -1,8 +1,8 @@
 import { homedir } from 'os';
-import type { AgentType } from './types.ts';
-import { agents } from './agents.ts';
-import { listInstalledSkills, type InstalledSkill } from './installer.ts';
-import { getAllLockedSkills } from './skill-lock.ts';
+import type { TargetType } from './types.ts';
+import { targets } from './targets.ts';
+import { listInstalledAgents, type InstalledAgent } from './installer.ts';
+import { getAllLockedAgents } from './agent-lock.ts';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -13,7 +13,7 @@ const YELLOW = '\x1b[33m';
 
 interface ListOptions {
   global?: boolean;
-  agent?: string[];
+  target?: string[];
   json?: boolean;
 }
 
@@ -52,11 +52,11 @@ export function parseListOptions(args: string[]): ListOptions {
       options.global = true;
     } else if (arg === '--json') {
       options.json = true;
-    } else if (arg === '-a' || arg === '--agent') {
-      options.agent = options.agent || [];
+    } else if (arg === '-t' || arg === '--target') {
+      options.target = options.target || [];
       // Collect all following arguments until next flag
       while (i + 1 < args.length && !args[i + 1]!.startsWith('-')) {
-        options.agent.push(args[++i]!);
+        options.target.push(args[++i]!);
       }
     }
   }
@@ -71,10 +71,10 @@ export async function runList(args: string[]): Promise<void> {
   const scope = options.global === true ? true : false;
 
   // Validate agent filter if provided
-  let agentFilter: AgentType[] | undefined;
-  if (options.agent && options.agent.length > 0) {
-    const validAgents = Object.keys(agents);
-    const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
+  let targetFilter: TargetType[] | undefined;
+  if (options.target && options.target.length > 0) {
+    const validAgents = Object.keys(targets);
+    const invalidAgents = options.target.filter((a) => !validAgents.includes(a));
 
     if (invalidAgents.length > 0) {
       console.log(`${YELLOW}Invalid agents: ${invalidAgents.join(', ')}${RESET}`);
@@ -82,73 +82,73 @@ export async function runList(args: string[]): Promise<void> {
       process.exit(1);
     }
 
-    agentFilter = options.agent as AgentType[];
+    targetFilter = options.target as TargetType[];
   }
 
-  const installedSkills = await listInstalledSkills({
+  const installedAgents = await listInstalledAgents({
     global: scope,
-    agentFilter,
+    targetFilter,
   });
 
   // JSON output mode: structured, no ANSI, untruncated agent lists
   if (options.json) {
-    const jsonOutput = installedSkills.map((skill) => ({
-      name: skill.name,
-      path: skill.canonicalPath,
-      scope: skill.scope,
-      agents: skill.agents.map((a) => agents[a].displayName),
+    const jsonOutput = installedAgents.map((agent) => ({
+      name: agent.name,
+      path: agent.canonicalPath,
+      scope: agent.scope,
+      agents: agent.agents.map((a) => targets[a].displayName),
     }));
     console.log(JSON.stringify(jsonOutput, null, 2));
     return;
   }
 
   // Fetch lock entries to get plugin grouping info
-  const lockedSkills = await getAllLockedSkills();
+  const lockedSkills = await getAllLockedAgents();
 
   const cwd = process.cwd();
   const scopeLabel = scope ? 'Global' : 'Project';
 
-  if (installedSkills.length === 0) {
+  if (installedAgents.length === 0) {
     if (options.json) {
       console.log('[]');
       return;
     }
-    console.log(`${DIM}No ${scopeLabel.toLowerCase()} skills found.${RESET}`);
+    console.log(`${DIM}No ${scopeLabel.toLowerCase()} agents found.${RESET}`);
     if (scope) {
-      console.log(`${DIM}Try listing project skills without -g${RESET}`);
+      console.log(`${DIM}Try listing project agents without -g${RESET}`);
     } else {
-      console.log(`${DIM}Try listing global skills with -g${RESET}`);
+      console.log(`${DIM}Try listing global agents with -g${RESET}`);
     }
     return;
   }
 
-  function printSkill(skill: InstalledSkill, indent: boolean = false): void {
+  function printSkill(agent: InstalledAgent, indent: boolean = false): void {
     const prefix = indent ? '  ' : '';
-    const shortPath = shortenPath(skill.canonicalPath, cwd);
-    const agentNames = skill.agents.map((a) => agents[a].displayName);
+    const shortPath = shortenPath(agent.canonicalPath, cwd);
+    const agentNames = agent.agents.map((a) => targets[a].displayName);
     const agentInfo =
-      skill.agents.length > 0 ? formatList(agentNames) : `${YELLOW}not linked${RESET}`;
-    console.log(`${prefix}${CYAN}${skill.name}${RESET} ${DIM}${shortPath}${RESET}`);
+      agent.agents.length > 0 ? formatList(agentNames) : `${YELLOW}not linked${RESET}`;
+    console.log(`${prefix}${CYAN}${agent.name}${RESET} ${DIM}${shortPath}${RESET}`);
     console.log(`${prefix}  ${DIM}Agents:${RESET} ${agentInfo}`);
   }
 
-  console.log(`${BOLD}${scopeLabel} Skills${RESET}`);
+  console.log(`${BOLD}${scopeLabel} Agents${RESET}`);
   console.log();
 
-  // Group skills by plugin
-  const groupedSkills: Record<string, InstalledSkill[]> = {};
-  const ungroupedSkills: InstalledSkill[] = [];
+  // Group agents by plugin
+  const groupedSkills: Record<string, InstalledAgent[]> = {};
+  const ungroupedSkills: InstalledAgent[] = [];
 
-  for (const skill of installedSkills) {
-    const lockEntry = lockedSkills[skill.name];
+  for (const agent of installedAgents) {
+    const lockEntry = lockedSkills[agent.name];
     if (lockEntry?.pluginName) {
       const group = lockEntry.pluginName;
       if (!groupedSkills[group]) {
         groupedSkills[group] = [];
       }
-      groupedSkills[group].push(skill);
+      groupedSkills[group].push(agent);
     } else {
-      ungroupedSkills.push(skill);
+      ungroupedSkills.push(agent);
     }
   }
 
@@ -165,27 +165,27 @@ export async function runList(args: string[]): Promise<void> {
         .join(' ');
 
       console.log(`${BOLD}${title}${RESET}`);
-      const skills = groupedSkills[group];
-      if (skills) {
-        for (const skill of skills) {
-          printSkill(skill, true);
+      const agents = groupedSkills[group];
+      if (agents) {
+        for (const agent of agents) {
+          printSkill(agent, true);
         }
       }
       console.log();
     }
 
-    // Print ungrouped skills if any exist
+    // Print ungrouped agents if any exist
     if (ungroupedSkills.length > 0) {
       console.log(`${BOLD}General${RESET}`);
-      for (const skill of ungroupedSkills) {
-        printSkill(skill, true);
+      for (const agent of ungroupedSkills) {
+        printSkill(agent, true);
       }
       console.log();
     }
   } else {
     // No groups, print flat list as before
-    for (const skill of installedSkills) {
-      printSkill(skill);
+    for (const agent of installedAgents) {
+      printSkill(agent);
     }
     console.log();
   }

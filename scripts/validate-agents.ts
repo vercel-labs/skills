@@ -23,7 +23,7 @@ function error(message: string) {
 function checkDuplicateDisplayNames() {
   const displayNames = new Map<string, string[]>();
 
-  for (const [key, config] of Object.entries(agents)) {
+  for (const [key, config] of Object.entries(targets)) {
     const name = config.displayName.toLowerCase();
     if (!displayNames.has(name)) {
       displayNames.set(name, []);
@@ -39,45 +39,45 @@ function checkDuplicateDisplayNames() {
 }
 
 /**
- * Checks for duplicate `skillsDir` and `globalSkillsDir` values among agents.
+ * Checks for duplicate `agentsDir` and `globalAgentsDir` values among agents.
  *
- * Iterates through the `agents` object, collecting all `skillsDir` and normalized `globalSkillsDir`
+ * Iterates through the `agents` object, collecting all `agentsDir` and normalized `globalAgentsDir`
  * paths. If any directory is associated with more than one agent, an error is reported listing the
  * conflicting agents.
  *
  * @remarks
- * - The `globalSkillsDir` path is normalized by replacing the user's home directory with `~`.
+ * - The `globalAgentsDir` path is normalized by replacing the user's home directory with `~`.
  * - Errors are reported using the `error` function.
  *
  * @throws Will call `error` if duplicate directories are found.
  */
 
 function checkDuplicateSkillsDirs() {
-  const skillsDirs = new Map<string, string[]>();
-  const globalSkillsDirs = new Map<string, string[]>();
+  const agentsDirs = new Map<string, string[]>();
+  const globalAgentsDirs = new Map<string, string[]>();
 
-  for (const [key, config] of Object.entries(agents)) {
-    if (!skillsDirs.has(config.skillsDir)) {
-      skillsDirs.set(config.skillsDir, []);
+  for (const [key, config] of Object.entries(targets)) {
+    if (!agentsDirs.has(config.agentsDir)) {
+      agentsDirs.set(config.agentsDir, []);
     }
-    skillsDirs.get(config.skillsDir)!.push(key);
+    agentsDirs.get(config.agentsDir)!.push(key);
 
-    const globalPath = config.globalSkillsDir.replace(homedir(), '~');
-    if (!globalSkillsDirs.has(globalPath)) {
-      globalSkillsDirs.set(globalPath, []);
+    const globalPath = config.globalAgentsDir.replace(homedir(), '~');
+    if (!globalAgentsDirs.has(globalPath)) {
+      globalAgentsDirs.set(globalPath, []);
     }
-    globalSkillsDirs.get(globalPath)!.push(key);
+    globalAgentsDirs.get(globalPath)!.push(key);
   }
 
-  for (const [dir, keys] of skillsDirs) {
+  for (const [dir, keys] of agentsDirs) {
     if (keys.length > 1) {
-      error(`Duplicate skillsDir "${dir}" found in agents: ${keys.join(', ')}`);
+      error(`Duplicate agentsDir "${dir}" found in agents: ${keys.join(', ')}`);
     }
   }
 
-  for (const [dir, keys] of globalSkillsDirs) {
+  for (const [dir, keys] of globalAgentsDirs) {
     if (keys.length > 1) {
-      error(`Duplicate globalSkillsDir "${dir}" found in agents: ${keys.join(', ')}`);
+      error(`Duplicate globalAgentsDir "${dir}" found in agents: ${keys.join(', ')}`);
     }
   }
 }
@@ -85,7 +85,7 @@ function checkDuplicateSkillsDirs() {
 console.log('Validating agents...\n');
 
 checkDuplicateDisplayNames();
-// It's fine to have duplicate skills dirs
+// It's fine to have duplicate agents dirs
 // checkDuplicateSkillsDirs();
 
 if (hasErrors) {

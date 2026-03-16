@@ -2,14 +2,14 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdir, writeFile, rm } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { listInstalledSkills } from '../src/installer.ts';
+import { listInstalledAgents } from '../src/installer.ts';
 import * as agentsModule from '../src/agents.ts';
 
-describe('listInstalledSkills', () => {
+describe('listInstalledAgents', () => {
   let testDir: string;
 
   beforeEach(async () => {
-    testDir = join(tmpdir(), `add-skill-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    testDir = join(tmpdir(), `add-agent-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     await mkdir(testDir, { recursive: true });
   });
 
@@ -17,14 +17,14 @@ describe('listInstalledSkills', () => {
     await rm(testDir, { recursive: true, force: true });
   });
 
-  // Helper to create a skill directory with SKILL.md
+  // Helper to create a agent directory with AGENT.md
   async function createSkillDir(
     basePath: string,
-    skillName: string,
+    agentName: string,
     skillData: { name: string; description: string }
   ): Promise<string> {
-    const skillDir = join(basePath, '.agents', 'skills', skillName);
-    await mkdir(skillDir, { recursive: true });
+    const agentDir = join(basePath, '.agents', 'agents', agentName);
+    await mkdir(agentDir, { recursive: true });
     const skillMdContent = `---
 name: ${skillData.name}
 description: ${skillData.description}
@@ -34,156 +34,156 @@ description: ${skillData.description}
 
 ${skillData.description}
 `;
-    await writeFile(join(skillDir, 'SKILL.md'), skillMdContent);
-    return skillDir;
+    await writeFile(join(agentDir, 'AGENT.md'), skillMdContent);
+    return agentDir;
   }
 
   it('should return empty array for empty directory', async () => {
-    const skills = await listInstalledSkills({ global: false, cwd: testDir });
-    expect(skills).toEqual([]);
+    const agents = await listInstalledAgents({ global: false, cwd: testDir });
+    expect(agents).toEqual([]);
   });
 
-  it('should find single skill in project directory', async () => {
-    await createSkillDir(testDir, 'test-skill', {
-      name: 'test-skill',
-      description: 'A test skill',
+  it('should find single agent in project directory', async () => {
+    await createSkillDir(testDir, 'test-agent', {
+      name: 'test-agent',
+      description: 'A test agent',
     });
 
-    const skills = await listInstalledSkills({ global: false, cwd: testDir });
-    expect(skills).toHaveLength(1);
-    expect(skills[0]!.name).toBe('test-skill');
-    expect(skills[0]!.description).toBe('A test skill');
-    expect(skills[0]!.scope).toBe('project');
+    const agents = await listInstalledAgents({ global: false, cwd: testDir });
+    expect(agents).toHaveLength(1);
+    expect(agents[0]!.name).toBe('test-agent');
+    expect(agents[0]!.description).toBe('A test agent');
+    expect(agents[0]!.scope).toBe('project');
   });
 
-  it('should find multiple skills', async () => {
-    await createSkillDir(testDir, 'skill-1', {
-      name: 'skill-1',
-      description: 'First skill',
+  it('should find multiple agents', async () => {
+    await createSkillDir(testDir, 'agent-1', {
+      name: 'agent-1',
+      description: 'First agent',
     });
-    await createSkillDir(testDir, 'skill-2', {
-      name: 'skill-2',
-      description: 'Second skill',
+    await createSkillDir(testDir, 'agent-2', {
+      name: 'agent-2',
+      description: 'Second agent',
     });
 
-    const skills = await listInstalledSkills({ global: false, cwd: testDir });
-    expect(skills).toHaveLength(2);
-    const skillNames = skills.map((s) => s.name).sort();
-    expect(skillNames).toEqual(['skill-1', 'skill-2']);
+    const agents = await listInstalledAgents({ global: false, cwd: testDir });
+    expect(agents).toHaveLength(2);
+    const agentNames = agents.map((s) => s.name).sort();
+    expect(agentNames).toEqual(['agent-1', 'agent-2']);
   });
 
-  it('should ignore directories without SKILL.md', async () => {
-    await createSkillDir(testDir, 'valid-skill', {
-      name: 'valid-skill',
-      description: 'Valid skill',
+  it('should ignore directories without AGENT.md', async () => {
+    await createSkillDir(testDir, 'valid-agent', {
+      name: 'valid-agent',
+      description: 'Valid agent',
     });
 
-    // Create a directory without SKILL.md
-    const invalidDir = join(testDir, '.agents', 'skills', 'invalid-skill');
+    // Create a directory without AGENT.md
+    const invalidDir = join(testDir, '.agents', 'agents', 'invalid-agent');
     await mkdir(invalidDir, { recursive: true });
     await writeFile(join(invalidDir, 'other-file.txt'), 'content');
 
-    const skills = await listInstalledSkills({ global: false, cwd: testDir });
-    expect(skills).toHaveLength(1);
-    expect(skills[0]!.name).toBe('valid-skill');
+    const agents = await listInstalledAgents({ global: false, cwd: testDir });
+    expect(agents).toHaveLength(1);
+    expect(agents[0]!.name).toBe('valid-agent');
   });
 
-  it('should handle invalid SKILL.md gracefully', async () => {
-    await createSkillDir(testDir, 'valid-skill', {
-      name: 'valid-skill',
-      description: 'Valid skill',
+  it('should handle invalid AGENT.md gracefully', async () => {
+    await createSkillDir(testDir, 'valid-agent', {
+      name: 'valid-agent',
+      description: 'Valid agent',
     });
 
-    // Create a directory with invalid SKILL.md (missing name/description)
-    const invalidDir = join(testDir, '.agents', 'skills', 'invalid-skill');
+    // Create a directory with invalid AGENT.md (missing name/description)
+    const invalidDir = join(testDir, '.agents', 'agents', 'invalid-agent');
     await mkdir(invalidDir, { recursive: true });
-    await writeFile(join(invalidDir, 'SKILL.md'), '# Invalid\nNo frontmatter');
+    await writeFile(join(invalidDir, 'AGENT.md'), '# Invalid\nNo frontmatter');
 
-    const skills = await listInstalledSkills({ global: false, cwd: testDir });
-    expect(skills).toHaveLength(1);
-    expect(skills[0]!.name).toBe('valid-skill');
+    const agents = await listInstalledAgents({ global: false, cwd: testDir });
+    expect(agents).toHaveLength(1);
+    expect(agents[0]!.name).toBe('valid-agent');
   });
 
   it('should filter by scope - project only', async () => {
-    await createSkillDir(testDir, 'project-skill', {
-      name: 'project-skill',
-      description: 'Project skill',
+    await createSkillDir(testDir, 'project-agent', {
+      name: 'project-agent',
+      description: 'Project agent',
     });
 
-    const skills = await listInstalledSkills({ global: false, cwd: testDir });
-    expect(skills).toHaveLength(1);
-    expect(skills[0]!.scope).toBe('project');
+    const agents = await listInstalledAgents({ global: false, cwd: testDir });
+    expect(agents).toHaveLength(1);
+    expect(agents[0]!.scope).toBe('project');
   });
 
   it('should handle global scope option', async () => {
     // Test with global: true - verifies the function doesn't crash
-    // Note: This checks ~/.agents/skills, results depend on system state
-    const skills = await listInstalledSkills({
+    // Note: This checks ~/.agents/agents, results depend on system state
+    const agents = await listInstalledAgents({
       global: true,
       cwd: testDir,
     });
-    expect(Array.isArray(skills)).toBe(true);
+    expect(Array.isArray(agents)).toBe(true);
   });
 
   it('should apply agent filter', async () => {
-    await createSkillDir(testDir, 'test-skill', {
-      name: 'test-skill',
-      description: 'Test skill',
+    await createSkillDir(testDir, 'test-agent', {
+      name: 'test-agent',
+      description: 'Test agent',
     });
 
-    // Filter by a specific agent (skill should still be returned)
-    const skills = await listInstalledSkills({
+    // Filter by a specific agent (agent should still be returned)
+    const agents = await listInstalledAgents({
       global: false,
       cwd: testDir,
-      agentFilter: ['cursor'] as any,
+      targetFilter: ['cursor'] as any,
     });
-    expect(skills).toHaveLength(1);
-    expect(skills[0]!.name).toBe('test-skill');
+    expect(agents).toHaveLength(1);
+    expect(agents[0]!.name).toBe('test-agent');
   });
 
   // Issue #225 part 1: Only installed agents should be attributed
-  it('should only attribute skills to installed agents (issue #225)', async () => {
-    // Mock: only Amp is installed (not Kimi, even though they share .agents/skills)
-    vi.spyOn(agentsModule, 'detectInstalledAgents').mockResolvedValue(['amp']);
+  it('should only attribute agents to installed agents (issue #225)', async () => {
+    // Mock: only Amp is installed (not Kimi, even though they share .agents/agents)
+    vi.spyOn(agentsModule, 'detectInstalledTargets').mockResolvedValue(['amp']);
 
-    await createSkillDir(testDir, 'test-skill', {
-      name: 'test-skill',
-      description: 'Test skill',
+    await createSkillDir(testDir, 'test-agent', {
+      name: 'test-agent',
+      description: 'Test agent',
     });
 
-    const skills = await listInstalledSkills({ global: false, cwd: testDir });
+    const agents = await listInstalledAgents({ global: false, cwd: testDir });
 
-    expect(skills).toHaveLength(1);
+    expect(agents).toHaveLength(1);
     // Should only show amp, not kimi-cli
-    expect(skills[0]!.agents).toContain('amp');
-    expect(skills[0]!.agents).not.toContain('kimi-cli');
+    expect(agents[0]!.agents).toContain('amp');
+    expect(agents[0]!.agents).not.toContain('kimi-cli');
 
     vi.restoreAllMocks();
   });
 
-  // Issue #225 part 2: Skills in agent-specific directories should be found
-  it('should find skills in agent-specific directories (issue #225)', async () => {
-    vi.spyOn(agentsModule, 'detectInstalledAgents').mockResolvedValue(['cursor']);
+  // Issue #225 part 2: Agents in agent-specific directories should be found
+  it('should find agents in agent-specific directories (issue #225)', async () => {
+    vi.spyOn(agentsModule, 'detectInstalledTargets').mockResolvedValue(['cursor']);
 
-    // Cursor now uses .agents/skills (universal directory)
-    const cursorSkillDir = join(testDir, '.agents', 'skills', 'cursor-skill');
+    // Cursor now uses .agents/agents (universal directory)
+    const cursorSkillDir = join(testDir, '.agents', 'agents', 'cursor-agent');
     await mkdir(cursorSkillDir, { recursive: true });
     await writeFile(
-      join(cursorSkillDir, 'SKILL.md'),
+      join(cursorSkillDir, 'AGENT.md'),
       `---
-name: cursor-skill
-description: A skill in cursor directory
+name: cursor-agent
+description: A agent in cursor directory
 ---
 
-# cursor-skill
+# cursor-agent
 `
     );
 
-    const skills = await listInstalledSkills({ global: false, cwd: testDir });
+    const agents = await listInstalledAgents({ global: false, cwd: testDir });
 
-    expect(skills).toHaveLength(1);
-    expect(skills[0]!.name).toBe('cursor-skill');
-    expect(skills[0]!.agents).toContain('cursor');
+    expect(agents).toHaveLength(1);
+    expect(agents[0]!.name).toBe('cursor-agent');
+    expect(agents[0]!.agents).toContain('cursor');
 
     vi.restoreAllMocks();
   });

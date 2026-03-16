@@ -8,7 +8,7 @@ describe('init command', () => {
   let testDir: string;
 
   beforeEach(() => {
-    testDir = join(tmpdir(), `skills-test-${Date.now()}`);
+    testDir = join(tmpdir(), `agents-test-${Date.now()}`);
     mkdirSync(testDir, { recursive: true });
   });
 
@@ -18,44 +18,44 @@ describe('init command', () => {
     }
   });
 
-  it('should initialize a skill and create SKILL.md', () => {
-    const output = stripLogo(runCliOutput(['init', 'my-test-skill'], testDir));
+  it('should initialize a agent and create AGENT.md', () => {
+    const output = stripLogo(runCliOutput(['init', 'my-test-agent'], testDir));
     expect(output).toMatchInlineSnapshot(`
-      "Initialized skill: my-test-skill
+      "Initialized agent: my-test-agent
 
       Created:
-        my-test-skill/SKILL.md
+        my-test-agent/AGENT.md
 
       Next steps:
-        1. Edit my-test-skill/SKILL.md to define your skill instructions
+        1. Edit my-test-agent/AGENT.md to define your agent instructions
         2. Update the name and description in the frontmatter
 
       Publishing:
-        GitHub:  Push to a repo, then npx skills add <owner>/<repo>
-        URL:     Host the file, then npx skills add https://example.com/my-test-skill/SKILL.md
+        GitHub:  Push to a repo, then npx agents add <owner>/<repo>
+        URL:     Host the file, then npx agents add https://example.com/my-test-agent/AGENT.md
 
-      Browse existing skills for inspiration at https://skills.sh/
+      Browse existing agents for inspiration at https://agents.sh/
 
       "
     `);
 
-    const skillPath = join(testDir, 'my-test-skill', 'SKILL.md');
-    expect(existsSync(skillPath)).toBe(true);
+    const agentPath = join(testDir, 'my-test-agent', 'AGENT.md');
+    expect(existsSync(agentPath)).toBe(true);
 
-    const content = readFileSync(skillPath, 'utf-8');
+    const content = readFileSync(agentPath, 'utf-8');
     expect(content).toMatchInlineSnapshot(`
       "---
-      name: my-test-skill
-      description: A brief description of what this skill does
+      name: my-test-agent
+      description: A brief description of what this agent does
       ---
 
-      # my-test-skill
+      # my-test-agent
 
-      Instructions for the agent to follow when this skill is activated.
+      Instructions for the agent to follow when this agent is activated.
 
       ## When to use
 
-      Describe when this skill should be used.
+      Describe when this agent should be used.
 
       ## Instructions
 
@@ -66,42 +66,42 @@ describe('init command', () => {
     `);
   });
 
-  it('should allow multiple skills in same directory', () => {
+  it('should allow multiple agents in same directory', () => {
     runCliOutput(['init', 'hydration-fix'], testDir);
     runCliOutput(['init', 'waterfall-data-fetching'], testDir);
 
-    expect(existsSync(join(testDir, 'hydration-fix', 'SKILL.md'))).toBe(true);
-    expect(existsSync(join(testDir, 'waterfall-data-fetching', 'SKILL.md'))).toBe(true);
+    expect(existsSync(join(testDir, 'hydration-fix', 'AGENT.md'))).toBe(true);
+    expect(existsSync(join(testDir, 'waterfall-data-fetching', 'AGENT.md'))).toBe(true);
   });
 
-  it('should init SKILL.md in cwd when no name provided', () => {
+  it('should init AGENT.md in cwd when no name provided', () => {
     const output = stripLogo(runCliOutput(['init'], testDir));
 
-    expect(output).toContain('Initialized skill:');
-    expect(output).toContain('Created:\n  SKILL.md'); // directly in cwd, not in a subfolder
+    expect(output).toContain('Initialized agent:');
+    expect(output).toContain('Created:\n  AGENT.md'); // directly in cwd, not in a subfolder
     expect(output).toContain('Publishing:');
     expect(output).toContain('GitHub:');
-    expect(output).toContain('npx skills add <owner>/<repo>');
+    expect(output).toContain('npx agents add <owner>/<repo>');
     expect(output).toContain('URL:');
-    expect(output).toContain('npx skills add https://example.com/SKILL.md');
-    expect(existsSync(join(testDir, 'SKILL.md'))).toBe(true);
+    expect(output).toContain('npx agents add https://example.com/AGENT.md');
+    expect(existsSync(join(testDir, 'AGENT.md'))).toBe(true);
   });
 
-  it('should show publishing hints with skill path', () => {
-    const output = stripLogo(runCliOutput(['init', 'my-skill'], testDir));
+  it('should show publishing hints with agent path', () => {
+    const output = stripLogo(runCliOutput(['init', 'my-agent'], testDir));
 
     expect(output).toContain('Publishing:');
-    expect(output).toContain('GitHub:  Push to a repo, then npx skills add <owner>/<repo>');
+    expect(output).toContain('GitHub:  Push to a repo, then npx agents add <owner>/<repo>');
     expect(output).toContain(
-      'URL:     Host the file, then npx skills add https://example.com/my-skill/SKILL.md'
+      'URL:     Host the file, then npx agents add https://example.com/my-agent/AGENT.md'
     );
   });
 
-  it('should show error if skill already exists', () => {
-    runCliOutput(['init', 'existing-skill'], testDir);
-    const output = stripLogo(runCliOutput(['init', 'existing-skill'], testDir));
+  it('should show error if agent already exists', () => {
+    runCliOutput(['init', 'existing-agent'], testDir);
+    const output = stripLogo(runCliOutput(['init', 'existing-agent'], testDir));
     expect(output).toMatchInlineSnapshot(`
-      "Skill already exists at existing-skill/SKILL.md
+      "Agent already exists at existing-agent/AGENT.md
       "
     `);
   });

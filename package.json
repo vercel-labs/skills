@@ -1,11 +1,11 @@
 {
-  "name": "skills",
+  "name": "agents",
   "version": "1.4.5",
-  "description": "The open agent skills ecosystem",
+  "description": "The open agent distribution ecosystem",
   "type": "module",
   "bin": {
-    "skills": "./bin/cli.mjs",
-    "add-skill": "./bin/cli.mjs"
+    "agents": "./bin/cli.mjs",
+    "add-agent": "./bin/cli.mjs"
   },
   "files": [
     "dist",
@@ -33,8 +33,8 @@
   },
   "keywords": [
     "cli",
-    "agent-skills",
-    "skills",
+    "agent-distribution",
+    "agents",
     "ai-agents",
     "amp",
     "antigravity",

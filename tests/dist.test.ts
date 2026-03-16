@@ -16,6 +16,6 @@ describe('dist build', () => {
       encoding: 'utf-8',
     });
 
-    expect(result).toContain('skills');
+    expect(result).toContain('agents');
   });
 });

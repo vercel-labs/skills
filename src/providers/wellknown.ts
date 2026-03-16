@@ -1,58 +1,58 @@
 import matter from 'gray-matter';
-import type { HostProvider, ProviderMatch, RemoteSkill } from './types.ts';
+import type { HostProvider, ProviderMatch, RemoteAgent } from './types.ts';
 
 /**
- * Represents the index.json structure for well-known skills.
+ * Represents the index.json structure for well-known agents.
  */
 export interface WellKnownIndex {
-  skills: WellKnownSkillEntry[];
+  agents: WellKnownAgentEntry[];
 }
 
 /**
- * Represents a skill entry in the index.json.
+ * Represents a agent entry in the index.json.
  */
-export interface WellKnownSkillEntry {
-  /** Skill identifier. Must match the directory name. */
+export interface WellKnownAgentEntry {
+  /** Agent identifier. Must match the directory name. */
   name: string;
-  /** Brief description of what the skill does. */
+  /** Brief description of what the agent does. */
   description: string;
-  /** Array of all files in the skill directory. */
+  /** Array of all files in the agent directory. */
   files: string[];
 }
 
 /**
- * Represents a skill with all its files fetched from a well-known endpoint.
+ * Represents a agent with all its files fetched from a well-known endpoint.
  */
-export interface WellKnownSkill extends RemoteSkill {
-  /** All files in the skill, keyed by relative path */
+export interface WellKnownAgent extends RemoteAgent {
+  /** All files in the agent, keyed by relative path */
   files: Map<string, string>;
   /** The entry from the index.json */
-  indexEntry: WellKnownSkillEntry;
+  indexEntry: WellKnownAgentEntry;
 }
 
 /**
- * Well-known skills provider using RFC 8615 well-known URIs.
+ * Well-known agents provider using RFC 8615 well-known URIs.
  *
- * Organizations can publish skills at:
- * https://example.com/.well-known/skills/
+ * Organizations can publish agents at:
+ * https://example.com/.well-known/agents/
  *
  * URL formats supported:
- * - https://example.com (discovers all skills from root)
- * - https://example.com/docs (discovers from /docs/.well-known/skills/)
- * - https://example.com/.well-known/skills (discovers all skills)
- * - https://example.com/.well-known/skills/skill-name (specific skill)
+ * - https://example.com (discovers all agents from root)
+ * - https://example.com/docs (discovers from /docs/.well-known/agents/)
+ * - https://example.com/.well-known/agents (discovers all agents)
+ * - https://example.com/.well-known/agents/agent-name (specific agent)
  *
  * The source identifier is "wellknown/{hostname}" or "wellknown/{hostname}/path".
  */
 export class WellKnownProvider implements HostProvider {
   readonly id = 'well-known';
-  readonly displayName = 'Well-Known Skills';
+  readonly displayName = 'Well-Known Agents';
 
-  private readonly WELL_KNOWN_PATH = '.well-known/skills';
+  private readonly WELL_KNOWN_PATH = '.well-known/agents';
   private readonly INDEX_FILE = 'index.json';
 
   /**
-   * Check if a URL could be a well-known skills endpoint.
+   * Check if a URL could be a well-known agents endpoint.
    * This is a fallback provider - it matches any HTTP(S) URL that is not
    * a recognized pattern (GitHub, GitLab, owner/repo shorthand, etc.)
    */
@@ -82,7 +82,7 @@ export class WellKnownProvider implements HostProvider {
   }
 
   /**
-   * Fetch the skills index from a well-known endpoint.
+   * Fetch the agents index from a well-known endpoint.
    * Tries both the path-relative .well-known and the root .well-known.
    */
   async fetchIndex(
@@ -92,10 +92,10 @@ export class WellKnownProvider implements HostProvider {
       const parsed = new URL(baseUrl);
       const basePath = parsed.pathname.replace(/\/$/, ''); // Remove trailing slash
 
-      // Try path-relative .well-known first (e.g., /docs/.well-known/skills/)
+      // Try path-relative .well-known first (e.g., /docs/.well-known/agents/)
       // then fall back to root .well-known
       const urlsToTry = [
-        // Path-relative: https://example.com/docs/.well-known/skills/index.json
+        // Path-relative: https://example.com/docs/.well-known/agents/index.json
         {
           indexUrl: `${parsed.protocol}//${parsed.host}${basePath}/${this.WELL_KNOWN_PATH}/${this.INDEX_FILE}`,
           baseUrl: `${parsed.protocol}//${parsed.host}${basePath}`,
@@ -121,14 +121,14 @@ export class WellKnownProvider implements HostProvider {
           const index = (await response.json()) as WellKnownIndex;
 
           // Validate index structure
-          if (!index.skills || !Array.isArray(index.skills)) {
+          if (!index.agents || !Array.isArray(index.agents)) {
             continue;
           }
 
-          // Validate each skill entry
+          // Validate each agent entry
           let allValid = true;
-          for (const entry of index.skills) {
-            if (!this.isValidSkillEntry(entry)) {
+          for (const entry of index.agents) {
+            if (!this.isValidAgentEntry(entry)) {
               allValid = false;
               break;
             }
@@ -150,9 +150,9 @@ export class WellKnownProvider implements HostProvider {
   }
 
   /**
-   * Validate a skill entry from the index.
+   * Validate a agent entry from the index.
    */
-  private isValidSkillEntry(entry: unknown): entry is WellKnownSkillEntry {
+  private isValidAgentEntry(entry: unknown): entry is WellKnownAgentEntry {
     if (!entry || typeof entry !== 'object') return false;
 
     const e = entry as Record<string, unknown>;
@@ -178,21 +178,21 @@ export class WellKnownProvider implements HostProvider {
       if (file.startsWith('/') || file.startsWith('\\') || file.includes('..')) return false;
     }
 
-    // Must include SKILL.md
-    const hasSkillMd = e.files.some((f) => typeof f === 'string' && f.toLowerCase() === 'skill.md');
-    if (!hasSkillMd) return false;
+    // Must include AGENT.md
+    const hasAgentMd = e.files.some((f) => typeof f === 'string' && f.toLowerCase() === 'agent.md');
+    if (!hasAgentMd) return false;
 
     return true;
   }
 
   /**
-   * Fetch a single skill and all its files from a well-known endpoint.
+   * Fetch a single agent and all its files from a well-known endpoint.
    */
-  async fetchSkill(url: string): Promise<RemoteSkill | null> {
+  async fetchAgent(url: string): Promise<RemoteAgent | null> {
     try {
       const parsed = new URL(url);
 
-      // First, fetch the index to get skill metadata
+      // First, fetch the index to get agent metadata
       const result = await this.fetchIndex(url);
       if (!result) {
         return null;
@@ -200,50 +200,50 @@ export class WellKnownProvider implements HostProvider {
 
       const { index, resolvedBaseUrl } = result;
 
-      // Determine which skill to fetch
-      let skillName: string | null = null;
+      // Determine which agent to fetch
+      let agentName: string | null = null;
 
-      // Check if URL specifies a specific skill
-      const pathMatch = parsed.pathname.match(/\/.well-known\/skills\/([^/]+)\/?$/);
+      // Check if URL specifies a specific agent
+      const pathMatch = parsed.pathname.match(/\/.well-known\/agents\/([^/]+)\/?$/);
       if (pathMatch && pathMatch[1] && pathMatch[1] !== 'index.json') {
-        skillName = pathMatch[1];
-      } else if (index.skills.length === 1) {
-        // If only one skill in index, use that
-        skillName = index.skills[0]!.name;
+        agentName = pathMatch[1];
+      } else if (index.agents.length === 1) {
+        // If only one agent in index, use that
+        agentName = index.agents[0]!.name;
       }
 
-      if (!skillName) {
-        // Multiple skills available, return null - caller should use fetchAllSkills
+      if (!agentName) {
+        // Multiple agents available, return null - caller should use fetchAllAgents
         return null;
       }
 
-      // Find the skill in the index
-      const skillEntry = index.skills.find((s: WellKnownSkillEntry) => s.name === skillName);
-      if (!skillEntry) {
+      // Find the agent in the index
+      const agentEntry = index.agents.find((s: WellKnownAgentEntry) => s.name === agentName);
+      if (!agentEntry) {
         return null;
       }
 
-      return this.fetchSkillByEntry(resolvedBaseUrl, skillEntry);
+      return this.fetchAgentByEntry(resolvedBaseUrl, agentEntry);
     } catch {
       return null;
     }
   }
 
   /**
-   * Fetch a skill by its index entry.
+   * Fetch a agent by its index entry.
    * @param baseUrl - The base URL (e.g., https://example.com or https://example.com/docs)
-   * @param entry - The skill entry from index.json
+   * @param entry - The agent entry from index.json
    */
-  async fetchSkillByEntry(
+  async fetchAgentByEntry(
     baseUrl: string,
-    entry: WellKnownSkillEntry
-  ): Promise<WellKnownSkill | null> {
+    entry: WellKnownAgentEntry
+  ): Promise<WellKnownAgent | null> {
     try {
-      // Build the skill base URL: {baseUrl}/.well-known/skills/{skill-name}
+      // Build the agent base URL: {baseUrl}/.well-known/agents/{agent-name}
       const skillBaseUrl = `${baseUrl.replace(/\/$/, '')}/${this.WELL_KNOWN_PATH}/${entry.name}`;
 
-      // Fetch SKILL.md first (required)
-      const skillMdUrl = `${skillBaseUrl}/SKILL.md`;
+      // Fetch AGENT.md first (required)
+      const skillMdUrl = `${skillBaseUrl}/AGENT.md`;
       const response = await fetch(skillMdUrl);
 
       if (!response.ok) {
@@ -260,10 +260,10 @@ export class WellKnownProvider implements HostProvider {
 
       // Fetch all other files
       const files = new Map<string, string>();
-      files.set('SKILL.md', content);
+      files.set('AGENT.md', content);
 
       // Fetch remaining files in parallel
-      const otherFiles = entry.files.filter((f) => f.toLowerCase() !== 'skill.md');
+      const otherFiles = entry.files.filter((f) => f.toLowerCase() !== 'agent.md');
       const filePromises = otherFiles.map(async (filePath) => {
         try {
           const fileUrl = `${skillBaseUrl}/${filePath}`;
@@ -301,9 +301,9 @@ export class WellKnownProvider implements HostProvider {
   }
 
   /**
-   * Fetch all skills from a well-known endpoint.
+   * Fetch all agents from a well-known endpoint.
    */
-  async fetchAllSkills(url: string): Promise<WellKnownSkill[]> {
+  async fetchAllAgents(url: string): Promise<WellKnownAgent[]> {
     try {
       const result = await this.fetchIndex(url);
       if (!result) {
@@ -312,35 +312,35 @@ export class WellKnownProvider implements HostProvider {
 
       const { index, resolvedBaseUrl } = result;
 
-      // Fetch all skills in parallel
-      const skillPromises = index.skills.map((entry: WellKnownSkillEntry) =>
-        this.fetchSkillByEntry(resolvedBaseUrl, entry)
+      // Fetch all agents in parallel
+      const skillPromises = index.agents.map((entry: WellKnownAgentEntry) =>
+        this.fetchAgentByEntry(resolvedBaseUrl, entry)
       );
       const results = await Promise.all(skillPromises);
 
-      return results.filter((s: WellKnownSkill | null): s is WellKnownSkill => s !== null);
+      return results.filter((s: WellKnownAgent | null): s is WellKnownAgent => s !== null);
     } catch {
       return [];
     }
   }
 
   /**
-   * Convert a user-facing URL to a skill URL.
+   * Convert a user-facing URL to a agent URL.
    * For well-known, this extracts the base domain and constructs the proper path.
    */
   toRawUrl(url: string): string {
     try {
       const parsed = new URL(url);
-      // If already pointing to a SKILL.md, return as-is
-      if (url.toLowerCase().endsWith('/skill.md')) {
+      // If already pointing to a AGENT.md, return as-is
+      if (url.toLowerCase().endsWith('/agent.md')) {
         return url;
       }
 
-      // Check if URL specifies a skill path
-      const pathMatch = parsed.pathname.match(/\/.well-known\/skills\/([^/]+)\/?$/);
+      // Check if URL specifies a agent path
+      const pathMatch = parsed.pathname.match(/\/.well-known\/agents\/([^/]+)\/?$/);
       if (pathMatch && pathMatch[1]) {
-        const basePath = parsed.pathname.replace(/\/.well-known\/skills\/.*$/, '');
-        return `${parsed.protocol}//${parsed.host}${basePath}/${this.WELL_KNOWN_PATH}/${pathMatch[1]}/SKILL.md`;
+        const basePath = parsed.pathname.replace(/\/.well-known\/agents\/.*$/, '');
+        return `${parsed.protocol}//${parsed.host}${basePath}/${this.WELL_KNOWN_PATH}/${pathMatch[1]}/AGENT.md`;
       }
 
       // Otherwise, return the index URL
@@ -355,7 +355,7 @@ export class WellKnownProvider implements HostProvider {
    * Get the source identifier for telemetry/storage.
    * Returns the full hostname with www. stripped.
    * e.g., "https://mintlify.com/docs" → "mintlify.com"
-   *       "https://mppx-discovery-skills.vercel.app" → "mppx-discovery-skills.vercel.app"
+   *       "https://mppx-discovery-agents.vercel.app" → "mppx-discovery-agents.vercel.app"
    *       "https://www.example.com" → "example.com"
    *       "https://docs.lovable.dev" → "docs.lovable.dev"
    */
@@ -370,9 +370,9 @@ export class WellKnownProvider implements HostProvider {
   }
 
   /**
-   * Check if a URL has a well-known skills index.
+   * Check if a URL has a well-known agents index.
    */
-  async hasSkillsIndex(url: string): Promise<boolean> {
+  async hasAgentsIndex(url: string): Promise<boolean> {
     const result = await this.fetchIndex(url);
     return result !== null;
   }

@@ -7,7 +7,7 @@ describe('WellKnownProvider', () => {
   describe('match', () => {
     it('should match arbitrary HTTP URLs', () => {
       expect(provider.match('https://example.com').matches).toBe(true);
-      expect(provider.match('https://docs.example.com/skills').matches).toBe(true);
+      expect(provider.match('https://docs.example.com/agents').matches).toBe(true);
       expect(provider.match('http://localhost:3000').matches).toBe(true);
     });
 
@@ -52,8 +52,8 @@ describe('WellKnownProvider', () => {
       expect(provider.getSourceIdentifier('https://api.mintlify.com/docs')).toBe(
         'api.mintlify.com'
       );
-      expect(provider.getSourceIdentifier('https://mppx-discovery-skills.vercel.app')).toBe(
-        'mppx-discovery-skills.vercel.app'
+      expect(provider.getSourceIdentifier('https://mppx-discovery-agents.vercel.app')).toBe(
+        'mppx-discovery-agents.vercel.app'
       );
     });
 
@@ -70,16 +70,16 @@ describe('WellKnownProvider', () => {
   describe('toRawUrl', () => {
     it('should return index.json URL for base URLs', () => {
       const result = provider.toRawUrl('https://example.com');
-      expect(result).toBe('https://example.com/.well-known/skills/index.json');
+      expect(result).toBe('https://example.com/.well-known/agents/index.json');
     });
 
     it('should return index.json URL with path', () => {
       const result = provider.toRawUrl('https://example.com/docs');
-      expect(result).toBe('https://example.com/docs/.well-known/skills/index.json');
+      expect(result).toBe('https://example.com/docs/.well-known/agents/index.json');
     });
 
-    it('should return SKILL.md URL if already pointing to skill.md', () => {
-      const url = 'https://example.com/.well-known/skills/my-skill/SKILL.md';
+    it('should return AGENT.md URL if already pointing to agent.md', () => {
+      const url = 'https://example.com/.well-known/agents/my-agent/AGENT.md';
       expect(provider.toRawUrl(url)).toBe(url);
     });
   });
@@ -91,8 +91,8 @@ describe('WellKnownProvider', () => {
       expect(provider.id).toBe('well-known');
     });
 
-    it('provider should have display name "Well-Known Skills"', () => {
-      expect(provider.displayName).toBe('Well-Known Skills');
+    it('provider should have display name "Well-Known Agents"', () => {
+      expect(provider.displayName).toBe('Well-Known Agents');
     });
   });
 });
@@ -123,8 +123,8 @@ describe('parseSource with well-known URLs', async () => {
     expect(result.type).toBe('git');
   });
 
-  it('should parse direct skill.md URL as well-known (no more direct-url type)', () => {
-    const result = parseSource('https://docs.example.com/skill.md');
+  it('should parse direct agent.md URL as well-known (no more direct-url type)', () => {
+    const result = parseSource('https://docs.example.com/agent.md');
     expect(result.type).toBe('well-known');
   });
 });

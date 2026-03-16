@@ -1,17 +1,17 @@
-const TELEMETRY_URL = 'https://add-skill.vercel.sh/t';
-const AUDIT_URL = 'https://add-skill.vercel.sh/audit';
+const TELEMETRY_URL = 'https://add-agent.vercel.sh/t';
+const AUDIT_URL = 'https://add-agent.vercel.sh/audit';
 
 interface InstallTelemetryData {
   event: 'install';
   source: string;
-  skills: string;
   agents: string;
+  targets: string;
   global?: '1';
-  skillFiles?: string; // JSON stringified { skillName: relativePath }
+  agentFiles?: string; // JSON stringified { agentName: relativePath }
   /**
    * Source type for different hosts:
    * - 'github': GitHub repository (default, uses raw.githubusercontent.com)
-   * - 'raw': Direct URL to SKILL.md (generic raw URL)
+   * - 'raw': Direct URL to AGENT.md (generic raw URL)
    * - Provider IDs like 'mintlify', 'huggingface', etc.
    */
   sourceType?: string;
@@ -20,21 +20,21 @@ interface InstallTelemetryData {
 interface RemoveTelemetryData {
   event: 'remove';
   source?: string;
-  skills: string;
   agents: string;
+  targets: string;
   global?: '1';
   sourceType?: string;
 }
 
 interface CheckTelemetryData {
   event: 'check';
-  skillCount: string;
+  agentCount: string;
   updatesAvailable: string;
 }
 
 interface UpdateTelemetryData {
   event: 'update';
-  skillCount: string;
+  agentCount: string;
   successCount: string;
   failCount: string;
 }
@@ -48,9 +48,9 @@ interface FindTelemetryData {
 
 interface SyncTelemetryData {
   event: 'experimental_sync';
-  skillCount: string;
+  agentCount: string;
   successCount: string;
-  agents: string;
+  targets: string;
 }
 
 type TelemetryData =
@@ -93,24 +93,24 @@ export interface PartnerAudit {
   analyzedAt: string;
 }
 
-export type SkillAuditData = Record<string, PartnerAudit>;
-export type AuditResponse = Record<string, SkillAuditData>;
+export type AgentAuditData = Record<string, PartnerAudit>;
+export type AuditResponse = Record<string, AgentAuditData>;
 
 /**
- * Fetch security audit results for skills from the audit API.
+ * Fetch security audit results for agents from the audit API.
  * Returns null on any error or timeout — never blocks installation.
  */
 export async function fetchAuditData(
   source: string,
-  skillSlugs: string[],
+  agentSlugs: string[],
   timeoutMs = 3000
 ): Promise<AuditResponse | null> {
-  if (skillSlugs.length === 0) return null;
+  if (agentSlugs.length === 0) return null;
 
   try {
     const params = new URLSearchParams({
       source,
-      skills: skillSlugs.join(','),
+      agents: agentSlugs.join(','),
     });
 
     const controller = new AbortController();

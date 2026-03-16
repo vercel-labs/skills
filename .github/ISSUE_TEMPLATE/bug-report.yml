@@ -23,7 +23,7 @@ body:
       label: Steps to Reproduce
       description: How can we reproduce this issue?
       placeholder: |
-        1. Run `npx add-skill ...`
+        1. Run `npx agents ...`
         2. Select ...
         3. See error
     validations:
@@ -49,7 +49,7 @@ body:
     id: version
     attributes:
       label: Version
-      description: What version of add-skill are you using?
+      description: What version of add-agent are you using?
       placeholder: e.g., 1.0.8
     validations:
       required: false

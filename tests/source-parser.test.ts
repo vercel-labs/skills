@@ -37,11 +37,11 @@ describe('parseSource', () => {
     });
 
     it('GitHub URL - tree with branch and path', () => {
-      const result = parseSource('https://github.com/owner/repo/tree/main/skills/my-skill');
+      const result = parseSource('https://github.com/owner/repo/tree/main/agents/my-agent');
       expect(result.type).toBe('github');
       expect(result.url).toBe('https://github.com/owner/repo.git');
       expect(result.ref).toBe('main');
-      expect(result.subpath).toBe('skills/my-skill');
+      expect(result.subpath).toBe('agents/my-agent');
     });
 
     // Note: Branch names with slashes (e.g., feature/my-feature) are ambiguous.
@@ -73,11 +73,11 @@ describe('parseSource', () => {
     });
 
     it('GitLab URL - tree with branch and path', () => {
-      const result = parseSource('https://gitlab.com/owner/repo/-/tree/main/src/skills');
+      const result = parseSource('https://gitlab.com/owner/repo/-/tree/main/src/agents');
       expect(result.type).toBe('gitlab');
       expect(result.url).toBe('https://gitlab.com/owner/repo.git');
       expect(result.ref).toBe('main');
-      expect(result.subpath).toBe('src/skills');
+      expect(result.subpath).toBe('src/agents');
     });
 
     it('GitLab URL - with .git suffix', () => {
@@ -94,9 +94,9 @@ describe('parseSource', () => {
     });
 
     it('GitLab URL - subgroup (3 levels)', () => {
-      const result = parseSource('https://gitlab.com/coresofthq/ai/agent-skills');
+      const result = parseSource('https://gitlab.com/coresofthq/ai/agent-agents');
       expect(result.type).toBe('gitlab');
-      expect(result.url).toBe('https://gitlab.com/coresofthq/ai/agent-skills.git');
+      expect(result.url).toBe('https://gitlab.com/coresofthq/ai/agent-agents.git');
       expect(result.ref).toBeUndefined();
     });
 
@@ -116,12 +116,12 @@ describe('parseSource', () => {
 
     it('GitLab URL - subgroup with tree/branch/path', () => {
       const result = parseSource(
-        'https://gitlab.com/group/subgroup/repo/-/tree/main/path/to/skill'
+        'https://gitlab.com/group/subgroup/repo/-/tree/main/path/to/agent'
       );
       expect(result.type).toBe('gitlab');
       expect(result.url).toBe('https://gitlab.com/group/subgroup/repo.git');
       expect(result.ref).toBe('main');
-      expect(result.subpath).toBe('path/to/skill');
+      expect(result.subpath).toBe('path/to/agent');
     });
 
     it('GitLab URL - trailing slash', () => {
@@ -141,39 +141,39 @@ describe('parseSource', () => {
     });
 
     it('GitHub shorthand - owner/repo/path', () => {
-      const result = parseSource('owner/repo/skills/my-skill');
+      const result = parseSource('owner/repo/agents/my-agent');
       expect(result.type).toBe('github');
       expect(result.url).toBe('https://github.com/owner/repo.git');
-      expect(result.subpath).toBe('skills/my-skill');
+      expect(result.subpath).toBe('agents/my-agent');
     });
 
-    it('GitHub shorthand - owner/repo@skill (skill filter syntax)', () => {
-      const result = parseSource('owner/repo@my-skill');
+    it('GitHub shorthand - owner/repo@agent (agent filter syntax)', () => {
+      const result = parseSource('owner/repo@my-agent');
       expect(result.type).toBe('github');
       expect(result.url).toBe('https://github.com/owner/repo.git');
-      expect(result.skillFilter).toBe('my-skill');
+      expect(result.agentFilter).toBe('my-agent');
       expect(result.subpath).toBeUndefined();
     });
 
-    it('GitHub shorthand - owner/repo@skill with hyphenated skill name', () => {
-      const result = parseSource('vercel-labs/agent-skills@find-skills');
+    it('GitHub shorthand - owner/repo@agent with hyphenated agent name', () => {
+      const result = parseSource('vercel-labs/agent-agents@find-agents');
       expect(result.type).toBe('github');
-      expect(result.url).toBe('https://github.com/vercel-labs/agent-skills.git');
-      expect(result.skillFilter).toBe('find-skills');
+      expect(result.url).toBe('https://github.com/vercel-labs/agent-agents.git');
+      expect(result.agentFilter).toBe('find-agents');
     });
   });
 
   describe('Local path tests', () => {
     it('Local path - relative with ./', () => {
-      const result = parseSource('./my-skills');
+      const result = parseSource('./my-agents');
       expect(result.type).toBe('local');
-      expect(result.localPath).toContain('my-skills');
+      expect(result.localPath).toContain('my-agents');
     });
 
     it('Local path - relative with ../', () => {
-      const result = parseSource('../other-skills');
+      const result = parseSource('../other-agents');
       expect(result.type).toBe('local');
-      expect(result.localPath).toContain('other-skills');
+      expect(result.localPath).toContain('other-agents');
     });
 
     it('Local path - current directory', () => {
@@ -184,7 +184,7 @@ describe('parseSource', () => {
 
     it('Local path - absolute path', () => {
       // Use platform-specific absolute path
-      const testPath = isWindows ? 'C:\\Users\\test\\skills' : '/home/user/skills';
+      const testPath = isWindows ? 'C:\\Users\\test\\agents' : '/home/user/agents';
       const result = parseSource(testPath);
       expect(result.type).toBe('local');
       expect(result.localPath).toBe(testPath);
@@ -218,7 +218,7 @@ describe('getOwnerRepo', () => {
   });
 
   it('getOwnerRepo - GitHub URL with tree/branch/path', () => {
-    const parsed = parseSource('https://github.com/owner/repo/tree/main/skills/my-skill');
+    const parsed = parseSource('https://github.com/owner/repo/tree/main/agents/my-agent');
     expect(getOwnerRepo(parsed)).toBe('owner/repo');
   });
 
@@ -228,7 +228,7 @@ describe('getOwnerRepo', () => {
   });
 
   it('getOwnerRepo - GitHub shorthand with subpath', () => {
-    const parsed = parseSource('owner/repo/skills/my-skill');
+    const parsed = parseSource('owner/repo/agents/my-agent');
     expect(getOwnerRepo(parsed)).toBe('owner/repo');
   });
 
@@ -238,22 +238,22 @@ describe('getOwnerRepo', () => {
   });
 
   it('getOwnerRepo - GitLab URL with tree', () => {
-    const parsed = parseSource('https://gitlab.com/owner/repo/-/tree/main/skills');
+    const parsed = parseSource('https://gitlab.com/owner/repo/-/tree/main/agents');
     expect(getOwnerRepo(parsed)).toBe('owner/repo');
   });
 
   it('getOwnerRepo - GitLab URL with subgroup', () => {
-    const parsed = parseSource('https://gitlab.com/coresofthq/ai/agent-skills');
-    expect(getOwnerRepo(parsed)).toBe('coresofthq/ai/agent-skills');
+    const parsed = parseSource('https://gitlab.com/coresofthq/ai/agent-agents');
+    expect(getOwnerRepo(parsed)).toBe('coresofthq/ai/agent-agents');
   });
 
   it('getOwnerRepo - local path returns null', () => {
-    const parsed = parseSource('./my-skills');
+    const parsed = parseSource('./my-agents');
     expect(getOwnerRepo(parsed)).toBeNull();
   });
 
   it('getOwnerRepo - absolute local path returns null', () => {
-    const parsed = parseSource('/home/user/skills');
+    const parsed = parseSource('/home/user/agents');
     expect(getOwnerRepo(parsed)).toBeNull();
   });
 
@@ -273,8 +273,8 @@ describe('getOwnerRepo', () => {
   });
 
   it('getOwnerRepo - self-hosted git with .git suffix', () => {
-    const parsed = parseSource('https://git.internal.io/myteam/skills.git');
-    expect(getOwnerRepo(parsed)).toBe('myteam/skills');
+    const parsed = parseSource('https://git.internal.io/myteam/agents.git');
+    expect(getOwnerRepo(parsed)).toBe('myteam/agents');
   });
 
   it('getOwnerRepo - URL with query string', () => {
@@ -350,10 +350,10 @@ describe('getOwnerRepo', () => {
 });
 
 describe('Source aliases', () => {
-  it('resolves coinbase/agentWallet to coinbase/agentic-wallet-skills', () => {
+  it('resolves coinbase/agentWallet to coinbase/agentic-wallet-agents', () => {
     const result = parseSource('coinbase/agentWallet');
     expect(result.type).toBe('github');
-    expect(result.url).toBe('https://github.com/coinbase/agentic-wallet-skills.git');
+    expect(result.url).toBe('https://github.com/coinbase/agentic-wallet-agents.git');
   });
 });
 
@@ -367,17 +367,17 @@ describe('Prefix shorthand tests', () => {
     });
 
     it('github:owner/repo/subpath', () => {
-      const result = parseSource('github:owner/repo/skills/my-skill');
+      const result = parseSource('github:owner/repo/agents/my-agent');
       expect(result.type).toBe('github');
       expect(result.url).toBe('https://github.com/owner/repo.git');
-      expect(result.subpath).toBe('skills/my-skill');
+      expect(result.subpath).toBe('agents/my-agent');
     });
 
-    it('github:owner/repo@skill-name', () => {
-      const result = parseSource('github:owner/repo@my-skill');
+    it('github:owner/repo@agent-name', () => {
+      const result = parseSource('github:owner/repo@my-agent');
       expect(result.type).toBe('github');
       expect(result.url).toBe('https://github.com/owner/repo.git');
-      expect(result.skillFilter).toBe('my-skill');
+      expect(result.agentFilter).toBe('my-agent');
     });
 
     it('github:googleworkspace/cli', () => {

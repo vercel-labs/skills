@@ -1,11 +1,11 @@
 /**
- * Represents a parsed skill from a remote host.
- * Different hosts may have different ways of identifying skills.
+ * Represents a parsed agent from a remote host.
+ * Different hosts may have different ways of identifying agents.
  */
-export interface RemoteSkill {
-  /** Display name of the skill (from frontmatter) */
+export interface RemoteAgent {
+  /** Display name of the agent (from frontmatter) */
   name: string;
-  /** Description of the skill (from frontmatter) */
+  /** Description of the agent (from frontmatter) */
   description: string;
   /** Full markdown content including frontmatter */
   content: string;
@@ -23,15 +23,15 @@ export interface RemoteSkill {
 export interface ProviderMatch {
   /** Whether the URL matches this provider */
   matches: boolean;
-  /** The source identifier for telemetry/storage (e.g., "mintlify/bun.com", "huggingface/hf-skills/hf-jobs") */
+  /** The source identifier for telemetry/storage (e.g., "mintlify/bun.com", "huggingface/hf-agents/hf-jobs") */
   sourceIdentifier?: string;
 }
 
 /**
- * Interface for remote SKILL.md host providers.
+ * Interface for remote AGENT.md host providers.
  * Each provider knows how to:
  * - Detect if a URL belongs to it
- * - Fetch and parse SKILL.md files
+ * - Fetch and parse AGENT.md files
  * - Convert URLs to raw content URLs
  * - Provide source identifiers for telemetry
  */
@@ -50,11 +50,11 @@ export interface HostProvider {
   match(url: string): ProviderMatch;
 
   /**
-   * Fetch and parse a SKILL.md file from the given URL.
-   * @param url - The URL to the SKILL.md file
-   * @returns The parsed skill or null if invalid/not found
+   * Fetch and parse a AGENT.md file from the given URL.
+   * @param url - The URL to the AGENT.md file
+   * @returns The parsed agent or null if invalid/not found
    */
-  fetchSkill(url: string): Promise<RemoteSkill | null>;
+  fetchAgent(url: string): Promise<RemoteAgent | null>;
 
   /**
    * Convert a user-facing URL to a raw content URL.
@@ -67,9 +67,9 @@ export interface HostProvider {
   /**
    * Get the source identifier for telemetry/storage.
    * This should be a stable identifier that can be used to group
-   * skills from the same source.
+   * agents from the same source.
    * @param url - The original URL
-   * @returns Source identifier (e.g., "mintlify/bun.com", "huggingface/hf-skills/hf-jobs")
+   * @returns Source identifier (e.g., "mintlify/bun.com", "huggingface/hf-agents/hf-jobs")
    */
   getSourceIdentifier(url: string): string;
 }

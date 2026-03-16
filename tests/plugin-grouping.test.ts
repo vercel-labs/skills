@@ -13,14 +13,14 @@ describe('getPluginGroupings', () => {
     const manifest = {
       plugins: [
         {
-          name: 'document-skills',
+          name: 'document-agents',
           source: './',
-          skills: ['./skills/xlsx', './skills/docx'],
+          agents: ['./agents/xlsx', './agents/docx'],
         },
         {
-          name: 'example-skills',
+          name: 'example-agents',
           source: './',
-          skills: ['./skills/art'],
+          agents: ['./agents/art'],
         },
       ],
     };
@@ -32,16 +32,16 @@ describe('getPluginGroupings', () => {
     await rm(TEST_DIR, { recursive: true, force: true });
   });
 
-  it('should map skill paths to plugin names', async () => {
+  it('should map agent paths to plugin names', async () => {
     const groupings = await getPluginGroupings(TEST_DIR);
 
-    const xlsxPath = resolve(TEST_DIR, 'skills/xlsx');
-    const docxPath = resolve(TEST_DIR, 'skills/docx');
-    const artPath = resolve(TEST_DIR, 'skills/art');
+    const xlsxPath = resolve(TEST_DIR, 'agents/xlsx');
+    const docxPath = resolve(TEST_DIR, 'agents/docx');
+    const artPath = resolve(TEST_DIR, 'agents/art');
 
-    expect(groupings.get(xlsxPath)).toBe('document-skills');
-    expect(groupings.get(docxPath)).toBe('document-skills');
-    expect(groupings.get(artPath)).toBe('example-skills');
+    expect(groupings.get(xlsxPath)).toBe('document-agents');
+    expect(groupings.get(docxPath)).toBe('document-agents');
+    expect(groupings.get(artPath)).toBe('example-agents');
   });
 
   it('should handle nested plugin sources', async () => {
@@ -55,7 +55,7 @@ describe('getPluginGroupings', () => {
         {
           name: 'nested-plugin',
           source: './plugins/my-plugin',
-          skills: ['./skills/deep'],
+          agents: ['./agents/deep'],
         },
       ],
     };
@@ -63,9 +63,9 @@ describe('getPluginGroupings', () => {
     await writeFile(join(nestedDir, '.claude-plugin/marketplace.json'), JSON.stringify(manifest));
 
     const groupings = await getPluginGroupings(nestedDir);
-    // source: ./plugins/my-plugin, skill: ./skills/deep
-    // path = nestedDir/plugins/my-plugin/skills/deep
-    const expectedPath = resolve(nestedDir, 'plugins/my-plugin/skills/deep');
+    // source: ./plugins/my-plugin, agent: ./agents/deep
+    // path = nestedDir/plugins/my-plugin/agents/deep
+    const expectedPath = resolve(nestedDir, 'plugins/my-plugin/agents/deep');
 
     expect(groupings.get(expectedPath)).toBe('nested-plugin');
   });

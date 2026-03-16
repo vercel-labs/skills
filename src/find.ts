@@ -11,8 +11,8 @@ const CYAN = '\x1b[36m';
 const MAGENTA = '\x1b[35m';
 const YELLOW = '\x1b[33m';
 
-// API endpoint for skills search
-const SEARCH_API_BASE = process.env.SKILLS_API_URL || 'https://skills.sh';
+// API endpoint for agents search
+const SEARCH_API_BASE = process.env.AGENTS_API_URL || 'https://agents.sh';
 
 function formatInstalls(count: number): string {
   if (!count || count <= 0) return '';
@@ -37,7 +37,7 @@ export async function searchSkillsAPI(query: string): Promise<SearchSkill[]> {
     if (!res.ok) return [];
 
     const data = (await res.json()) as {
-      skills: Array<{
+      agents: Array<{
         id: string;
         name: string;
         installs: number;
@@ -45,12 +45,12 @@ export async function searchSkillsAPI(query: string): Promise<SearchSkill[]> {
       }>;
     };
 
-    return data.skills
-      .map((skill) => ({
-        name: skill.name,
-        slug: skill.id,
-        source: skill.source || '',
-        installs: skill.installs,
+    return data.agents
+      .map((agent) => ({
+        name: agent.name,
+        slug: agent.id,
+        source: agent.source || '',
+        installs: agent.installs,
       }))
       .sort((a, b) => (b.installs || 0) - (a.installs || 0));
   } catch {
@@ -101,7 +101,7 @@ async function runSearchPrompt(initialQuery = ''): Promise<SearchSkill | null> {
 
     // Search input line with cursor
     const cursor = `${BOLD}_${RESET}`;
-    lines.push(`${TEXT}Search skills:${RESET} ${query}${cursor}`);
+    lines.push(`${TEXT}Search agents:${RESET} ${query}${cursor}`);
     lines.push('');
 
     // Results - keep showing existing results while loading new ones
@@ -110,18 +110,18 @@ async function runSearchPrompt(initialQuery = ''): Promise<SearchSkill | null> {
     } else if (results.length === 0 && loading) {
       lines.push(`${DIM}Searching...${RESET}`);
     } else if (results.length === 0) {
-      lines.push(`${DIM}No skills found${RESET}`);
+      lines.push(`${DIM}No agents found${RESET}`);
     } else {
       const maxVisible = 8;
       const visible = results.slice(0, maxVisible);
 
       for (let i = 0; i < visible.length; i++) {
-        const skill = visible[i]!;
+        const agent = visible[i]!;
         const isSelected = i === selectedIndex;
         const arrow = isSelected ? `${BOLD}>${RESET}` : ' ';
-        const name = isSelected ? `${BOLD}${skill.name}${RESET}` : `${TEXT}${skill.name}${RESET}`;
-        const source = skill.source ? ` ${DIM}${skill.source}${RESET}` : '';
-        const installs = formatInstalls(skill.installs);
+        const name = isSelected ? `${BOLD}${agent.name}${RESET}` : `${TEXT}${agent.name}${RESET}`;
+        const source = agent.source ? ` ${DIM}${agent.source}${RESET}` : '';
+        const installs = formatInstalls(agent.installs);
         const installsBadge = installs ? ` ${CYAN}${installs}${RESET}` : '';
         const loadingIndicator = loading && i === 0 ? ` ${DIM}...${RESET}` : '';
 
@@ -249,7 +249,7 @@ async function runSearchPrompt(initialQuery = ''): Promise<SearchSkill | null> {
 
 // Parse owner/repo from a package string (for the find command)
 function getOwnerRepoFromString(pkg: string): { owner: string; repo: string } | null {
-  // Handle owner/repo or owner/repo@skill
+  // Handle owner/repo or owner/repo@agent
   const atIndex = pkg.lastIndexOf('@');
   const repoPath = atIndex > 0 ? pkg.slice(0, atIndex) : pkg;
   const match = repoPath.match(/^([^/]+)\/([^/]+)$/);
@@ -270,8 +270,8 @@ export async function runFind(args: string[]): Promise<void> {
   const query = args.join(' ');
   const isNonInteractive = !process.stdin.isTTY;
   const agentTip = `${DIM}Tip: if running in a coding agent, follow these steps:${RESET}
-${DIM}  1) npx skills find [query]${RESET}
-${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
+${DIM}  1) npx agents find [query]${RESET}
+${DIM}  2) npx agents add <owner/repo@agent>${RESET}`;
 
   // Non-interactive mode: just print results and exit
   if (query) {
@@ -285,20 +285,20 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
     });
 
     if (results.length === 0) {
-      console.log(`${DIM}No skills found for "${query}"${RESET}`);
+      console.log(`${DIM}No agents found for "${query}"${RESET}`);
       return;
     }
 
-    console.log(`${DIM}Install with${RESET} npx skills add <owner/repo@skill>`);
+    console.log(`${DIM}Install with${RESET} npx agents add <owner/repo@agent>`);
     console.log();
 
-    for (const skill of results.slice(0, 6)) {
-      const pkg = skill.source || skill.slug;
-      const installs = formatInstalls(skill.installs);
+    for (const agent of results.slice(0, 6)) {
+      const pkg = agent.source || agent.slug;
+      const installs = formatInstalls(agent.installs);
       console.log(
-        `${TEXT}${pkg}@${skill.name}${RESET}${installs ? ` ${CYAN}${installs}${RESET}` : ''}`
+        `${TEXT}${pkg}@${agent.name}${RESET}${installs ? ` ${CYAN}${installs}${RESET}` : ''}`
       );
-      console.log(`${DIM}└ https://skills.sh/${skill.slug}${RESET}`);
+      console.log(`${DIM}└ https://agents.sh/${agent.slug}${RESET}`);
       console.log();
     }
     return;
@@ -325,16 +325,16 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
     return;
   }
 
-  // Use source (owner/repo) and skill name for installation
+  // Use source (owner/repo) and agent name for installation
   const pkg = selected.source || selected.slug;
-  const skillName = selected.name;
+  const agentName = selected.name;
 
   console.log();
-  console.log(`${TEXT}Installing ${BOLD}${skillName}${RESET} from ${DIM}${pkg}${RESET}...`);
+  console.log(`${TEXT}Installing ${BOLD}${agentName}${RESET} from ${DIM}${pkg}${RESET}...`);
   console.log();
 
   // Run add directly since we're in the same CLI
-  const { source, options } = parseAddOptions([pkg, '--skill', skillName]);
+  const { source, options } = parseAddOptions([pkg, '--agent', agentName]);
   await runAdd(source, options);
 
   console.log();
@@ -342,10 +342,10 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
   const info = getOwnerRepoFromString(pkg);
   if (info && (await isRepoPublic(info.owner, info.repo))) {
     console.log(
-      `${DIM}View the skill at${RESET} ${TEXT}https://skills.sh/${selected.slug}${RESET}`
+      `${DIM}View the agent at${RESET} ${TEXT}https://agents.sh/${selected.slug}${RESET}`
     );
   } else {
-    console.log(`${DIM}Discover more skills at${RESET} ${TEXT}https://skills.sh${RESET}`);
+    console.log(`${DIM}Discover more agents at${RESET} ${TEXT}https://agents.sh${RESET}`);
   }
 
   console.log();

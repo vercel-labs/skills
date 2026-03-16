@@ -125,7 +125,7 @@ function isLocalPath(input: string): boolean {
  */
 // Source aliases: map common shorthand to canonical source
 const SOURCE_ALIASES: Record<string, string> = {
-  'coinbase/agentWallet': 'coinbase/agentic-wallet-skills',
+  'coinbase/agentWallet': 'coinbase/agentic-wallet-agents',
 };
 
 export function parseSource(input: string): ParsedSource {
@@ -136,7 +136,7 @@ export function parseSource(input: string): ParsedSource {
   }
 
   // Prefix shorthand: github:owner/repo -> owner/repo (handled by existing shorthand logic)
-  // Also supports github:owner/repo/subpath and github:owner/repo@skill
+  // Also supports github:owner/repo/subpath and github:owner/repo@agent
   const githubPrefixMatch = input.match(/^github:(.+)$/);
   if (githubPrefixMatch) {
     return parseSource(githubPrefixMatch[1]!);
@@ -159,7 +159,7 @@ export function parseSource(input: string): ParsedSource {
     };
   }
 
-  // GitHub URL with path: https://github.com/owner/repo/tree/branch/path/to/skill
+  // GitHub URL with path: https://github.com/owner/repo/tree/branch/path/to/agent
   const githubTreeWithPathMatch = input.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/);
   if (githubTreeWithPathMatch) {
     const [, owner, repo, ref, subpath] = githubTreeWithPathMatch;
@@ -239,16 +239,16 @@ export function parseSource(input: string): ParsedSource {
     }
   }
 
-  // GitHub shorthand: owner/repo, owner/repo/path/to/skill, or owner/repo@skill-name
+  // GitHub shorthand: owner/repo, owner/repo/path/to/agent, or owner/repo@agent-name
   // Exclude paths that start with . or / to avoid matching local paths
-  // First check for @skill syntax: owner/repo@skill-name
+  // First check for @agent syntax: owner/repo@agent-name
   const atSkillMatch = input.match(/^([^/]+)\/([^/@]+)@(.+)$/);
   if (atSkillMatch && !input.includes(':') && !input.startsWith('.') && !input.startsWith('/')) {
-    const [, owner, repo, skillFilter] = atSkillMatch;
+    const [, owner, repo, agentFilter] = atSkillMatch;
     return {
       type: 'github',
       url: `https://github.com/${owner}/${repo}.git`,
-      skillFilter,
+      agentFilter,
     };
   }
 
@@ -262,8 +262,8 @@ export function parseSource(input: string): ParsedSource {
     };
   }
 
-  // Well-known skills: arbitrary HTTP(S) URLs that aren't GitHub/GitLab
-  // This is the final fallback for URLs - we'll check for /.well-known/skills/index.json
+  // Well-known agents: arbitrary HTTP(S) URLs that aren't GitHub/GitLab
+  // This is the final fallback for URLs - we'll check for /.well-known/agents/index.json
   if (isWellKnownUrl(input)) {
     return {
       type: 'well-known',
@@ -279,7 +279,7 @@ export function parseSource(input: string): ParsedSource {
 }
 
 /**
- * Check if a URL could be a well-known skills endpoint.
+ * Check if a URL could be a well-known agents endpoint.
  * Must be HTTP(S) and not a known git host (GitHub, GitLab).
  * Also excludes URLs that look like git repos (.git suffix).
  */

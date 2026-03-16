@@ -3,50 +3,50 @@ import pc from 'picocolors';
 import { readLocalLock } from './local-lock.ts';
 import { runAdd } from './add.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
-import { getUniversalAgents } from './agents.ts';
+import { getUniversalTargets } from './targets.ts';
 
 /**
- * Install all skills from the local skills-lock.json.
- * Groups skills by source and calls `runAdd` for each group.
+ * Install all agents from the local agents-lock.json.
+ * Groups agents by source and calls `runAdd` for each group.
  *
- * Only installs to .agents/skills/ (universal agents) -- the canonical
+ * Only installs to .agents/agents/ (universal agents) -- the canonical
  * project-level location. Does not install to agent-specific directories.
  *
- * node_modules skills are handled via experimental_sync.
+ * node_modules agents are handled via experimental_sync.
  */
 export async function runInstallFromLock(args: string[]): Promise<void> {
   const cwd = process.cwd();
   const lock = await readLocalLock(cwd);
-  const skillEntries = Object.entries(lock.skills);
+  const skillEntries = Object.entries(lock.agents);
 
   if (skillEntries.length === 0) {
-    p.log.warn('No project skills found in skills-lock.json');
+    p.log.warn('No project agents found in agents-lock.json');
     p.log.info(
-      `Add project-level skills with ${pc.cyan('npx skills add <package>')} (without ${pc.cyan('-g')})`
+      `Add project-level agents with ${pc.cyan('npx agents add <package>')} (without ${pc.cyan('-g')})`
     );
     return;
   }
 
-  // Only install to .agents/skills/ (universal agents)
-  const universalAgentNames = getUniversalAgents();
+  // Only install to .agents/agents/ (universal agents)
+  const universalAgentNames = getUniversalTargets();
 
-  // Separate node_modules skills from remote skills
+  // Separate node_modules agents from remote agents
   const nodeModuleSkills: string[] = [];
-  const bySource = new Map<string, { sourceType: string; skills: string[] }>();
+  const bySource = new Map<string, { sourceType: string; agents: string[] }>();
 
-  for (const [skillName, entry] of skillEntries) {
+  for (const [agentName, entry] of skillEntries) {
     if (entry.sourceType === 'node_modules') {
-      nodeModuleSkills.push(skillName);
+      nodeModuleSkills.push(agentName);
       continue;
     }
 
     const existing = bySource.get(entry.source);
     if (existing) {
-      existing.skills.push(skillName);
+      existing.agents.push(agentName);
     } else {
       bySource.set(entry.source, {
         sourceType: entry.sourceType,
-        skills: [skillName],
+        agents: [agentName],
       });
     }
   }
@@ -54,16 +54,16 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
   const remoteCount = skillEntries.length - nodeModuleSkills.length;
   if (remoteCount > 0) {
     p.log.info(
-      `Restoring ${pc.cyan(String(remoteCount))} skill${remoteCount !== 1 ? 's' : ''} from skills-lock.json into ${pc.dim('.agents/skills/')}`
+      `Restoring ${pc.cyan(String(remoteCount))} agent${remoteCount !== 1 ? 's' : ''} from agents-lock.json into ${pc.dim('.agents/agents/')}`
     );
   }
 
-  // Install remote skills grouped by source
-  for (const [source, { skills }] of bySource) {
+  // Install remote agents grouped by source
+  for (const [source, { agents }] of bySource) {
     try {
       await runAdd([source], {
-        skill: skills,
-        agent: universalAgentNames,
+        agent: agents,
+        target: universalAgentNames,
         yes: true,
       });
     } catch (error) {
@@ -73,17 +73,17 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
     }
   }
 
-  // Handle node_modules skills via sync
+  // Handle node_modules agents via sync
   if (nodeModuleSkills.length > 0) {
     p.log.info(
-      `${pc.cyan(String(nodeModuleSkills.length))} skill${nodeModuleSkills.length !== 1 ? 's' : ''} from node_modules`
+      `${pc.cyan(String(nodeModuleSkills.length))} agent${nodeModuleSkills.length !== 1 ? 's' : ''} from node_modules`
     );
     try {
       const { options: syncOptions } = parseSyncOptions(args);
-      await runSync(args, { ...syncOptions, yes: true, agent: universalAgentNames });
+      await runSync(args, { ...syncOptions, yes: true, target: universalAgentNames });
     } catch (error) {
       p.log.error(
-        `Failed to sync node_modules skills: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Failed to sync node_modules agents: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
     }
   }

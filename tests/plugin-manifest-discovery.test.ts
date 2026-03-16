@@ -1,17 +1,17 @@
 /**
- * Tests for discovering skills declared in plugin manifests.
+ * Tests for discovering agents declared in plugin manifests.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { discoverSkills } from '../src/skills.ts';
+import { discoverAgents } from '../src/agents.ts';
 
-describe('discoverSkills with plugin manifests', () => {
+describe('discoverAgents with plugin manifests', () => {
   let testDir: string;
 
   beforeEach(() => {
-    testDir = join(tmpdir(), `skills-manifest-test-${Date.now()}`);
+    testDir = join(tmpdir(), `agents-manifest-test-${Date.now()}`);
     mkdirSync(testDir, { recursive: true });
   });
 
@@ -19,7 +19,7 @@ describe('discoverSkills with plugin manifests', () => {
     rmSync(testDir, { recursive: true, force: true });
   });
 
-  it('should discover skills from marketplace.json', async () => {
+  it('should discover agents from marketplace.json', async () => {
     // Create marketplace.json
     mkdirSync(join(testDir, '.claude-plugin'), { recursive: true });
     writeFileSync(
@@ -31,27 +31,27 @@ describe('discoverSkills with plugin manifests', () => {
           {
             name: 'test-plugin',
             source: './plugins/test-plugin',
-            skills: ['./skills/test-skill'],
+            agents: ['./agents/test-agent'],
           },
         ],
       })
     );
 
-    // Create the skill
-    mkdirSync(join(testDir, 'plugins/test-plugin/skills/test-skill'), { recursive: true });
+    // Create the agent
+    mkdirSync(join(testDir, 'plugins/test-plugin/agents/test-agent'), { recursive: true });
     writeFileSync(
-      join(testDir, 'plugins/test-plugin/skills/test-skill/SKILL.md'),
+      join(testDir, 'plugins/test-plugin/agents/test-agent/AGENT.md'),
       `---
-name: manifest-skill
-description: Skill discovered via manifest
+name: manifest-agent
+description: Agent discovered via manifest
 ---
 # Test
 `
     );
 
-    const skills = await discoverSkills(testDir);
-    expect(skills).toHaveLength(1);
-    expect(skills[0].name).toBe('manifest-skill');
+    const agents = await discoverAgents(testDir);
+    expect(agents).toHaveLength(1);
+    expect(agents[0].name).toBe('manifest-agent');
   });
 
   it('should respect metadata.pluginRoot', async () => {
@@ -64,50 +64,50 @@ description: Skill discovered via manifest
           {
             name: 'my-plugin',
             source: 'my-plugin', // Relative to pluginRoot
-            skills: ['./skills/my-skill'],
+            agents: ['./agents/my-agent'],
           },
         ],
       })
     );
 
-    mkdirSync(join(testDir, 'plugins/my-plugin/skills/my-skill'), { recursive: true });
+    mkdirSync(join(testDir, 'plugins/my-plugin/agents/my-agent'), { recursive: true });
     writeFileSync(
-      join(testDir, 'plugins/my-plugin/skills/my-skill/SKILL.md'),
+      join(testDir, 'plugins/my-plugin/agents/my-agent/AGENT.md'),
       `---
-name: pluginroot-skill
+name: pluginroot-agent
 description: Test
 ---
 `
     );
 
-    const skills = await discoverSkills(testDir);
-    expect(skills).toHaveLength(1);
-    expect(skills[0].name).toBe('pluginroot-skill');
+    const agents = await discoverAgents(testDir);
+    expect(agents).toHaveLength(1);
+    expect(agents[0].name).toBe('pluginroot-agent');
   });
 
-  it('should discover skills from plugin.json', async () => {
+  it('should discover agents from plugin.json', async () => {
     mkdirSync(join(testDir, '.claude-plugin'), { recursive: true });
     writeFileSync(
       join(testDir, '.claude-plugin/plugin.json'),
       JSON.stringify({
         name: 'single-plugin',
-        skills: ['./skills/single-skill'],
+        agents: ['./agents/single-agent'],
       })
     );
 
-    mkdirSync(join(testDir, 'skills/single-skill'), { recursive: true });
+    mkdirSync(join(testDir, 'agents/single-agent'), { recursive: true });
     writeFileSync(
-      join(testDir, 'skills/single-skill/SKILL.md'),
+      join(testDir, 'agents/single-agent/AGENT.md'),
       `---
-name: single-plugin-skill
+name: single-plugin-agent
 description: Test
 ---
 `
     );
 
-    const skills = await discoverSkills(testDir);
-    expect(skills).toHaveLength(1);
-    expect(skills[0].name).toBe('single-plugin-skill');
+    const agents = await discoverAgents(testDir);
+    expect(agents).toHaveLength(1);
+    expect(agents[0].name).toBe('single-plugin-agent');
   });
 
   it('should skip remote source objects', async () => {
@@ -119,53 +119,53 @@ description: Test
           {
             name: 'remote-plugin',
             source: { source: 'github', repo: 'owner/repo' },
-            skills: ['./skills/remote-skill'],
+            agents: ['./agents/remote-agent'],
           },
         ],
       })
     );
 
-    const skills = await discoverSkills(testDir);
-    expect(skills).toHaveLength(0);
+    const agents = await discoverAgents(testDir);
+    expect(agents).toHaveLength(0);
   });
 
   it('should handle missing manifest gracefully', async () => {
     // No .claude-plugin directory
-    const skills = await discoverSkills(testDir);
-    expect(skills).toHaveLength(0);
+    const agents = await discoverAgents(testDir);
+    expect(agents).toHaveLength(0);
   });
 
   it('should handle invalid JSON gracefully', async () => {
     mkdirSync(join(testDir, '.claude-plugin'), { recursive: true });
     writeFileSync(join(testDir, '.claude-plugin/marketplace.json'), 'not valid json');
 
-    const skills = await discoverSkills(testDir);
-    expect(skills).toHaveLength(0);
+    const agents = await discoverAgents(testDir);
+    expect(agents).toHaveLength(0);
   });
 
-  it('should deduplicate skills found via manifest and priority dirs', async () => {
-    // Skill in both manifest path AND standard skills/ directory
+  it('should deduplicate agents found via manifest and priority dirs', async () => {
+    // Agent in both manifest path AND standard agents/ directory
     mkdirSync(join(testDir, '.claude-plugin'), { recursive: true });
     writeFileSync(
       join(testDir, '.claude-plugin/plugin.json'),
-      JSON.stringify({ skills: ['./skills/dupe-skill'] })
+      JSON.stringify({ agents: ['./agents/dupe-agent'] })
     );
 
-    mkdirSync(join(testDir, 'skills/dupe-skill'), { recursive: true });
+    mkdirSync(join(testDir, 'agents/dupe-agent'), { recursive: true });
     writeFileSync(
-      join(testDir, 'skills/dupe-skill/SKILL.md'),
+      join(testDir, 'agents/dupe-agent/AGENT.md'),
       `---
-name: dupe-skill
+name: dupe-agent
 description: Test
 ---
 `
     );
 
-    const skills = await discoverSkills(testDir);
-    expect(skills).toHaveLength(1);
+    const agents = await discoverAgents(testDir);
+    expect(agents).toHaveLength(1);
   });
 
-  it('should discover multiple skills from multiple plugins', async () => {
+  it('should discover multiple agents from multiple plugins', async () => {
     mkdirSync(join(testDir, '.claude-plugin'), { recursive: true });
     writeFileSync(
       join(testDir, '.claude-plugin/marketplace.json'),
@@ -174,52 +174,52 @@ description: Test
           {
             name: 'plugin-a',
             source: './plugin-a',
-            skills: ['./skills/skill-1', './skills/skill-2'],
+            agents: ['./agents/agent-1', './agents/agent-2'],
           },
           {
             name: 'plugin-b',
             source: './plugin-b',
-            skills: ['./skills/skill-3'],
+            agents: ['./agents/agent-3'],
           },
         ],
       })
     );
 
-    // Create skills for plugin-a
-    mkdirSync(join(testDir, 'plugin-a/skills/skill-1'), { recursive: true });
+    // Create agents for plugin-a
+    mkdirSync(join(testDir, 'plugin-a/agents/agent-1'), { recursive: true });
     writeFileSync(
-      join(testDir, 'plugin-a/skills/skill-1/SKILL.md'),
+      join(testDir, 'plugin-a/agents/agent-1/AGENT.md'),
       `---
-name: skill-1
+name: agent-1
 description: Test
 ---
 `
     );
-    mkdirSync(join(testDir, 'plugin-a/skills/skill-2'), { recursive: true });
+    mkdirSync(join(testDir, 'plugin-a/agents/agent-2'), { recursive: true });
     writeFileSync(
-      join(testDir, 'plugin-a/skills/skill-2/SKILL.md'),
+      join(testDir, 'plugin-a/agents/agent-2/AGENT.md'),
       `---
-name: skill-2
-description: Test
----
-`
-    );
-
-    // Create skill for plugin-b
-    mkdirSync(join(testDir, 'plugin-b/skills/skill-3'), { recursive: true });
-    writeFileSync(
-      join(testDir, 'plugin-b/skills/skill-3/SKILL.md'),
-      `---
-name: skill-3
+name: agent-2
 description: Test
 ---
 `
     );
 
-    const skills = await discoverSkills(testDir);
-    expect(skills).toHaveLength(3);
-    const names = skills.map((s) => s.name).sort();
-    expect(names).toEqual(['skill-1', 'skill-2', 'skill-3']);
+    // Create agent for plugin-b
+    mkdirSync(join(testDir, 'plugin-b/agents/agent-3'), { recursive: true });
+    writeFileSync(
+      join(testDir, 'plugin-b/agents/agent-3/AGENT.md'),
+      `---
+name: agent-3
+description: Test
+---
+`
+    );
+
+    const agents = await discoverAgents(testDir);
+    expect(agents).toHaveLength(3);
+    const names = agents.map((s) => s.name).sort();
+    expect(names).toEqual(['agent-1', 'agent-2', 'agent-3']);
   });
 
   it('should handle plugin without source (root-level plugin)', async () => {
@@ -231,110 +231,110 @@ description: Test
           {
             name: 'root-plugin',
             // No source - plugin is at root
-            skills: ['./skills/root-skill'],
+            agents: ['./agents/root-agent'],
           },
         ],
       })
     );
 
-    mkdirSync(join(testDir, 'skills/root-skill'), { recursive: true });
+    mkdirSync(join(testDir, 'agents/root-agent'), { recursive: true });
     writeFileSync(
-      join(testDir, 'skills/root-skill/SKILL.md'),
+      join(testDir, 'agents/root-agent/AGENT.md'),
       `---
-name: root-skill
+name: root-agent
 description: Test
 ---
 `
     );
 
-    const skills = await discoverSkills(testDir);
-    expect(skills).toHaveLength(1);
-    expect(skills[0].name).toBe('root-skill');
+    const agents = await discoverAgents(testDir);
+    expect(agents).toHaveLength(1);
+    expect(agents[0].name).toBe('root-agent');
   });
 
-  it('should discover skills from adjacent skills/ when plugin.json has no skills array', async () => {
-    // plugin.json exists but doesn't declare skills
+  it('should discover agents from adjacent agents/ when plugin.json has no agents array', async () => {
+    // plugin.json exists but doesn't declare agents
     mkdirSync(join(testDir, '.claude-plugin'), { recursive: true });
     writeFileSync(
       join(testDir, '.claude-plugin/plugin.json'),
       JSON.stringify({
-        name: 'plugin-without-skills-field',
-        description: 'A plugin that does not declare skills explicitly',
+        name: 'plugin-without-agents-field',
+        description: 'A plugin that does not declare agents explicitly',
       })
     );
 
-    // Skills exist in conventional location
-    mkdirSync(join(testDir, 'skills/undeclared-skill'), { recursive: true });
+    // Agents exist in conventional location
+    mkdirSync(join(testDir, 'agents/undeclared-agent'), { recursive: true });
     writeFileSync(
-      join(testDir, 'skills/undeclared-skill/SKILL.md'),
+      join(testDir, 'agents/undeclared-agent/AGENT.md'),
       `---
-name: undeclared-skill
-description: Discovered from conventional skills/ directory
+name: undeclared-agent
+description: Discovered from conventional agents/ directory
 ---
 `
     );
 
-    const skills = await discoverSkills(testDir);
-    expect(skills).toHaveLength(1);
-    expect(skills[0].name).toBe('undeclared-skill');
+    const agents = await discoverAgents(testDir);
+    expect(agents).toHaveLength(1);
+    expect(agents[0].name).toBe('undeclared-agent');
   });
 
-  it('should discover skills from adjacent skills/ when plugin.json has empty skills array', async () => {
+  it('should discover agents from adjacent agents/ when plugin.json has empty agents array', async () => {
     mkdirSync(join(testDir, '.claude-plugin'), { recursive: true });
     writeFileSync(
       join(testDir, '.claude-plugin/plugin.json'),
       JSON.stringify({
-        name: 'plugin-with-empty-skills',
-        skills: [], // Empty array
+        name: 'plugin-with-empty-agents',
+        agents: [], // Empty array
       })
     );
 
-    mkdirSync(join(testDir, 'skills/empty-array-skill'), { recursive: true });
+    mkdirSync(join(testDir, 'agents/empty-array-agent'), { recursive: true });
     writeFileSync(
-      join(testDir, 'skills/empty-array-skill/SKILL.md'),
+      join(testDir, 'agents/empty-array-agent/AGENT.md'),
       `---
-name: empty-array-skill
+name: empty-array-agent
 description: Test
 ---
 `
     );
 
-    const skills = await discoverSkills(testDir);
-    expect(skills).toHaveLength(1);
-    expect(skills[0].name).toBe('empty-array-skill');
+    const agents = await discoverAgents(testDir);
+    expect(agents).toHaveLength(1);
+    expect(agents[0].name).toBe('empty-array-agent');
   });
 
-  it('should discover skills from marketplace plugin without skills array', async () => {
+  it('should discover agents from marketplace plugin without agents array', async () => {
     mkdirSync(join(testDir, '.claude-plugin'), { recursive: true });
     writeFileSync(
       join(testDir, '.claude-plugin/marketplace.json'),
       JSON.stringify({
         plugins: [
           {
-            name: 'plugin-no-skills-field',
+            name: 'plugin-no-agents-field',
             source: './my-plugin',
-            // No skills field - should discover from my-plugin/skills/
+            // No agents field - should discover from my-plugin/agents/
           },
         ],
       })
     );
 
-    mkdirSync(join(testDir, 'my-plugin/skills/auto-discovered'), { recursive: true });
+    mkdirSync(join(testDir, 'my-plugin/agents/auto-discovered'), { recursive: true });
     writeFileSync(
-      join(testDir, 'my-plugin/skills/auto-discovered/SKILL.md'),
+      join(testDir, 'my-plugin/agents/auto-discovered/AGENT.md'),
       `---
 name: auto-discovered
-description: Found via conventional skills/ in plugin
+description: Found via conventional agents/ in plugin
 ---
 `
     );
 
-    const skills = await discoverSkills(testDir);
-    expect(skills).toHaveLength(1);
-    expect(skills[0].name).toBe('auto-discovered');
+    const agents = await discoverAgents(testDir);
+    expect(agents).toHaveLength(1);
+    expect(agents[0].name).toBe('auto-discovered');
   });
 
-  it('should discover both explicit and conventional skills from same plugin', async () => {
+  it('should discover both explicit and conventional agents from same plugin', async () => {
     mkdirSync(join(testDir, '.claude-plugin'), { recursive: true });
     writeFileSync(
       join(testDir, '.claude-plugin/marketplace.json'),
@@ -343,38 +343,38 @@ description: Found via conventional skills/ in plugin
           {
             name: 'mixed-plugin',
             source: './mixed',
-            skills: ['./custom-skills/explicit-skill'], // Explicit path
+            agents: ['./custom-agents/explicit-agent'], // Explicit path
           },
         ],
       })
     );
 
-    // Explicit skill in custom location
-    mkdirSync(join(testDir, 'mixed/custom-skills/explicit-skill'), { recursive: true });
+    // Explicit agent in custom location
+    mkdirSync(join(testDir, 'mixed/custom-agents/explicit-agent'), { recursive: true });
     writeFileSync(
-      join(testDir, 'mixed/custom-skills/explicit-skill/SKILL.md'),
+      join(testDir, 'mixed/custom-agents/explicit-agent/AGENT.md'),
       `---
-name: explicit-skill
+name: explicit-agent
 description: Explicitly declared
 ---
 `
     );
 
-    // Conventional skill in skills/
-    mkdirSync(join(testDir, 'mixed/skills/conventional-skill'), { recursive: true });
+    // Conventional agent in agents/
+    mkdirSync(join(testDir, 'mixed/agents/conventional-agent'), { recursive: true });
     writeFileSync(
-      join(testDir, 'mixed/skills/conventional-skill/SKILL.md'),
+      join(testDir, 'mixed/agents/conventional-agent/AGENT.md'),
       `---
-name: conventional-skill
+name: conventional-agent
 description: Found via convention
 ---
 `
     );
 
-    const skills = await discoverSkills(testDir);
-    expect(skills).toHaveLength(2);
-    const names = skills.map((s) => s.name).sort();
-    expect(names).toEqual(['conventional-skill', 'explicit-skill']);
+    const agents = await discoverAgents(testDir);
+    expect(agents).toHaveLength(2);
+    const names = agents.map((s) => s.name).sort();
+    expect(names).toEqual(['conventional-agent', 'explicit-agent']);
   });
 
   it('should reject paths that traverse outside basePath', async () => {
@@ -384,40 +384,40 @@ description: Found via convention
       join(testDir, '.claude-plugin/marketplace.json'),
       JSON.stringify({
         plugins: [
-          { source: '../../../etc', skills: ['./passwd'] }, // Traversal via source
-          { source: 'legit', skills: ['../../../outside/skill'] }, // Traversal via skill path
+          { source: '../../../etc', agents: ['./passwd'] }, // Traversal via source
+          { source: 'legit', agents: ['../../../outside/agent'] }, // Traversal via agent path
         ],
       })
     );
 
-    // Create a legit plugin with a valid skill to ensure discovery still works
-    mkdirSync(join(testDir, 'legit/skills/valid-skill'), { recursive: true });
+    // Create a legit plugin with a valid agent to ensure discovery still works
+    mkdirSync(join(testDir, 'legit/agents/valid-agent'), { recursive: true });
     writeFileSync(
-      join(testDir, 'legit/skills/valid-skill/SKILL.md'),
+      join(testDir, 'legit/agents/valid-agent/AGENT.md'),
       `---
-name: valid-skill
-description: A valid skill inside basePath
+name: valid-agent
+description: A valid agent inside basePath
 ---
 `
     );
 
-    // Create a skill outside testDir that should NOT be discovered
+    // Create a agent outside testDir that should NOT be discovered
     const outsideDir = join(testDir, '..', `outside-${Date.now()}`);
-    mkdirSync(join(outsideDir, 'skill'), { recursive: true });
+    mkdirSync(join(outsideDir, 'agent'), { recursive: true });
     writeFileSync(
-      join(outsideDir, 'skill/SKILL.md'),
+      join(outsideDir, 'agent/AGENT.md'),
       `---
-name: outside-skill
+name: outside-agent
 description: Should not be discovered
 ---
 `
     );
 
     try {
-      const skills = await discoverSkills(testDir);
-      // Should only find the valid skill, not the traversal attempts
-      expect(skills).toHaveLength(1);
-      expect(skills[0].name).toBe('valid-skill');
+      const agents = await discoverAgents(testDir);
+      // Should only find the valid agent, not the traversal attempts
+      expect(agents).toHaveLength(1);
+      expect(agents[0].name).toBe('valid-agent');
     } finally {
       // Clean up outside directory
       rmSync(outsideDir, { recursive: true, force: true });
@@ -429,25 +429,25 @@ description: Should not be discovered
     writeFileSync(
       join(testDir, '.claude-plugin/plugin.json'),
       JSON.stringify({
-        skills: ['/etc/passwd', '/tmp/malicious-skill'],
+        agents: ['/etc/passwd', '/tmp/malicious-agent'],
       })
     );
 
-    // Create a valid skill via convention
-    mkdirSync(join(testDir, 'skills/safe-skill'), { recursive: true });
+    // Create a valid agent via convention
+    mkdirSync(join(testDir, 'agents/safe-agent'), { recursive: true });
     writeFileSync(
-      join(testDir, 'skills/safe-skill/SKILL.md'),
+      join(testDir, 'agents/safe-agent/AGENT.md'),
       `---
-name: safe-skill
-description: Safe skill in conventional location
+name: safe-agent
+description: Safe agent in conventional location
 ---
 `
     );
 
-    const skills = await discoverSkills(testDir);
-    // Should only find the conventional skill
-    expect(skills).toHaveLength(1);
-    expect(skills[0].name).toBe('safe-skill');
+    const agents = await discoverAgents(testDir);
+    // Should only find the conventional agent
+    expect(agents).toHaveLength(1);
+    expect(agents[0].name).toBe('safe-agent');
   });
 
   it('should reject paths without ./ prefix (per Claude Code convention)', async () => {
@@ -459,38 +459,38 @@ description: Safe skill in conventional location
       join(testDir, '.claude-plugin/marketplace.json'),
       JSON.stringify({
         metadata: { pluginRoot: 'custom-plugins' }, // Missing './' prefix - INVALID
-        plugins: [{ source: './my-plugin', skills: ['./custom-skills/my-skill'] }],
+        plugins: [{ source: './my-plugin', agents: ['./custom-agents/my-agent'] }],
       })
     );
 
     // Create the plugin in a non-standard location only reachable via manifest
-    mkdirSync(join(testDir, 'custom-plugins/my-plugin/custom-skills/my-skill'), {
+    mkdirSync(join(testDir, 'custom-plugins/my-plugin/custom-agents/my-agent'), {
       recursive: true,
     });
     writeFileSync(
-      join(testDir, 'custom-plugins/my-plugin/custom-skills/my-skill/SKILL.md'),
+      join(testDir, 'custom-plugins/my-plugin/custom-agents/my-agent/AGENT.md'),
       `---
-name: unreachable-skill
+name: unreachable-agent
 description: Should not be found - pluginRoot lacks ./
 ---
 `
     );
 
-    // Also create a skill in standard location to prevent fallback deep search
-    mkdirSync(join(testDir, 'skills/standard-skill'), { recursive: true });
+    // Also create a agent in standard location to prevent fallback deep search
+    mkdirSync(join(testDir, 'agents/standard-agent'), { recursive: true });
     writeFileSync(
-      join(testDir, 'skills/standard-skill/SKILL.md'),
+      join(testDir, 'agents/standard-agent/AGENT.md'),
       `---
-name: standard-skill
+name: standard-agent
 description: Found via standard location
 ---
 `
     );
 
-    const skills = await discoverSkills(testDir);
-    // Only the standard skill should be found, not the one behind invalid pluginRoot
-    expect(skills).toHaveLength(1);
-    expect(skills[0].name).toBe('standard-skill');
+    const agents = await discoverAgents(testDir);
+    // Only the standard agent should be found, not the one behind invalid pluginRoot
+    expect(agents).toHaveLength(1);
+    expect(agents[0].name).toBe('standard-agent');
   });
 
   it('should reject plugin sources without ./ prefix', async () => {
@@ -500,39 +500,39 @@ description: Found via standard location
       join(testDir, '.claude-plugin/marketplace.json'),
       JSON.stringify({
         plugins: [
-          { source: 'bare-plugin', skills: ['./skills/skill1'] }, // Invalid - no './'
-          { source: './valid-plugin', skills: ['./skills/skill2'] }, // Valid
+          { source: 'bare-plugin', agents: ['./agents/skill1'] }, // Invalid - no './'
+          { source: './valid-plugin', agents: ['./agents/skill2'] }, // Valid
         ],
       })
     );
 
     // Create both plugins
-    mkdirSync(join(testDir, 'bare-plugin/skills/skill1'), { recursive: true });
+    mkdirSync(join(testDir, 'bare-plugin/agents/skill1'), { recursive: true });
     writeFileSync(
-      join(testDir, 'bare-plugin/skills/skill1/SKILL.md'),
+      join(testDir, 'bare-plugin/agents/skill1/AGENT.md'),
       `---
-name: bare-skill
+name: bare-agent
 description: Should not be found
 ---
 `
     );
 
-    mkdirSync(join(testDir, 'valid-plugin/skills/skill2'), { recursive: true });
+    mkdirSync(join(testDir, 'valid-plugin/agents/skill2'), { recursive: true });
     writeFileSync(
-      join(testDir, 'valid-plugin/skills/skill2/SKILL.md'),
+      join(testDir, 'valid-plugin/agents/skill2/AGENT.md'),
       `---
-name: valid-skill
+name: valid-agent
 description: Should be found
 ---
 `
     );
 
-    const skills = await discoverSkills(testDir);
-    expect(skills).toHaveLength(1);
-    expect(skills[0].name).toBe('valid-skill');
+    const agents = await discoverAgents(testDir);
+    expect(agents).toHaveLength(1);
+    expect(agents[0].name).toBe('valid-agent');
   });
 
-  it('should reject skill paths without ./ prefix', async () => {
+  it('should reject agent paths without ./ prefix', async () => {
     mkdirSync(join(testDir, '.claude-plugin'), { recursive: true });
 
     // Use SEPARATE non-standard directories to isolate the test
@@ -540,47 +540,47 @@ description: Should be found
     writeFileSync(
       join(testDir, '.claude-plugin/plugin.json'),
       JSON.stringify({
-        skills: ['invalid-loc/bare-skill', './valid-loc/valid-skill'], // First lacks ./
+        agents: ['invalid-loc/bare-agent', './valid-loc/valid-agent'], // First lacks ./
       })
     );
 
-    // Skill with invalid path (no ./) - in its own directory tree
-    mkdirSync(join(testDir, 'invalid-loc/bare-skill'), { recursive: true });
+    // Agent with invalid path (no ./) - in its own directory tree
+    mkdirSync(join(testDir, 'invalid-loc/bare-agent'), { recursive: true });
     writeFileSync(
-      join(testDir, 'invalid-loc/bare-skill/SKILL.md'),
+      join(testDir, 'invalid-loc/bare-agent/AGENT.md'),
       `---
-name: bare-skill
+name: bare-agent
 description: Should not be found - path lacks ./
 ---
 `
     );
 
-    // Skill with valid path - in separate directory tree
-    mkdirSync(join(testDir, 'valid-loc/valid-skill'), { recursive: true });
+    // Agent with valid path - in separate directory tree
+    mkdirSync(join(testDir, 'valid-loc/valid-agent'), { recursive: true });
     writeFileSync(
-      join(testDir, 'valid-loc/valid-skill/SKILL.md'),
+      join(testDir, 'valid-loc/valid-agent/AGENT.md'),
       `---
-name: valid-skill
+name: valid-agent
 description: Should be found - path has ./
 ---
 `
     );
 
-    // Add a skill in standard location to prevent fallback search
-    mkdirSync(join(testDir, 'skills/standard'), { recursive: true });
+    // Add a agent in standard location to prevent fallback search
+    mkdirSync(join(testDir, 'agents/standard'), { recursive: true });
     writeFileSync(
-      join(testDir, 'skills/standard/SKILL.md'),
+      join(testDir, 'agents/standard/AGENT.md'),
       `---
-name: standard-skill
+name: standard-agent
 description: Standard location
 ---
 `
     );
 
-    const skills = await discoverSkills(testDir);
-    const names = skills.map((s) => s.name).sort();
-    // Should find: valid-skill (via valid manifest path) and standard-skill (via convention)
-    // Should NOT find: bare-skill (manifest path lacks ./)
-    expect(names).toEqual(['standard-skill', 'valid-skill']);
+    const agents = await discoverAgents(testDir);
+    const names = agents.map((s) => s.name).sort();
+    // Should find: valid-agent (via valid manifest path) and standard-agent (via convention)
+    // Should NOT find: bare-agent (manifest path lacks ./)
+    expect(names).toEqual(['standard-agent', 'valid-agent']);
   });
 });

@@ -1,21 +1,21 @@
 /**
- * Tests for the --full-depth option in skill discovery.
+ * Tests for the --full-depth option in agent discovery.
  *
- * When a repository has both a root SKILL.md and nested skills in subdirectories,
- * the --full-depth flag allows discovering all skills instead of just the root one.
+ * When a repository has both a root AGENT.md and nested agents in subdirectories,
+ * the --full-depth flag allows discovering all agents instead of just the root one.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { discoverSkills } from '../src/skills.ts';
+import { discoverAgents } from '../src/agents.ts';
 
-describe('discoverSkills with fullDepth option', () => {
+describe('discoverAgents with fullDepth option', () => {
   let testDir: string;
 
   beforeEach(() => {
-    testDir = join(tmpdir(), `skills-full-depth-test-${Date.now()}`);
+    testDir = join(tmpdir(), `agents-full-depth-test-${Date.now()}`);
     mkdirSync(testDir, { recursive: true });
   });
 
@@ -23,182 +23,182 @@ describe('discoverSkills with fullDepth option', () => {
     rmSync(testDir, { recursive: true, force: true });
   });
 
-  it('should only return root skill when fullDepth is false', async () => {
-    // Create root SKILL.md
+  it('should only return root agent when fullDepth is false', async () => {
+    // Create root AGENT.md
     writeFileSync(
-      join(testDir, 'SKILL.md'),
+      join(testDir, 'AGENT.md'),
       `---
-name: root-skill
-description: Root level skill
+name: root-agent
+description: Root level agent
 ---
 
-# Root Skill
+# Root Agent
 `
     );
 
-    // Create nested skill in skills/ directory
-    mkdirSync(join(testDir, 'skills', 'nested-skill'), { recursive: true });
+    // Create nested agent in agents/ directory
+    mkdirSync(join(testDir, 'agents', 'nested-agent'), { recursive: true });
     writeFileSync(
-      join(testDir, 'skills', 'nested-skill', 'SKILL.md'),
+      join(testDir, 'agents', 'nested-agent', 'AGENT.md'),
       `---
-name: nested-skill
-description: Nested skill
+name: nested-agent
+description: Nested agent
 ---
 
-# Nested Skill
+# Nested Agent
 `
     );
 
-    const skills = await discoverSkills(testDir, undefined, { fullDepth: false });
+    const agents = await discoverAgents(testDir, undefined, { fullDepth: false });
 
-    expect(skills).toHaveLength(1);
-    expect(skills[0].name).toBe('root-skill');
+    expect(agents).toHaveLength(1);
+    expect(agents[0].name).toBe('root-agent');
   });
 
-  it('should return all skills when fullDepth is true', async () => {
-    // Create root SKILL.md
+  it('should return all agents when fullDepth is true', async () => {
+    // Create root AGENT.md
     writeFileSync(
-      join(testDir, 'SKILL.md'),
+      join(testDir, 'AGENT.md'),
       `---
-name: root-skill
-description: Root level skill
+name: root-agent
+description: Root level agent
 ---
 
-# Root Skill
+# Root Agent
 `
     );
 
-    // Create nested skills in skills/ directory
-    mkdirSync(join(testDir, 'skills', 'nested-skill-1'), { recursive: true });
+    // Create nested agents in agents/ directory
+    mkdirSync(join(testDir, 'agents', 'nested-agent-1'), { recursive: true });
     writeFileSync(
-      join(testDir, 'skills', 'nested-skill-1', 'SKILL.md'),
+      join(testDir, 'agents', 'nested-agent-1', 'AGENT.md'),
       `---
-name: nested-skill-1
-description: Nested skill 1
+name: nested-agent-1
+description: Nested agent 1
 ---
 
-# Nested Skill 1
+# Nested Agent 1
 `
     );
 
-    mkdirSync(join(testDir, 'skills', 'nested-skill-2'), { recursive: true });
+    mkdirSync(join(testDir, 'agents', 'nested-agent-2'), { recursive: true });
     writeFileSync(
-      join(testDir, 'skills', 'nested-skill-2', 'SKILL.md'),
+      join(testDir, 'agents', 'nested-agent-2', 'AGENT.md'),
       `---
-name: nested-skill-2
-description: Nested skill 2
+name: nested-agent-2
+description: Nested agent 2
 ---
 
-# Nested Skill 2
+# Nested Agent 2
 `
     );
 
-    const skills = await discoverSkills(testDir, undefined, { fullDepth: true });
+    const agents = await discoverAgents(testDir, undefined, { fullDepth: true });
 
-    expect(skills).toHaveLength(3);
-    const names = skills.map((s) => s.name).sort();
-    expect(names).toEqual(['nested-skill-1', 'nested-skill-2', 'root-skill']);
+    expect(agents).toHaveLength(3);
+    const names = agents.map((s) => s.name).sort();
+    expect(names).toEqual(['nested-agent-1', 'nested-agent-2', 'root-agent']);
   });
 
   it('should default to early return (fullDepth: false behavior) when no option is provided', async () => {
-    // Create root SKILL.md
+    // Create root AGENT.md
     writeFileSync(
-      join(testDir, 'SKILL.md'),
+      join(testDir, 'AGENT.md'),
       `---
-name: root-skill
-description: Root level skill
+name: root-agent
+description: Root level agent
 ---
 
-# Root Skill
+# Root Agent
 `
     );
 
-    // Create nested skill
-    mkdirSync(join(testDir, 'skills', 'nested-skill'), { recursive: true });
+    // Create nested agent
+    mkdirSync(join(testDir, 'agents', 'nested-agent'), { recursive: true });
     writeFileSync(
-      join(testDir, 'skills', 'nested-skill', 'SKILL.md'),
+      join(testDir, 'agents', 'nested-agent', 'AGENT.md'),
       `---
-name: nested-skill
-description: Nested skill
+name: nested-agent
+description: Nested agent
 ---
 
-# Nested Skill
+# Nested Agent
 `
     );
 
     // No options passed - should default to early return
-    const skills = await discoverSkills(testDir);
+    const agents = await discoverAgents(testDir);
 
-    expect(skills).toHaveLength(1);
-    expect(skills[0].name).toBe('root-skill');
+    expect(agents).toHaveLength(1);
+    expect(agents[0].name).toBe('root-agent');
   });
 
-  it('should still find all skills when no root SKILL.md exists (regardless of fullDepth)', async () => {
-    // No root SKILL.md, just nested skills
+  it('should still find all agents when no root AGENT.md exists (regardless of fullDepth)', async () => {
+    // No root AGENT.md, just nested agents
 
-    mkdirSync(join(testDir, 'skills', 'skill-1'), { recursive: true });
+    mkdirSync(join(testDir, 'agents', 'agent-1'), { recursive: true });
     writeFileSync(
-      join(testDir, 'skills', 'skill-1', 'SKILL.md'),
+      join(testDir, 'agents', 'agent-1', 'AGENT.md'),
       `---
-name: skill-1
-description: Skill 1
+name: agent-1
+description: Agent 1
 ---
 
-# Skill 1
+# Agent 1
 `
     );
 
-    mkdirSync(join(testDir, 'skills', 'skill-2'), { recursive: true });
+    mkdirSync(join(testDir, 'agents', 'agent-2'), { recursive: true });
     writeFileSync(
-      join(testDir, 'skills', 'skill-2', 'SKILL.md'),
+      join(testDir, 'agents', 'agent-2', 'AGENT.md'),
       `---
-name: skill-2
-description: Skill 2
+name: agent-2
+description: Agent 2
 ---
 
-# Skill 2
+# Agent 2
 `
     );
 
     // Without fullDepth
-    const skillsDefault = await discoverSkills(testDir);
+    const skillsDefault = await discoverAgents(testDir);
     expect(skillsDefault).toHaveLength(2);
 
     // With fullDepth
-    const skillsFullDepth = await discoverSkills(testDir, undefined, { fullDepth: true });
+    const skillsFullDepth = await discoverAgents(testDir, undefined, { fullDepth: true });
     expect(skillsFullDepth).toHaveLength(2);
   });
 
-  it('should not duplicate skills when root and nested have the same name', async () => {
-    // Edge case: root SKILL.md and a nested skill with the same name
+  it('should not duplicate agents when root and nested have the same name', async () => {
+    // Edge case: root AGENT.md and a nested agent with the same name
     writeFileSync(
-      join(testDir, 'SKILL.md'),
+      join(testDir, 'AGENT.md'),
       `---
-name: my-skill
-description: Root level skill
+name: my-agent
+description: Root level agent
 ---
 
-# Root Skill
+# Root Agent
 `
     );
 
-    // Create nested skill with same name
-    mkdirSync(join(testDir, 'skills', 'my-skill'), { recursive: true });
+    // Create nested agent with same name
+    mkdirSync(join(testDir, 'agents', 'my-agent'), { recursive: true });
     writeFileSync(
-      join(testDir, 'skills', 'my-skill', 'SKILL.md'),
+      join(testDir, 'agents', 'my-agent', 'AGENT.md'),
       `---
-name: my-skill
-description: Nested skill with same name
+name: my-agent
+description: Nested agent with same name
 ---
 
-# Nested Skill
+# Nested Agent
 `
     );
 
-    const skills = await discoverSkills(testDir, undefined, { fullDepth: true });
+    const agents = await discoverAgents(testDir, undefined, { fullDepth: true });
 
-    // Should only have one skill (deduplication by name)
-    expect(skills).toHaveLength(1);
-    expect(skills[0].name).toBe('my-skill');
+    // Should only have one agent (deduplication by name)
+    expect(agents).toHaveLength(1);
+    expect(agents[0].name).toBe('my-agent');
   });
 });

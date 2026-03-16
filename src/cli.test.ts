@@ -3,20 +3,20 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { runCliOutput, stripLogo, hasLogo } from './test-utils.ts';
 
-describe('skills CLI', () => {
+describe('agents CLI', () => {
   describe('--help', () => {
     it('should display help message', () => {
       const output = runCliOutput(['--help']);
-      expect(output).toContain('Usage: skills <command> [options]');
-      expect(output).toContain('Manage Skills:');
+      expect(output).toContain('Usage: agents <command> [options]');
+      expect(output).toContain('Manage Agents:');
       expect(output).toContain('init [name]');
       expect(output).toContain('add <package>');
       expect(output).toContain('check');
       expect(output).toContain('update');
       expect(output).toContain('Add Options:');
       expect(output).toContain('-g, --global');
+      expect(output).toContain('-t, --target');
       expect(output).toContain('-a, --agent');
-      expect(output).toContain('-s, --skill');
       expect(output).toContain('-l, --list');
       expect(output).toContain('-y, --yes');
       expect(output).toContain('--all');
@@ -47,12 +47,12 @@ describe('skills CLI', () => {
   describe('no arguments', () => {
     it('should display banner', () => {
       const output = stripLogo(runCliOutput([]));
-      expect(output).toContain('The open agent skills ecosystem');
-      expect(output).toContain('npx skills add');
-      expect(output).toContain('npx skills check');
-      expect(output).toContain('npx skills update');
-      expect(output).toContain('npx skills init');
-      expect(output).toContain('skills.sh');
+      expect(output).toContain('The open agent distribution ecosystem');
+      expect(output).toContain('npx agents add');
+      expect(output).toContain('npx agents check');
+      expect(output).toContain('npx agents update');
+      expect(output).toContain('npx agents init');
+      expect(output).toContain('agents.sh');
     });
   });
 
@@ -61,7 +61,7 @@ describe('skills CLI', () => {
       const output = runCliOutput(['unknown-command']);
       expect(output).toMatchInlineSnapshot(`
         "Unknown command: unknown-command
-        Run skills --help for usage.
+        Run agents --help for usage.
         "
       `);
     });

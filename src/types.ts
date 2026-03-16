@@ -1,4 +1,4 @@
-export type AgentType =
+export type TargetType =
   | 'amp'
   | 'antigravity'
   | 'augment'
@@ -42,25 +42,25 @@ export type AgentType =
   | 'adal'
   | 'universal';
 
-export interface Skill {
+export interface Agent {
   name: string;
   description: string;
   path: string;
-  /** Raw SKILL.md content for hashing */
+  /** Raw AGENT.md content for hashing */
   rawContent?: string;
-  /** Name of the plugin this skill belongs to (if any) */
+  /** Name of the plugin this agent belongs to (if any) */
   pluginName?: string;
   metadata?: Record<string, unknown>;
 }
 
-export interface AgentConfig {
+export interface TargetConfig {
   name: string;
   displayName: string;
-  skillsDir: string;
-  /** Global skills directory. Set to undefined if the agent doesn't support global installation. */
-  globalSkillsDir: string | undefined;
+  agentsDir: string;
+  /** Global agents directory. Set to undefined if the target doesn't support global installation. */
+  globalAgentsDir: string | undefined;
   detectInstalled: () => Promise<boolean>;
-  /** Whether to show this agent in the universal agents list. Defaults to true. */
+  /** Whether to show this target in the universal targets list. Defaults to true. */
   showInUniversalList?: boolean;
 }
 
@@ -70,17 +70,17 @@ export interface ParsedSource {
   subpath?: string;
   localPath?: string;
   ref?: string;
-  /** Skill name extracted from @skill syntax (e.g., owner/repo@skill-name) */
-  skillFilter?: string;
+  /** Agent name extracted from @agent syntax (e.g., owner/repo@agent-name) */
+  agentFilter?: string;
 }
 
 /**
- * Represents a skill fetched from a remote host provider.
+ * Represents an agent fetched from a remote host provider.
  */
-export interface RemoteSkill {
-  /** Display name of the skill (from frontmatter) */
+export interface RemoteAgent {
+  /** Display name of the agent (from frontmatter) */
   name: string;
-  /** Description of the skill (from frontmatter) */
+  /** Description of the agent (from frontmatter) */
   description: string;
   /** Full markdown content including frontmatter */
   content: string;
@@ -88,7 +88,7 @@ export interface RemoteSkill {
   installName: string;
   /** The original source URL */
   sourceUrl: string;
-  /** The provider that fetched this skill */
+  /** The provider that fetched this agent */
   providerId: string;
   /** Source identifier for telemetry (e.g., "mintlify.com") */
   sourceIdentifier: string;

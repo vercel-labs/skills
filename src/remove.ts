@@ -2,39 +2,39 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { readdir, rm, lstat } from 'fs/promises';
 import { join } from 'path';
-import { agents, detectInstalledAgents } from './agents.ts';
+import { targets, detectInstalledTargets } from './targets.ts';
 import { track } from './telemetry.ts';
-import { removeSkillFromLock, getSkillFromLock } from './skill-lock.ts';
-import type { AgentType } from './types.ts';
+import { removeAgentFromLock, getAgentFromLock } from './agent-lock.ts';
+import type { TargetType } from './types.ts';
 import {
   getInstallPath,
   getCanonicalPath,
-  getCanonicalSkillsDir,
+  getCanonicalAgentsDir,
   sanitizeName,
 } from './installer.ts';
 
 export interface RemoveOptions {
   global?: boolean;
-  agent?: string[];
+  target?: string[];
   yes?: boolean;
   all?: boolean;
 }
 
-export async function removeCommand(skillNames: string[], options: RemoveOptions) {
+export async function removeCommand(agentNames: string[], options: RemoveOptions) {
   const isGlobal = options.global ?? false;
   const cwd = process.cwd();
 
   const spinner = p.spinner();
 
-  spinner.start('Scanning for installed skills...');
-  const skillNamesSet = new Set<string>();
+  spinner.start('Scanning for installed agents...');
+  const agentNamesSet = new Set<string>();
 
   const scanDir = async (dir: string) => {
     try {
       const entries = await readdir(dir, { withFileTypes: true });
       for (const entry of entries) {
         if (entry.isDirectory()) {
-          skillNamesSet.add(entry.name);
+          agentNamesSet.add(entry.name);
         }
       }
     } catch (err) {
@@ -45,31 +45,31 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   };
 
   if (isGlobal) {
-    await scanDir(getCanonicalSkillsDir(true, cwd));
-    for (const agent of Object.values(agents)) {
-      if (agent.globalSkillsDir !== undefined) {
-        await scanDir(agent.globalSkillsDir);
+    await scanDir(getCanonicalAgentsDir(true, cwd));
+    for (const tgt of Object.values(targets)) {
+      if (tgt.globalAgentsDir !== undefined) {
+        await scanDir(tgt.globalAgentsDir);
       }
     }
   } else {
-    await scanDir(getCanonicalSkillsDir(false, cwd));
-    for (const agent of Object.values(agents)) {
-      await scanDir(join(cwd, agent.skillsDir));
+    await scanDir(getCanonicalAgentsDir(false, cwd));
+    for (const tgt of Object.values(targets)) {
+      await scanDir(join(cwd, tgt.agentsDir));
     }
   }
 
-  const installedSkills = Array.from(skillNamesSet).sort();
-  spinner.stop(`Found ${installedSkills.length} unique installed skill(s)`);
+  const installedAgents = Array.from(agentNamesSet).sort();
+  spinner.stop(`Found ${installedAgents.length} unique installed agent(s)`);
 
-  if (installedSkills.length === 0) {
-    p.outro(pc.yellow('No skills found to remove.'));
+  if (installedAgents.length === 0) {
+    p.outro(pc.yellow('No agents found to remove.'));
     return;
   }
 
-  // Validate agent options BEFORE prompting for skill selection
-  if (options.agent && options.agent.length > 0) {
-    const validAgents = Object.keys(agents);
-    const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
+  // Validate agent options BEFORE prompting for agent selection
+  if (options.target && options.target.length > 0) {
+    const validAgents = Object.keys(targets);
+    const invalidAgents = options.target.filter((a) => !validAgents.includes(a));
 
     if (invalidAgents.length > 0) {
       p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
@@ -78,27 +78,27 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     }
   }
 
-  let selectedSkills: string[] = [];
+  let selectedAgents: string[] = [];
 
   if (options.all) {
-    selectedSkills = installedSkills;
-  } else if (skillNames.length > 0) {
-    selectedSkills = installedSkills.filter((s) =>
-      skillNames.some((name) => name.toLowerCase() === s.toLowerCase())
+    selectedAgents = installedAgents;
+  } else if (agentNames.length > 0) {
+    selectedAgents = installedAgents.filter((s) =>
+      agentNames.some((name) => name.toLowerCase() === s.toLowerCase())
     );
 
-    if (selectedSkills.length === 0) {
-      p.log.error(`No matching skills found for: ${skillNames.join(', ')}`);
+    if (selectedAgents.length === 0) {
+      p.log.error(`No matching agents found for: ${agentNames.join(', ')}`);
       return;
     }
   } else {
-    const choices = installedSkills.map((s) => ({
+    const choices = installedAgents.map((s) => ({
       value: s,
       label: s,
     }));
 
     const selected = await p.multiselect({
-      message: `Select skills to remove ${pc.dim('(space to toggle)')}`,
+      message: `Select agents to remove ${pc.dim('(space to toggle)')}`,
       options: choices,
       required: true,
     });
@@ -108,29 +108,29 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
       process.exit(0);
     }
 
-    selectedSkills = selected as string[];
+    selectedAgents = selected as string[];
   }
 
-  let targetAgents: AgentType[];
-  if (options.agent && options.agent.length > 0) {
-    targetAgents = options.agent as AgentType[];
+  let targetAgents: TargetType[];
+  if (options.target && options.target.length > 0) {
+    targetAgents = options.target as TargetType[];
   } else {
     // When removing, we should target all known agents to ensure
     // ghost symlinks are cleaned up, even if the agent is not detected.
-    targetAgents = Object.keys(agents) as AgentType[];
+    targetAgents = Object.keys(targets) as TargetType[];
     spinner.stop(`Targeting ${targetAgents.length} potential agent(s)`);
   }
 
   if (!options.yes) {
     console.log();
-    p.log.info('Skills to remove:');
-    for (const skill of selectedSkills) {
-      p.log.message(`  ${pc.red('•')} ${skill}`);
+    p.log.info('Agents to remove:');
+    for (const agent of selectedAgents) {
+      p.log.message(`  ${pc.red('•')} ${agent}`);
     }
     console.log();
 
     const confirmed = await p.confirm({
-      message: `Are you sure you want to uninstall ${selectedSkills.length} skill(s)?`,
+      message: `Are you sure you want to uninstall ${selectedAgents.length} agent(s)?`,
     });
 
     if (p.isCancel(confirmed) || !confirmed) {
@@ -139,33 +139,33 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     }
   }
 
-  spinner.start('Removing skills...');
+  spinner.start('Removing agents...');
 
   const results: {
-    skill: string;
+    agent: string;
     success: boolean;
     source?: string;
     sourceType?: string;
     error?: string;
   }[] = [];
 
-  for (const skillName of selectedSkills) {
+  for (const agentName of selectedAgents) {
     try {
-      const canonicalPath = getCanonicalPath(skillName, { global: isGlobal, cwd });
+      const canonicalPath = getCanonicalPath(agentName, { global: isGlobal, cwd });
 
       for (const agentKey of targetAgents) {
-        const agent = agents[agentKey];
-        const skillPath = getInstallPath(skillName, agentKey, { global: isGlobal, cwd });
+        const agent = targets[agentKey];
+        const agentPath = getInstallPath(agentName, agentKey, { global: isGlobal, cwd });
 
         // Determine potential paths to cleanup. For universal agents, getInstallPath
         // now returns the canonical path, so we also need to check their 'native'
         // directory to clean up any legacy symlinks.
-        const pathsToCleanup = new Set([skillPath]);
-        const sanitizedName = sanitizeName(skillName);
-        if (isGlobal && agent.globalSkillsDir) {
-          pathsToCleanup.add(join(agent.globalSkillsDir, sanitizedName));
+        const pathsToCleanup = new Set([agentPath]);
+        const sanitizedName = sanitizeName(agentName);
+        if (isGlobal && agent.globalAgentsDir) {
+          pathsToCleanup.add(join(agent.globalAgentsDir, sanitizedName));
         } else {
-          pathsToCleanup.add(join(cwd, agent.skillsDir, sanitizedName));
+          pathsToCleanup.add(join(cwd, agent.agentsDir, sanitizedName));
         }
 
         for (const pathToCleanup of pathsToCleanup) {
@@ -181,7 +181,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
             }
           } catch (err) {
             p.log.warn(
-              `Could not remove skill from ${agent.displayName}: ${
+              `Could not remove agent from ${agent.displayName}: ${
                 err instanceof Error ? err.message : String(err)
               }`
             );
@@ -191,12 +191,12 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
       // Only remove the canonical path if no other installed agents are using it.
       // This prevents breaking other agents when uninstalling from a specific agent (#287).
-      const installedAgents = await detectInstalledAgents();
-      const remainingAgents = installedAgents.filter((a) => !targetAgents.includes(a));
+      const installedTargets = await detectInstalledTargets();
+      const remainingAgents = installedTargets.filter((a) => !targetAgents.includes(a));
 
       let isStillUsed = false;
       for (const agentKey of remainingAgents) {
-        const path = getInstallPath(skillName, agentKey, { global: isGlobal, cwd });
+        const path = getInstallPath(agentName, agentKey, { global: isGlobal, cwd });
         const exists = await lstat(path).catch(() => null);
         if (exists) {
           isStillUsed = true;
@@ -208,23 +208,23 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
         await rm(canonicalPath, { recursive: true, force: true });
       }
 
-      const lockEntry = isGlobal ? await getSkillFromLock(skillName) : null;
+      const lockEntry = isGlobal ? await getAgentFromLock(agentName) : null;
       const effectiveSource = lockEntry?.source || 'local';
       const effectiveSourceType = lockEntry?.sourceType || 'local';
 
       if (isGlobal) {
-        await removeSkillFromLock(skillName);
+        await removeAgentFromLock(agentName);
       }
 
       results.push({
-        skill: skillName,
+        agent: agentName,
         success: true,
         source: effectiveSource,
         sourceType: effectiveSourceType,
       });
     } catch (err) {
       results.push({
-        skill: skillName,
+        agent: agentName,
         success: false,
         error: err instanceof Error ? err.message : String(err),
       });
@@ -238,12 +238,12 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
   // Track removal (grouped by source)
   if (successful.length > 0) {
-    const bySource = new Map<string, { skills: string[]; sourceType?: string }>();
+    const bySource = new Map<string, { agents: string[]; sourceType?: string }>();
 
     for (const r of successful) {
       const source = r.source || 'local';
-      const existing = bySource.get(source) || { skills: [] };
-      existing.skills.push(r.skill);
+      const existing = bySource.get(source) || { agents: [] };
+      existing.agents.push(r.agent);
       existing.sourceType = r.sourceType;
       bySource.set(source, existing);
     }
@@ -252,8 +252,8 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
       track({
         event: 'remove',
         source,
-        skills: data.skills.join(','),
-        agents: targetAgents.join(','),
+        agents: data.agents.join(','),
+        targets: targetAgents.join(','),
         ...(isGlobal && { global: '1' }),
         sourceType: data.sourceType,
       });
@@ -261,13 +261,13 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   }
 
   if (successful.length > 0) {
-    p.log.success(pc.green(`Successfully removed ${successful.length} skill(s)`));
+    p.log.success(pc.green(`Successfully removed ${successful.length} agent(s)`));
   }
 
   if (failed.length > 0) {
-    p.log.error(pc.red(`Failed to remove ${failed.length} skill(s)`));
+    p.log.error(pc.red(`Failed to remove ${failed.length} agent(s)`));
     for (const r of failed) {
-      p.log.message(`  ${pc.red('✗')} ${r.skill}: ${r.error}`);
+      p.log.message(`  ${pc.red('✗')} ${r.agent}: ${r.error}`);
     }
   }
 
@@ -277,11 +277,11 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
 /**
  * Parse command line options for the remove command.
- * Separates skill names from options flags.
+ * Separates agent names from options flags.
  */
-export function parseRemoveOptions(args: string[]): { skills: string[]; options: RemoveOptions } {
+export function parseRemoveOptions(args: string[]): { agents: string[]; options: RemoveOptions } {
   const options: RemoveOptions = {};
-  const skills: string[] = [];
+  const agents: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -292,20 +292,20 @@ export function parseRemoveOptions(args: string[]): { skills: string[]; options:
       options.yes = true;
     } else if (arg === '--all') {
       options.all = true;
-    } else if (arg === '-a' || arg === '--agent') {
-      options.agent = options.agent || [];
+    } else if (arg === '-t' || arg === '--target') {
+      options.target = options.target || [];
       i++;
       let nextArg = args[i];
       while (i < args.length && nextArg && !nextArg.startsWith('-')) {
-        options.agent.push(nextArg);
+        options.target.push(nextArg);
         i++;
         nextArg = args[i];
       }
       i--; // Back up one since the loop will increment
     } else if (arg && !arg.startsWith('-')) {
-      skills.push(arg);
+      agents.push(arg);
     }
   }
 
-  return { skills, options };
+  return { agents, options };
 }

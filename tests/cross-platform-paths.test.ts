@@ -35,15 +35,15 @@ function isValidSkillFile(file: string): boolean {
 }
 
 /**
- * Simulates the SKILL.md path normalization from skill-lock.ts
+ * Simulates the AGENT.md path normalization from agent-lock.ts
  */
-function normalizeSkillPath(skillPath: string): string {
-  let folderPath = skillPath;
+function normalizeSkillPath(agentPath: string): string {
+  let folderPath = agentPath;
 
   // Handle both forward and backslash separators for cross-platform compatibility
-  if (folderPath.endsWith('/SKILL.md') || folderPath.endsWith('\\SKILL.md')) {
+  if (folderPath.endsWith('/AGENT.md') || folderPath.endsWith('\\AGENT.md')) {
     folderPath = folderPath.slice(0, -9);
-  } else if (folderPath.endsWith('SKILL.md')) {
+  } else if (folderPath.endsWith('AGENT.md')) {
     folderPath = folderPath.slice(0, -8);
   }
 
@@ -174,19 +174,19 @@ describe('shortenPath (Windows)', () => {
 
 describe('isValidSkillFile', () => {
   it('accepts valid relative paths', () => {
-    expect(isValidSkillFile('SKILL.md')).toBe(true);
+    expect(isValidSkillFile('AGENT.md')).toBe(true);
     expect(isValidSkillFile('src/helper.ts')).toBe(true);
     expect(isValidSkillFile('assets/logo.png')).toBe(true);
   });
 
   it('rejects paths starting with forward slash', () => {
     expect(isValidSkillFile('/etc/passwd')).toBe(false);
-    expect(isValidSkillFile('/SKILL.md')).toBe(false);
+    expect(isValidSkillFile('/AGENT.md')).toBe(false);
   });
 
   it('rejects paths starting with backslash', () => {
     expect(isValidSkillFile('\\Windows\\System32')).toBe(false);
-    expect(isValidSkillFile('\\SKILL.md')).toBe(false);
+    expect(isValidSkillFile('\\AGENT.md')).toBe(false);
   });
 
   it('rejects paths with directory traversal', () => {
@@ -210,48 +210,48 @@ describe('isValidSkillFile', () => {
 });
 
 describe('normalizeSkillPath', () => {
-  it('removes /SKILL.md suffix (Unix)', () => {
-    const result = normalizeSkillPath('skills/my-skill/SKILL.md');
-    expect(result).toBe('skills/my-skill');
+  it('removes /AGENT.md suffix (Unix)', () => {
+    const result = normalizeSkillPath('agents/my-agent/AGENT.md');
+    expect(result).toBe('agents/my-agent');
   });
 
-  it('removes \\SKILL.md suffix (Windows)', () => {
-    const result = normalizeSkillPath('skills\\my-skill\\SKILL.md');
-    expect(result).toBe('skills/my-skill');
+  it('removes \\AGENT.md suffix (Windows)', () => {
+    const result = normalizeSkillPath('agents\\my-agent\\AGENT.md');
+    expect(result).toBe('agents/my-agent');
   });
 
-  it('removes SKILL.md without path separator', () => {
-    const result = normalizeSkillPath('SKILL.md');
+  it('removes AGENT.md without path separator', () => {
+    const result = normalizeSkillPath('AGENT.md');
     expect(result).toBe('');
   });
 
   it('removes trailing forward slash', () => {
-    const result = normalizeSkillPath('skills/my-skill/');
-    expect(result).toBe('skills/my-skill');
+    const result = normalizeSkillPath('agents/my-agent/');
+    expect(result).toBe('agents/my-agent');
   });
 
   it('removes trailing backslash', () => {
-    const result = normalizeSkillPath('skills\\my-skill\\');
-    expect(result).toBe('skills/my-skill');
+    const result = normalizeSkillPath('agents\\my-agent\\');
+    expect(result).toBe('agents/my-agent');
   });
 
   it('converts Windows paths to forward slashes', () => {
-    const result = normalizeSkillPath('skills\\.curated\\advanced-skill\\SKILL.md');
-    expect(result).toBe('skills/.curated/advanced-skill');
+    const result = normalizeSkillPath('agents\\.curated\\advanced-agent\\AGENT.md');
+    expect(result).toBe('agents/.curated/advanced-agent');
   });
 
   it('handles mixed separators', () => {
-    const result = normalizeSkillPath('skills/category\\my-skill/SKILL.md');
-    expect(result).toBe('skills/category/my-skill');
+    const result = normalizeSkillPath('agents/category\\my-agent/AGENT.md');
+    expect(result).toBe('agents/category/my-agent');
   });
 
-  it('handles root-level skill', () => {
-    const result = normalizeSkillPath('/SKILL.md');
+  it('handles root-level agent', () => {
+    const result = normalizeSkillPath('/AGENT.md');
     expect(result).toBe('');
   });
 
   it('handles deep nested paths (Windows)', () => {
-    const result = normalizeSkillPath('a\\b\\c\\d\\e\\SKILL.md');
+    const result = normalizeSkillPath('a\\b\\c\\d\\e\\AGENT.md');
     expect(result).toBe('a/b/c/d/e');
   });
 });

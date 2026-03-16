@@ -26,19 +26,19 @@ function generateAvailableAgentsTable(): string {
     {
       keys: string[];
       displayNames: string[];
-      skillsDir: string;
-      globalSkillsDir: string | undefined;
+      agentsDir: string;
+      globalAgentsDir: string | undefined;
     }
   >();
 
-  for (const [key, a] of Object.entries(agents)) {
-    const pathKey = `${a.skillsDir}|${a.globalSkillsDir}`;
+  for (const [key, a] of Object.entries(targets)) {
+    const pathKey = `${a.agentsDir}|${a.globalAgentsDir}`;
     if (!pathGroups.has(pathKey)) {
       pathGroups.set(pathKey, {
         keys: [],
         displayNames: [],
-        skillsDir: a.skillsDir,
-        globalSkillsDir: a.globalSkillsDir,
+        agentsDir: a.agentsDir,
+        globalAgentsDir: a.globalAgentsDir,
       });
     }
     const group = pathGroups.get(pathKey)!;
@@ -47,12 +47,12 @@ function generateAvailableAgentsTable(): string {
   }
 
   const rows = Array.from(pathGroups.values()).map((group) => {
-    const globalPath = group.globalSkillsDir
-      ? `\`${group.globalSkillsDir.replace(homedir(), '~')}/\``
+    const globalPath = group.globalAgentsDir
+      ? `\`${group.globalAgentsDir.replace(homedir(), '~')}/\``
       : 'N/A (project-only)';
     const names = group.displayNames.join(', ');
     const keys = group.keys.map((k) => `\`${k}\``).join(', ');
-    return `| ${names} | ${keys} | \`${group.skillsDir}/\` | ${globalPath} |`;
+    return `| ${names} | ${keys} | \`${group.agentsDir}/\` | ${globalPath} |`;
   });
   return [
     '| Agent | `--agent` | Project Path | Global Path |',
@@ -63,14 +63,14 @@ function generateAvailableAgentsTable(): string {
 
 function generateSkillDiscoveryPaths(): string {
   const standardPaths = [
-    '- Root directory (if it contains `SKILL.md`)',
-    '- `skills/`',
-    '- `skills/.curated/`',
-    '- `skills/.experimental/`',
-    '- `skills/.system/`',
+    '- Root directory (if it contains `AGENT.md`)',
+    '- `agents/`',
+    '- `agents/.curated/`',
+    '- `agents/.experimental/`',
+    '- `agents/.system/`',
   ];
 
-  const agentPaths = [...new Set(Object.values(agents).map((a) => a.skillsDir))].map(
+  const agentPaths = [...new Set(Object.values(agents).map((a) => a.agentsDir))].map(
     (p) => `- \`.${p.startsWith('.') ? p.slice(1) : '/' + p}/\``
   );
 
@@ -78,8 +78,8 @@ function generateSkillDiscoveryPaths(): string {
 }
 
 function generateKeywords(): string[] {
-  const baseKeywords = ['cli', 'agent-skills', 'skills', 'ai-agents'];
-  const agentKeywords = Object.keys(agents);
+  const baseKeywords = ['cli', 'agent-agents', 'agents', 'ai-agents'];
+  const agentKeywords = Object.keys(targets);
   return [...baseKeywords, ...agentKeywords];
 }
 
@@ -102,7 +102,7 @@ function main() {
   readme = replaceSection(readme, 'agent-list', generateAgentList());
   readme = replaceSection(readme, 'agent-names', generateAgentNames(), true);
   readme = replaceSection(readme, 'supported-agents', generateAvailableAgentsTable());
-  readme = replaceSection(readme, 'skill-discovery', generateSkillDiscoveryPaths());
+  readme = replaceSection(readme, 'agent-discovery', generateSkillDiscoveryPaths());
 
   writeFileSync(README_PATH, readme);
   console.log('README.md updated');

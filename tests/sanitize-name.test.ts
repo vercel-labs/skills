@@ -1,7 +1,7 @@
 /**
  * Unit tests for sanitizeName function in installer.ts
  *
- * These tests verify the sanitization logic for skill names to ensure:
+ * These tests verify the sanitization logic for agent names to ensure:
  * - Path traversal attacks are prevented
  * - Names follow kebab-case convention
  * - Special characters are handled safely
@@ -18,18 +18,18 @@ describe('sanitizeName', () => {
     });
 
     it('replaces spaces with hyphens', () => {
-      expect(sanitizeName('my skill')).toBe('my-skill');
+      expect(sanitizeName('my agent')).toBe('my-agent');
       expect(sanitizeName('Convex Best Practices')).toBe('convex-best-practices');
     });
 
     it('replaces multiple spaces with single hyphen', () => {
-      expect(sanitizeName('my   skill')).toBe('my-skill');
+      expect(sanitizeName('my   agent')).toBe('my-agent');
     });
 
     it('preserves dots and underscores', () => {
       expect(sanitizeName('bun.sh')).toBe('bun.sh');
       expect(sanitizeName('my_skill')).toBe('my_skill');
-      expect(sanitizeName('skill.v2_beta')).toBe('skill.v2_beta');
+      expect(sanitizeName('agent.v2_beta')).toBe('agent.v2_beta');
     });
 
     it('preserves numbers', () => {
@@ -40,14 +40,14 @@ describe('sanitizeName', () => {
 
   describe('special character handling', () => {
     it('replaces special characters with hyphens', () => {
-      expect(sanitizeName('skill@name')).toBe('skill-name');
-      expect(sanitizeName('skill#name')).toBe('skill-name');
-      expect(sanitizeName('skill$name')).toBe('skill-name');
-      expect(sanitizeName('skill!name')).toBe('skill-name');
+      expect(sanitizeName('agent@name')).toBe('agent-name');
+      expect(sanitizeName('agent#name')).toBe('agent-name');
+      expect(sanitizeName('agent$name')).toBe('agent-name');
+      expect(sanitizeName('agent!name')).toBe('agent-name');
     });
 
     it('collapses multiple special chars into single hyphen', () => {
-      expect(sanitizeName('skill@#$name')).toBe('skill-name');
+      expect(sanitizeName('agent@#$name')).toBe('agent-name');
       expect(sanitizeName('a!!!b')).toBe('a-b');
     });
   });
@@ -72,39 +72,39 @@ describe('sanitizeName', () => {
     it('removes leading dots', () => {
       expect(sanitizeName('.hidden')).toBe('hidden');
       expect(sanitizeName('..hidden')).toBe('hidden');
-      expect(sanitizeName('...skill')).toBe('skill');
+      expect(sanitizeName('...agent')).toBe('agent');
     });
 
     it('removes trailing dots', () => {
-      expect(sanitizeName('skill.')).toBe('skill');
-      expect(sanitizeName('skill..')).toBe('skill');
+      expect(sanitizeName('agent.')).toBe('agent');
+      expect(sanitizeName('agent..')).toBe('agent');
     });
 
     it('removes leading hyphens', () => {
-      expect(sanitizeName('-skill')).toBe('skill');
-      expect(sanitizeName('--skill')).toBe('skill');
+      expect(sanitizeName('-agent')).toBe('agent');
+      expect(sanitizeName('--agent')).toBe('agent');
     });
 
     it('removes trailing hyphens', () => {
-      expect(sanitizeName('skill-')).toBe('skill');
-      expect(sanitizeName('skill--')).toBe('skill');
+      expect(sanitizeName('agent-')).toBe('agent');
+      expect(sanitizeName('agent--')).toBe('agent');
     });
 
     it('removes mixed leading dots and hyphens', () => {
-      expect(sanitizeName('.-.-skill')).toBe('skill');
-      expect(sanitizeName('-.-.skill')).toBe('skill');
+      expect(sanitizeName('.-.-agent')).toBe('agent');
+      expect(sanitizeName('-.-.agent')).toBe('agent');
     });
   });
 
   describe('edge cases', () => {
-    it('returns unnamed-skill for empty string', () => {
-      expect(sanitizeName('')).toBe('unnamed-skill');
+    it('returns unnamed-agent for empty string', () => {
+      expect(sanitizeName('')).toBe('unnamed-agent');
     });
 
-    it('returns unnamed-skill when only special chars', () => {
-      expect(sanitizeName('...')).toBe('unnamed-skill');
-      expect(sanitizeName('---')).toBe('unnamed-skill');
-      expect(sanitizeName('@#$%')).toBe('unnamed-skill');
+    it('returns unnamed-agent when only special chars', () => {
+      expect(sanitizeName('...')).toBe('unnamed-agent');
+      expect(sanitizeName('---')).toBe('unnamed-agent');
+      expect(sanitizeName('@#$%')).toBe('unnamed-agent');
     });
 
     it('handles very long names (truncates to 255 chars)', () => {
@@ -115,8 +115,8 @@ describe('sanitizeName', () => {
     });
 
     it('handles unicode characters', () => {
-      expect(sanitizeName('skill日本語')).toBe('skill');
-      expect(sanitizeName('émoji🎉skill')).toBe('moji-skill');
+      expect(sanitizeName('agent日本語')).toBe('agent');
+      expect(sanitizeName('émoji🎉agent')).toBe('moji-agent');
     });
   });
 

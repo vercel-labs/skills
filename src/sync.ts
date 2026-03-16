@@ -3,23 +3,23 @@ import pc from 'picocolors';
 import { readdir, stat } from 'fs/promises';
 import { join, sep } from 'path';
 import { homedir } from 'os';
-import { parseSkillMd } from './skills.ts';
-import { installSkillForAgent, getCanonicalPath } from './installer.ts';
+import { parseAgentMd } from './agents.ts';
+import { installAgentForTarget, getCanonicalPath } from './installer.ts';
 import {
-  detectInstalledAgents,
-  agents,
-  getUniversalAgents,
-  getNonUniversalAgents,
-} from './agents.ts';
+  detectInstalledTargets,
+  targets,
+  getUniversalTargets,
+  getNonUniversalTargets,
+} from './targets.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
-import { addSkillToLocalLock, computeSkillFolderHash, readLocalLock } from './local-lock.ts';
-import type { Skill, AgentType } from './types.ts';
+import { addAgentToLocalLock, computeAgentFolderHash, readLocalLock } from './local-lock.ts';
+import type { Agent, TargetType } from './types.ts';
 import { track } from './telemetry.ts';
 
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
 
 export interface SyncOptions {
-  agent?: string[];
+  target?: string[];
   yes?: boolean;
   force?: boolean;
 }
@@ -39,48 +39,48 @@ function shortenPath(fullPath: string, cwd: string): string {
 }
 
 /**
- * Crawl node_modules for SKILL.md files.
+ * Crawl node_modules for AGENT.md files.
  * Searches both top-level packages and scoped packages (@org/pkg).
- * Returns discovered skills with their source package name.
+ * Returns discovered agents with their source package name.
  */
-async function discoverNodeModuleSkills(
+async function discoverNodeModuleAgents(
   cwd: string
-): Promise<Array<Skill & { packageName: string }>> {
+): Promise<Array<Agent & { packageName: string }>> {
   const nodeModulesDir = join(cwd, 'node_modules');
-  const skills: Array<Skill & { packageName: string }> = [];
+  const agents: Array<Agent & { packageName: string }> = [];
 
   let topNames: string[];
   try {
     topNames = await readdir(nodeModulesDir);
   } catch {
-    return skills;
+    return agents;
   }
 
   const processPackageDir = async (pkgDir: string, packageName: string) => {
-    // Check for SKILL.md at package root
-    const rootSkill = await parseSkillMd(join(pkgDir, 'SKILL.md'));
-    if (rootSkill) {
-      skills.push({ ...rootSkill, packageName });
+    // Check for AGENT.md at package root
+    const rootAgent = await parseAgentMd(join(pkgDir, 'AGENT.md'));
+    if (rootAgent) {
+      agents.push({ ...rootAgent, packageName });
       return;
     }
 
-    // Check common skill locations within the package
-    const searchDirs = [pkgDir, join(pkgDir, 'skills'), join(pkgDir, '.agents', 'skills')];
+    // Check common agent locations within the package
+    const searchDirs = [pkgDir, join(pkgDir, 'agents'), join(pkgDir, '.agents', 'agents')];
 
     for (const searchDir of searchDirs) {
       try {
         const entries = await readdir(searchDir);
         for (const name of entries) {
-          const skillDir = join(searchDir, name);
+          const agentDir = join(searchDir, name);
           try {
-            const s = await stat(skillDir);
+            const s = await stat(agentDir);
             if (!s.isDirectory()) continue;
           } catch {
             continue;
           }
-          const skill = await parseSkillMd(join(skillDir, 'SKILL.md'));
-          if (skill) {
-            skills.push({ ...skill, packageName });
+          const agent = await parseAgentMd(join(agentDir, 'AGENT.md'));
+          if (agent) {
+            agents.push({ ...agent, packageName });
           }
         }
       } catch {
@@ -126,109 +126,109 @@ async function discoverNodeModuleSkills(
     })
   );
 
-  return skills;
+  return agents;
 }
 
 export async function runSync(args: string[], options: SyncOptions = {}): Promise<void> {
   const cwd = process.cwd();
 
   console.log();
-  p.intro(pc.bgCyan(pc.black(' skills experimental_sync ')));
+  p.intro(pc.bgCyan(pc.black(' agents experimental_sync ')));
 
   const spinner = p.spinner();
 
-  // 1. Discover skills from node_modules
-  spinner.start('Scanning node_modules for skills...');
-  const discoveredSkills = await discoverNodeModuleSkills(cwd);
+  // 1. Discover agents from node_modules
+  spinner.start('Scanning node_modules for agents...');
+  const discoveredAgents = await discoverNodeModuleAgents(cwd);
 
-  if (discoveredSkills.length === 0) {
-    spinner.stop(pc.yellow('No skills found'));
-    p.outro(pc.dim('No SKILL.md files found in node_modules.'));
+  if (discoveredAgents.length === 0) {
+    spinner.stop(pc.yellow('No agents found'));
+    p.outro(pc.dim('No AGENT.md files found in node_modules.'));
     return;
   }
 
   spinner.stop(
-    `Found ${pc.green(String(discoveredSkills.length))} skill${discoveredSkills.length > 1 ? 's' : ''} in node_modules`
+    `Found ${pc.green(String(discoveredAgents.length))} agent${discoveredAgents.length > 1 ? 's' : ''} in node_modules`
   );
 
-  // Show discovered skills
-  for (const skill of discoveredSkills) {
-    p.log.info(`${pc.cyan(skill.name)} ${pc.dim(`from ${skill.packageName}`)}`);
-    if (skill.description) {
-      p.log.message(pc.dim(`  ${skill.description}`));
+  // Show discovered agents
+  for (const agent of discoveredAgents) {
+    p.log.info(`${pc.cyan(agent.name)} ${pc.dim(`from ${agent.packageName}`)}`);
+    if (agent.description) {
+      p.log.message(pc.dim(`  ${agent.description}`));
     }
   }
 
-  // 2. Check which skills are already up-to-date via local lock
+  // 2. Check which agents are already up-to-date via local lock
   const localLock = await readLocalLock(cwd);
-  const toInstall: Array<Skill & { packageName: string }> = [];
+  const toInstall: Array<Agent & { packageName: string }> = [];
   const upToDate: string[] = [];
 
   if (options.force) {
-    toInstall.push(...discoveredSkills);
-    p.log.info(pc.dim('Force mode: reinstalling all skills'));
+    toInstall.push(...discoveredAgents);
+    p.log.info(pc.dim('Force mode: reinstalling all agents'));
   } else {
-    for (const skill of discoveredSkills) {
-      const existingEntry = localLock.skills[skill.name];
+    for (const agent of discoveredAgents) {
+      const existingEntry = localLock.agents[agent.name];
       if (existingEntry) {
         // Compute current hash and compare
-        const currentHash = await computeSkillFolderHash(skill.path);
+        const currentHash = await computeAgentFolderHash(agent.path);
         if (currentHash === existingEntry.computedHash) {
-          upToDate.push(skill.name);
+          upToDate.push(agent.name);
           continue;
         }
       }
-      toInstall.push(skill);
+      toInstall.push(agent);
     }
 
     if (upToDate.length > 0) {
       p.log.info(
-        pc.dim(`${upToDate.length} skill${upToDate.length !== 1 ? 's' : ''} already up to date`)
+        pc.dim(`${upToDate.length} agent${upToDate.length !== 1 ? 's' : ''} already up to date`)
       );
     }
 
     if (toInstall.length === 0) {
       console.log();
-      p.outro(pc.green('All skills are up to date.'));
+      p.outro(pc.green('All agents are up to date.'));
       return;
     }
   }
 
-  p.log.info(`${toInstall.length} skill${toInstall.length !== 1 ? 's' : ''} to install/update`);
+  p.log.info(`${toInstall.length} agent${toInstall.length !== 1 ? 's' : ''} to install/update`);
 
   // 3. Select agents
-  let targetAgents: AgentType[];
-  const validAgents = Object.keys(agents);
-  const universalAgents = getUniversalAgents();
+  let targetAgents: TargetType[];
+  const validAgents = Object.keys(targets);
+  const universalAgents = getUniversalTargets();
 
-  if (options.agent?.includes('*')) {
-    targetAgents = validAgents as AgentType[];
+  if (options.target?.includes('*')) {
+    targetAgents = validAgents as TargetType[];
     p.log.info(`Installing to all ${targetAgents.length} agents`);
-  } else if (options.agent && options.agent.length > 0) {
-    const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
+  } else if (options.target && options.target.length > 0) {
+    const invalidAgents = options.target.filter((a) => !validAgents.includes(a));
     if (invalidAgents.length > 0) {
       p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
       p.log.info(`Valid agents: ${validAgents.join(', ')}`);
       process.exit(1);
     }
-    targetAgents = options.agent as AgentType[];
+    targetAgents = options.target as TargetType[];
   } else {
     spinner.start('Loading agents...');
-    const installedAgents = await detectInstalledAgents();
-    const totalAgents = Object.keys(agents).length;
+    const installedTargets = await detectInstalledTargets();
+    const totalAgents = Object.keys(targets).length;
     spinner.stop(`${totalAgents} agents`);
 
-    if (installedAgents.length === 0) {
+    if (installedTargets.length === 0) {
       if (options.yes) {
         targetAgents = universalAgents;
         p.log.info('Installing to universal agents');
       } else {
-        const otherAgents = getNonUniversalAgents();
+        const otherAgents = getNonUniversalTargets();
 
         const otherChoices = otherAgents.map((a) => ({
           value: a,
-          label: agents[a].displayName,
-          hint: agents[a].skillsDir,
+          label: targets[a].displayName,
+          hint: targets[a].agentsDir,
         }));
 
         const selected = await searchMultiselect({
@@ -236,10 +236,10 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
           items: otherChoices,
           initialSelected: [],
           lockedSection: {
-            title: 'Universal (.agents/skills)',
+            title: 'Universal (.agents/agents)',
             items: universalAgents.map((a) => ({
               value: a,
-              label: agents[a].displayName,
+              label: targets[a].displayName,
             })),
           },
         });
@@ -249,34 +249,34 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
           process.exit(0);
         }
 
-        targetAgents = selected as AgentType[];
+        targetAgents = selected as TargetType[];
       }
-    } else if (installedAgents.length === 1 || options.yes) {
+    } else if (installedTargets.length === 1 || options.yes) {
       // Ensure universal agents are included
-      targetAgents = [...installedAgents];
+      targetAgents = [...installedTargets];
       for (const ua of universalAgents) {
         if (!targetAgents.includes(ua)) {
           targetAgents.push(ua);
         }
       }
     } else {
-      const otherAgents = getNonUniversalAgents().filter((a) => installedAgents.includes(a));
+      const otherAgents = getNonUniversalTargets().filter((a) => installedTargets.includes(a));
 
       const otherChoices = otherAgents.map((a) => ({
         value: a,
-        label: agents[a].displayName,
-        hint: agents[a].skillsDir,
+        label: targets[a].displayName,
+        hint: targets[a].agentsDir,
       }));
 
       const selected = await searchMultiselect({
         message: 'Which agents do you want to install to?',
         items: otherChoices,
-        initialSelected: installedAgents.filter((a) => !universalAgents.includes(a)),
+        initialSelected: installedTargets.filter((a) => !universalAgents.includes(a)),
         lockedSection: {
-          title: 'Universal (.agents/skills)',
+          title: 'Universal (.agents/agents)',
           items: universalAgents.map((a) => ({
             value: a,
-            label: agents[a].displayName,
+            label: targets[a].displayName,
           })),
         },
       });
@@ -286,16 +286,16 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
         process.exit(0);
       }
 
-      targetAgents = selected as AgentType[];
+      targetAgents = selected as TargetType[];
     }
   }
 
   // 4. Build summary
   const summaryLines: string[] = [];
-  for (const skill of toInstall) {
-    const canonicalPath = getCanonicalPath(skill.name, { global: false });
+  for (const agent of toInstall) {
+    const canonicalPath = getCanonicalPath(agent.name, { global: false });
     const shortCanonical = shortenPath(canonicalPath, cwd);
-    summaryLines.push(`${pc.cyan(skill.name)} ${pc.dim(`← ${skill.packageName}`)}`);
+    summaryLines.push(`${pc.cyan(agent.name)} ${pc.dim(`← ${agent.packageName}`)}`);
     summaryLines.push(`  ${pc.dim(shortCanonical)}`);
   }
 
@@ -311,30 +311,30 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     }
   }
 
-  // 5. Install skills (always project-scoped, always symlink)
-  spinner.start('Syncing skills...');
+  // 5. Install agents (always project-scoped, always symlink)
+  spinner.start('Syncing agents...');
 
   const results: Array<{
-    skill: string;
-    packageName: string;
     agent: string;
+    packageName: string;
+    target: string;
     success: boolean;
     path: string;
     canonicalPath?: string;
     error?: string;
   }> = [];
 
-  for (const skill of toInstall) {
-    for (const agent of targetAgents) {
-      const result = await installSkillForAgent(skill, agent, {
+  for (const ag of toInstall) {
+    for (const tgt of targetAgents) {
+      const result = await installAgentForTarget(ag, tgt, {
         global: false,
         cwd,
         mode: 'symlink',
       });
       results.push({
-        skill: skill.name,
-        packageName: skill.packageName,
-        agent: agents[agent].displayName,
+        agent: ag.name,
+        packageName: ag.packageName,
+        target: targets[tgt].displayName,
         success: result.success,
         path: result.path,
         canonicalPath: result.canonicalPath,
@@ -348,16 +348,16 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   // 6. Update local lock file
   const successful = results.filter((r) => r.success);
   const failed = results.filter((r) => !r.success);
-  const successfulSkillNames = new Set(successful.map((r) => r.skill));
+  const successfulAgentNames = new Set(successful.map((r) => r.agent));
 
-  for (const skill of toInstall) {
-    if (successfulSkillNames.has(skill.name)) {
+  for (const agent of toInstall) {
+    if (successfulAgentNames.has(agent.name)) {
       try {
-        const computedHash = await computeSkillFolderHash(skill.path);
-        await addSkillToLocalLock(
-          skill.name,
+        const computedHash = await computeAgentFolderHash(agent.path);
+        await addAgentToLocalLock(
+          agent.name,
           {
-            source: skill.packageName,
+            source: agent.packageName,
             sourceType: 'node_modules',
             computedHash,
           },
@@ -373,28 +373,28 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   console.log();
 
   if (successful.length > 0) {
-    const bySkill = new Map<string, typeof results>();
+    const byAgent = new Map<string, typeof results>();
     for (const r of successful) {
-      const skillResults = bySkill.get(r.skill) || [];
-      skillResults.push(r);
-      bySkill.set(r.skill, skillResults);
+      const agentResults = byAgent.get(r.agent) || [];
+      agentResults.push(r);
+      byAgent.set(r.agent, agentResults);
     }
 
     const resultLines: string[] = [];
-    for (const [skillName, skillResults] of bySkill) {
-      const firstResult = skillResults[0]!;
-      const pkg = toInstall.find((s) => s.name === skillName)?.packageName;
+    for (const [agentName, agentResults] of byAgent) {
+      const firstResult = agentResults[0]!;
+      const pkg = toInstall.find((s) => s.name === agentName)?.packageName;
       if (firstResult.canonicalPath) {
         const shortPath = shortenPath(firstResult.canonicalPath, cwd);
-        resultLines.push(`${pc.green('✓')} ${skillName} ${pc.dim(`← ${pkg}`)}`);
+        resultLines.push(`${pc.green('✓')} ${agentName} ${pc.dim(`← ${pkg}`)}`);
         resultLines.push(`  ${pc.dim(shortPath)}`);
       } else {
-        resultLines.push(`${pc.green('✓')} ${skillName} ${pc.dim(`← ${pkg}`)}`);
+        resultLines.push(`${pc.green('✓')} ${agentName} ${pc.dim(`← ${pkg}`)}`);
       }
     }
 
-    const skillCount = bySkill.size;
-    const title = pc.green(`Synced ${skillCount} skill${skillCount !== 1 ? 's' : ''}`);
+    const agentCount = byAgent.size;
+    const title = pc.green(`Synced ${agentCount} agent${agentCount !== 1 ? 's' : ''}`);
     p.note(resultLines.join('\n'), title);
   }
 
@@ -402,21 +402,21 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     console.log();
     p.log.error(pc.red(`Failed to install ${failed.length}`));
     for (const r of failed) {
-      p.log.message(`  ${pc.red('✗')} ${r.skill} → ${r.agent}: ${pc.dim(r.error)}`);
+      p.log.message(`  ${pc.red('✗')} ${r.agent} → ${r.target}: ${pc.dim(r.error)}`);
     }
   }
 
   // Track telemetry
   track({
     event: 'experimental_sync',
-    skillCount: String(toInstall.length),
-    successCount: String(successfulSkillNames.size),
-    agents: targetAgents.join(','),
+    agentCount: String(toInstall.length),
+    successCount: String(successfulAgentNames.size),
+    targets: targetAgents.join(','),
   });
 
   console.log();
   p.outro(
-    pc.green('Done!') + pc.dim('  Review skills before use; they run with full agent permissions.')
+    pc.green('Done!') + pc.dim('  Review agents before use; they run with full agent permissions.')
   );
 }
 
@@ -430,12 +430,12 @@ export function parseSyncOptions(args: string[]): { options: SyncOptions } {
       options.yes = true;
     } else if (arg === '-f' || arg === '--force') {
       options.force = true;
-    } else if (arg === '-a' || arg === '--agent') {
-      options.agent = options.agent || [];
+    } else if (arg === '-t' || arg === '--target') {
+      options.target = options.target || [];
       i++;
       let nextArg = args[i];
       while (i < args.length && nextArg && !nextArg.startsWith('-')) {
-        options.agent.push(nextArg);
+        options.target.push(nextArg);
         i++;
         nextArg = args[i];
       }

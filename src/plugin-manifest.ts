@@ -24,8 +24,8 @@ function isValidRelativePath(path: string): boolean {
  */
 interface PluginManifestEntry {
   source?: string | { source: string; repo?: string };
-  skills?: string[];
-  /** Optional name for grouping skills (e.g., "document-skills") */
+  agents?: string[];
+  /** Optional name for grouping agents (e.g., "document-agents") */
   name?: string;
 }
 
@@ -35,43 +35,43 @@ interface MarketplaceManifest {
 }
 
 interface PluginManifest {
-  skills?: string[];
+  agents?: string[];
   name?: string;
 }
 
 /**
- * Extract skill search directories from plugin manifests.
+ * Extract agent search directories from plugin manifests.
  * Handles both marketplace.json (multi-plugin) and plugin.json (single plugin).
  * Only resolves local paths - remote sources are skipped.
  *
- * Returns directories that CONTAIN skills (to be searched for child SKILL.md files).
- * For explicit skill paths in manifests, adds the parent directory so the
+ * Returns directories that CONTAIN agents (to be searched for child AGENT.md files).
+ * For explicit agent paths in manifests, adds the parent directory so the
  * existing discovery loop finds them.
  */
-export async function getPluginSkillPaths(basePath: string): Promise<string[]> {
+export async function getPluginAgentPaths(basePath: string): Promise<string[]> {
   const searchDirs: string[] = [];
 
-  // Helper: add skill paths for a plugin at a given base path
+  // Helper: add agent paths for a plugin at a given base path
   // Only adds paths that are contained within basePath (security: prevents traversal)
-  const addPluginSkillPaths = (pluginBase: string, skills?: string[]) => {
+  const addPluginSkillPaths = (pluginBase: string, agents?: string[]) => {
     // Validate pluginBase itself is contained
     if (!isContainedIn(pluginBase, basePath)) return;
 
-    if (skills && skills.length > 0) {
-      // Plugin explicitly declares skill paths - add parent dirs so existing loop finds them
-      for (const skillPath of skills) {
-        // Validate skill path starts with './' (per Claude Code convention)
-        if (!isValidRelativePath(skillPath)) continue;
+    if (agents && agents.length > 0) {
+      // Plugin explicitly declares agent paths - add parent dirs so existing loop finds them
+      for (const agentPath of agents) {
+        // Validate agent path starts with './' (per Claude Code convention)
+        if (!isValidRelativePath(agentPath)) continue;
 
-        const skillDir = dirname(join(pluginBase, skillPath));
-        if (isContainedIn(skillDir, basePath)) {
-          searchDirs.push(skillDir);
+        const agentDir = dirname(join(pluginBase, agentPath));
+        if (isContainedIn(agentDir, basePath)) {
+          searchDirs.push(agentDir);
         }
       }
     }
-    // Always add conventional skills/ directory for discovery
-    // (deduplication happens via seenNames in discoverSkills)
-    searchDirs.push(join(pluginBase, 'skills'));
+    // Always add conventional agents/ directory for discovery
+    // (deduplication happens via seenNames in discoverAgents)
+    searchDirs.push(join(pluginBase, 'agents'));
   };
 
   // Try marketplace.json (multi-plugin catalog)
@@ -92,7 +92,7 @@ export async function getPluginSkillPaths(basePath: string): Promise<string[]> {
         if (plugin.source !== undefined && !isValidRelativePath(plugin.source)) continue;
 
         const pluginBase = join(basePath, pluginRoot ?? '', plugin.source ?? '');
-        addPluginSkillPaths(pluginBase, plugin.skills);
+        addPluginSkillPaths(pluginBase, plugin.agents);
       }
     }
   } catch {
@@ -103,7 +103,7 @@ export async function getPluginSkillPaths(basePath: string): Promise<string[]> {
   try {
     const content = await readFile(join(basePath, '.claude-plugin/plugin.json'), 'utf-8');
     const manifest: PluginManifest = JSON.parse(content);
-    addPluginSkillPaths(basePath, manifest.skills);
+    addPluginSkillPaths(basePath, manifest.agents);
   } catch {
     // File doesn't exist or invalid JSON
   }
@@ -112,8 +112,8 @@ export async function getPluginSkillPaths(basePath: string): Promise<string[]> {
 }
 
 /**
- * Get a map of skill directory paths to plugin names from plugin manifests.
- * This allows grouping skills by their parent plugin.
+ * Get a map of agent directory paths to plugin names from plugin manifests.
+ * This allows grouping agents by their parent plugin.
  *
  * Returns Map<AbsolutePath, PluginName>
  */
@@ -144,15 +144,15 @@ export async function getPluginGroupings(basePath: string): Promise<Map<string, 
         // Validate pluginBase itself is contained
         if (!isContainedIn(pluginBase, basePath)) continue;
 
-        if (plugin.skills && plugin.skills.length > 0) {
-          for (const skillPath of plugin.skills) {
-            // Validate skill path starts with './' (per Claude Code convention)
-            if (!isValidRelativePath(skillPath)) continue;
+        if (plugin.agents && plugin.agents.length > 0) {
+          for (const agentPath of plugin.agents) {
+            // Validate agent path starts with './' (per Claude Code convention)
+            if (!isValidRelativePath(agentPath)) continue;
 
-            const skillDir = join(pluginBase, skillPath);
-            if (isContainedIn(skillDir, basePath)) {
+            const agentDir = join(pluginBase, agentPath);
+            if (isContainedIn(agentDir, basePath)) {
               // Store absolute path as key for reliable matching
-              groupings.set(resolve(skillDir), plugin.name);
+              groupings.set(resolve(agentDir), plugin.name);
             }
           }
         }
@@ -166,12 +166,12 @@ export async function getPluginGroupings(basePath: string): Promise<Map<string, 
   try {
     const content = await readFile(join(basePath, '.claude-plugin/plugin.json'), 'utf-8');
     const manifest: PluginManifest = JSON.parse(content);
-    if (manifest.name && manifest.skills && manifest.skills.length > 0) {
-      for (const skillPath of manifest.skills) {
-        if (!isValidRelativePath(skillPath)) continue;
-        const skillDir = join(basePath, skillPath);
-        if (isContainedIn(skillDir, basePath)) {
-          groupings.set(resolve(skillDir), manifest.name);
+    if (manifest.name && manifest.agents && manifest.agents.length > 0) {
+      for (const agentPath of manifest.agents) {
+        if (!isValidRelativePath(agentPath)) continue;
+        const agentDir = join(basePath, agentPath);
+        if (isContainedIn(agentDir, basePath)) {
+          groupings.set(resolve(agentDir), manifest.name);
         }
       }
     }
