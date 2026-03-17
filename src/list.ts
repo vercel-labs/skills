@@ -14,6 +14,7 @@ const YELLOW = '\x1b[33m';
 interface ListOptions {
   global?: boolean;
   agent?: string[];
+  json?: boolean;
 }
 
 /**
@@ -49,6 +50,8 @@ export function parseListOptions(args: string[]): ListOptions {
     const arg = args[i];
     if (arg === '-g' || arg === '--global') {
       options.global = true;
+    } else if (arg === '--json') {
+      options.json = true;
     } else if (arg === '-a' || arg === '--agent') {
       options.agent = options.agent || [];
       // Collect all following arguments until next flag
@@ -87,6 +90,18 @@ export async function runList(args: string[]): Promise<void> {
     agentFilter,
   });
 
+  // JSON output mode: structured, no ANSI, untruncated agent lists
+  if (options.json) {
+    const jsonOutput = installedSkills.map((skill) => ({
+      name: skill.name,
+      path: skill.canonicalPath,
+      scope: skill.scope,
+      agents: skill.agents.map((a) => agents[a].displayName),
+    }));
+    console.log(JSON.stringify(jsonOutput, null, 2));
+    return;
+  }
+
   // Fetch lock entries to get plugin grouping info
   const lockedSkills = await getAllLockedSkills();
 
@@ -94,6 +109,10 @@ export async function runList(args: string[]): Promise<void> {
   const scopeLabel = scope ? 'Global' : 'Project';
 
   if (installedSkills.length === 0) {
+    if (options.json) {
+      console.log('[]');
+      return;
+    }
     console.log(`${DIM}No ${scopeLabel.toLowerCase()} skills found.${RESET}`);
     if (scope) {
       console.log(`${DIM}Try listing project skills without -g${RESET}`);

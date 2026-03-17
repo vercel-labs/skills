@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from 'fs/promises';
-import { join, basename, dirname, resolve } from 'path';
+import { join, basename, dirname, resolve, normalize, sep } from 'path';
 import matter from 'gray-matter';
 import type { Skill } from './types.ts';
 import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
@@ -93,6 +93,18 @@ export interface DiscoverSkillsOptions {
   fullDepth?: boolean;
 }
 
+/**
+ * Validates that a resolved subpath stays within the base directory.
+ * Prevents path traversal attacks where subpath contains ".." segments
+ * that would escape the cloned repository directory.
+ */
+export function isSubpathSafe(basePath: string, subpath: string): boolean {
+  const normalizedBase = normalize(resolve(basePath));
+  const normalizedTarget = normalize(resolve(join(basePath, subpath)));
+
+  return normalizedTarget.startsWith(normalizedBase + sep) || normalizedTarget === normalizedBase;
+}
+
 export async function discoverSkills(
   basePath: string,
   subpath?: string,
@@ -100,6 +112,14 @@ export async function discoverSkills(
 ): Promise<Skill[]> {
   const skills: Skill[] = [];
   const seenNames = new Set<string>();
+
+  // Validate subpath doesn't escape basePath (prevent path traversal)
+  if (subpath && !isSubpathSafe(basePath, subpath)) {
+    throw new Error(
+      `Invalid subpath: "${subpath}" resolves outside the repository directory. Subpath must not contain ".." segments that escape the base path.`
+    );
+  }
+
   const searchPath = subpath ? join(basePath, subpath) : basePath;
 
   // Get plugin groupings to map skills to their parent plugin

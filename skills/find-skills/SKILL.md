@@ -41,9 +41,17 @@ When a user asks for help with something, identify:
 2. The specific task (e.g., writing tests, creating animations, reviewing PRs)
 3. Whether this is a common enough task that a skill likely exists
 
-### Step 2: Search for Skills
+### Step 2: Check the Leaderboard First
 
-Run the find command with a relevant query:
+Before running a CLI search, check the [skills.sh leaderboard](https://skills.sh/) to see if a well-known skill already exists for the domain. The leaderboard ranks skills by total installs, surfacing the most popular and battle-tested options.
+
+For example, top skills for web development include:
+- `vercel-labs/agent-skills` — React, Next.js, web design (100K+ installs each)
+- `anthropics/skills` — Frontend design, document processing (100K+ installs)
+
+### Step 3: Search for Skills
+
+If the leaderboard doesn't cover the user's need, run the find command:
 
 ```bash
 npx skills find [query]
@@ -55,36 +63,37 @@ For example:
 - User asks "can you help me with PR reviews?" → `npx skills find pr review`
 - User asks "I need to create a changelog" → `npx skills find changelog`
 
-The command will return results like:
+### Step 4: Verify Quality Before Recommending
 
-```
-Install with npx skills add <owner/repo@skill>
+**Do not recommend a skill based solely on search results.** Always verify:
 
-vercel-labs/agent-skills@vercel-react-best-practices
-└ https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practices
-```
+1. **Install count** — Prefer skills with 1K+ installs. Be cautious with anything under 100.
+2. **Source reputation** — Official sources (`vercel-labs`, `anthropics`, `microsoft`) are more trustworthy than unknown authors.
+3. **GitHub stars** — Check the source repository. A skill from a repo with <100 stars should be treated with skepticism.
 
-### Step 3: Present Options to the User
+### Step 5: Present Options to the User
 
 When you find relevant skills, present them to the user with:
 
 1. The skill name and what it does
-2. The install command they can run
-3. A link to learn more at skills.sh
+2. The install count and source
+3. The install command they can run
+4. A link to learn more at skills.sh
 
 Example response:
 
 ```
-I found a skill that might help! The "vercel-react-best-practices" skill provides
+I found a skill that might help! The "react-best-practices" skill provides
 React and Next.js performance optimization guidelines from Vercel Engineering.
+(185K installs)
 
 To install it:
-npx skills add vercel-labs/agent-skills@vercel-react-best-practices
+npx skills add vercel-labs/agent-skills@react-best-practices
 
-Learn more: https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practices
+Learn more: https://skills.sh/vercel-labs/agent-skills/react-best-practices
 ```
 
-### Step 4: Offer to Install
+### Step 6: Offer to Install
 
 If the user wants to proceed, you can install the skill for them:
 

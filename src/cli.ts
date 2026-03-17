@@ -147,6 +147,7 @@ ${BOLD}Experimental Sync Options:${RESET}
 ${BOLD}List Options:${RESET}
   -g, --global           List global skills (default: project)
   -a, --agent <agents>   Filter by specific agents
+  --json                 Output as JSON (machine-readable, no ANSI codes)
 
 ${BOLD}Options:${RESET}
   --help, -h        Show this help message
@@ -163,6 +164,7 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills list                          ${DIM}# list project skills${RESET}
   ${DIM}$${RESET} skills ls -g                         ${DIM}# list global skills${RESET}
   ${DIM}$${RESET} skills ls -a claude-code             ${DIM}# filter by agent${RESET}
+  ${DIM}$${RESET} skills ls --json                      ${DIM}# JSON output${RESET}
   ${DIM}$${RESET} skills find                          ${DIM}# interactive search${RESET}
   ${DIM}$${RESET} skills find typescript               ${DIM}# search by keyword${RESET}
   ${DIM}$${RESET} skills check
@@ -295,6 +297,10 @@ interface SkillLockFile {
 }
 
 function getSkillLockPath(): string {
+  const xdgStateHome = process.env.XDG_STATE_HOME;
+  if (xdgStateHome) {
+    return join(xdgStateHome, 'skills', LOCK_FILE);
+  }
   return join(homedir(), AGENTS_DIR, LOCK_FILE);
 }
 
@@ -317,6 +323,45 @@ function readSkillLock(): SkillLockFile {
   }
 }
 
+interface SkippedSkill {
+  name: string;
+  reason: string;
+  sourceUrl: string;
+}
+
+/**
+ * Determine why a skill cannot be checked for updates automatically.
+ */
+function getSkipReason(entry: SkillLockEntry): string {
+  if (entry.sourceType === 'local') {
+    return 'Local path';
+  }
+  if (entry.sourceType === 'git') {
+    return 'Git URL (hash tracking not supported)';
+  }
+  if (!entry.skillFolderHash) {
+    return 'No version hash available';
+  }
+  if (!entry.skillPath) {
+    return 'No skill path recorded';
+  }
+  return 'No version tracking';
+}
+
+/**
+ * Print a list of skills that cannot be checked automatically,
+ * with the reason and a manual update command for each.
+ */
+function printSkippedSkills(skipped: SkippedSkill[]): void {
+  if (skipped.length === 0) return;
+  console.log();
+  console.log(`${DIM}${skipped.length} skill(s) cannot be checked automatically:${RESET}`);
+  for (const skill of skipped) {
+    console.log(`  ${TEXT}•${RESET} ${skill.name} ${DIM}(${skill.reason})${RESET}`);
+    console.log(`    ${DIM}To update: ${TEXT}npx skills add ${skill.sourceUrl} -g -y${RESET}`);
+  }
+}
+
 async function runCheck(args: string[] = []): Promise<void> {
   console.log(`${TEXT}Checking for skill updates...${RESET}`);
   console.log();
@@ -335,15 +380,15 @@ async function runCheck(args: string[] = []): Promise<void> {
 
   // Group skills by source (owner/repo) to batch GitHub API calls
   const skillsBySource = new Map<string, Array<{ name: string; entry: SkillLockEntry }>>();
-  let skippedCount = 0;
+  const skipped: SkippedSkill[] = [];
 
   for (const skillName of skillNames) {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    // Only check GitHub-sourced skills with folder hash
-    if (entry.sourceType !== 'github' || !entry.skillFolderHash || !entry.skillPath) {
-      skippedCount++;
+    // Only check skills with folder hash and skill path
+    if (!entry.skillFolderHash || !entry.skillPath) {
+      skipped.push({ name: skillName, reason: getSkipReason(entry), sourceUrl: entry.sourceUrl });
       continue;
     }
 
@@ -352,9 +397,10 @@ async function runCheck(args: string[] = []): Promise<void> {
     skillsBySource.set(entry.source, existing);
   }
 
-  const totalSkills = skillNames.length - skippedCount;
+  const totalSkills = skillNames.length - skipped.length;
   if (totalSkills === 0) {
     console.log(`${DIM}No GitHub skills to check.${RESET}`);
+    printSkippedSkills(skipped);
     return;
   }
 
@@ -414,6 +460,8 @@ async function runCheck(args: string[] = []): Promise<void> {
     }
   }
 
+  printSkippedSkills(skipped);
+
   // Track telemetry
   track({
     event: 'check',
@@ -442,18 +490,17 @@ async function runUpdate(): Promise<void> {
 
   // Find skills that need updates by checking GitHub directly
   const updates: Array<{ name: string; source: string; entry: SkillLockEntry }> = [];
-  let checkedCount = 0;
+  const skipped: SkippedSkill[] = [];
 
   for (const skillName of skillNames) {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    // Only check GitHub-sourced skills with folder hash
-    if (entry.sourceType !== 'github' || !entry.skillFolderHash || !entry.skillPath) {
+    // Only check skills with folder hash and skill path
+    if (!entry.skillFolderHash || !entry.skillPath) {
+      skipped.push({ name: skillName, reason: getSkipReason(entry), sourceUrl: entry.sourceUrl });
       continue;
     }
-
-    checkedCount++;
 
     try {
       const latestHash = await fetchSkillFolderHash(entry.source, entry.skillPath, token);
@@ -466,8 +513,11 @@ async function runUpdate(): Promise<void> {
     }
   }
 
+  const checkedCount = skillNames.length - skipped.length;
+
   if (checkedCount === 0) {
     console.log(`${DIM}No skills to check.${RESET}`);
+    printSkippedSkills(skipped);
     return;
   }
 
@@ -520,6 +570,7 @@ async function runUpdate(): Promise<void> {
     const result = spawnSync(process.execPath, [cliEntry, 'add', installUrl, '-g', '-y'], {
       stdio: ['inherit', 'pipe', 'pipe'],
       encoding: 'utf-8',
+      shell: process.platform === 'win32',
     });
 
     if (result.status === 0) {
