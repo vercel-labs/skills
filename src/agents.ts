@@ -401,6 +401,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.adal'));
     },
   },
+  'aider-desk': {
+    name: 'aider-desk',
+    displayName: 'AiderDesk',
+    skillsDir: '.aider-desk/skills',
+    globalSkillsDir: join(home, '.aider-desk/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.aider-desk'));
+    },
+  },
   universal: {
     name: 'universal',
     displayName: 'Universal',
