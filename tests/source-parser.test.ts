@@ -262,9 +262,9 @@ describe('getOwnerRepo', () => {
     expect(getOwnerRepo(parsed)).toBe('owner/repo');
   });
 
-  it('getOwnerRepo - SSH format returns null', () => {
+  it('getOwnerRepo - SSH format extracts owner/repo', () => {
     const parsed = parseSource('git@github.com:owner/repo.git');
-    expect(getOwnerRepo(parsed)).toBeNull();
+    expect(getOwnerRepo(parsed)).toBe('owner/repo');
   });
 
   it('getOwnerRepo - private GitLab instance extracts owner/repo', () => {
@@ -314,6 +314,39 @@ describe('getOwnerRepo', () => {
     } as const;
     expect(getOwnerRepo(parsed)).toBe('division/team/repo');
   });
+
+  it('getOwnerRepo - SSH URL (GitHub)', () => {
+    const parsed = { type: 'git', url: 'git@github.com:owner/repo.git' } as const;
+    expect(getOwnerRepo(parsed)).toBe('owner/repo');
+  });
+
+  it('getOwnerRepo - SSH URL (GitLab)', () => {
+    const parsed = { type: 'git', url: 'git@gitlab.com:owner/repo.git' } as const;
+    expect(getOwnerRepo(parsed)).toBe('owner/repo');
+  });
+
+  it('getOwnerRepo - SSH URL with subgroups (GitLab)', () => {
+    const parsed = {
+      type: 'git',
+      url: 'git@gitlab.com:group/subgroup/project/repo.git',
+    } as const;
+    expect(getOwnerRepo(parsed)).toBe('group/subgroup/project/repo');
+  });
+
+  it('getOwnerRepo - SSH URL without .git suffix', () => {
+    const parsed = { type: 'git', url: 'git@github.com:owner/repo' } as const;
+    expect(getOwnerRepo(parsed)).toBe('owner/repo');
+  });
+
+  it('getOwnerRepo - SSH URL (custom host)', () => {
+    const parsed = { type: 'git', url: 'git@git.company.com:org/team/repo.git' } as const;
+    expect(getOwnerRepo(parsed)).toBe('org/team/repo');
+  });
+
+  it('getOwnerRepo - SSH URL without path (returns null)', () => {
+    const parsed = { type: 'git', url: 'git@github.com:repo.git' } as const;
+    expect(getOwnerRepo(parsed)).toBeNull();
+  });
 });
 
 describe('Source aliases', () => {
@@ -321,5 +354,50 @@ describe('Source aliases', () => {
     const result = parseSource('coinbase/agentWallet');
     expect(result.type).toBe('github');
     expect(result.url).toBe('https://github.com/coinbase/agentic-wallet-skills.git');
+  });
+});
+
+describe('Prefix shorthand tests', () => {
+  describe('github: prefix', () => {
+    it('github:owner/repo - basic', () => {
+      const result = parseSource('github:owner/repo');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+      expect(result.subpath).toBeUndefined();
+    });
+
+    it('github:owner/repo/subpath', () => {
+      const result = parseSource('github:owner/repo/skills/my-skill');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+      expect(result.subpath).toBe('skills/my-skill');
+    });
+
+    it('github:owner/repo@skill-name', () => {
+      const result = parseSource('github:owner/repo@my-skill');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+      expect(result.skillFilter).toBe('my-skill');
+    });
+
+    it('github:googleworkspace/cli', () => {
+      const result = parseSource('github:googleworkspace/cli');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/googleworkspace/cli.git');
+    });
+  });
+
+  describe('gitlab: prefix', () => {
+    it('gitlab:owner/repo - basic', () => {
+      const result = parseSource('gitlab:owner/repo');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.com/owner/repo.git');
+    });
+
+    it('gitlab:group/subgroup/repo', () => {
+      const result = parseSource('gitlab:group/subgroup/repo');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.com/group/subgroup/repo.git');
+    });
   });
 });

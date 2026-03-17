@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 
-import { spawn, spawnSync } from 'child_process';
-import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs';
+import { spawnSync } from 'child_process';
+import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { basename, join, dirname } from 'path';
 import { homedir } from 'os';
-import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
 import { runFind } from './find.ts';
@@ -148,6 +147,7 @@ ${BOLD}Experimental Sync Options:${RESET}
 ${BOLD}List Options:${RESET}
   -g, --global           List global skills (default: project)
   -a, --agent <agents>   Filter by specific agents
+  --json                 Output as JSON (machine-readable, no ANSI codes)
 
 ${BOLD}Options:${RESET}
   --help, -h        Show this help message
@@ -164,6 +164,7 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills list                          ${DIM}# list project skills${RESET}
   ${DIM}$${RESET} skills ls -g                         ${DIM}# list global skills${RESET}
   ${DIM}$${RESET} skills ls -a claude-code             ${DIM}# filter by agent${RESET}
+  ${DIM}$${RESET} skills ls --json                      ${DIM}# JSON output${RESET}
   ${DIM}$${RESET} skills find                          ${DIM}# interactive search${RESET}
   ${DIM}$${RESET} skills find typescript               ${DIM}# search by keyword${RESET}
   ${DIM}$${RESET} skills check
@@ -277,7 +278,6 @@ Describe when this skill should be used.
 
 const AGENTS_DIR = '.agents';
 const LOCK_FILE = '.skill-lock.json';
-const CHECK_UPDATES_API_URL = 'https://add-skill.vercel.sh/check-updates';
 const CURRENT_LOCK_VERSION = 3; // Bumped from 2 to 3 for folder hash support
 
 interface SkillLockEntry {
@@ -296,30 +296,11 @@ interface SkillLockFile {
   skills: Record<string, SkillLockEntry>;
 }
 
-interface CheckUpdatesRequest {
-  skills: Array<{
-    name: string;
-    source: string;
-    path?: string;
-    skillFolderHash: string;
-  }>;
-}
-
-interface CheckUpdatesResponse {
-  updates: Array<{
-    name: string;
-    source: string;
-    currentHash: string;
-    latestHash: string;
-  }>;
-  errors?: Array<{
-    name: string;
-    source: string;
-    error: string;
-  }>;
-}
-
 function getSkillLockPath(): string {
+  const xdgStateHome = process.env.XDG_STATE_HOME;
+  if (xdgStateHome) {
+    return join(xdgStateHome, 'skills', LOCK_FILE);
+  }
   return join(homedir(), AGENTS_DIR, LOCK_FILE);
 }
 
@@ -342,13 +323,43 @@ function readSkillLock(): SkillLockFile {
   }
 }
 
-function writeSkillLock(lock: SkillLockFile): void {
-  const lockPath = getSkillLockPath();
-  const dir = join(homedir(), AGENTS_DIR);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
+interface SkippedSkill {
+  name: string;
+  reason: string;
+  sourceUrl: string;
+}
+
+/**
+ * Determine why a skill cannot be checked for updates automatically.
+ */
+function getSkipReason(entry: SkillLockEntry): string {
+  if (entry.sourceType === 'local') {
+    return 'Local path';
   }
-  writeFileSync(lockPath, JSON.stringify(lock, null, 2), 'utf-8');
+  if (entry.sourceType === 'git') {
+    return 'Git URL (hash tracking not supported)';
+  }
+  if (!entry.skillFolderHash) {
+    return 'No version hash available';
+  }
+  if (!entry.skillPath) {
+    return 'No skill path recorded';
+  }
+  return 'No version tracking';
+}
+
+/**
+ * Print a list of skills that cannot be checked automatically,
+ * with the reason and a manual update command for each.
+ */
+function printSkippedSkills(skipped: SkippedSkill[]): void {
+  if (skipped.length === 0) return;
+  console.log();
+  console.log(`${DIM}${skipped.length} skill(s) cannot be checked automatically:${RESET}`);
+  for (const skill of skipped) {
+    console.log(`  ${TEXT}•${RESET} ${skill.name} ${DIM}(${skill.reason})${RESET}`);
+    console.log(`    ${DIM}To update: ${TEXT}npx skills add ${skill.sourceUrl} -g -y${RESET}`);
+  }
 }
 
 async function runCheck(args: string[] = []): Promise<void> {
@@ -369,15 +380,15 @@ async function runCheck(args: string[] = []): Promise<void> {
 
   // Group skills by source (owner/repo) to batch GitHub API calls
   const skillsBySource = new Map<string, Array<{ name: string; entry: SkillLockEntry }>>();
-  let skippedCount = 0;
+  const skipped: SkippedSkill[] = [];
 
   for (const skillName of skillNames) {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    // Only check GitHub-sourced skills with folder hash
-    if (entry.sourceType !== 'github' || !entry.skillFolderHash || !entry.skillPath) {
-      skippedCount++;
+    // Only check skills with folder hash and skill path
+    if (!entry.skillFolderHash || !entry.skillPath) {
+      skipped.push({ name: skillName, reason: getSkipReason(entry), sourceUrl: entry.sourceUrl });
       continue;
     }
 
@@ -386,9 +397,10 @@ async function runCheck(args: string[] = []): Promise<void> {
     skillsBySource.set(entry.source, existing);
   }
 
-  const totalSkills = skillNames.length - skippedCount;
+  const totalSkills = skillNames.length - skipped.length;
   if (totalSkills === 0) {
     console.log(`${DIM}No GitHub skills to check.${RESET}`);
+    printSkippedSkills(skipped);
     return;
   }
 
@@ -441,7 +453,14 @@ async function runCheck(args: string[] = []): Promise<void> {
   if (errors.length > 0) {
     console.log();
     console.log(`${DIM}Could not check ${errors.length} skill(s) (may need reinstall)${RESET}`);
+    console.log();
+    for (const error of errors) {
+      console.log(`  ${DIM}✗${RESET} ${error.name}`);
+      console.log(`    ${DIM}source: ${error.source}${RESET}`);
+    }
   }
+
+  printSkippedSkills(skipped);
 
   // Track telemetry
   track({
@@ -471,18 +490,17 @@ async function runUpdate(): Promise<void> {
 
   // Find skills that need updates by checking GitHub directly
   const updates: Array<{ name: string; source: string; entry: SkillLockEntry }> = [];
-  let checkedCount = 0;
+  const skipped: SkippedSkill[] = [];
 
   for (const skillName of skillNames) {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    // Only check GitHub-sourced skills with folder hash
-    if (entry.sourceType !== 'github' || !entry.skillFolderHash || !entry.skillPath) {
+    // Only check skills with folder hash and skill path
+    if (!entry.skillFolderHash || !entry.skillPath) {
+      skipped.push({ name: skillName, reason: getSkipReason(entry), sourceUrl: entry.sourceUrl });
       continue;
     }
-
-    checkedCount++;
 
     try {
       const latestHash = await fetchSkillFolderHash(entry.source, entry.skillPath, token);
@@ -495,8 +513,11 @@ async function runUpdate(): Promise<void> {
     }
   }
 
+  const checkedCount = skillNames.length - skipped.length;
+
   if (checkedCount === 0) {
     console.log(`${DIM}No skills to check.${RESET}`);
+    printSkippedSkills(skipped);
     return;
   }
 
@@ -537,9 +558,19 @@ async function runUpdate(): Promise<void> {
       installUrl = `${installUrl}/tree/main/${skillFolder}`;
     }
 
-    // Use skills CLI to reinstall with -g -y flags
-    const result = spawnSync('npx', ['-y', 'skills', 'add', installUrl, '-g', '-y'], {
+    // Reinstall using the current CLI entrypoint directly (avoid nested npm exec/npx)
+    const cliEntry = join(__dirname, '..', 'bin', 'cli.mjs');
+    if (!existsSync(cliEntry)) {
+      failCount++;
+      console.log(
+        `  ${DIM}✗ Failed to update ${update.name}: CLI entrypoint not found at ${cliEntry}${RESET}`
+      );
+      continue;
+    }
+    const result = spawnSync(process.execPath, [cliEntry, 'add', installUrl, '-g', '-y'], {
       stdio: ['inherit', 'pipe', 'pipe'],
+      encoding: 'utf-8',
+      shell: process.platform === 'win32',
     });
 
     if (result.status === 0) {

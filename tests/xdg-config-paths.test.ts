@@ -60,6 +60,25 @@ describe('XDG config paths', () => {
     });
   });
 
+  describe('skill lock file path', () => {
+    function getSkillLockPath(xdgStateHome: string | undefined, homeDir: string): string {
+      if (xdgStateHome) {
+        return join(xdgStateHome, 'skills', '.skill-lock.json');
+      }
+      return join(homeDir, '.agents', '.skill-lock.json');
+    }
+
+    it('uses XDG_STATE_HOME when set', () => {
+      const result = getSkillLockPath('/custom/state', home);
+      expect(result).toBe(join('/custom/state', 'skills', '.skill-lock.json'));
+    });
+
+    it('falls back to ~/.agents when XDG_STATE_HOME is not set', () => {
+      const result = getSkillLockPath(undefined, home);
+      expect(result).toBe(join(home, '.agents', '.skill-lock.json'));
+    });
+  });
+
   describe('non-XDG agents', () => {
     it('cursor uses ~/.cursor/skills (home-based, not XDG)', () => {
       const expected = join(home, '.cursor', 'skills');
