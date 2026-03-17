@@ -165,8 +165,8 @@ ${skillData.description}
   it('should find skills in agent-specific directories (issue #225)', async () => {
     vi.spyOn(agentsModule, 'detectInstalledAgents').mockResolvedValue(['cursor']);
 
-    // Cursor now uses .agents/skills (universal directory)
-    const cursorSkillDir = join(testDir, '.agents', 'skills', 'cursor-skill');
+    // Cursor uses .cursor/skills (agent-specific directory)
+    const cursorSkillDir = join(testDir, '.cursor', 'skills', 'cursor-skill');
     await mkdir(cursorSkillDir, { recursive: true });
     await writeFile(
       join(cursorSkillDir, 'SKILL.md'),
