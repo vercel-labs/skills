@@ -32,6 +32,10 @@ export interface SkillLockEntry {
   updatedAt: string;
   /** Name of the plugin this skill belongs to (if any) */
   pluginName?: string;
+  /** The installation mode used ('symlink' or 'copy') */
+  installMode?: 'symlink' | 'copy';
+  /** The agents this skill was installed to */
+  agents?: string[];
 }
 
 /**

@@ -782,6 +782,8 @@ async function handleWellKnownSkills(
             sourceType: 'well-known',
             sourceUrl: skill.sourceUrl,
             skillFolderHash: '', // Well-known skills don't have a folder hash
+            installMode,
+            agents: targetAgents,
           });
         } catch {
           // Don't fail installation if lock file update fails
@@ -806,6 +808,8 @@ async function handleWellKnownSkills(
                 source: sourceIdentifier,
                 sourceType: 'well-known',
                 computedHash,
+                installMode,
+                agents: targetAgents,
               },
               cwd
             );
@@ -1518,6 +1522,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               skillPath: skillPathValue,
               skillFolderHash,
               pluginName: skill.pluginName,
+              installMode,
+              agents: targetAgents,
             });
           } catch {
             // Don't fail installation if lock file update fails
@@ -1540,6 +1546,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
                 source: lockSource || parsed.url,
                 sourceType: parsed.type,
                 computedHash,
+                installMode,
+                agents: targetAgents,
               },
               cwd
             );
