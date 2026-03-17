@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { existsSync, mkdirSync, writeFileSync, rmSync, readFileSync, lstatSync } from 'fs';
 import { join } from 'path';
-import { platform } from 'os';
 import { tmpdir } from 'os';
 import { runCli } from '../src/test-utils.ts';
 
@@ -15,11 +14,28 @@ function createCanonicalSkill(root: string, skillName: string, content = '# Shar
   );
 }
 
+function createGlobalCanonicalSkill(
+  homeDir: string,
+  skillName: string,
+  content = '# Shared Skill\n'
+) {
+  const skillDir = join(homeDir, '.agents', 'skills', skillName);
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(
+    join(skillDir, 'SKILL.md'),
+    `---\nname: ${skillName}\ndescription: test skill\n---\n\n${content}`,
+    'utf-8'
+  );
+}
+
 describe('link command', () => {
   let testDir: string;
 
   beforeEach(() => {
-    testDir = join(tmpdir(), `skills-link-test-${Date.now()}`);
+    testDir = join(
+      tmpdir(),
+      `skills-link-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
     mkdirSync(testDir, { recursive: true });
   });
 
@@ -32,6 +48,7 @@ describe('link command', () => {
   it('shows link in help output', () => {
     const result = runCli(['--help']);
     expect(result.stdout).toContain('link [agent]');
+    expect(result.stdout).toContain('Link global skills from ~/.agents/skills');
   });
 
   it('shows link in banner output', () => {
@@ -51,12 +68,8 @@ describe('link command', () => {
     expect(existsSync(canonicalPath)).toBe(true);
     expect(existsSync(join(agentPath, 'SKILL.md'))).toBe(true);
     expect(readFileSync(join(agentPath, 'SKILL.md'), 'utf-8')).toContain('name: shared-skill');
-
-    if (platform() === 'win32') {
-      expect(lstatSync(agentPath).isDirectory()).toBe(true);
-    } else {
-      expect(lstatSync(agentPath).isSymbolicLink()).toBe(true);
-    }
+    const agentStats = lstatSync(agentPath);
+    expect(agentStats.isSymbolicLink() || agentStats.isDirectory()).toBe(true);
   });
 
   it('preserves canonical directories for universal agents', () => {
@@ -93,5 +106,27 @@ describe('link command', () => {
     expect(lstatSync(agentPath).isSymbolicLink()).toBe(false);
     expect(lstatSync(agentPath).isDirectory()).toBe(true);
     expect(readFileSync(join(agentPath, 'SKILL.md'), 'utf-8')).toContain('name: copy-skill');
+  });
+
+  it('links global canonical skills when -g is provided', () => {
+    const homeDir = join(testDir, 'fake-home');
+    createGlobalCanonicalSkill(homeDir, 'global-skill');
+
+    const result = runCli(['link', '-g', 'continue'], testDir, {
+      HOME: homeDir,
+      USERPROFILE: homeDir,
+    });
+    expect(result.exitCode).toBe(0);
+
+    const globalCanonicalPath = join(homeDir, '.agents', 'skills', 'global-skill');
+    const globalAgentPath = join(homeDir, '.continue', 'skills', 'global-skill');
+    const projectAgentPath = join(testDir, '.continue', 'skills', 'global-skill');
+
+    expect(existsSync(globalCanonicalPath)).toBe(true);
+    expect(existsSync(join(globalAgentPath, 'SKILL.md'))).toBe(true);
+    expect(existsSync(projectAgentPath)).toBe(false);
+    expect(readFileSync(join(globalAgentPath, 'SKILL.md'), 'utf-8')).toContain(
+      'name: global-skill'
+    );
   });
 });

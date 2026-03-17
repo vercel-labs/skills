@@ -1,18 +1,14 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { readdir } from 'fs/promises';
-import { platform } from 'os';
 import { agents, detectInstalledAgents } from './agents.ts';
 import { getCanonicalSkillsDir, materializeCanonicalSkillForAgent } from './installer.ts';
 import type { AgentType } from './types.ts';
 
 export interface LinkOptions {
+  global?: boolean;
   agent?: string[];
   copy?: boolean;
-}
-
-function dedupe<T>(items: T[]): T[] {
-  return [...new Set(items)];
 }
 
 export function parseLinkOptions(args: string[]): { agents: string[]; options: LinkOptions } {
@@ -35,6 +31,8 @@ export function parseLinkOptions(args: string[]): { agents: string[]; options: L
         nextArg = args[i];
       }
       i--;
+    } else if (arg === '-g' || arg === '--global') {
+      options.global = true;
     } else if (arg === '--copy') {
       options.copy = true;
     } else if (!arg.startsWith('-')) {
@@ -50,10 +48,11 @@ export async function runLink(
   options: LinkOptions = {}
 ): Promise<void> {
   const cwd = process.cwd();
+  const isGlobal = options.global ?? false;
   const spinner = p.spinner();
-  const canonicalDir = getCanonicalSkillsDir(false, cwd);
+  const canonicalDir = getCanonicalSkillsDir(isGlobal, cwd);
   const validAgents = Object.keys(agents);
-  const requestedAgents = dedupe([...positionalAgents, ...(options.agent ?? [])]);
+  const requestedAgents = [...new Set([...positionalAgents, ...(options.agent ?? [])])];
 
   spinner.start('Scanning canonical skills...');
   const entries = await readdir(canonicalDir, { withFileTypes: true }).catch(() => []);
@@ -93,7 +92,8 @@ export async function runLink(
     targetAgents = detectedAgents;
   }
 
-  const installMode = options.copy || platform() === 'win32' ? 'copy' : 'symlink';
+  const installMode = options.copy ? 'copy' : 'symlink';
+  const sourceLabel = isGlobal ? '~/.agents/skills/' : '.agents/skills/';
 
   spinner.stop(
     `Found ${pc.green(String(skillNames.length))} skill${skillNames.length !== 1 ? 's' : ''}`
@@ -101,7 +101,8 @@ export async function runLink(
 
   p.note(
     [
-      `${pc.dim('source:')} ${pc.cyan('.agents/skills/')}`,
+      `${pc.dim('source:')} ${pc.cyan(sourceLabel)}`,
+      `${pc.dim('scope:')} ${isGlobal ? 'global' : 'project'}`,
       `${pc.dim('agents:')} ${targetAgents.map((agent) => agents[agent].displayName).join(', ')}`,
       `${pc.dim('mode:')} ${installMode === 'copy' ? 'copy' : 'symlink with copy fallback'}`,
     ].join('\n'),
@@ -121,6 +122,7 @@ export async function runLink(
   for (const skillName of skillNames) {
     for (const agent of targetAgents) {
       const result = await materializeCanonicalSkillForAgent(skillName, agent, {
+        global: isGlobal,
         cwd,
         mode: installMode,
       });

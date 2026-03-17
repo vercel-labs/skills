@@ -147,6 +147,7 @@ ${BOLD}Remove Options:${RESET}
   --all                  Shorthand for --skill '*' --agent '*' -y
 
 ${BOLD}Link Options:${RESET}
+  -g, --global           Link global skills from ~/.agents/skills
   -a, --agent <agents>   Specify agents to materialize skills for
   --copy                 Copy skill directories instead of linking
   
@@ -176,6 +177,7 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills ls -a claude-code             ${DIM}# filter by agent${RESET}
   ${DIM}$${RESET} skills ls --json                      ${DIM}# JSON output${RESET}
   ${DIM}$${RESET} skills link claude-code             ${DIM}# link from .agents/skills${RESET}
+  ${DIM}$${RESET} skills link -g continue             ${DIM}# link from ~/.agents/skills${RESET}
   ${DIM}$${RESET} skills link --copy continue         ${DIM}# force local copies${RESET}
   ${DIM}$${RESET} skills find                          ${DIM}# interactive search${RESET}
   ${DIM}$${RESET} skills find typescript               ${DIM}# search by keyword${RESET}

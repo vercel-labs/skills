@@ -95,6 +95,7 @@ When installing interactively, you can choose:
 | Command                      | Description                                    |
 | ---------------------------- | ---------------------------------------------- |
 | `npx skills list`            | List installed skills (alias: `ls`)            |
+| `npx skills link [agent]`    | Link canonical skills into agent directories   |
 | `npx skills find [query]`    | Search for skills interactively or by keyword  |
 | `npx skills remove [skills]` | Remove installed skills from agents            |
 | `npx skills check`           | Check for available skill updates              |
@@ -115,6 +116,32 @@ npx skills ls -g
 # Filter by specific agents
 npx skills ls -a claude-code -a cursor
 ```
+
+### `skills link`
+
+Materialize canonical skills from `.agents/skills/` into agent-specific skill directories.
+This is useful when your project or home directory already has canonical skills and you want
+to link them into agents like Claude Code or Continue.
+
+```bash
+# Link project-level canonical skills into a specific agent
+npx skills link claude-code
+
+# Link global canonical skills into a specific agent
+npx skills link -g continue
+
+# Auto-detect installed agents and link project-level skills
+npx skills link
+
+# Copy instead of symlinking
+npx skills link --copy continue
+```
+
+| Option                    | Description                                                  |
+| ------------------------- | ------------------------------------------------------------ |
+| `-g, --global`            | Link global skills from `~/.agents/skills/`                  |
+| `-a, --agent <agents...>` | Target specific agents (use `'*'` for all supported agents)  |
+| `--copy`                  | Copy skill directories instead of symlinking                 |
 
 ### `skills find`
 
