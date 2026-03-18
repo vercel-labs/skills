@@ -5,11 +5,12 @@
  */
 
 import { execSync } from 'child_process';
-import { writeFileSync, readFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import { writeFileSync, readFileSync, existsSync, readdirSync } from 'fs';
+import { basename, join } from 'path';
+import { pathToFileURL } from 'url';
 
 // Dependencies that get bundled into the CLI
-const BUNDLED_PACKAGES = [
+export const BUNDLED_PACKAGES = [
   '@clack/prompts',
   '@clack/core',
   'picocolors',
@@ -17,7 +18,6 @@ const BUNDLED_PACKAGES = [
   'simple-git',
   'xdg-basedir',
   'sisteransi',
-  'is-unicode-supported',
 ];
 
 interface LicenseInfo {
@@ -25,9 +25,10 @@ interface LicenseInfo {
   repository?: string;
   publisher?: string;
   licenseFile?: string;
+  path?: string;
 }
 
-function getLicenseText(pkgPath: string): string {
+export function getLicenseText(pkgPath: string): string {
   const possibleFiles = ['LICENSE', 'LICENSE.md', 'LICENSE.txt', 'license', 'license.md'];
   for (const file of possibleFiles) {
     const filePath = join(pkgPath, file);
@@ -38,13 +39,44 @@ function getLicenseText(pkgPath: string): string {
   return '';
 }
 
-function main() {
-  console.log('Generating ThirdPartyNoticeText.txt...');
+export function resolveInstalledPackagePath(pkgName: string): string | null {
+  const directPath = join(process.cwd(), 'node_modules', pkgName);
+  if (existsSync(directPath)) {
+    return directPath;
+  }
 
-  // Get license info from license-checker
-  const output = execSync('npx license-checker --json', { encoding: 'utf-8' });
-  const allLicenses: Record<string, LicenseInfo> = JSON.parse(output);
+  const pnpmRoot = join(process.cwd(), 'node_modules', '.pnpm');
+  if (!existsSync(pnpmRoot)) {
+    return null;
+  }
 
+  for (const entry of readdirSync(pnpmRoot)) {
+    const candidatePath = join(pnpmRoot, entry, 'node_modules', pkgName);
+    if (existsSync(candidatePath)) {
+      return candidatePath;
+    }
+  }
+
+  return null;
+}
+
+export function resolveLicenseText(info: LicenseInfo, pkgName: string): string {
+  const licenseFileName = info.licenseFile ? basename(info.licenseFile).toLowerCase() : '';
+  const looksLikeLicenseFile =
+    licenseFileName === 'license' ||
+    licenseFileName.startsWith('license.') ||
+    licenseFileName === 'copying' ||
+    licenseFileName.startsWith('copying.');
+
+  if (info.licenseFile && looksLikeLicenseFile && existsSync(info.licenseFile)) {
+    return readFileSync(info.licenseFile, 'utf-8').trim();
+  }
+
+  const pkgPath = info.path ?? resolveInstalledPackagePath(pkgName);
+  return pkgPath ? getLicenseText(pkgPath) : '';
+}
+
+export function buildThirdPartyNotice(allLicenses: Record<string, LicenseInfo>) {
   const lines: string[] = [
     '/*!----------------- Skills CLI ThirdPartyNotices -------------------------------------------------------',
     '',
@@ -58,26 +90,64 @@ function main() {
     '',
   ];
 
+  const bundledEntries = new Map<string, { pkgNameVersion: string; info: LicenseInfo }>();
+
   for (const [pkgNameVersion, info] of Object.entries(allLicenses)) {
-    // Extract package name (remove version)
     const pkgName = pkgNameVersion.replace(/@[\d.]+(-.*)?$/, '').replace(/^(.+)@.*$/, '$1');
+    if (
+      !BUNDLED_PACKAGES.some(
+        (bundled) => pkgName === bundled || pkgNameVersion.startsWith(bundled + '@')
+      )
+    )
+      continue;
 
-    // Check if this is a bundled package
-    const isBundled = BUNDLED_PACKAGES.some(
-      (bundled) => pkgName === bundled || pkgNameVersion.startsWith(bundled + '@')
-    );
+    if (!bundledEntries.has(pkgName)) {
+      bundledEntries.set(pkgName, { pkgNameVersion, info });
+    }
+  }
 
-    if (!isBundled) continue;
+  for (const pkgName of BUNDLED_PACKAGES) {
+    let entry = bundledEntries.get(pkgName);
+    if (!entry) {
+      const pkgDir = resolveInstalledPackagePath(pkgName);
+      const pkgJsonPath = pkgDir ? join(pkgDir, 'package.json') : '';
+      if (!existsSync(pkgJsonPath)) {
+        console.warn(`package metadata missing for ${pkgName}`);
+        continue;
+      }
+      const pkgJson = JSON.parse(readFileSync(pkgJsonPath, 'utf-8')) as Record<string, any>;
+      const licenseField =
+        typeof pkgJson.license === 'string'
+          ? pkgJson.license
+          : pkgJson.license?.type ||
+            pkgJson.license?.name ||
+            (Array.isArray(pkgJson.licenses)
+              ? pkgJson.licenses
+                  .map((item) => (typeof item === 'string' ? item : item?.type || item?.name))
+                  .filter(Boolean)
+                  .join(', ')
+              : undefined);
+      const info: LicenseInfo = {
+        licenses: licenseField || 'UNKNOWN',
+        repository:
+          typeof pkgJson.repository === 'string' ? pkgJson.repository : pkgJson.repository?.url,
+        publisher: typeof pkgJson.author === 'string' ? pkgJson.author : pkgJson.author?.name,
+        path: pkgDir,
+      };
+      entry = {
+        pkgNameVersion: `${pkgName}@${pkgJson.version ?? 'unknown'}`,
+        info,
+      };
+      bundledEntries.set(pkgName, entry);
+    }
 
-    // Get the actual license text from the package
-    const pkgPath = join(process.cwd(), 'node_modules', pkgName);
-    const licenseText = getLicenseText(pkgPath);
+    const licenseText = resolveLicenseText(entry.info, pkgName);
 
     lines.push('='.repeat(80));
-    lines.push(`Package: ${pkgNameVersion}`);
-    lines.push(`License: ${info.licenses}`);
-    if (info.repository) {
-      lines.push(`Repository: ${info.repository}`);
+    lines.push(`Package: ${entry.pkgNameVersion}`);
+    lines.push(`License: ${entry.info.licenses}`);
+    if (entry.info.repository) {
+      lines.push(`Repository: ${entry.info.repository}`);
     }
     lines.push('-'.repeat(80));
     lines.push('');
@@ -85,7 +155,7 @@ function main() {
       lines.push(licenseText);
     } else {
       // Fallback to generic MIT/ISC text
-      if (info.licenses === 'MIT') {
+      if (entry.info.licenses === 'MIT') {
         lines.push('MIT License');
         lines.push('');
         lines.push('Permission is hereby granted, free of charge, to any person obtaining a copy');
@@ -107,7 +177,7 @@ function main() {
         lines.push('LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,');
         lines.push('OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE');
         lines.push('SOFTWARE.');
-      } else if (info.licenses === 'ISC') {
+      } else if (entry.info.licenses === 'ISC') {
         lines.push('ISC License');
         lines.push('');
         lines.push('Permission to use, copy, modify, and/or distribute this software for any');
@@ -130,9 +200,20 @@ function main() {
   lines.push('='.repeat(80));
   lines.push('*/');
 
-  const content = lines.join('\n');
+  return lines.join('\n');
+}
+
+function main() {
+  console.log('Generating ThirdPartyNoticeText.txt...');
+
+  // Get license info from license-checker
+  const output = execSync('npx license-checker --json', { encoding: 'utf-8' });
+  const allLicenses: Record<string, LicenseInfo> = JSON.parse(output);
+  const content = buildThirdPartyNotice(allLicenses);
   writeFileSync('ThirdPartyNoticeText.txt', content);
   console.log('Generated ThirdPartyNoticeText.txt');
 }
 
-main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
+}
