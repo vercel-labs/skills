@@ -198,6 +198,48 @@ describe('parseSource', () => {
       expect(result.url).toBe('git@github.com:owner/repo.git');
     });
 
+    it('Git URL - SSH format with ref', () => {
+      const result = parseSource('git@host:path#branch.git');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@host:path.git');
+      expect(result.ref).toBe('branch');
+    });
+
+    it('Git URL - SSH format with ref containing slashes', () => {
+      const result = parseSource('git@host:path#feature/branch.git');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@host:path.git');
+      expect(result.ref).toBe('feature/branch');
+    });
+
+    it('Git URL - SSH format without ref', () => {
+      const result = parseSource('git@host:path.git');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@host:path.git');
+      expect(result.ref).toBeUndefined();
+    });
+
+    it('Git URL - SSH format with ref after .git', () => {
+      const result = parseSource('git@host:path.git#branch');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@host:path.git');
+      expect(result.ref).toBe('branch');
+    });
+
+    it('Git URL - SSH format without .git suffix', () => {
+      const result = parseSource('git@host:path');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@host:path.git');
+      expect(result.ref).toBeUndefined();
+    });
+
+    it('Git URL - SSH format without .git suffix with ref', () => {
+      const result = parseSource('git@host:path#branch');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@host:path.git');
+      expect(result.ref).toBe('branch');
+    });
+
     it('Git URL - custom host', () => {
       const result = parseSource('https://git.example.com/owner/repo.git');
       expect(result.type).toBe('git');
