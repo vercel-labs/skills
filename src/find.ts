@@ -298,7 +298,7 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
       console.log(
         `${TEXT}${pkg}@${skill.name}${RESET}${installs ? ` ${CYAN}${installs}${RESET}` : ''}`
       );
-      console.log(`${DIM}└ https://skills.sh/${skill.slug}${RESET}`);
+      console.log(`${DIM}└ ${SEARCH_API_BASE}/${skill.slug}${RESET}`);
       console.log();
     }
     return;
@@ -342,10 +342,10 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
   const info = getOwnerRepoFromString(pkg);
   if (info && (await isRepoPublic(info.owner, info.repo))) {
     console.log(
-      `${DIM}View the skill at${RESET} ${TEXT}https://skills.sh/${selected.slug}${RESET}`
+      `${DIM}View the skill at${RESET} ${TEXT}${SEARCH_API_BASE}/${selected.slug}${RESET}`
     );
   } else {
-    console.log(`${DIM}Discover more skills at${RESET} ${TEXT}https://skills.sh${RESET}`);
+    console.log(`${DIM}Discover more skills at${RESET} ${TEXT}${SEARCH_API_BASE}${RESET}`);
   }
 
   console.log();
