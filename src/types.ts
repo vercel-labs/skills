@@ -39,6 +39,7 @@ export type AgentType =
   | 'warp'
   | 'windsurf'
   | 'zencoder'
+  | 'piebald'
   | 'pochi'
   | 'adal'
   | 'universal';
