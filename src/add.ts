@@ -4,7 +4,7 @@ import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { sep } from 'path';
 import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
-import { searchMultiselect, cancelSymbol } from './prompts/search-multiselect.ts';
+import { searchMultiselect } from './prompts/search-multiselect.ts';
 
 // Helper to check if a value is a cancel symbol (works with both clack and our custom prompts)
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
@@ -26,7 +26,6 @@ import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
 import {
   installSkillForAgent,
   isSkillInstalled,
-  getInstallPath,
   getCanonicalPath,
   installWellKnownSkillForAgent,
   type InstallMode,
@@ -43,7 +42,6 @@ import {
   setVersion,
   fetchAuditData,
   type AuditResponse,
-  type SkillAuditData,
   type PartnerAudit,
 } from './telemetry.ts';
 import { wellKnownProvider, type WellKnownSkill } from './providers/index.ts';
@@ -629,7 +627,11 @@ async function handleWellKnownSkills(
   // Determine install mode (symlink vs copy)
   let installMode: InstallMode = options.copy ? 'copy' : 'symlink';
 
-  if (!options.copy && !options.yes) {
+  // Only prompt for install mode when there are multiple unique target directories.
+  // When all selected agents share the same skillsDir, symlink vs copy is meaningless.
+  const uniqueDirs = new Set(targetAgents.map((a) => agents[a].skillsDir));
+
+  if (!options.copy && !options.yes && uniqueDirs.size > 1) {
     const modeChoice = await p.select({
       message: 'Installation method',
       options: [
@@ -648,6 +650,9 @@ async function handleWellKnownSkills(
     }
 
     installMode = modeChoice as InstallMode;
+  } else if (uniqueDirs.size <= 1) {
+    // Single target directory — default to copy (no symlink needed)
+    installMode = 'copy';
   }
 
   const cwd = process.cwd();
@@ -1245,7 +1250,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Determine install mode (symlink vs copy)
     let installMode: InstallMode = options.copy ? 'copy' : 'symlink';
 
-    if (!options.copy && !options.yes) {
+    // Only prompt for install mode when there are multiple unique target directories.
+    // When all selected agents share the same skillsDir, symlink vs copy is meaningless.
+    const uniqueDirs = new Set(targetAgents.map((a) => agents[a].skillsDir));
+
+    if (!options.copy && !options.yes && uniqueDirs.size > 1) {
       const modeChoice = await p.select({
         message: 'Installation method',
         options: [
@@ -1265,6 +1274,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
 
       installMode = modeChoice as InstallMode;
+    } else if (uniqueDirs.size <= 1) {
+      // Single target directory — default to copy (no symlink needed)
+      installMode = 'copy';
     }
 
     const cwd = process.cwd();
@@ -1444,6 +1456,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Normalize source to owner/repo format for telemetry
     const normalizedSource = getOwnerRepo(parsed);
 
+    // Preserve SSH URLs in lock files instead of normalizing to owner/repo shorthand.
+    // When normalizedSource is used, parseSource() later resolves it to HTTPS,
+    // breaking restore for private repos that require SSH authentication.
+    const isSSH = parsed.url.startsWith('git@');
+    const lockSource = isSSH ? parsed.url : normalizedSource;
+
     // Only track if we have a valid remote source and it's not a private repo
     if (normalizedSource) {
       const ownerRepo = parseOwnerRepo(normalizedSource);
@@ -1492,7 +1510,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             }
 
             await addSkillToLock(skill.name, {
-              source: normalizedSource,
+              source: lockSource || normalizedSource,
               sourceType: parsed.type,
               sourceUrl: parsed.url,
               skillPath: skillPathValue,
@@ -1517,7 +1535,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             await addSkillToLocalLock(
               skill.name,
               {
-                source: normalizedSource || parsed.url,
+                source: lockSource || parsed.url,
                 sourceType: parsed.type,
                 computedHash,
               },

@@ -39,7 +39,7 @@ export const agents: Record<AgentType, AgentConfig> = {
   antigravity: {
     name: 'antigravity',
     displayName: 'Antigravity',
-    skillsDir: '.agent/skills',
+    skillsDir: '.agents/skills',
     globalSkillsDir: join(home, '.gemini/antigravity/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.gemini/antigravity'));
@@ -146,6 +146,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.cursor/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.cursor'));
+    },
+  },
+  deepagents: {
+    name: 'deepagents',
+    displayName: 'Deep Agents',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.deepagents/agent/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.deepagents'));
     },
   },
   droid: {
@@ -345,6 +354,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.trae-cn/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.trae-cn'));
+    },
+  },
+  warp: {
+    name: 'warp',
+    displayName: 'Warp',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.warp'));
     },
   },
   windsurf: {

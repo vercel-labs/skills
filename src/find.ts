@@ -45,12 +45,14 @@ export async function searchSkillsAPI(query: string): Promise<SearchSkill[]> {
       }>;
     };
 
-    return data.skills.map((skill) => ({
-      name: skill.name,
-      slug: skill.id,
-      source: skill.source || '',
-      installs: skill.installs,
-    }));
+    return data.skills
+      .map((skill) => ({
+        name: skill.name,
+        slug: skill.id,
+        source: skill.source || '',
+        installs: skill.installs,
+      }))
+      .sort((a, b) => (b.installs || 0) - (a.installs || 0));
   } catch {
     return [];
   }

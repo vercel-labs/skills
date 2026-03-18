@@ -11,6 +11,7 @@ import {
   stat,
   realpath,
 } from 'fs/promises';
+import { existsSync } from 'fs';
 import { join, basename, normalize, resolve, sep, relative, dirname } from 'path';
 import { homedir, platform } from 'os';
 import type { Skill, AgentType, RemoteSkill } from './types.ts';
@@ -322,11 +323,11 @@ export async function installSkillForAgent(
 }
 
 const EXCLUDE_FILES = new Set(['metadata.json']);
-const EXCLUDE_DIRS = new Set(['.git']);
+const EXCLUDE_DIRS = new Set(['.git', '__pycache__', '__pypackages__']);
 
 const isExcluded = (name: string, isDirectory: boolean = false): boolean => {
   if (EXCLUDE_FILES.has(name)) return true;
-  if (name.startsWith('_')) return true;
+  if (name.startsWith('.')) return true;
   if (isDirectory && EXCLUDE_DIRS.has(name)) return true;
   return false;
 };
@@ -347,14 +348,29 @@ async function copyDirectory(src: string, dest: string): Promise<void> {
         if (entry.isDirectory()) {
           await copyDirectory(srcPath, destPath);
         } else {
-          await cp(srcPath, destPath, {
-            // If the file is a symlink to elsewhere in a remote skill, it may not
-            // resolve correctly once it has been copied to the local location.
-            // `dereference: true` tells Node to copy the file instead of copying
-            // the symlink. `recursive: true` handles symlinks pointing to directories.
-            dereference: true,
-            recursive: true,
-          });
+          try {
+            await cp(srcPath, destPath, {
+              // If the file is a symlink to elsewhere in a remote skill, it may not
+              // resolve correctly once it has been copied to the local location.
+              // `dereference: true` tells Node to copy the file instead of copying
+              // the symlink. `recursive: true` handles symlinks pointing to directories.
+              dereference: true,
+              recursive: true,
+            });
+          } catch (err: unknown) {
+            // Skip broken symlinks (e.g., pointing to absolute paths on another machine)
+            // instead of aborting the entire install.
+            if (
+              err instanceof Error &&
+              'code' in err &&
+              (err as NodeJS.ErrnoException).code === 'ENOENT' &&
+              entry.isSymbolicLink()
+            ) {
+              console.warn(`Skipping broken symlink: ${srcPath}`);
+            } else {
+              throw err;
+            }
+          }
         }
       })
   );
@@ -756,6 +772,22 @@ export async function listInstalledSkills(
       const agentDir = isGlobal ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
       // Avoid duplicate paths
       if (!scopes.some((s) => s.path === agentDir && s.global === isGlobal)) {
+        scopes.push({ global: isGlobal, path: agentDir, agentType });
+      }
+    }
+
+    // Also scan skill directories for agents NOT in agentsToCheck, in case
+    // skills were installed with `--agent <name>` but the agent is no longer
+    // detected (e.g. ~/.openclaw was removed).  Only add dirs that actually
+    // exist on disk to avoid unnecessary readdir errors.
+    const allAgentTypes = Object.keys(agents) as AgentType[];
+    for (const agentType of allAgentTypes) {
+      if (agentsToCheck.includes(agentType)) continue;
+      const agent = agents[agentType];
+      if (isGlobal && agent.globalSkillsDir === undefined) continue;
+      const agentDir = isGlobal ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
+      if (scopes.some((s) => s.path === agentDir && s.global === isGlobal)) continue;
+      if (existsSync(agentDir)) {
         scopes.push({ global: isGlobal, path: agentDir, agentType });
       }
     }

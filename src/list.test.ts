@@ -56,6 +56,17 @@ describe('list command', () => {
       expect(options.agent).toEqual(['claude-code', 'cursor']);
     });
 
+    it('should parse --json flag', () => {
+      const options = parseListOptions(['--json']);
+      expect(options.json).toBe(true);
+    });
+
+    it('should parse combined --json and -g flags', () => {
+      const options = parseListOptions(['-g', '--json']);
+      expect(options.global).toBe(true);
+      expect(options.json).toBe(true);
+    });
+
     it('should stop collecting agents at next flag', () => {
       const options = parseListOptions(['-a', 'claude-code', '-g']);
       expect(options.agent).toEqual(['claude-code']);
@@ -75,6 +86,64 @@ describe('list command', () => {
       const result = runCli(['ls'], testDir);
       expect(result.stdout).toContain('No project skills found');
       expect(result.exitCode).toBe(0);
+    });
+
+    it('should output empty JSON array when no skills', () => {
+      const result = runCli(['list', '--json'], testDir);
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed).toEqual([]);
+    });
+
+    it('should output valid JSON with --json flag', () => {
+      const skillDir = join(testDir, '.agents', 'skills', 'json-skill');
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---
+name: json-skill
+description: A skill for JSON testing
+---
+
+# JSON Skill
+`
+      );
+
+      const result = runCli(['list', '--json'], testDir);
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(Array.isArray(parsed)).toBe(true);
+      expect(parsed.length).toBe(1);
+      expect(parsed[0].name).toBe('json-skill');
+      expect(parsed[0].path).toContain('json-skill');
+      expect(parsed[0].scope).toBe('project');
+      expect(Array.isArray(parsed[0].agents)).toBe(true);
+      // No ANSI codes in JSON output
+      expect(result.stdout).not.toMatch(/\x1b\[/);
+    });
+
+    it('should output multiple skills as JSON array', () => {
+      const skill1Dir = join(testDir, '.agents', 'skills', 'skill-alpha');
+      const skill2Dir = join(testDir, '.agents', 'skills', 'skill-beta');
+      mkdirSync(skill1Dir, { recursive: true });
+      mkdirSync(skill2Dir, { recursive: true });
+
+      writeFileSync(
+        join(skill1Dir, 'SKILL.md'),
+        `---\nname: skill-alpha\ndescription: Alpha\n---\n# Alpha\n`
+      );
+      writeFileSync(
+        join(skill2Dir, 'SKILL.md'),
+        `---\nname: skill-beta\ndescription: Beta\n---\n# Beta\n`
+      );
+
+      const result = runCli(['list', '--json'], testDir);
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed.length).toBe(2);
+      const names = parsed.map((s: any) => s.name);
+      expect(names).toContain('skill-alpha');
+      expect(names).toContain('skill-beta');
     });
 
     it('should show message when no project skills found', () => {
