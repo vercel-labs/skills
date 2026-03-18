@@ -670,7 +670,8 @@ async function main(): Promise<void> {
       }
       const { skills, options: removeOptions } = parseRemoveOptions(restArgs);
       const rmDefaults = loadConfig();
-      if (rmDefaults.global && removeOptions.global === undefined) removeOptions.global = rmDefaults.global;
+      if (rmDefaults.global && removeOptions.global === undefined)
+        removeOptions.global = rmDefaults.global;
       if (rmDefaults.yes && removeOptions.yes === undefined) removeOptions.yes = rmDefaults.yes;
       if (rmDefaults.agent && !removeOptions.agent) removeOptions.agent = rmDefaults.agent;
       await removeCommand(skills, removeOptions);
@@ -688,7 +689,8 @@ async function main(): Promise<void> {
     case 'ls': {
       const listDefaults = loadConfig();
       const listArgs = [...restArgs];
-      if (listDefaults.global && !listArgs.includes('-g') && !listArgs.includes('--global')) listArgs.push('-g');
+      if (listDefaults.global && !listArgs.includes('-g') && !listArgs.includes('--global'))
+        listArgs.push('-g');
       if (listDefaults.json && !listArgs.includes('--json')) listArgs.push('--json');
       if (listDefaults.agent && !listArgs.includes('-a') && !listArgs.includes('--agent')) {
         listArgs.push('-a', ...listDefaults.agent);
