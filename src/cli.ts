@@ -13,6 +13,7 @@ import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track } from './telemetry.ts';
 import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
+import { loadConfig, runConfig } from './config.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -118,6 +119,12 @@ ${BOLD}Updates:${RESET}
   check                Check for available skill updates
   update               Update all skills to latest versions
 
+${BOLD}Config:${RESET}
+  config [list]        Show current config defaults
+  config set <k> <v>   Set a default (e.g. config set global true)
+  config unset <key>   Remove a default
+  config path          Show config file location
+
 ${BOLD}Project:${RESET}
   experimental_install Restore skills from skills-lock.json
   init [name]          Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)
@@ -173,6 +180,10 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills init my-skill
   ${DIM}$${RESET} skills experimental_sync              ${DIM}# sync from node_modules${RESET}
   ${DIM}$${RESET} skills experimental_sync -y           ${DIM}# sync without prompts${RESET}
+  ${DIM}$${RESET} skills config set global true         ${DIM}# always install globally${RESET}
+  ${DIM}$${RESET} skills config set yes true            ${DIM}# skip prompts by default${RESET}
+  ${DIM}$${RESET} skills config set agent claude-code   ${DIM}# default agent${RESET}
+  ${DIM}$${RESET} skills config list                    ${DIM}# show current defaults${RESET}
 
 Discover more skills at ${TEXT}https://skills.sh/${RESET}
 `);
@@ -641,6 +652,11 @@ async function main(): Promise<void> {
     case 'add': {
       showLogo();
       const { source: addSource, options: addOpts } = parseAddOptions(restArgs);
+      const addDefaults = loadConfig();
+      if (addDefaults.global && addOpts.global === undefined) addOpts.global = addDefaults.global;
+      if (addDefaults.yes && addOpts.yes === undefined) addOpts.yes = addDefaults.yes;
+      if (addDefaults.copy && addOpts.copy === undefined) addOpts.copy = addDefaults.copy;
+      if (addDefaults.agent && !addOpts.agent) addOpts.agent = addDefaults.agent;
       await runAdd(addSource, addOpts);
       break;
     }
@@ -653,20 +669,42 @@ async function main(): Promise<void> {
         break;
       }
       const { skills, options: removeOptions } = parseRemoveOptions(restArgs);
+      const rmDefaults = loadConfig();
+      if (rmDefaults.global && removeOptions.global === undefined) removeOptions.global = rmDefaults.global;
+      if (rmDefaults.yes && removeOptions.yes === undefined) removeOptions.yes = rmDefaults.yes;
+      if (rmDefaults.agent && !removeOptions.agent) removeOptions.agent = rmDefaults.agent;
       await removeCommand(skills, removeOptions);
       break;
     case 'experimental_sync': {
       showLogo();
       const { options: syncOptions } = parseSyncOptions(restArgs);
+      const syncDefaults = loadConfig();
+      if (syncDefaults.yes && syncOptions.yes === undefined) syncOptions.yes = syncDefaults.yes;
+      if (syncDefaults.agent && !syncOptions.agent) syncOptions.agent = syncDefaults.agent;
       await runSync(restArgs, syncOptions);
       break;
     }
     case 'list':
-    case 'ls':
-      await runList(restArgs);
+    case 'ls': {
+      const listDefaults = loadConfig();
+      const listArgs = [...restArgs];
+      if (listDefaults.global && !listArgs.includes('-g') && !listArgs.includes('--global')) listArgs.push('-g');
+      if (listDefaults.json && !listArgs.includes('--json')) listArgs.push('--json');
+      if (listDefaults.agent && !listArgs.includes('-a') && !listArgs.includes('--agent')) {
+        listArgs.push('-a', ...listDefaults.agent);
+      }
+      await runList(listArgs);
       break;
-    case 'check':
-      runCheck(restArgs);
+    }
+    case 'check': {
+      const checkDefaults = loadConfig();
+      const checkArgs = [...restArgs];
+      if (checkDefaults.json && !checkArgs.includes('--json')) checkArgs.push('--json');
+      runCheck(checkArgs);
+      break;
+    }
+    case 'config':
+      runConfig(restArgs);
       break;
     case 'update':
     case 'upgrade':
