@@ -627,9 +627,14 @@ async function handleWellKnownSkills(
   // Determine install mode (symlink vs copy)
   let installMode: InstallMode = options.copy ? 'copy' : 'symlink';
 
-  // Only prompt for install mode when there are multiple unique target directories.
-  // When all selected agents share the same skillsDir, symlink vs copy is meaningless.
-  const uniqueDirs = new Set(targetAgents.map((a) => agents[a].skillsDir));
+  // Use effective target directories: globalSkillsDir for global installs, skillsDir for project.
+  // This matters because agents may share the same project skillsDir (e.g. '.agents/skills')
+  // but have distinct globalSkillsDir (e.g. ~/.cursor/skills vs ~/.claude/skills).
+  const uniqueDirs = new Set(
+    targetAgents.map((a) =>
+      installGlobally ? (agents[a].globalSkillsDir ?? agents[a].skillsDir) : agents[a].skillsDir
+    )
+  );
 
   if (!options.copy && !options.yes && uniqueDirs.size > 1) {
     const modeChoice = await p.select({
@@ -1250,18 +1255,27 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Determine install mode (symlink vs copy)
     let installMode: InstallMode = options.copy ? 'copy' : 'symlink';
 
-    // Only prompt for install mode when there are multiple unique target directories.
-    // When all selected agents share the same skillsDir, symlink vs copy is meaningless.
-    const uniqueDirs = new Set(targetAgents.map((a) => agents[a].skillsDir));
+    // Use effective target directories: globalSkillsDir for global installs, skillsDir for project.
+    const uniqueDirs = new Set(
+      targetAgents.map((a) =>
+        installGlobally ? (agents[a].globalSkillsDir ?? agents[a].skillsDir) : agents[a].skillsDir
+      )
+    );
 
-    if (!options.copy && !options.yes && uniqueDirs.size > 1) {
+    // For local sources, symlink is always meaningful: it links the canonical dir
+    // to the local source so edits are reflected without reinstallation.
+    const isLocalSource = parsed.type === 'local';
+
+    if (!options.copy && !options.yes && (uniqueDirs.size > 1 || isLocalSource)) {
       const modeChoice = await p.select({
         message: 'Installation method',
         options: [
           {
             value: 'symlink',
             label: 'Symlink (Recommended)',
-            hint: 'Single source of truth, easy updates',
+            hint: isLocalSource
+              ? 'Links to local source, edits reflected immediately'
+              : 'Single source of truth, easy updates',
           },
           { value: 'copy', label: 'Copy to all agents', hint: 'Independent copies for each agent' },
         ],
@@ -1274,8 +1288,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
 
       installMode = modeChoice as InstallMode;
-    } else if (uniqueDirs.size <= 1) {
-      // Single target directory — default to copy (no symlink needed)
+    } else if (uniqueDirs.size <= 1 && !isLocalSource) {
+      // Single target directory with remote source — default to copy (no symlink needed)
       installMode = 'copy';
     }
 

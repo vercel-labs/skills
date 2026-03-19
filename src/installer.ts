@@ -78,7 +78,7 @@ export function getCanonicalSkillsDir(global: boolean, cwd?: string): string {
  * redundant symlinks and double-listing of skills.
  */
 export function getAgentBaseDir(agentType: AgentType, global: boolean, cwd?: string): string {
-  if (isUniversalAgent(agentType)) {
+  if (isUniversalAgent(agentType, global)) {
     return getCanonicalSkillsDir(global, cwd);
   }
 
@@ -345,7 +345,7 @@ export async function installSkillForAgent(
     // For universal agents with global install, the skill is already in the canonical
     // ~/.agents/skills directory. Skip creating a symlink to the agent-specific global dir
     // (e.g. ~/.copilot/skills) to avoid duplicates.
-    if (isGlobal && isUniversalAgent(agentType)) {
+    if (isGlobal && isUniversalAgent(agentType, isGlobal)) {
       return {
         success: true,
         path: canonicalDir,
