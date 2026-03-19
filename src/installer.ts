@@ -262,14 +262,21 @@ export async function installSkillForAgent(
   }
 
   try {
-    // For copy mode, skip canonical directory and copy directly to agent location
+    // For copy mode, still write to canonical first, then copy to agent location
+    // This ensures all skills are stored in the canonical directory for consistency
     if (installMode === 'copy') {
+      // Write to canonical location first
+      await cleanAndCreateDirectory(canonicalDir);
+      await copyDirectory(skill.path, canonicalDir);
+
+      // Then copy to agent location
       await cleanAndCreateDirectory(agentDir);
-      await copyDirectory(skill.path, agentDir);
+      await copyDirectory(canonicalDir, agentDir);
 
       return {
         success: true,
         path: agentDir,
+        canonicalPath: canonicalDir,
         mode: 'copy',
       };
     }
@@ -558,8 +565,15 @@ export async function installRemoteSkillForAgent(
   }
 
   try {
-    // For copy mode, write directly to agent location
+    // For copy mode, write to canonical first, then copy to agent location
+    // This ensures all skills are stored in the canonical directory for consistency
     if (installMode === 'copy') {
+      // Write to canonical location first
+      await cleanAndCreateDirectory(canonicalDir);
+      const canonicalSkillMdPath = join(canonicalDir, 'SKILL.md');
+      await writeFile(canonicalSkillMdPath, skill.content, 'utf-8');
+
+      // Then copy to agent location
       await cleanAndCreateDirectory(agentDir);
       const skillMdPath = join(agentDir, 'SKILL.md');
       await writeFile(skillMdPath, skill.content, 'utf-8');
@@ -567,6 +581,7 @@ export async function installRemoteSkillForAgent(
       return {
         success: true,
         path: agentDir,
+        canonicalPath: canonicalDir,
         mode: 'copy',
       };
     }
@@ -577,7 +592,7 @@ export async function installRemoteSkillForAgent(
     await writeFile(skillMdPath, skill.content, 'utf-8');
 
     // For universal agents with global install, skip creating agent-specific symlink
-    if (isGlobal && isUniversalAgent(agentType)) {
+    if (isGlobal && isUniversalAgent(agentType, isGlobal)) {
       return {
         success: true,
         path: canonicalDir,
@@ -698,14 +713,21 @@ export async function installWellKnownSkillForAgent(
   }
 
   try {
-    // For copy mode, write directly to agent location
+    // For copy mode, write to canonical first, then copy to agent location
+    // This ensures all skills are stored in the canonical directory for consistency
     if (installMode === 'copy') {
+      // Write to canonical location first
+      await cleanAndCreateDirectory(canonicalDir);
+      await writeSkillFiles(canonicalDir);
+
+      // Then copy to agent location
       await cleanAndCreateDirectory(agentDir);
       await writeSkillFiles(agentDir);
 
       return {
         success: true,
         path: agentDir,
+        canonicalPath: canonicalDir,
         mode: 'copy',
       };
     }
@@ -715,7 +737,7 @@ export async function installWellKnownSkillForAgent(
     await writeSkillFiles(canonicalDir);
 
     // For universal agents with global install, skip creating agent-specific symlink
-    if (isGlobal && isUniversalAgent(agentType)) {
+    if (isGlobal && isUniversalAgent(agentType, isGlobal)) {
       return {
         success: true,
         path: canonicalDir,
@@ -855,7 +877,8 @@ export async function listInstalledSkills(
       const entries = await readdir(scope.path, { withFileTypes: true });
 
       for (const entry of entries) {
-        if (!entry.isDirectory()) {
+        // Skip if not a directory or symlink to a directory
+        if (!entry.isDirectory() && !entry.isSymbolicLink()) {
           continue;
         }
 
