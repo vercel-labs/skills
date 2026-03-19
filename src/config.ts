@@ -1,8 +1,20 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import { homedir, platform } from 'os';
 
-const CONFIG_DIR = join(homedir(), '.skills');
+function resolveConfigDir(): string {
+  const p = platform();
+  if (p === 'win32') {
+    return join(process.env.APPDATA || join(homedir(), 'AppData', 'Roaming'), 'skills');
+  }
+  if (p === 'darwin') {
+    return join(homedir(), 'Library', 'Application Support', 'skills');
+  }
+  // Linux / other: follow XDG base directory spec
+  return join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'skills');
+}
+
+const CONFIG_DIR = resolveConfigDir();
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 
 export interface CliConfig {
