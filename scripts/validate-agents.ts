@@ -62,11 +62,13 @@ function checkDuplicateSkillsDirs() {
     }
     skillsDirs.get(config.skillsDir)!.push(key);
 
-    const globalPath = config.globalSkillsDir.replace(homedir(), '~');
-    if (!globalSkillsDirs.has(globalPath)) {
-      globalSkillsDirs.set(globalPath, []);
+    const globalPath = config.globalSkillsDir?.replace(homedir(), '~');
+    if (globalPath) {
+      if (!globalSkillsDirs.has(globalPath)) {
+        globalSkillsDirs.set(globalPath, []);
+      }
+      globalSkillsDirs.get(globalPath)!.push(key);
     }
-    globalSkillsDirs.get(globalPath)!.push(key);
   }
 
   for (const [dir, keys] of skillsDirs) {
