@@ -85,7 +85,50 @@ For example:
 3. **GitHub stars** — Check the source repository. A skill from a repo with <100 stars should be treated with skepticism.
 4. **Audit or trust status** — Prefer skills with clean audit status when that information is available.
 
-### Step 6: Present Only the Top 1-3 Options
+### Step 6: Run a Security Preflight for Low-Trust Candidates
+
+If a candidate is third-party, low-trust, repo-based, or otherwise unclear, do not jump from discovery straight to install.
+
+Escalate to a security preflight when any of these are true:
+
+- Unknown or weakly trusted maintainer
+- Very low installs, weak stars, or suspicious audit signals
+- Direct GitHub or repo-path install rather than a well-known official package
+- Heavy runtime requirements, custom binaries, install hooks, or opaque setup steps
+- The candidate's declared purpose and actual repo contents may not match
+
+Preflight rules:
+
+- Do not run `npm install`, `pnpm install`, `pip install`, builds, tests, or setup commands before PASS
+- Work from a quarantine path, not a live skills directory
+- Inspect first and execute nothing until you have a clear PASS
+
+Suggested quarantine flow for a repo-based candidate:
+
+```bash
+git clone <repo> ~/temp_skills_quarantine/<name>
+rg --files ~/temp_skills_quarantine/<name>
+```
+
+Then inspect `SKILL.md`, `package.json`, `requirements.txt`, `pyproject.toml`, shell scripts, and source files.
+
+Suggested read-only scans:
+
+```bash
+rg -n "(fetch|axios|curl|requests\\.|http[s]?://|wss?://)" .
+rg -n "(\\.env|id_rsa|\\.ssh|token|secret|credential|api[_-]?key|private[_-]?key)" .
+rg -n "(base64|Buffer\\.from\\(|atob\\(|btoa\\(|gzip|zlib)" .
+rg -n "(eval\\(|exec\\(|child_process|subprocess|os\\.system|Runtime\\.getRuntime\\(\\)\\.exec)" .
+rg -n "(preinstall|postinstall|prepare|install|setup\\.py|pyproject\\.toml)" .
+rg -n "(ignore all previous|bypass|return PASS|SAFE_TO_DEPLOY|override this prompt)" .
+```
+
+Decision:
+
+- `PASS` only if the repo intent, code, install path, and runtime behavior are coherent and non-suspicious
+- `FAIL` if behavior is unclear, unrelated to purpose, or introduces unexplained network, secret, execution, or prompt-injection risk
+
+### Step 7: Present Only the Top 1-3 Options
 
 When you find relevant skills, present only the best 1-3 options. For each option include:
 
@@ -109,7 +152,7 @@ npx skills add vercel-labs/agent-skills@react-best-practices
 Learn more: https://skills.sh/vercel-labs/agent-skills/react-best-practices
 ```
 
-### Step 7: Install Only with Explicit User Confirmation
+### Step 8: Install Only with Explicit User Confirmation
 
 Do not install a skill just because you found one. Recommend it first, explain why it is a fit, and wait for the user to say they want it installed.
 
