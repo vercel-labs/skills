@@ -25,6 +25,15 @@ async function hasSkillMd(dir: string): Promise<boolean> {
   }
 }
 
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await stat(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function parseSkillMd(
   skillMdPath: string,
   options?: { includeInternal?: boolean }
@@ -120,7 +129,24 @@ export async function discoverSkills(
     );
   }
 
-  const searchPath = subpath ? join(basePath, subpath) : basePath;
+  // Resolve the effective search path with fallback:
+  // 1. basePath/subpath           (exact path as specified)
+  // 2. basePath/skills/subpath    (community convention: repo named "skills" with skills/<name>/ layout)
+  // 3. directPath                 (keep original so downstream error reporting is accurate)
+  let searchPath = basePath;
+
+  if (subpath) {
+    const directPath = join(basePath, subpath);
+    const skillsPrefixedPath = join(basePath, 'skills', subpath);
+
+    if (await pathExists(directPath)) {
+      searchPath = directPath;
+    } else if (await pathExists(skillsPrefixedPath)) {
+      searchPath = skillsPrefixedPath;
+    } else {
+      searchPath = directPath;
+    }
+  }
 
   // Get plugin groupings to map skills to their parent plugin
   // We search for plugin definitions from the base search path
