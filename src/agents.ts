@@ -7,6 +7,7 @@ import type { AgentConfig, AgentType } from './types.ts';
 const home = homedir();
 // Use xdg-basedir (not env-paths) to match OpenCode/Amp/Goose behavior on all platforms.
 const configHome = xdgConfig ?? join(home, '.config');
+const arcanHome = process.env.ARCAN_DATA_DIR?.trim() || join(home, '.arcan');
 const codexHome = process.env.CODEX_HOME?.trim() || join(home, '.codex');
 const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude');
 
@@ -43,6 +44,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.gemini/antigravity/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.gemini/antigravity'));
+    },
+  },
+  arcan: {
+    name: 'arcan',
+    displayName: 'Arcan',
+    skillsDir: '.arcan/skills',
+    globalSkillsDir: join(arcanHome, 'skills'),
+    detectInstalled: async () => {
+      return existsSync(arcanHome) || existsSync('.arcan');
     },
   },
   augment: {

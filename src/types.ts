@@ -1,6 +1,7 @@
 export type AgentType =
   | 'amp'
   | 'antigravity'
+  | 'arcan'
   | 'augment'
   | 'claude-code'
   | 'openclaw'
