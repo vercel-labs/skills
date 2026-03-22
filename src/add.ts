@@ -13,7 +13,7 @@ const isCancelled = (value: unknown): value is symbol => typeof value === 'symbo
  * Check if a source identifier (owner/repo format) represents a private GitHub repo.
  * Returns true if private, false if public, null if unable to determine or not a GitHub repo.
  */
-async function isSourcePrivate(source: string): Promise<boolean | null> {
+async function isSourcePrivate(source: string): Promise<boolean> {
   const ownerRepo = parseOwnerRepo(source);
   if (!ownerRepo) {
     // Not in owner/repo format, assume not private (could be other providers)
@@ -1468,9 +1468,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       if (ownerRepo) {
         // Check if repo is private - skip telemetry for private repos
         const isPrivate = await isRepoPrivate(ownerRepo.owner, ownerRepo.repo);
-        // Only send telemetry if repo is public (isPrivate === false)
-        // If we can't determine (null), err on the side of caution and skip telemetry
-        if (isPrivate === false) {
+        // Only send telemetry if repo is confirmed public
+        if (!isPrivate) {
           track({
             event: 'install',
             source: normalizedSource,
