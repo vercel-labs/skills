@@ -204,6 +204,96 @@ describe('parseSource', () => {
       expect(result.url).toBe('https://git.example.com/owner/repo.git');
     });
   });
+
+  describe('SSH URL with fragment tests', () => {
+    it('SSH git@ URL - with ref only', () => {
+      const result = parseSource('git@github.com:owner/repo.git#main');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@github.com:owner/repo.git');
+      expect(result.ref).toBe('main');
+      expect(result.subpath).toBeUndefined();
+    });
+
+    it('SSH git@ URL - with ref and subpath', () => {
+      const result = parseSource('git@github.com:owner/repo.git#main:skills/my-skill');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@github.com:owner/repo.git');
+      expect(result.ref).toBe('main');
+      expect(result.subpath).toBe('skills/my-skill');
+    });
+
+    it('SSH git@ URL - self-hosted GitLab with deep path', () => {
+      const result = parseSource(
+        'git@gitlab.example.com:group/subgroup/repo.git#develop:plugins/common'
+      );
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@gitlab.example.com:group/subgroup/repo.git');
+      expect(result.ref).toBe('develop');
+      expect(result.subpath).toBe('plugins/common');
+    });
+
+    it('SSH ssh:// URL - with ref and subpath', () => {
+      const result = parseSource(
+        'ssh://git@gitlab.example.com/owner/repo.git#main:src/skills'
+      );
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('ssh://git@gitlab.example.com/owner/repo.git');
+      expect(result.ref).toBe('main');
+      expect(result.subpath).toBe('src/skills');
+    });
+
+    it('SSH git+ssh:// URL - with ref and subpath', () => {
+      const result = parseSource(
+        'git+ssh://git@gitlab.example.com/team/repo.git#main:plugins/common'
+      );
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git+ssh://git@gitlab.example.com/team/repo.git');
+      expect(result.ref).toBe('main');
+      expect(result.subpath).toBe('plugins/common');
+    });
+
+    it('SSH git+ssh:// URL - with ref only', () => {
+      const result = parseSource(
+        'git+ssh://git@github.com/owner/repo.git#develop'
+      );
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git+ssh://git@github.com/owner/repo.git');
+      expect(result.ref).toBe('develop');
+      expect(result.subpath).toBeUndefined();
+    });
+
+    it('SSH URL - without fragment falls through to plain git fallback', () => {
+      const result = parseSource('git@github.com:owner/repo.git');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@github.com:owner/repo.git');
+      expect(result.ref).toBeUndefined();
+      expect(result.subpath).toBeUndefined();
+    });
+
+    it('SSH URL - subpath traversal is rejected', () => {
+      expect(() =>
+        parseSource('git@github.com:owner/repo.git#main:../escape')
+      ).toThrow('path traversal');
+    });
+
+    it('SSH URL - nested subpath', () => {
+      const result = parseSource(
+        'git@github.com:owner/repo.git#main:path/to/deeply/nested/skill'
+      );
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@github.com:owner/repo.git');
+      expect(result.ref).toBe('main');
+      expect(result.subpath).toBe('path/to/deeply/nested/skill');
+    });
+
+    it('SSH URL - tag as ref', () => {
+      const result = parseSource('git@github.com:owner/repo.git#v1.0.0:skills');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@github.com:owner/repo.git');
+      expect(result.ref).toBe('v1.0.0');
+      expect(result.subpath).toBe('skills');
+    });
+  });
 });
 
 describe('getOwnerRepo', () => {

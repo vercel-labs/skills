@@ -114,7 +114,7 @@ function isLocalPath(input: string): boolean {
     input.startsWith('../') ||
     input === '.' ||
     input === '..' ||
-    // Windows absolute paths like C:\ or D:\
+    // Windows absolute paths like C:\\ or D:\\
     /^[a-zA-Z]:[/\\]/.test(input)
   );
 }
@@ -268,6 +268,26 @@ export function parseSource(input: string): ParsedSource {
     return {
       type: 'well-known',
       url: input,
+    };
+  }
+
+  // SSH git URL with optional #ref or #ref:subpath fragment
+  // Supports:
+  //   git@host:owner/repo.git#ref:subpath
+  //   git@host:owner/repo.git#ref
+  //   ssh://git@host/owner/repo.git#ref:subpath
+  //   git+ssh://git@host/owner/repo.git#ref:subpath
+  // The #ref:subpath convention extends npm's #ref fragment syntax.
+  const sshWithFragmentMatch = input.match(
+    /^((?:(?:git\+)?ssh:\/\/git@[^#]+?\.git)|(?:git@[^#:]+:[^#]+?\.git))#([^:]+)(?::(.+))?$/
+  );
+  if (sshWithFragmentMatch) {
+    const [, url, ref, subpath] = sshWithFragmentMatch;
+    return {
+      type: 'git',
+      url: url!,
+      ref,
+      ...(subpath && { subpath: sanitizeSubpath(subpath) }),
     };
   }
 
