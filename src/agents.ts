@@ -410,6 +410,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.adal'));
     },
   },
+  workbuddy: {
+    name: 'workbuddy',
+    displayName: 'WorkBuddy',
+    skillsDir: '.workbuddy/skills',
+    globalSkillsDir: join(home, '.workbuddy/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(process.cwd(), '.workbuddy')) || existsSync(join(home, '.workbuddy'));
+    },
+  },
   universal: {
     name: 'universal',
     displayName: 'Universal',

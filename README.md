@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [39 more](#available-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [40 more](#available-agents).
 <!-- agent-list:end -->
 
 ## Install a Skill
@@ -248,6 +248,7 @@ Skills can be installed to any of these agents:
 | Neovate | `neovate` | `.neovate/skills/` | `~/.neovate/skills/` |
 | Pochi | `pochi` | `.pochi/skills/` | `~/.pochi/skills/` |
 | AdaL | `adal` | `.adal/skills/` | `~/.adal/skills/` |
+| WorkBuddy | `workbuddy` | `.workbuddy/skills/` | `~/.workbuddy/skills/` |
 <!-- supported-agents:end -->
 
 > [!NOTE]
@@ -347,6 +348,7 @@ The CLI searches for skills in these locations within a repository:
 - `.neovate/skills/`
 - `.pochi/skills/`
 - `.adal/skills/`
+- `.workbuddy/skills/`
 <!-- skill-discovery:end -->
 
 ### Plugin Manifest Discovery
@@ -376,12 +378,12 @@ If no skills are found in standard locations, a recursive search is performed.
 Skills are generally compatible across agents since they follow a
 shared [Agent Skills specification](https://agentskills.io). However, some features may be agent-specific:
 
-| Feature         | OpenCode | OpenHands | Claude Code | Cline | CodeBuddy | Codex | Command Code | Kiro CLI | Cursor | Antigravity | Roo Code | Github Copilot | Amp | OpenClaw | Neovate | Pi  | Qoder | Zencoder |
-| --------------- | -------- | --------- | ----------- | ----- | --------- | ----- | ------------ | -------- | ------ | ----------- | -------- | -------------- | --- | -------- | ------- | --- | ----- | -------- |
-| Basic skills    | Yes      | Yes       | Yes         | Yes   | Yes       | Yes   | Yes          | Yes      | Yes    | Yes         | Yes      | Yes            | Yes | Yes      | Yes     | Yes | Yes   | Yes      |
-| `allowed-tools` | Yes      | Yes       | Yes         | Yes   | Yes       | Yes   | Yes          | No       | Yes    | Yes         | Yes      | Yes            | Yes | Yes      | Yes     | Yes | Yes   | No       |
-| `context: fork` | No       | No        | Yes         | No    | No        | No    | No           | No       | No     | No          | No       | No             | No  | No       | No      | No  | No    | No       |
-| Hooks           | No       | No        | Yes         | Yes   | No        | No    | No           | No       | No     | No          | No       | No             | No  | No       | No      | No  | No    | No       |
+| Feature         | OpenCode | OpenHands | Claude Code | Cline | CodeBuddy | Codex | Command Code | Kiro CLI | Cursor | Antigravity | Roo Code | Github Copilot | Amp | OpenClaw | Neovate | Pi  | Qoder | Zencoder | WorkBuddy |
+| --------------- | -------- | --------- | ----------- | ----- | --------- | ----- | ------------ | -------- | ------ | ----------- | -------- | -------------- | --- | -------- | ------- | --- | ----- | -------- | --------- |
+| Basic skills    | Yes      | Yes       | Yes         | Yes   | Yes       | Yes   | Yes          | Yes      | Yes    | Yes         | Yes      | Yes            | Yes | Yes      | Yes     | Yes | Yes   | Yes      | Yes       |
+| `allowed-tools` | Yes      | Yes       | Yes         | Yes   | Yes       | Yes   | Yes          | No       | Yes    | Yes         | Yes      | Yes            | Yes | Yes      | Yes     | Yes | Yes   | No       | Yes       |
+| `context: fork` | No       | No        | Yes         | No    | No        | No    | No           | No       | No     | No          | No       | No             | No  | No       | No      | No  | No    | No       | No        |
+| Hooks           | No       | No        | Yes         | Yes   | No        | No    | No           | No       | No     | No          | No       | No             | No  | No       | No      | No  | No    | No       | No        |
 
 ## Troubleshooting
 
@@ -447,6 +449,7 @@ Telemetry is automatically disabled in CI environments.
 - [Replit Skills Documentation](https://docs.replit.com/replitai/skills)
 - [Roo Code Skills Documentation](https://docs.roocode.com/features/skills)
 - [Trae Skills Documentation](https://docs.trae.ai/ide/skills)
+- [WorkBuddy Skills Documentation](https://www.codebuddy.ai/docs/ide/Features/Skills)
 - [Vercel Agent Skills Repository](https://github.com/vercel-labs/agent-skills)
 
 ## License
