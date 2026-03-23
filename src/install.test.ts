@@ -380,7 +380,7 @@ describe('experimental_install', () => {
           gamma: makeGlobalEntry('shared-local-source'),
           delta: makeGlobalEntry('shared-local-source'),
         },
-        ['codex']
+        { lastSelectedGlobalAgents: ['codex'] }
       )
     );
     vi.mocked(agentsModule.detectInstalledAgents).mockResolvedValue(['codex']);
