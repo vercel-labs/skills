@@ -102,8 +102,6 @@ python3 -c "import evernote2" 2>/dev/null || {
 
 ```python
 import sys
-sys.path.insert(0, '/Users/I501579/Library/Python/3.9/lib/python/site-packages')
-
 import os
 from evernote2.api.client import EvernoteClient
 import evernote2.edam.notestore.ttypes as NoteStoreTypes
