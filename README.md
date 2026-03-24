@@ -232,6 +232,7 @@ Skills can be installed to any of these agents:
 | Kilo Code | `kilo` | `.kilocode/skills/` | `~/.kilocode/skills/` |
 | Kiro CLI | `kiro-cli` | `.kiro/skills/` | `~/.kiro/skills/` |
 | Kode | `kode` | `.kode/skills/` | `~/.kode/skills/` |
+| Kombai | `kombai` | `.kombai/skills/` | `~/.kombai/skills/` |
 | MCPJam | `mcpjam` | `.mcpjam/skills/` | `~/.mcpjam/skills/` |
 | Mistral Vibe | `mistral-vibe` | `.vibe/skills/` | `~/.vibe/skills/` |
 | Mux | `mux` | `.mux/skills/` | `~/.mux/skills/` |
@@ -333,6 +334,7 @@ The CLI searches for skills in these locations within a repository:
 - `.kilocode/skills/`
 - `.kiro/skills/`
 - `.kode/skills/`
+- `.kombai/skills/`
 - `.mcpjam/skills/`
 - `.vibe/skills/`
 - `.mux/skills/`
@@ -439,6 +441,7 @@ Telemetry is automatically disabled in CI environments.
 - [Kimi Code CLI Skills Documentation](https://moonshotai.github.io/kimi-cli/en/customization/skills.html)
 - [Kiro CLI Skills Documentation](https://kiro.dev/docs/cli/custom-agents/configuration-reference/#skill-resources)
 - [Kode Skills Documentation](https://github.com/shareAI-lab/kode/blob/main/docs/skills.md)
+- [Kombai Skills Documentation](https://docs.kombai.com/features/agent-skills)
 - [OpenCode Skills Documentation](https://opencode.ai/docs/skills)
 - [Qwen Code Skills Documentation](https://qwenlm.github.io/qwen-code-docs/en/users/features/skills/)
 - [OpenHands Skills Documentation](https://docs.openhands.ai/modules/usage/how-to/using-skills)

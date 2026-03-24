@@ -45,6 +45,7 @@ package-lock.json
 .opencode/
 .qoder/
 .qwen/
+.kombai/
 .trae/
 .vscode/
 
