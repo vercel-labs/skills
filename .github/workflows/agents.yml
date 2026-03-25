@@ -59,7 +59,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Sync agents
-        run: pnpm exec node scripts/sync-agents.ts
+        run: |
+          pnpm exec node scripts/sync-agents.ts
+          pnpm prettier --write README.md
 
       - name: Commit changes
         run: |
