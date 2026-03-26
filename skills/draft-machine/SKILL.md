@@ -63,7 +63,19 @@ Tell the user they need to do a one-time setup to connect DraftMachine to their 
 
 ### If `client_secret.json` exists but `creds.json` is missing
 
-Run `draftmachine setup` to complete the OAuth consent flow.
+Run `draftmachine setup` to complete the OAuth consent flow. This will open a browser window
+for Gmail authorization and save the token to `~/.draftmachine/creds.json`.
+
+On a **headless machine** (no graphical browser), use:
+
+```bash
+draftmachine setup --no-browser
+```
+
+This prints an auth URL you can open on any device (phone, laptop, etc.), then prompts you
+to paste back the redirect URL from your browser's address bar after approving. The redirect
+will look like `http://localhost/?code=...&state=...` — your browser will show a "connection
+refused" error, which is expected. Copy the full URL and paste it at the prompt.
 
 ### If both files exist
 
@@ -160,3 +172,4 @@ After the command completes, tell the user:
 | `429 Too Many Requests` | Gmail API rate limit hit; DraftMachine retries 3× with backoff. If it persists, wait and re-run |
 | `UndefinedError: '...' is undefined` | CSV column name in template doesn't match actual column header |
 | Partial drafts on 429 | No resume; re-run the full command after a short wait (may create duplicates — delete extra drafts) |
+| `webbrowser.Error: could not locate runnable browser` | Headless machine — re-run `draftmachine setup --no-browser` |
