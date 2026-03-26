@@ -806,6 +806,7 @@ async function handleWellKnownSkills(
                 source: sourceIdentifier,
                 sourceType: 'well-known',
                 computedHash,
+                sourceUrl: skill.sourceUrl,
               },
               cwd
             );
@@ -1540,6 +1541,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             const computedHash = await computeSkillFolderHash(skill.path);
             // Extract version from SKILL.md frontmatter
             const version = await extractLocalSkillVersion(skill.path) ?? undefined;
+            // Build sourceUrl for update tracking
+            const skillPathValue = skillFiles[skill.name];
             await addSkillToLocalLock(
               skill.name,
               {
@@ -1547,6 +1550,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
                 sourceType: parsed.type,
                 computedHash,
                 version,
+                sourceUrl: parsed.url,
+                skillPath: skillPathValue,
               },
               cwd
             );

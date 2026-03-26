@@ -28,6 +28,10 @@ export interface LocalSkillLockEntry {
    * Used for reliable update checks via simple version comparison.
    */
   version?: string;
+  /** The original URL used to install the skill (for re-fetching updates). */
+  sourceUrl?: string;
+  /** Subpath within the source repo, if applicable. */
+  skillPath?: string;
 }
 
 /**

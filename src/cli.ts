@@ -328,7 +328,7 @@ function readSkillLock(): SkillLockFile {
 interface SkippedSkill {
   name: string;
   reason: string;
-  sourceUrl: string;
+  sourceUrl?: string;
 }
 
 /**
@@ -576,6 +576,20 @@ async function runUpdate(): Promise<void> {
     // Build the URL with subpath to target the specific skill directory
     // e.g., https://github.com/owner/repo/tree/main/skills/my-skill
     let installUrl = update.entry.sourceUrl;
+
+    // Reconstruct sourceUrl from source field if missing (backwards compat)
+    if (!installUrl && update.entry.source) {
+      installUrl = `https://github.com/${update.entry.source}`;
+    }
+
+    if (!installUrl) {
+      failCount++;
+      console.log(
+        `  ${DIM}✗ Failed to update ${update.name}: no sourceUrl in lock file${RESET}`
+      );
+      continue;
+    }
+
     if (update.entry.skillPath) {
       // Extract the skill folder path (remove /SKILL.md suffix)
       let skillFolder = update.entry.skillPath;
@@ -590,7 +604,7 @@ async function runUpdate(): Promise<void> {
 
       // Convert git URL to tree URL with path
       // https://github.com/owner/repo.git -> https://github.com/owner/repo/tree/main/path
-      installUrl = update.entry.sourceUrl.replace(/\.git$/, '').replace(/\/$/, '');
+      installUrl = installUrl.replace(/\.git$/, '').replace(/\/$/, '');
       installUrl = `${installUrl}/tree/main/${skillFolder}`;
     }
 
