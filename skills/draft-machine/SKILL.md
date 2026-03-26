@@ -22,10 +22,16 @@ user's Gmail Drafts folder for review before sending — nothing gets sent autom
 draftmachine --version
 ```
 
-If the command is not found, install it:
+If the command is not found, install it. Use `pipx` if available (keeps DraftMachine in an isolated environment):
 
 ```bash
-pip install draftmachine
+pipx install draftmachine
+```
+
+If `pipx` is not installed, fall back to:
+
+```bash
+pip install --user draftmachine
 ```
 
 ## Step 2 — Check Gmail credentials
@@ -148,7 +154,7 @@ After the command completes, tell the user:
 
 | Error | Fix |
 |-------|-----|
-| `command not found: draftmachine` | `pip install draftmachine` |
+| `command not found: draftmachine` | `pipx install draftmachine` (or `pip install --user draftmachine` if pipx unavailable) |
 | `No such file: client_secret.json` | Complete GCP + OAuth setup (Step 2) |
 | `403 Forbidden` | OAuth token lacks correct scope — re-run `draftmachine setup` |
 | `429 Too Many Requests` | Gmail API rate limit hit; DraftMachine retries 3× with backoff. If it persists, wait and re-run |
