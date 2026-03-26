@@ -96,7 +96,7 @@ export async function runList(args: string[]): Promise<void> {
       name: skill.name,
       path: skill.canonicalPath,
       scope: skill.scope,
-      agents: skill.agents.map((a) => agents[a].displayName),
+      agents: skill.agents.map((a) => ({ id: a, name: agents[a].displayName })),
     }));
     console.log(JSON.stringify(jsonOutput, null, 2));
     return;
