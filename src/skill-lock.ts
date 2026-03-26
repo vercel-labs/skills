@@ -185,25 +185,53 @@ export async function fetchSkillFolderHash(
     folderPath = folderPath.slice(0, -1);
   }
 
-  const branches = ['main', 'master'];
+  // Remove leading ./ if present (normalize for API matching)
+  if (folderPath.startsWith('./')) {
+    folderPath = folderPath.slice(2);
+  }
+
+  const headers: Record<string, string> = {
+    Accept: 'application/vnd.github.v3+json',
+    'User-Agent': 'skills-cli',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  // Determine branches to check: prefer the repo's default branch
+  // to avoid stale results when both main and master exist.
+  let branches = ['main', 'master'];
+  try {
+    const repoUrl = `https://api.github.com/repos/${ownerRepo}`;
+    const repoResp = await fetch(repoUrl, { headers });
+    if (repoResp.ok) {
+      const repoData = (await repoResp.json()) as { default_branch?: string };
+      if (repoData.default_branch) {
+        // Check the default branch first, then fall back to the other
+        branches = [repoData.default_branch];
+        if (repoData.default_branch !== 'main' && repoData.default_branch !== 'master') {
+          branches.push('main', 'master');
+        } else if (repoData.default_branch === 'main') {
+          branches.push('master');
+        } else {
+          branches.push('main');
+        }
+      }
+    }
+  } catch {
+    // Fall back to default branch order
+  }
 
   for (const branch of branches) {
     try {
       const url = `https://api.github.com/repos/${ownerRepo}/git/trees/${branch}?recursive=1`;
-      const headers: Record<string, string> = {
-        Accept: 'application/vnd.github.v3+json',
-        'User-Agent': 'skills-cli',
-      };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
       const response = await fetch(url, { headers });
 
       if (!response.ok) continue;
 
       const data = (await response.json()) as {
         sha: string;
+        truncated?: boolean;
         tree: Array<{ path: string; type: string; sha: string }>;
       };
 
@@ -219,6 +247,54 @@ export async function fetchSkillFolderHash(
 
       if (folderEntry) {
         return folderEntry.sha;
+      }
+
+      // If the recursive tree was truncated, the entry may be missing.
+      // Walk the path segments individually via non-recursive tree lookups.
+      if (data.truncated) {
+        const segments = folderPath.split('/');
+        let currentSha: string | null = null;
+
+        const branchUrl = `https://api.github.com/repos/${ownerRepo}/git/trees/${branch}`;
+        const branchResp = await fetch(branchUrl, { headers });
+        if (!branchResp.ok) continue;
+
+        const branchData = (await branchResp.json()) as {
+          sha: string;
+          tree: Array<{ path: string; type: string; sha: string }>;
+        };
+
+        let treeEntries = branchData.tree;
+        for (let i = 0; i < segments.length; i++) {
+          const segment = segments[i]!;
+          const child = treeEntries.find(
+            (entry) => entry.type === 'tree' && entry.path === segment
+          );
+
+          if (!child) {
+            currentSha = null;
+            break;
+          }
+
+          currentSha = child.sha;
+
+          if (i < segments.length - 1) {
+            const childUrl = `https://api.github.com/repos/${ownerRepo}/git/trees/${child.sha}`;
+            const childResp = await fetch(childUrl, { headers });
+            if (!childResp.ok) {
+              currentSha = null;
+              break;
+            }
+            const childData = (await childResp.json()) as {
+              tree: Array<{ path: string; type: string; sha: string }>;
+            };
+            treeEntries = childData.tree;
+          }
+        }
+
+        if (currentSha) {
+          return currentSha;
+        }
       }
     } catch {
       continue;
