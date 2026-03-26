@@ -211,6 +211,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.iflow'));
     },
   },
+  iris: {
+    name: 'iris',
+    displayName: 'Iris',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.iris/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.iris'));
+    },
+  },
   kilo: {
     name: 'kilo',
     displayName: 'Kilo Code',

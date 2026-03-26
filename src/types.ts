@@ -18,6 +18,7 @@ export type AgentType =
   | 'github-copilot'
   | 'goose'
   | 'iflow-cli'
+  | 'iris'
   | 'junie'
   | 'kilo'
   | 'kimi-cli'
