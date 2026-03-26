@@ -23,6 +23,11 @@ export interface LocalSkillLockEntry {
    * computes the hash from actual file contents on disk.
    */
   computedHash: string;
+  /**
+   * Version string from the skill's SKILL.md frontmatter (e.g., "1.0.0").
+   * Used for reliable update checks via simple version comparison.
+   */
+  version?: string;
 }
 
 /**

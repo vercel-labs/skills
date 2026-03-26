@@ -13,6 +13,7 @@ import {
 } from './agents.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 import { addSkillToLocalLock, computeSkillFolderHash, readLocalLock } from './local-lock.ts';
+import { extractLocalSkillVersion } from './skill-lock.ts';
 import type { Skill, AgentType } from './types.ts';
 import { track } from './telemetry.ts';
 
@@ -354,12 +355,14 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     if (successfulSkillNames.has(skill.name)) {
       try {
         const computedHash = await computeSkillFolderHash(skill.path);
+        const version = await extractLocalSkillVersion(skill.path) ?? undefined;
         await addSkillToLocalLock(
           skill.name,
           {
             source: skill.packageName,
             sourceType: 'node_modules',
             computedHash,
+            version,
           },
           cwd
         );
