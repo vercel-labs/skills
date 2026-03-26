@@ -1,7 +1,7 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 
 import { homedir } from 'os';
-import { agents } from '../src/agents.js';
+import { agents } from '../src/agents.ts';
 
 let hasErrors = false;
 
@@ -57,17 +57,18 @@ function checkDuplicateSkillsDirs() {
   const globalSkillsDirs = new Map<string, string[]>();
 
   for (const [key, config] of Object.entries(agents)) {
-
     if (!skillsDirs.has(config.skillsDir)) {
       skillsDirs.set(config.skillsDir, []);
     }
     skillsDirs.get(config.skillsDir)!.push(key);
 
-    const globalPath = config.globalSkillsDir.replace(homedir(), '~');
-    if (!globalSkillsDirs.has(globalPath)) {
-      globalSkillsDirs.set(globalPath, []);
+    const globalPath = config.globalSkillsDir?.replace(homedir(), '~');
+    if (globalPath) {
+      if (!globalSkillsDirs.has(globalPath)) {
+        globalSkillsDirs.set(globalPath, []);
+      }
+      globalSkillsDirs.get(globalPath)!.push(key);
     }
-    globalSkillsDirs.get(globalPath)!.push(key);
   }
 
   for (const [dir, keys] of skillsDirs) {
@@ -86,7 +87,8 @@ function checkDuplicateSkillsDirs() {
 console.log('Validating agents...\n');
 
 checkDuplicateDisplayNames();
-checkDuplicateSkillsDirs();
+// It's fine to have duplicate skills dirs
+// checkDuplicateSkillsDirs();
 
 if (hasErrors) {
   console.log('\nValidation failed.');

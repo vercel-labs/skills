@@ -1,27 +1,14 @@
 // Export types
-export type {
-  HostProvider,
-  ProviderMatch,
-  ProviderRegistry,
-  RemoteSkill,
-} from "./types.js";
+export type { HostProvider, ProviderMatch, ProviderRegistry, RemoteSkill } from './types.ts';
 
 // Export registry functions
-export {
-  registry,
-  registerProvider,
-  findProvider,
-  getProviders,
-} from "./registry.js";
+export { registry, registerProvider, findProvider, getProviders } from './registry.ts';
 
 // Export individual providers
-export { MintlifyProvider, mintlifyProvider } from "./mintlify.js";
-export { HuggingFaceProvider, huggingFaceProvider } from "./huggingface.js";
-
-// Register all built-in providers
-import { registerProvider } from "./registry.js";
-import { mintlifyProvider } from "./mintlify.js";
-import { huggingFaceProvider } from "./huggingface.js";
-
-registerProvider(mintlifyProvider);
-registerProvider(huggingFaceProvider);
+export {
+  WellKnownProvider,
+  wellKnownProvider,
+  type WellKnownIndex,
+  type WellKnownSkillEntry,
+  type WellKnownSkill,
+} from './wellknown.ts';

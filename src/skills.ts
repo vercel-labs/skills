@@ -1,9 +1,19 @@
 import { readdir, readFile, stat } from 'fs/promises';
-import { join, basename, dirname } from 'path';
+import { join, basename, dirname, resolve, normalize, sep } from 'path';
 import matter from 'gray-matter';
-import type { Skill } from './types.js';
+import type { Skill } from './types.ts';
+import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
 
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
+
+/**
+ * Check if internal skills should be installed.
+ * Internal skills are hidden by default unless INSTALL_INTERNAL_SKILLS=1 is set.
+ */
+export function shouldInstallInternalSkills(): boolean {
+  const envValue = process.env.INSTALL_INTERNAL_SKILLS;
+  return envValue === '1' || envValue === 'true';
+}
 
 async function hasSkillMd(dir: string): Promise<boolean> {
   try {
@@ -15,7 +25,10 @@ async function hasSkillMd(dir: string): Promise<boolean> {
   }
 }
 
-async function parseSkillMd(skillMdPath: string): Promise<Skill | null> {
+export async function parseSkillMd(
+  skillMdPath: string,
+  options?: { includeInternal?: boolean }
+): Promise<Skill | null> {
   try {
     const content = await readFile(skillMdPath, 'utf-8');
     const { data } = matter(content);
@@ -24,10 +37,24 @@ async function parseSkillMd(skillMdPath: string): Promise<Skill | null> {
       return null;
     }
 
+    // Ensure name and description are strings (YAML can parse numbers, booleans, etc.)
+    if (typeof data.name !== 'string' || typeof data.description !== 'string') {
+      return null;
+    }
+
+    // Skip internal skills unless:
+    // 1. INSTALL_INTERNAL_SKILLS=1 is set, OR
+    // 2. includeInternal option is true (e.g., when user explicitly requests a skill)
+    const isInternal = data.metadata?.internal === true;
+    if (isInternal && !shouldInstallInternalSkills() && !options?.includeInternal) {
+      return null;
+    }
+
     return {
       name: data.name,
       description: data.description,
       path: dirname(skillMdPath),
+      rawContent: content,
       metadata: data.metadata,
     };
   } catch {
@@ -36,41 +63,89 @@ async function parseSkillMd(skillMdPath: string): Promise<Skill | null> {
 }
 
 async function findSkillDirs(dir: string, depth = 0, maxDepth = 5): Promise<string[]> {
-  const skillDirs: string[] = [];
-
-  if (depth > maxDepth) return skillDirs;
+  if (depth > maxDepth) return [];
 
   try {
-    if (await hasSkillMd(dir)) {
-      skillDirs.push(dir);
-    }
+    const [hasSkill, entries] = await Promise.all([
+      hasSkillMd(dir),
+      readdir(dir, { withFileTypes: true }).catch(() => []),
+    ]);
 
-    const entries = await readdir(dir, { withFileTypes: true });
+    const currentDir = hasSkill ? [dir] : [];
 
-    for (const entry of entries) {
-      if (entry.isDirectory() && !SKIP_DIRS.includes(entry.name)) {
-        const subDirs = await findSkillDirs(join(dir, entry.name), depth + 1, maxDepth);
-        skillDirs.push(...subDirs);
-      }
-    }
+    // Search subdirectories in parallel
+    const subDirResults = await Promise.all(
+      entries
+        .filter((entry) => entry.isDirectory() && !SKIP_DIRS.includes(entry.name))
+        .map((entry) => findSkillDirs(join(dir, entry.name), depth + 1, maxDepth))
+    );
+
+    return [...currentDir, ...subDirResults.flat()];
   } catch {
-    // Ignore errors
+    return [];
   }
-
-  return skillDirs;
 }
 
-export async function discoverSkills(basePath: string, subpath?: string): Promise<Skill[]> {
+export interface DiscoverSkillsOptions {
+  /** Include internal skills (e.g., when user explicitly requests a skill by name) */
+  includeInternal?: boolean;
+  /** Search all subdirectories even when a root SKILL.md exists */
+  fullDepth?: boolean;
+}
+
+/**
+ * Validates that a resolved subpath stays within the base directory.
+ * Prevents path traversal attacks where subpath contains ".." segments
+ * that would escape the cloned repository directory.
+ */
+export function isSubpathSafe(basePath: string, subpath: string): boolean {
+  const normalizedBase = normalize(resolve(basePath));
+  const normalizedTarget = normalize(resolve(join(basePath, subpath)));
+
+  return normalizedTarget.startsWith(normalizedBase + sep) || normalizedTarget === normalizedBase;
+}
+
+export async function discoverSkills(
+  basePath: string,
+  subpath?: string,
+  options?: DiscoverSkillsOptions
+): Promise<Skill[]> {
   const skills: Skill[] = [];
   const seenNames = new Set<string>();
+
+  // Validate subpath doesn't escape basePath (prevent path traversal)
+  if (subpath && !isSubpathSafe(basePath, subpath)) {
+    throw new Error(
+      `Invalid subpath: "${subpath}" resolves outside the repository directory. Subpath must not contain ".." segments that escape the base path.`
+    );
+  }
+
   const searchPath = subpath ? join(basePath, subpath) : basePath;
 
-  // If pointing directly at a skill, return just that
+  // Get plugin groupings to map skills to their parent plugin
+  // We search for plugin definitions from the base search path
+  const pluginGroupings = await getPluginGroupings(searchPath);
+
+  // Helper to assign plugin name if available
+  const enhanceSkill = (skill: Skill) => {
+    const resolvedPath = resolve(skill.path);
+    if (pluginGroupings.has(resolvedPath)) {
+      skill.pluginName = pluginGroupings.get(resolvedPath);
+    }
+    return skill;
+  };
+
+  // If pointing directly at a skill, add it (and return early unless fullDepth is set)
   if (await hasSkillMd(searchPath)) {
-    const skill = await parseSkillMd(join(searchPath, 'SKILL.md'));
+    let skill = await parseSkillMd(join(searchPath, 'SKILL.md'), options);
     if (skill) {
+      skill = enhanceSkill(skill);
       skills.push(skill);
-      return skills;
+      seenNames.add(skill.name);
+      // Only return early if fullDepth is not set
+      if (!options?.fullDepth) {
+        return skills;
+      }
     }
   }
 
@@ -81,19 +156,34 @@ export async function discoverSkills(basePath: string, subpath?: string): Promis
     join(searchPath, 'skills/.curated'),
     join(searchPath, 'skills/.experimental'),
     join(searchPath, 'skills/.system'),
-    join(searchPath, '.agent/skills'),
     join(searchPath, '.agents/skills'),
     join(searchPath, '.claude/skills'),
+    join(searchPath, '.cline/skills'),
+    join(searchPath, '.codebuddy/skills'),
     join(searchPath, '.codex/skills'),
-    join(searchPath, '.cursor/skills'),
+    join(searchPath, '.commandcode/skills'),
+    join(searchPath, '.continue/skills'),
+
     join(searchPath, '.github/skills'),
     join(searchPath, '.goose/skills'),
+    join(searchPath, '.iflow/skills'),
+    join(searchPath, '.junie/skills'),
     join(searchPath, '.kilocode/skills'),
     join(searchPath, '.kiro/skills'),
+    join(searchPath, '.mux/skills'),
+    join(searchPath, '.neovate/skills'),
     join(searchPath, '.opencode/skills'),
+    join(searchPath, '.openhands/skills'),
+    join(searchPath, '.pi/skills'),
+    join(searchPath, '.qoder/skills'),
     join(searchPath, '.roo/skills'),
     join(searchPath, '.trae/skills'),
+    join(searchPath, '.windsurf/skills'),
+    join(searchPath, '.zencoder/skills'),
   ];
+
+  // Add skill paths declared in plugin manifests
+  prioritySearchDirs.push(...(await getPluginSkillPaths(searchPath)));
 
   for (const dir of prioritySearchDirs) {
     try {
@@ -103,8 +193,9 @@ export async function discoverSkills(basePath: string, subpath?: string): Promis
         if (entry.isDirectory()) {
           const skillDir = join(dir, entry.name);
           if (await hasSkillMd(skillDir)) {
-            const skill = await parseSkillMd(join(skillDir, 'SKILL.md'));
+            let skill = await parseSkillMd(join(skillDir, 'SKILL.md'), options);
             if (skill && !seenNames.has(skill.name)) {
+              skill = enhanceSkill(skill);
               skills.push(skill);
               seenNames.add(skill.name);
             }
@@ -116,13 +207,14 @@ export async function discoverSkills(basePath: string, subpath?: string): Promis
     }
   }
 
-  // Fall back to recursive search if nothing found
-  if (skills.length === 0) {
+  // Fall back to recursive search if nothing found, or if fullDepth is set
+  if (skills.length === 0 || options?.fullDepth) {
     const allSkillDirs = await findSkillDirs(searchPath);
 
     for (const skillDir of allSkillDirs) {
-      const skill = await parseSkillMd(join(skillDir, 'SKILL.md'));
+      let skill = await parseSkillMd(join(skillDir, 'SKILL.md'), options);
       if (skill && !seenNames.has(skill.name)) {
+        skill = enhanceSkill(skill);
         skills.push(skill);
         seenNames.add(skill.name);
       }
@@ -134,4 +226,19 @@ export async function discoverSkills(basePath: string, subpath?: string): Promis
 
 export function getSkillDisplayName(skill: Skill): string {
   return skill.name || basename(skill.path);
+}
+
+/**
+ * Filter skills based on user input (case-insensitive direct matching).
+ * Multi-word skill names must be quoted on the command line.
+ */
+export function filterSkills(skills: Skill[], inputNames: string[]): Skill[] {
+  const normalizedInputs = inputNames.map((n) => n.toLowerCase());
+
+  return skills.filter((skill) => {
+    const name = skill.name.toLowerCase();
+    const displayName = getSkillDisplayName(skill).toLowerCase();
+
+    return normalizedInputs.some((input) => input === name || input === displayName);
+  });
 }
