@@ -13,6 +13,7 @@ import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track } from './telemetry.ts';
 import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
+import { computeSkillFolderHash } from './local-lock.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -333,8 +334,12 @@ interface SkippedSkill {
  * Determine why a skill cannot be checked for updates automatically.
  */
 function getSkipReason(entry: SkillLockEntry): string {
+  if (entry.sourceType === 'local' && entry.skillFolderHash) {
+    // Local skills with a stored hash can be checked via local hash comparison
+    return '';
+  }
   if (entry.sourceType === 'local') {
-    return 'Local path';
+    return 'Local path (no hash recorded — reinstall to enable tracking)';
   }
   if (entry.sourceType === 'git') {
     return 'Git URL (hash tracking not supported)';
@@ -380,15 +385,25 @@ async function runCheck(args: string[] = []): Promise<void> {
 
   // Group skills by source (owner/repo) to batch GitHub API calls
   const skillsBySource = new Map<string, Array<{ name: string; entry: SkillLockEntry }>>();
+  const localSkills: Array<{ name: string; entry: SkillLockEntry }> = [];
   const skipped: SkippedSkill[] = [];
 
   for (const skillName of skillNames) {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    // Only check skills with folder hash and skill path
+    // Local skills with a stored hash can be checked via local hash comparison
+    if (entry.sourceType === 'local' && entry.skillFolderHash) {
+      localSkills.push({ name: skillName, entry });
+      continue;
+    }
+
+    // Only check GitHub skills with folder hash and skill path
     if (!entry.skillFolderHash || !entry.skillPath) {
-      skipped.push({ name: skillName, reason: getSkipReason(entry), sourceUrl: entry.sourceUrl });
+      const reason = getSkipReason(entry);
+      if (reason) {
+        skipped.push({ name: skillName, reason, sourceUrl: entry.sourceUrl });
+      }
       continue;
     }
 
@@ -430,6 +445,28 @@ async function runCheck(args: string[] = []): Promise<void> {
           error: err instanceof Error ? err.message : 'Unknown error',
         });
       }
+    }
+  }
+
+  // Check local skills by computing fresh hash from source path
+  for (const { name, entry } of localSkills) {
+    try {
+      const sourcePath = entry.sourceUrl;
+      if (!existsSync(sourcePath)) {
+        errors.push({ name, source: sourcePath, error: 'Source path no longer exists' });
+        continue;
+      }
+
+      const currentHash = await computeSkillFolderHash(sourcePath);
+      if (currentHash !== entry.skillFolderHash) {
+        updates.push({ name, source: sourcePath });
+      }
+    } catch (err) {
+      errors.push({
+        name,
+        source: entry.sourceUrl,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      });
     }
   }
 
@@ -496,9 +533,28 @@ async function runUpdate(): Promise<void> {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    // Only check skills with folder hash and skill path
+    // Local skills with a stored hash: compare via local hash
+    if (entry.sourceType === 'local' && entry.skillFolderHash) {
+      try {
+        const sourcePath = entry.sourceUrl;
+        if (existsSync(sourcePath)) {
+          const currentHash = await computeSkillFolderHash(sourcePath);
+          if (currentHash !== entry.skillFolderHash) {
+            updates.push({ name: skillName, source: sourcePath, entry });
+          }
+        }
+      } catch {
+        // Skip local skills that fail to check
+      }
+      continue;
+    }
+
+    // Only check GitHub skills with folder hash and skill path
     if (!entry.skillFolderHash || !entry.skillPath) {
-      skipped.push({ name: skillName, reason: getSkipReason(entry), sourceUrl: entry.sourceUrl });
+      const reason = getSkipReason(entry);
+      if (reason) {
+        skipped.push({ name: skillName, reason, sourceUrl: entry.sourceUrl });
+      }
       continue;
     }
 

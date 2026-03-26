@@ -1508,6 +1508,14 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               const token = getGitHubToken();
               const hash = await fetchSkillFolderHash(normalizedSource, skillPathValue, token);
               if (hash) skillFolderHash = hash;
+            } else if (parsed.type === 'local' && parsed.localPath) {
+              // For local skills, compute a hash from the source directory
+              // so `skills check/update` can detect changes later
+              try {
+                skillFolderHash = await computeSkillFolderHash(parsed.localPath);
+              } catch {
+                // Non-fatal: skill works without hash, just can't detect updates
+              }
             }
 
             await addSkillToLock(skill.name, {
