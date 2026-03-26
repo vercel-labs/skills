@@ -53,6 +53,7 @@ import {
   dismissPrompt,
   getLastSelectedAgents,
   saveSelectedAgents,
+  extractLocalSkillVersion,
 } from './skill-lock.ts';
 import { addSkillToLocalLock, computeSkillFolderHash } from './local-lock.ts';
 import type { Skill, AgentType } from './types.ts';
@@ -1510,12 +1511,16 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               if (hash) skillFolderHash = hash;
             }
 
+            // Extract version from SKILL.md frontmatter
+            const version = await extractLocalSkillVersion(skill.path) ?? undefined;
+
             await addSkillToLock(skill.name, {
               source: lockSource || normalizedSource,
               sourceType: parsed.type,
               sourceUrl: parsed.url,
               skillPath: skillPathValue,
               skillFolderHash,
+              version,
               pluginName: skill.pluginName,
             });
           } catch {
@@ -1533,12 +1538,15 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         if (successfulSkillNames.has(skillDisplayName)) {
           try {
             const computedHash = await computeSkillFolderHash(skill.path);
+            // Extract version from SKILL.md frontmatter
+            const version = await extractLocalSkillVersion(skill.path) ?? undefined;
             await addSkillToLocalLock(
               skill.name,
               {
                 source: lockSource || parsed.url,
                 sourceType: parsed.type,
                 computedHash,
+                version,
               },
               cwd
             );

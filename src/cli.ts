@@ -12,7 +12,7 @@ import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track } from './telemetry.ts';
-import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
+import { fetchSkillFolderHash, fetchRemoteSkillVersion, getGitHubToken } from './skill-lock.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -287,6 +287,8 @@ interface SkillLockEntry {
   skillPath?: string;
   /** GitHub tree SHA for the entire skill folder (v3) */
   skillFolderHash: string;
+  /** Version from SKILL.md frontmatter (e.g., "1.0.0") */
+  version?: string;
   installedAt: string;
   updatedAt: string;
 }
@@ -415,13 +417,33 @@ async function runCheck(args: string[] = []): Promise<void> {
       try {
         const latestHash = await fetchSkillFolderHash(source, entry.skillPath!, token);
 
-        if (!latestHash) {
-          errors.push({ name, source, error: 'Could not fetch from GitHub' });
-          continue;
+        if (latestHash) {
+          // Hash comparison: only trust if both are the same algorithm
+          // (both 40-char git SHA-1 or both 64-char SHA-256)
+          if (latestHash.length === entry.skillFolderHash.length) {
+            if (latestHash !== entry.skillFolderHash) {
+              updates.push({ name, source });
+            }
+            continue;
+          }
+          // Hash length mismatch (e.g., git SHA-1 vs local SHA-256)
+          // Fall through to version-based check
         }
 
-        if (latestHash !== entry.skillFolderHash) {
-          updates.push({ name, source });
+        // Fallback: version-based check using SKILL.md frontmatter
+        if (entry.version) {
+          const remoteVersion = await fetchRemoteSkillVersion(source, entry.skillPath!, token);
+          if (remoteVersion && remoteVersion !== entry.version) {
+            updates.push({ name, source });
+          } else if (!remoteVersion) {
+            errors.push({ name, source, error: 'Could not fetch version from GitHub' });
+          }
+          // If versions match, skill is up to date
+        } else if (!latestHash) {
+          errors.push({ name, source, error: 'Could not fetch from GitHub' });
+        } else {
+          // Hash length mismatch and no version stored — can't reliably compare
+          errors.push({ name, source, error: 'Hash type mismatch, reinstall to fix' });
         }
       } catch (err) {
         errors.push({
@@ -496,16 +518,30 @@ async function runUpdate(): Promise<void> {
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    // Only check skills with folder hash and skill path
-    if (!entry.skillFolderHash || !entry.skillPath) {
+    // Need either hash+skillPath or version+skillPath to check for updates
+    if (!entry.skillPath || (!entry.skillFolderHash && !entry.version)) {
       skipped.push({ name: skillName, reason: getSkipReason(entry), sourceUrl: entry.sourceUrl });
       continue;
     }
 
     try {
+      let hasUpdate = false;
       const latestHash = await fetchSkillFolderHash(entry.source, entry.skillPath, token);
 
-      if (latestHash && latestHash !== entry.skillFolderHash) {
+      if (latestHash && entry.skillFolderHash && latestHash.length === entry.skillFolderHash.length) {
+        // Same hash algorithm — direct comparison is reliable
+        hasUpdate = latestHash !== entry.skillFolderHash;
+      } else if (entry.version) {
+        // Fallback: version-based check
+        const remoteVersion = await fetchRemoteSkillVersion(entry.source, entry.skillPath, token);
+        if (remoteVersion) {
+          hasUpdate = remoteVersion !== entry.version;
+        }
+      } else if (latestHash && entry.skillFolderHash) {
+        // Hash length mismatch, no version — skip (unreliable)
+      }
+
+      if (hasUpdate) {
         updates.push({ name: skillName, source: entry.source, entry });
       }
     } catch {
