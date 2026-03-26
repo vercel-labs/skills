@@ -26,6 +26,8 @@ export interface SkillLockEntry {
    * Fetched via GitHub Trees API by the telemetry server.
    */
   skillFolderHash: string;
+  /** Git ref (branch/tag) used during installation */
+  ref?: string;
   /** ISO timestamp when the skill was first installed */
   installedAt: string;
   /** ISO timestamp when the skill was last updated */
@@ -168,7 +170,8 @@ export function getGitHubToken(): string | null {
 export async function fetchSkillFolderHash(
   ownerRepo: string,
   skillPath: string,
-  token?: string | null
+  token?: string | null,
+  ref?: string | null
 ): Promise<string | null> {
   // Normalize to forward slashes first (for GitHub API compatibility)
   let folderPath = skillPath.replace(/\\/g, '/');
@@ -185,25 +188,30 @@ export async function fetchSkillFolderHash(
     folderPath = folderPath.slice(0, -1);
   }
 
-  const branches = ['main', 'master'];
+  const headers: Record<string, string> = {
+    Accept: 'application/vnd.github.v3+json',
+    'User-Agent': 'skills-cli',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  // Build branch candidates: explicit ref first, then main/master, then default branch from API
+  const branches: string[] = [];
+  if (ref) branches.push(ref);
+  if (!branches.includes('main')) branches.push('main');
+  if (!branches.includes('master')) branches.push('master');
 
   for (const branch of branches) {
     try {
       const url = `https://api.github.com/repos/${ownerRepo}/git/trees/${branch}?recursive=1`;
-      const headers: Record<string, string> = {
-        Accept: 'application/vnd.github.v3+json',
-        'User-Agent': 'skills-cli',
-      };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
       const response = await fetch(url, { headers });
 
       if (!response.ok) continue;
 
       const data = (await response.json()) as {
         sha: string;
+        truncated?: boolean;
         tree: Array<{ path: string; type: string; sha: string }>;
       };
 
@@ -220,12 +228,103 @@ export async function fetchSkillFolderHash(
       if (folderEntry) {
         return folderEntry.sha;
       }
+
+      // If the response was truncated, the entry might be missing.
+      // Fall back to walking the tree level by level.
+      if (data.truncated) {
+        const result = await walkTreeForPath(ownerRepo, branch, folderPath, headers);
+        if (result) return result;
+      }
     } catch {
       continue;
     }
   }
 
+  // Last resort: ask GitHub for the repo's default branch and try that
+  try {
+    const repoResponse = await fetch(`https://api.github.com/repos/${ownerRepo}`, { headers });
+    if (repoResponse.ok) {
+      const repoData = (await repoResponse.json()) as { default_branch: string };
+      const defaultBranch = repoData.default_branch;
+      if (!branches.includes(defaultBranch)) {
+        const result = await fetchTreeHash(ownerRepo, defaultBranch, folderPath, headers);
+        if (result) return result;
+      }
+    }
+  } catch {
+    // ignore
+  }
+
   return null;
+}
+
+/**
+ * Fetch tree SHA using recursive API, with truncation fallback.
+ */
+async function fetchTreeHash(
+  ownerRepo: string,
+  branch: string,
+  folderPath: string,
+  headers: Record<string, string>
+): Promise<string | null> {
+  try {
+    const url = `https://api.github.com/repos/${ownerRepo}/git/trees/${branch}?recursive=1`;
+    const response = await fetch(url, { headers });
+    if (!response.ok) return null;
+
+    const data = (await response.json()) as {
+      sha: string;
+      truncated?: boolean;
+      tree: Array<{ path: string; type: string; sha: string }>;
+    };
+
+    if (!folderPath) return data.sha;
+
+    const entry = data.tree.find((e) => e.type === 'tree' && e.path === folderPath);
+    if (entry) return entry.sha;
+
+    if (data.truncated) {
+      return await walkTreeForPath(ownerRepo, branch, folderPath, headers);
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+/**
+ * Walk the tree level by level to find a nested path.
+ * Used as fallback when the recursive tree response is truncated.
+ */
+async function walkTreeForPath(
+  ownerRepo: string,
+  branch: string,
+  folderPath: string,
+  headers: Record<string, string>
+): Promise<string | null> {
+  const segments = folderPath.split('/');
+  let currentSha = branch;
+
+  for (const segment of segments) {
+    try {
+      const url = `https://api.github.com/repos/${ownerRepo}/git/trees/${currentSha}`;
+      const response = await fetch(url, { headers });
+      if (!response.ok) return null;
+
+      const data = (await response.json()) as {
+        tree: Array<{ path: string; type: string; sha: string }>;
+      };
+
+      const entry = data.tree.find((e) => e.type === 'tree' && e.path === segment);
+      if (!entry) return null;
+
+      currentSha = entry.sha;
+    } catch {
+      return null;
+    }
+  }
+
+  return currentSha;
 }
 
 /**
