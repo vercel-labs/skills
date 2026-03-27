@@ -9,10 +9,12 @@ import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
 import { runFind } from './find.ts';
 import { runInstallFromLock } from './install.ts';
 import { runList } from './list.ts';
+import { readLocalLock, computeSkillFolderHash } from './local-lock.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track } from './telemetry.ts';
 import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
+import { getUniversalAgents } from './agents.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -362,9 +364,125 @@ function printSkippedSkills(skipped: SkippedSkill[]): void {
   }
 }
 
+interface LocalProjectSkillUpdate {
+  name: string;
+  source: string;
+  currentHash: string;
+  latestHash: string;
+}
+
+async function getLocalProjectSkillUpdates(): Promise<LocalProjectSkillUpdate[] | null> {
+  const cwd = process.cwd();
+  const localLock = await readLocalLock(cwd);
+  const localSkills = Object.entries(localLock.skills).filter(
+    ([, entry]) => entry.sourceType === 'local'
+  );
+
+  if (localSkills.length === 0) {
+    return null;
+  }
+
+  const updates: LocalProjectSkillUpdate[] = [];
+
+  for (const [skillName, entry] of localSkills) {
+    if (!existsSync(entry.source)) {
+      continue;
+    }
+
+    const latestHash = await computeSkillFolderHash(entry.source);
+    if (latestHash !== entry.computedHash) {
+      updates.push({
+        name: skillName,
+        source: entry.source,
+        currentHash: entry.computedHash,
+        latestHash,
+      });
+    }
+  }
+
+  return updates;
+}
+
+async function runCheckLocalProject(): Promise<boolean> {
+  const updates = await getLocalProjectSkillUpdates();
+  if (updates === null) {
+    return false;
+  }
+
+  console.log(`${DIM}Checking local project skills...${RESET}`);
+
+  if (updates.length === 0) {
+    console.log(`${TEXT}✓ All local skills are up to date${RESET}`);
+    console.log();
+    return true;
+  }
+
+  console.log();
+  console.log(`${TEXT}Updates available for ${updates.length} local skill(s):${RESET}`);
+  for (const update of updates) {
+    console.log(`  ${TEXT}•${RESET} ${update.name}`);
+    console.log(`    ${DIM}${update.source}${RESET}`);
+  }
+  console.log();
+
+  return true;
+}
+
+async function runUpdateLocalProject(): Promise<boolean> {
+  const updates = await getLocalProjectSkillUpdates();
+  if (updates === null) {
+    return false;
+  }
+
+  if (updates.length === 0) {
+    console.log(`${TEXT}✓ All local skills are up to date${RESET}`);
+    console.log();
+    return true;
+  }
+
+  console.log(`${TEXT}Found ${updates.length} local update(s)${RESET}`);
+  console.log();
+
+  const universalAgents = getUniversalAgents();
+  let successCount = 0;
+  let failCount = 0;
+
+  for (const update of updates) {
+    console.log(`${TEXT}Updating ${update.name}...${RESET}`);
+
+    try {
+      await runAdd([update.source], {
+        skill: [update.name],
+        agent: universalAgents,
+        yes: true,
+      });
+      successCount++;
+      console.log(`  ${TEXT}✓${RESET} Updated ${update.name}`);
+    } catch {
+      failCount++;
+      console.log(`  ${DIM}✗ Failed to update ${update.name}${RESET}`);
+    }
+  }
+
+  console.log();
+  if (successCount > 0) {
+    console.log(`${TEXT}✓ Updated ${successCount} local skill(s)${RESET}`);
+  }
+  if (failCount > 0) {
+    console.log(`${DIM}Failed to update ${failCount} local skill(s)${RESET}`);
+  }
+  console.log();
+
+  return true;
+}
+
 async function runCheck(args: string[] = []): Promise<void> {
   console.log(`${TEXT}Checking for skill updates...${RESET}`);
   console.log();
+
+  if (await runCheckLocalProject()) {
+    return;
+  }
 
   const lock = readSkillLock();
   const skillNames = Object.keys(lock.skills);
@@ -475,6 +593,10 @@ async function runCheck(args: string[] = []): Promise<void> {
 async function runUpdate(): Promise<void> {
   console.log(`${TEXT}Checking for skill updates...${RESET}`);
   console.log();
+
+  if (await runUpdateLocalProject()) {
+    return;
+  }
 
   const lock = readSkillLock();
   const skillNames = Object.keys(lock.skills);
