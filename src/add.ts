@@ -1533,12 +1533,26 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         if (successfulSkillNames.has(skillDisplayName)) {
           try {
             const computedHash = await computeSkillFolderHash(skill.path);
+            const skillPathValue = skillFiles[skill.name];
+
+            // Fetch GitHub tree SHA for remote change detection
+            let skillFolderHash: string | undefined;
+            if (parsed.type === 'github' && normalizedSource && skillPathValue) {
+              const token = getGitHubToken();
+              const hash = await fetchSkillFolderHash(normalizedSource, skillPathValue, token);
+              if (hash) skillFolderHash = hash;
+            }
+
             await addSkillToLocalLock(
               skill.name,
               {
                 source: lockSource || parsed.url,
                 sourceType: parsed.type,
                 computedHash,
+                skillFolderHash,
+                skillPath: skillPathValue,
+                ref: parsed.ref,
+                sourceUrl: parsed.url,
               },
               cwd
             );
