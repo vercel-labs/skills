@@ -212,7 +212,6 @@ Skills can be installed to any of these agents:
 | Amp, Kimi Code CLI, Replit, Universal | `amp`, `kimi-cli`, `replit`, `universal` | `.agents/skills/` | `~/.config/agents/skills/` |
 | Antigravity | `antigravity` | `.agents/skills/` | `~/.gemini/antigravity/skills/` |
 | Augment | `augment` | `.augment/skills/` | `~/.augment/skills/` |
-| IBM Bob | `bob` | `.bob/skills/` | `~/.bob/skills/` |
 | Claude Code | `claude-code` | `.claude/skills/` | `~/.claude/skills/` |
 | OpenClaw | `openclaw` | `skills/` | `~/.moltbot/skills/` |
 | Cline, Warp | `cline`, `warp` | `.agents/skills/` | `~/.agents/skills/` |
@@ -230,6 +229,7 @@ Skills can be installed to any of these agents:
 | GitHub Copilot | `github-copilot` | `.agents/skills/` | `~/.copilot/skills/` |
 | Goose | `goose` | `.goose/skills/` | `~/.config/goose/skills/` |
 | Junie | `junie` | `.junie/skills/` | `~/.junie/skills/` |
+| IBM Bob | `bob` | `.bob/skills/` | `~/.bob/skills/` |
 | iFlow CLI | `iflow-cli` | `.iflow/skills/` | `~/.iflow/skills/` |
 | Kilo Code | `kilo` | `.kilocode/skills/` | `~/.kilocode/skills/` |
 | Kiro CLI | `kiro-cli` | `.kiro/skills/` | `~/.kiro/skills/` |
@@ -321,7 +321,6 @@ The CLI searches for skills in these locations within a repository:
 - `skills/.system/`
 - `.agents/skills/`
 - `.augment/skills/`
-- `.bob/skills/`
 - `.claude/skills/`
 - `./skills/`
 - `.codebuddy/skills/`
@@ -332,6 +331,7 @@ The CLI searches for skills in these locations within a repository:
 - `.factory/skills/`
 - `.goose/skills/`
 - `.junie/skills/`
+- `.bob/skills/`
 - `.iflow/skills/`
 - `.kilocode/skills/`
 - `.kiro/skills/`

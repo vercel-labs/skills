@@ -54,15 +54,6 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.augment'));
     },
   },
-  bob: {
-    name: 'bob',
-    displayName: 'IBM Bob',
-    skillsDir: '.bob/skills',
-    globalSkillsDir: join(home, '.bob/skills'),
-    detectInstalled: async () => {
-      return existsSync(join(home, '.bob'));
-    },
-  },
   'claude-code': {
     name: 'claude-code',
     displayName: 'Claude Code',
@@ -218,6 +209,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.junie/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.junie'));
+    },
+  },
+  bob: {
+    name: 'bob',
+    displayName: 'IBM Bob',
+    skillsDir: '.bob/skills',
+    globalSkillsDir: join(home, '.bob/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.bob'));
     },
   },
   'iflow-cli': {
