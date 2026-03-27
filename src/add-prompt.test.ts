@@ -51,6 +51,7 @@ describe('promptForAgents', () => {
         initialSelected: ['cursor'],
       })
     );
+    expect(skillLock.getLastSelectedAgents).toHaveBeenCalledWith('project');
   });
 
   it('should filter out invalid agents from history', async () => {
@@ -81,13 +82,22 @@ describe('promptForAgents', () => {
     );
   });
 
-  it('should save selected agents if not cancelled', async () => {
+  it('should read global history when prompting for global installs', async () => {
+    vi.mocked(skillLock.getLastSelectedAgents).mockResolvedValue(['cursor']);
+    vi.mocked(searchMultiselectModule.searchMultiselect).mockResolvedValue(['cursor']);
+
+    await promptForAgents('Select agents', choices, { global: true });
+
+    expect(skillLock.getLastSelectedAgents).toHaveBeenCalledWith('global');
+  });
+
+  it('should not save selected agents directly', async () => {
     vi.mocked(skillLock.getLastSelectedAgents).mockResolvedValue(undefined);
     vi.mocked(searchMultiselectModule.searchMultiselect).mockResolvedValue(['opencode']);
 
     await promptForAgents('Select agents', choices);
 
-    expect(skillLock.saveSelectedAgents).toHaveBeenCalledWith(['opencode']);
+    expect(skillLock.saveSelectedAgents).not.toHaveBeenCalled();
   });
 
   it('should not save agents if cancelled', async () => {

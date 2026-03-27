@@ -73,17 +73,19 @@ export function getCanonicalSkillsDir(global: boolean, cwd?: string): string {
 }
 
 /**
- * Gets the base directory for an agent's skills, respecting universal agents.
- * Universal agents always use the canonical directory, which prevents
- * redundant symlinks and double-listing of skills.
+ * Gets the effective base directory for an agent's skills in the current scope.
+ * Project-scoped installs share the canonical directory for universal agents.
+ * Global installs use the agent's actual global skills dir unless it matches
+ * the canonical global directory.
  */
 export function getAgentBaseDir(agentType: AgentType, global: boolean, cwd?: string): string {
-  if (isUniversalAgent(agentType)) {
-    return getCanonicalSkillsDir(global, cwd);
-  }
-
   const agent = agents[agentType];
   const baseDir = global ? homedir() : cwd || process.cwd();
+  const canonicalDir = getCanonicalSkillsDir(global, cwd);
+
+  if (!global && isUniversalAgent(agentType)) {
+    return canonicalDir;
+  }
 
   if (global) {
     if (agent.globalSkillsDir === undefined) {
@@ -94,6 +96,14 @@ export function getAgentBaseDir(agentType: AgentType, global: boolean, cwd?: str
   }
 
   return join(baseDir, agent.skillsDir);
+}
+
+export function sharesCanonicalSkillsDir(
+  agentType: AgentType,
+  global: boolean,
+  cwd?: string
+): boolean {
+  return getAgentBaseDir(agentType, global, cwd) === getCanonicalSkillsDir(global, cwd);
 }
 
 function resolveSymlinkTarget(linkPath: string, linkTarget: string): string {
@@ -278,13 +288,10 @@ export async function installSkillForAgent(
     await cleanAndCreateDirectory(canonicalDir);
     await copyDirectory(skill.path, canonicalDir);
 
-    // For universal agents with global install, the skill is already in the canonical
-    // ~/.agents/skills directory. Skip creating a symlink to the agent-specific global dir
-    // (e.g. ~/.copilot/skills) to avoid duplicates.
-    if (isGlobal && isUniversalAgent(agentType)) {
+    if (sharesCanonicalSkillsDir(agentType, isGlobal, cwd)) {
       return {
         success: true,
-        path: canonicalDir,
+        path: agentDir,
         canonicalPath: canonicalDir,
         mode: 'symlink',
       };
@@ -381,19 +388,14 @@ export async function isSkillInstalled(
   agentType: AgentType,
   options: { global?: boolean; cwd?: string } = {}
 ): Promise<boolean> {
-  const agent = agents[agentType];
   const sanitized = sanitizeName(skillName);
 
-  // Agent doesn't support global installation
-  if (options.global && agent.globalSkillsDir === undefined) {
+  const targetBase = getAgentBaseDir(agentType, options.global ?? false, options.cwd);
+  const skillDir = join(targetBase, sanitized);
+
+  if (options.global && agents[agentType].globalSkillsDir === undefined) {
     return false;
   }
-
-  const targetBase = options.global
-    ? agent.globalSkillsDir!
-    : join(options.cwd || process.cwd(), agent.skillsDir);
-
-  const skillDir = join(targetBase, sanitized);
 
   if (!isPathSafe(targetBase, skillDir)) {
     return false;
@@ -412,8 +414,6 @@ export function getInstallPath(
   agentType: AgentType,
   options: { global?: boolean; cwd?: string } = {}
 ): string {
-  const agent = agents[agentType];
-  const cwd = options.cwd || process.cwd();
   const sanitized = sanitizeName(skillName);
 
   const targetBase = getAgentBaseDir(agentType, options.global ?? false, options.cwd);
@@ -519,11 +519,10 @@ export async function installRemoteSkillForAgent(
     const skillMdPath = join(canonicalDir, 'SKILL.md');
     await writeFile(skillMdPath, skill.content, 'utf-8');
 
-    // For universal agents with global install, skip creating agent-specific symlink
-    if (isGlobal && isUniversalAgent(agentType)) {
+    if (sharesCanonicalSkillsDir(agentType, isGlobal, cwd)) {
       return {
         success: true,
-        path: canonicalDir,
+        path: agentDir,
         canonicalPath: canonicalDir,
         mode: 'symlink',
       };
@@ -657,11 +656,10 @@ export async function installWellKnownSkillForAgent(
     await cleanAndCreateDirectory(canonicalDir);
     await writeSkillFiles(canonicalDir);
 
-    // For universal agents with global install, skip creating agent-specific symlink
-    if (isGlobal && isUniversalAgent(agentType)) {
+    if (sharesCanonicalSkillsDir(agentType, isGlobal, cwd)) {
       return {
         success: true,
-        path: canonicalDir,
+        path: agentDir,
         canonicalPath: canonicalDir,
         mode: 'symlink',
       };
@@ -769,7 +767,7 @@ export async function listInstalledSkills(
       if (isGlobal && agent.globalSkillsDir === undefined) {
         continue;
       }
-      const agentDir = isGlobal ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
+      const agentDir = getAgentBaseDir(agentType, isGlobal, cwd);
       // Avoid duplicate paths
       if (!scopes.some((s) => s.path === agentDir && s.global === isGlobal)) {
         scopes.push({ global: isGlobal, path: agentDir, agentType });
@@ -785,7 +783,7 @@ export async function listInstalledSkills(
       if (agentsToCheck.includes(agentType)) continue;
       const agent = agents[agentType];
       if (isGlobal && agent.globalSkillsDir === undefined) continue;
-      const agentDir = isGlobal ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
+      const agentDir = getAgentBaseDir(agentType, isGlobal, cwd);
       if (scopes.some((s) => s.path === agentDir && s.global === isGlobal)) continue;
       if (existsSync(agentDir)) {
         scopes.push({ global: isGlobal, path: agentDir, agentType });
@@ -853,7 +851,7 @@ export async function listInstalledSkills(
             continue;
           }
 
-          const agentBase = scope.global ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
+          const agentBase = getAgentBaseDir(agentType, scope.global, cwd);
           let found = false;
 
           // Try exact directory name matches

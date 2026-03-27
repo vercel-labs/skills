@@ -54,7 +54,11 @@ export interface SkillLockFile {
   dismissed?: DismissedPrompts;
   /** Last selected agents for installation */
   lastSelectedAgents?: string[];
+  /** Last selected agents for global installation */
+  lastSelectedGlobalAgents?: string[];
 }
+
+export type AgentSelectionScope = 'project' | 'global';
 
 /**
  * Get the path to the global skill lock file.
@@ -335,16 +339,25 @@ export async function dismissPrompt(promptKey: keyof DismissedPrompts): Promise<
 /**
  * Get the last selected agents.
  */
-export async function getLastSelectedAgents(): Promise<string[] | undefined> {
+export async function getLastSelectedAgents(
+  scope: AgentSelectionScope = 'project'
+): Promise<string[] | undefined> {
   const lock = await readSkillLock();
-  return lock.lastSelectedAgents;
+  return scope === 'global' ? lock.lastSelectedGlobalAgents : lock.lastSelectedAgents;
 }
 
 /**
  * Save the selected agents to the lock file.
  */
-export async function saveSelectedAgents(agents: string[]): Promise<void> {
+export async function saveSelectedAgents(
+  agents: string[],
+  scope: AgentSelectionScope = 'project'
+): Promise<void> {
   const lock = await readSkillLock();
-  lock.lastSelectedAgents = agents;
+  if (scope === 'global') {
+    lock.lastSelectedGlobalAgents = agents;
+  } else {
+    lock.lastSelectedAgents = agents;
+  }
   await writeSkillLock(lock);
 }

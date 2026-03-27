@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { existsSync, rmSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, rmSync, mkdirSync, writeFileSync, lstatSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from './test-utils.ts';
@@ -19,6 +19,50 @@ describe('add command', () => {
       rmSync(testDir, { recursive: true, force: true });
     }
   });
+
+  function writeSkillSource(sourceDir: string, skillName: string, description: string) {
+    mkdirSync(sourceDir, { recursive: true });
+    writeFileSync(
+      join(sourceDir, 'SKILL.md'),
+      `---
+name: ${skillName}
+description: ${description}
+---
+
+# ${skillName}
+`
+    );
+  }
+
+  function writeGlobalLock(
+    lockPath: string,
+    skills: Record<string, { source: string; sourceType: string; sourceUrl?: string }>,
+    lastSelectedAgents?: string[]
+  ) {
+    mkdirSync(join(lockPath, '..'), { recursive: true });
+    writeFileSync(
+      lockPath,
+      JSON.stringify(
+        {
+          version: 3,
+          skills: Object.fromEntries(
+            Object.entries(skills).map(([skillName, entry]) => [
+              skillName,
+              {
+                skillFolderHash: '',
+                installedAt: '2026-03-23T00:00:00.000Z',
+                updatedAt: '2026-03-23T00:00:00.000Z',
+                ...entry,
+              },
+            ])
+          ),
+          ...(lastSelectedAgents ? { lastSelectedAgents } : {}),
+        },
+        null,
+        2
+      )
+    );
+  }
 
   it('should show error when no source provided', () => {
     const result = runCli(['add'], testDir);
@@ -156,6 +200,218 @@ description: Test
   it('should restore from lock file with experimental_install', () => {
     const result = runCli(['experimental_install'], testDir);
     expect(result.stdout).toContain('No project skills found in skills-lock.json');
+  });
+
+  it('should relink codex from inside a project cwd during global restore', () => {
+    const homeDir = join(testDir, 'home');
+    const stateDir = join(testDir, 'state');
+    const codexHome = join(homeDir, '.codex');
+    const sourceDir = join(testDir, 'source-skill');
+    const projectDir = join(testDir, 'project');
+    const skillName = 'global-restore-skill';
+
+    mkdirSync(codexHome, { recursive: true });
+    mkdirSync(projectDir, { recursive: true });
+    writeSkillSource(sourceDir, skillName, 'A global restore skill');
+    writeGlobalLock(
+      join(stateDir, 'skills', '.skill-lock.json'),
+      {
+        [skillName]: {
+          source: sourceDir,
+          sourceType: 'local',
+          sourceUrl: sourceDir,
+        },
+      },
+      ['codex']
+    );
+
+    const result = runCli(['experimental_install', '-g'], projectDir, {
+      HOME: homeDir,
+      XDG_STATE_HOME: stateDir,
+      CODEX_HOME: codexHome,
+    });
+
+    const canonicalSkillDir = join(homeDir, '.agents', 'skills', skillName);
+    const codexSkillDir = join(codexHome, 'skills', skillName);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Restoring 1 skill from the global skill lock');
+    expect(result.stdout).toContain('Codex');
+    expect(existsSync(join(canonicalSkillDir, 'SKILL.md'))).toBe(true);
+    expect(existsSync(join(codexSkillDir, 'SKILL.md'))).toBe(true);
+    expect(lstatSync(codexSkillDir).isSymbolicLink()).toBe(true);
+  });
+
+  it('should restore cline into the canonical global path', () => {
+    const homeDir = join(testDir, 'home');
+    const stateDir = join(testDir, 'state');
+    const clineHome = join(homeDir, '.cline');
+    const sourceDir = join(testDir, 'source-skill');
+    const projectDir = join(testDir, 'project');
+    const skillName = 'cline-global-skill';
+
+    mkdirSync(clineHome, { recursive: true });
+    mkdirSync(projectDir, { recursive: true });
+    writeSkillSource(sourceDir, skillName, 'A cline global restore skill');
+    writeGlobalLock(
+      join(stateDir, 'skills', '.skill-lock.json'),
+      {
+        [skillName]: {
+          source: sourceDir,
+          sourceType: 'local',
+          sourceUrl: sourceDir,
+        },
+      },
+      ['cline']
+    );
+
+    const result = runCli(['experimental_install', '-g'], projectDir, {
+      HOME: homeDir,
+      XDG_STATE_HOME: stateDir,
+    });
+    const canonicalSkillDir = join(homeDir, '.agents', 'skills', skillName);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Cline');
+    expect(existsSync(join(canonicalSkillDir, 'SKILL.md'))).toBe(true);
+    expect(lstatSync(canonicalSkillDir).isSymbolicLink()).toBe(false);
+  });
+
+  it('should relink codex and claude-code without touching overlapping project skills', () => {
+    const homeDir = join(testDir, 'home');
+    const stateDir = join(testDir, 'state');
+    const codexHome = join(homeDir, '.codex');
+    const claudeHome = join(homeDir, '.claude');
+    const sourceDir = join(testDir, 'source-skill');
+    const projectDir = join(testDir, 'project');
+    const skillName = 'overlap-skill';
+
+    mkdirSync(codexHome, { recursive: true });
+    mkdirSync(claudeHome, { recursive: true });
+    mkdirSync(join(projectDir, '.agents', 'skills', skillName), { recursive: true });
+    writeFileSync(
+      join(projectDir, '.agents', 'skills', skillName, 'SKILL.md'),
+      `---
+name: ${skillName}
+description: Project overlap skill
+---
+
+# Project overlap skill
+`
+    );
+    writeSkillSource(sourceDir, skillName, 'Global overlap skill');
+    writeGlobalLock(join(stateDir, 'skills', '.skill-lock.json'), {
+      [skillName]: {
+        source: sourceDir,
+        sourceType: 'local',
+        sourceUrl: sourceDir,
+      },
+    });
+
+    const projectSkillDir = join(projectDir, '.agents', 'skills', skillName);
+    const result = runCli(
+      ['experimental_install', '-g', '--agent', 'codex', 'claude-code'],
+      projectDir,
+      {
+        HOME: homeDir,
+        XDG_STATE_HOME: stateDir,
+        CODEX_HOME: codexHome,
+        CLAUDE_CONFIG_DIR: claudeHome,
+      }
+    );
+    const globalCanonicalSkillDir = join(homeDir, '.agents', 'skills', skillName);
+
+    expect(result.exitCode).toBe(0);
+    expect(lstatSync(join(codexHome, 'skills', skillName)).isSymbolicLink()).toBe(true);
+    expect(lstatSync(join(claudeHome, 'skills', skillName)).isSymbolicLink()).toBe(true);
+    expect(readFileSync(join(projectSkillDir, 'SKILL.md'), 'utf-8')).toContain(
+      'Project overlap skill'
+    );
+    expect(readFileSync(join(globalCanonicalSkillDir, 'SKILL.md'), 'utf-8')).toContain(
+      'Global overlap skill'
+    );
+  });
+
+  it('should read the fallback global lock path when XDG_STATE_HOME is unset', () => {
+    const homeDir = join(testDir, 'home');
+    const codexHome = join(homeDir, '.codex');
+    const sourceDir = join(testDir, 'source-skill');
+    const projectDir = join(testDir, 'project');
+    const skillName = 'fallback-lock-skill';
+
+    mkdirSync(codexHome, { recursive: true });
+    mkdirSync(projectDir, { recursive: true });
+    writeSkillSource(sourceDir, skillName, 'A fallback lock skill');
+    writeGlobalLock(
+      join(homeDir, '.agents', '.skill-lock.json'),
+      {
+        [skillName]: {
+          source: sourceDir,
+          sourceType: 'local',
+          sourceUrl: sourceDir,
+        },
+      },
+      ['codex']
+    );
+
+    const result = runCli(['experimental_install', '-g'], projectDir, {
+      HOME: homeDir,
+      CODEX_HOME: codexHome,
+      XDG_STATE_HOME: '',
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Codex');
+    expect(existsSync(join(codexHome, 'skills', skillName))).toBe(true);
+  });
+
+  it('should recreate a missing codex link from canonical global storage', () => {
+    const homeDir = join(testDir, 'home');
+    const stateDir = join(testDir, 'state');
+    const codexHome = join(homeDir, '.codex');
+    const sourceDir = join(testDir, 'source-skill');
+    const projectDir = join(testDir, 'project');
+    const skillName = 'relinked-codex-skill';
+    const canonicalSkillDir = join(homeDir, '.agents', 'skills', skillName);
+    const codexSkillDir = join(codexHome, 'skills', skillName);
+
+    mkdirSync(codexHome, { recursive: true });
+    mkdirSync(canonicalSkillDir, { recursive: true });
+    mkdirSync(projectDir, { recursive: true });
+    writeSkillSource(sourceDir, skillName, 'A relinked codex skill');
+    writeFileSync(
+      join(canonicalSkillDir, 'SKILL.md'),
+      `---
+name: ${skillName}
+description: Existing canonical global skill
+---
+
+# Existing canonical global skill
+`
+    );
+    writeGlobalLock(
+      join(stateDir, 'skills', '.skill-lock.json'),
+      {
+        [skillName]: {
+          source: sourceDir,
+          sourceType: 'local',
+          sourceUrl: sourceDir,
+        },
+      },
+      ['codex']
+    );
+
+    expect(existsSync(codexSkillDir)).toBe(false);
+
+    const result = runCli(['experimental_install', '-g'], projectDir, {
+      HOME: homeDir,
+      XDG_STATE_HOME: stateDir,
+      CODEX_HOME: codexHome,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(lstatSync(codexSkillDir).isSymbolicLink()).toBe(true);
+    expect(existsSync(join(canonicalSkillDir, 'SKILL.md'))).toBe(true);
   });
 
   describe('internal skills', () => {

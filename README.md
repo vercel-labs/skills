@@ -99,6 +99,7 @@ When installing interactively, you can choose:
 | `npx skills remove [skills]` | Remove installed skills from agents            |
 | `npx skills check`           | Check for available skill updates              |
 | `npx skills update`          | Update all installed skills to latest versions |
+| `npx skills experimental_install` | Restore skills from a lock file           |
 | `npx skills init [name]`     | Create a new SKILL.md template                 |
 
 ### `skills list`
@@ -137,6 +138,26 @@ npx skills check
 # Update all skills to latest versions
 npx skills update
 ```
+
+### `skills experimental_install`
+
+Restore skills from a lock file.
+
+```bash
+# Restore project skills from skills-lock.json
+npx skills experimental_install
+
+# Restore global skills from the global skill lock and relink detected/saved agents
+npx skills experimental_install -g
+
+# Restore global skills for specific agents
+npx skills experimental_install -g --agent codex claude-code
+```
+
+| Option                    | Description                                                                |
+| ------------------------- | -------------------------------------------------------------------------- |
+| `-g, --global`            | Restore from the global skill lock and relink global agent skill dirs      |
+| `-a, --agent <agents...>` | Override the global relink targets (defaults to saved or detected agents)  |
 
 ### `skills init`
 

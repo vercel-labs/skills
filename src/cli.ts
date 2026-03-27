@@ -87,7 +87,7 @@ function showBanner(): void {
   );
   console.log();
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills experimental_install${RESET} ${DIM}Restore from skills-lock.json${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}npx skills experimental_install${RESET} ${DIM}Restore from a skills lock file${RESET}`
   );
   console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills init ${DIM}[name]${RESET}          ${DIM}Create a new skill${RESET}`
@@ -119,7 +119,7 @@ ${BOLD}Updates:${RESET}
   update               Update all skills to latest versions
 
 ${BOLD}Project:${RESET}
-  experimental_install Restore skills from skills-lock.json
+  experimental_install Restore skills from a skills lock file
   init [name]          Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)
   experimental_sync    Sync skills from node_modules into agent directories
 
@@ -143,6 +143,10 @@ ${BOLD}Remove Options:${RESET}
 ${BOLD}Experimental Sync Options:${RESET}
   -a, --agent <agents>   Specify agents to install to (use '*' for all agents)
   -y, --yes              Skip confirmation prompts
+
+${BOLD}Experimental Install Options:${RESET}
+  -g, --global           Restore from the global skill lock and relink global agent dirs
+  -a, --agent <agents>   Specify restore targets (defaults to saved or detected global agents)
 
 ${BOLD}List Options:${RESET}
   -g, --global           List global skills (default: project)
@@ -170,6 +174,9 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills check
   ${DIM}$${RESET} skills update
   ${DIM}$${RESET} skills experimental_install            ${DIM}# restore from skills-lock.json${RESET}
+  ${DIM}$${RESET} skills experimental_install -g         ${DIM}# restore from the global skill lock${RESET}
+  ${DIM}$${RESET} skills experimental_install -g --agent codex claude-code
+                                             ${DIM}# relink specific global agents${RESET}
   ${DIM}$${RESET} skills init my-skill
   ${DIM}$${RESET} skills experimental_sync              ${DIM}# sync from node_modules${RESET}
   ${DIM}$${RESET} skills experimental_sync -y           ${DIM}# sync without prompts${RESET}
