@@ -26,6 +26,12 @@ export interface SkillLockEntry {
    * Fetched via GitHub Trees API by the telemetry server.
    */
   skillFolderHash: string;
+  /**
+   * Version string from the skill's SKILL.md frontmatter (e.g., "1.0.0").
+   * Used as a reliable fallback for update checks when hash comparison
+   * is unreliable (e.g., hash algorithm mismatch between local and remote).
+   */
+  version?: string;
   /** ISO timestamp when the skill was first installed */
   installedAt: string;
   /** ISO timestamp when the skill was last updated */
@@ -223,6 +229,98 @@ export async function fetchSkillFolderHash(
     } catch {
       continue;
     }
+  }
+
+  return null;
+}
+
+/**
+ * Fetch the version string from a remote skill's SKILL.md frontmatter.
+ * Uses raw.githubusercontent.com to fetch the file content, then parses
+ * the YAML frontmatter to extract the `version` field.
+ *
+ * This is a lightweight alternative to fetchSkillFolderHash that only
+ * requires fetching a single file instead of the entire repo tree.
+ *
+ * @param ownerRepo - GitHub owner/repo (e.g., "vercel-labs/agent-skills")
+ * @param skillPath - Path to skill folder or SKILL.md (e.g., "skills/my-skill/SKILL.md")
+ * @param token - Optional GitHub token for private repos
+ * @returns The version string, or null if not found
+ */
+export async function fetchRemoteSkillVersion(
+  ownerRepo: string,
+  skillPath: string,
+  token?: string | null
+): Promise<string | null> {
+  // Normalize to get the SKILL.md path
+  let mdPath = skillPath.replace(/\\/g, '/');
+  if (!mdPath.endsWith('SKILL.md')) {
+    if (mdPath.endsWith('/')) {
+      mdPath += 'SKILL.md';
+    } else {
+      mdPath += '/SKILL.md';
+    }
+  }
+
+  const branches = ['main', 'master'];
+
+  for (const branch of branches) {
+    try {
+      const url = `https://raw.githubusercontent.com/${ownerRepo}/${branch}/${mdPath}`;
+      const headers: Record<string, string> = {
+        'User-Agent': 'skills-cli',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(url, { headers });
+
+      if (!response.ok) continue;
+
+      const content = await response.text();
+
+      // Parse YAML frontmatter (between --- delimiters)
+      const match = content.match(/^---\s*\n([\s\S]*?)\n---/);
+      if (!match) continue;
+
+      // Extract version field from frontmatter
+      const versionMatch = match[1].match(/^version:\s*['"]?([^\s'"]+)['"]?\s*$/m);
+      if (versionMatch && versionMatch[1]) {
+        return versionMatch[1];
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Extract the version string from a local SKILL.md file's frontmatter.
+ *
+ * @param skillDir - Path to the skill directory containing SKILL.md
+ * @returns The version string, or null if not found
+ */
+export async function extractLocalSkillVersion(
+  skillDir: string
+): Promise<string | null> {
+  try {
+    const { readFile } = await import('fs/promises');
+    const { join } = await import('path');
+    const skillMdPath = join(skillDir, 'SKILL.md');
+    const content = await readFile(skillMdPath, 'utf-8');
+
+    const match = content.match(/^---\s*\n([\s\S]*?)\n---/);
+    if (!match) return null;
+
+    const versionMatch = match[1].match(/^version:\s*['"]?([^\s'"]+)['"]?\s*$/m);
+    if (versionMatch && versionMatch[1]) {
+      return versionMatch[1];
+    }
+  } catch {
+    // SKILL.md not found or not readable
   }
 
   return null;
