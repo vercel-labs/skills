@@ -18,6 +18,8 @@ export interface RemoveOptions {
   agent?: string[];
   yes?: boolean;
   all?: boolean;
+  /** Override for testing — defaults to detectInstalledAgents */
+  _detectInstalledAgents?: () => Promise<AgentType[]>;
 }
 
 export async function removeCommand(skillNames: string[], options: RemoveOptions) {
@@ -191,7 +193,8 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
       // Only remove the canonical path if no other installed agents are using it.
       // This prevents breaking other agents when uninstalling from a specific agent (#287).
-      const installedAgents = await detectInstalledAgents();
+      const detectFn = options._detectInstalledAgents ?? detectInstalledAgents;
+      const installedAgents = await detectFn();
       const remainingAgents = installedAgents.filter((a) => !targetAgents.includes(a));
 
       let isStillUsed = false;

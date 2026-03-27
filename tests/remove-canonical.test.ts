@@ -1,18 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdir, rm, writeFile, lstat, symlink } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { removeCommand } from '../src/remove.ts';
-import * as agentsModule from '../src/agents.ts';
-
-// Mock detectInstalledAgents
-vi.mock('../src/agents.ts', async () => {
-  const actual = await vi.importActual('../src/agents.ts');
-  return {
-    ...actual,
-    detectInstalledAgents: vi.fn(),
-  };
-});
+import type { AgentType } from '../src/types.ts';
 
 describe('removeCommand canonical protection', () => {
   let tempDir: string;
@@ -63,12 +54,12 @@ describe('removeCommand canonical protection', () => {
       (await lstat(continuePath)).isSymbolicLink() || (await lstat(continuePath)).isDirectory()
     ).toBe(true);
 
-    // Mock agents: Claude and Continue are installed
-    vi.mocked(agentsModule.detectInstalledAgents).mockResolvedValue(['claude-code', 'continue']);
-
-    // 3. Remove from Claude only
-    // -a claude-code
-    await removeCommand([skillName], { agent: ['claude-code'], yes: true });
+    // 3. Remove from Claude only, with DI override for detectInstalledAgents
+    await removeCommand([skillName], {
+      agent: ['claude-code'],
+      yes: true,
+      _detectInstalledAgents: async (): Promise<AgentType[]> => ['claude-code', 'continue'],
+    });
 
     // 4. Verify results
     // Claude path should be gone
@@ -92,11 +83,12 @@ describe('removeCommand canonical protection', () => {
     await writeFile(join(canonicalPath, 'SKILL.md'), '# Test');
     await symlink(canonicalPath, claudePath, 'junction');
 
-    // Mock agents: Only Claude is installed
-    vi.mocked(agentsModule.detectInstalledAgents).mockResolvedValue(['claude-code']);
-
-    // Remove from Claude
-    await removeCommand([skillName], { agent: ['claude-code'], yes: true });
+    // Remove from Claude, with DI override — only Claude is installed
+    await removeCommand([skillName], {
+      agent: ['claude-code'],
+      yes: true,
+      _detectInstalledAgents: async (): Promise<AgentType[]> => ['claude-code'],
+    });
 
     // Both should be gone
     await expect(lstat(claudePath)).rejects.toThrow();

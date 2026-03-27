@@ -3,10 +3,25 @@ import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
 import { execSync } from 'child_process';
+import { resolveDefaultBranch } from './git.ts';
 
 const AGENTS_DIR = '.agents';
 const LOCK_FILE = '.skill-lock.json';
 const CURRENT_VERSION = 3; // Bumped from 2 to 3 for folder hash support (GitHub tree SHA)
+
+/**
+ * Strip `SKILL.md` suffix and trailing slashes from a skill path to get the
+ * containing folder path. Backslashes are normalized to forward slashes.
+ *
+ * Returns `""` for root-level skills (e.g. bare `"SKILL.md"`).
+ */
+export function normalizeSkillFolder(skillPath: string): string {
+  let folder = skillPath.replace(/\\/g, '/');
+  if (folder.endsWith('/SKILL.md')) folder = folder.slice(0, -9);
+  else if (folder.endsWith('SKILL.md')) folder = folder.slice(0, -8);
+  if (folder.endsWith('/')) folder = folder.slice(0, -1);
+  return folder;
+}
 
 /**
  * Represents a single installed skill entry in the lock file.
@@ -170,22 +185,15 @@ export async function fetchSkillFolderHash(
   skillPath: string,
   token?: string | null
 ): Promise<string | null> {
-  // Normalize to forward slashes first (for GitHub API compatibility)
-  let folderPath = skillPath.replace(/\\/g, '/');
+  const folderPath = normalizeSkillFolder(skillPath);
 
-  // Remove SKILL.md suffix to get folder path
-  if (folderPath.endsWith('/SKILL.md')) {
-    folderPath = folderPath.slice(0, -9);
-  } else if (folderPath.endsWith('SKILL.md')) {
-    folderPath = folderPath.slice(0, -8);
+  const repoUrl = `https://github.com/${ownerRepo}.git`;
+  const defaultBranch = await resolveDefaultBranch(repoUrl);
+  const branches = defaultBranch ? [defaultBranch] : ['main', 'master'];
+
+  if (!defaultBranch) {
+    console.error(`Warning: Could not resolve default branch for ${ownerRepo}, trying main/master`);
   }
-
-  // Remove trailing slash
-  if (folderPath.endsWith('/')) {
-    folderPath = folderPath.slice(0, -1);
-  }
-
-  const branches = ['main', 'master'];
 
   for (const branch of branches) {
     try {

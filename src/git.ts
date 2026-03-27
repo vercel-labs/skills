@@ -1,7 +1,7 @@
-import simpleGit from 'simple-git';
-import { join, normalize, resolve, sep } from 'path';
 import { mkdtemp, rm } from 'fs/promises';
 import { tmpdir } from 'os';
+import { join, normalize, resolve, sep } from 'path';
+import simpleGit from 'simple-git';
 
 const CLONE_TIMEOUT_MS = 60000; // 60 seconds
 
@@ -21,9 +21,9 @@ export class GitCloneError extends Error {
 
 export async function cloneRepo(url: string, ref?: string): Promise<string> {
   const tempDir = await mkdtemp(join(tmpdir(), 'skills-'));
-  const git = simpleGit({
-    timeout: { block: CLONE_TIMEOUT_MS },
-    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+  const git = simpleGit({ timeout: { block: CLONE_TIMEOUT_MS } }).env({
+    ...process.env,
+    GIT_TERMINAL_PROMPT: '0',
   });
   const cloneOptions = ref ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
 
@@ -67,6 +67,30 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
     }
 
     throw new GitCloneError(`Failed to clone ${url}: ${errorMessage}`, url, false, false);
+  }
+}
+
+/** Parse the branch name from `git ls-remote --symref` output. */
+export function parseSymrefOutput(output: string): string | null {
+  // Output format: "ref: refs/heads/main\tHEAD\n<sha>\tHEAD\n"
+  const match = output.match(/^ref:\s+refs\/heads\/(\S+)\s+HEAD$/m);
+  return match?.[1] ?? null;
+}
+
+/**
+ * Resolve the default branch of a remote repository via `git ls-remote --symref`.
+ * Returns the branch name (e.g. "main"), or null if resolution fails.
+ */
+export async function resolveDefaultBranch(repoUrl: string): Promise<string | null> {
+  const git = simpleGit({ timeout: { block: 10_000 } }).env({
+    ...process.env,
+    GIT_TERMINAL_PROMPT: '0',
+  });
+  try {
+    const output = await git.listRemote(['--symref', repoUrl, 'HEAD']);
+    return parseSymrefOutput(output);
+  } catch {
+    return null;
   }
 }
 
