@@ -324,6 +324,46 @@ export class WellKnownProvider implements HostProvider {
   }
 
   /**
+   * Fetch specific skills by name from a well-known endpoint.
+   * Only downloads the index and the requested skills, avoiding unnecessary
+   * network requests for skills that won't be installed.
+   *
+   * @param url - The well-known endpoint URL
+   * @param skillNames - Array of skill names to fetch (case-insensitive)
+   * @returns Array of fetched skills (only those matching the requested names)
+   */
+  async fetchSkillsByNames(url: string, skillNames: string[]): Promise<WellKnownSkill[]> {
+    try {
+      const result = await this.fetchIndex(url);
+      if (!result) {
+        return [];
+      }
+
+      const { index, resolvedBaseUrl, resolvedWellKnownPath } = result;
+
+      // Filter index entries to only the requested skill names
+      const lowerNames = new Set(skillNames.map((n) => n.toLowerCase()));
+      const matchedEntries = index.skills.filter((entry: WellKnownSkillEntry) =>
+        lowerNames.has(entry.name.toLowerCase())
+      );
+
+      if (matchedEntries.length === 0) {
+        return [];
+      }
+
+      // Only fetch the matched skills in parallel
+      const skillPromises = matchedEntries.map((entry: WellKnownSkillEntry) =>
+        this.fetchSkillByEntry(resolvedBaseUrl, entry, resolvedWellKnownPath)
+      );
+      const results = await Promise.all(skillPromises);
+
+      return results.filter((s: WellKnownSkill | null): s is WellKnownSkill => s !== null);
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * Fetch all skills from a well-known endpoint.
    */
   async fetchAllSkills(url: string): Promise<WellKnownSkill[]> {

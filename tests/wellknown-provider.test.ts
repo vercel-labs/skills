@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { WellKnownProvider } from '../src/providers/wellknown.ts';
 
 describe('WellKnownProvider', () => {
@@ -109,6 +109,115 @@ describe('WellKnownProvider', () => {
     it('provider should have display name "Well-Known Skills"', () => {
       expect(provider.displayName).toBe('Well-Known Skills');
     });
+  });
+});
+
+describe('WellKnownProvider.fetchSkillsByNames', () => {
+  const provider = new WellKnownProvider();
+
+  // Mock index.json and SKILL.md responses
+  const mockIndex = {
+    skills: [
+      { name: 'skill-a', description: 'Skill A desc', files: ['SKILL.md'] },
+      { name: 'skill-b', description: 'Skill B desc', files: ['SKILL.md', 'refs/data.md'] },
+      { name: 'skill-c', description: 'Skill C desc', files: ['SKILL.md'] },
+    ],
+  };
+
+  const skillMdContent = (name: string) =>
+    `---\nname: ${name}\ndescription: ${name} description\n---\n# ${name}`;
+
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch');
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  function mockFetchResponses() {
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+
+      if (url.includes('index.json')) {
+        return new Response(JSON.stringify(mockIndex), { status: 200 });
+      }
+
+      // Match SKILL.md requests like /.well-known/agent-skills/skill-a/SKILL.md
+      const skillMatch = url.match(/\/([a-z-]+)\/SKILL\.md$/);
+      if (skillMatch && skillMatch[1]) {
+        const name = skillMatch[1];
+        if (['skill-a', 'skill-b', 'skill-c'].includes(name)) {
+          return new Response(skillMdContent(name), { status: 200 });
+        }
+      }
+
+      // Match other files like refs/data.md
+      if (url.includes('/refs/data.md')) {
+        return new Response('reference data', { status: 200 });
+      }
+
+      return new Response('Not found', { status: 404 });
+    });
+  }
+
+  it('should only fetch requested skills, not all skills', async () => {
+    mockFetchResponses();
+
+    const results = await provider.fetchSkillsByNames('https://example.com', ['skill-b']);
+
+    expect(results).toHaveLength(1);
+    expect(results[0]!.installName).toBe('skill-b');
+
+    // Verify: should NOT have fetched skill-a or skill-c SKILL.md
+    const fetchedUrls = fetchSpy.mock.calls.map((call) => {
+      const input = call[0];
+      return typeof input === 'string' ? input : input!.toString();
+    });
+
+    expect(fetchedUrls.some((u) => u.includes('/skill-a/SKILL.md'))).toBe(false);
+    expect(fetchedUrls.some((u) => u.includes('/skill-c/SKILL.md'))).toBe(false);
+    expect(fetchedUrls.some((u) => u.includes('/skill-b/SKILL.md'))).toBe(true);
+  });
+
+  it('should handle case-insensitive skill name matching', async () => {
+    mockFetchResponses();
+
+    const results = await provider.fetchSkillsByNames('https://example.com', ['Skill-A']);
+
+    expect(results).toHaveLength(1);
+    expect(results[0]!.installName).toBe('skill-a');
+  });
+
+  it('should fetch multiple requested skills', async () => {
+    mockFetchResponses();
+
+    const results = await provider.fetchSkillsByNames('https://example.com', [
+      'skill-a',
+      'skill-c',
+    ]);
+
+    expect(results).toHaveLength(2);
+    const names = results.map((r) => r.installName).sort();
+    expect(names).toEqual(['skill-a', 'skill-c']);
+  });
+
+  it('should return empty array for non-existent skill names', async () => {
+    mockFetchResponses();
+
+    const results = await provider.fetchSkillsByNames('https://example.com', ['non-existent']);
+
+    expect(results).toHaveLength(0);
+  });
+
+  it('should return empty array when index fetch fails', async () => {
+    fetchSpy.mockImplementation(async () => new Response('Not found', { status: 404 }));
+
+    const results = await provider.fetchSkillsByNames('https://example.com', ['skill-a']);
+
+    expect(results).toHaveLength(0);
   });
 });
 
