@@ -1,6 +1,6 @@
 {
   "name": "skills",
-  "version": "1.4.5",
+  "version": "1.4.6",
   "description": "The open agent skills ecosystem",
   "type": "module",
   "bin": {
@@ -19,8 +19,8 @@
     "dev": "node src/cli.ts",
     "exec:test": "node scripts/execute-tests.ts",
     "prepublishOnly": "npm run build",
-    "format": "prettier --write 'src/**/*.ts' 'scripts/**/*.ts'",
-    "format:check": "prettier --check 'src/**/*.ts' 'scripts/**/*.ts'",
+    "format": "prettier --write \"src/**/*.ts\" \"scripts/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"scripts/**/*.ts\"",
     "prepare": "husky",
     "test": "vitest",
     "type-check": "tsc --noEmit",
@@ -49,7 +49,9 @@
     "cortex",
     "crush",
     "cursor",
+    "deepagents",
     "droid",
+    "firebender",
     "gemini-cli",
     "github-copilot",
     "goose",

@@ -4,7 +4,7 @@ import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { sep } from 'path';
 import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
-import { searchMultiselect, cancelSymbol } from './prompts/search-multiselect.ts';
+import { searchMultiselect } from './prompts/search-multiselect.ts';
 
 // Helper to check if a value is a cancel symbol (works with both clack and our custom prompts)
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
@@ -26,7 +26,6 @@ import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
 import {
   installSkillForAgent,
   isSkillInstalled,
-  getInstallPath,
   getCanonicalPath,
   installWellKnownSkillForAgent,
   type InstallMode,
@@ -43,7 +42,6 @@ import {
   setVersion,
   fetchAuditData,
   type AuditResponse,
-  type SkillAuditData,
   type PartnerAudit,
 } from './telemetry.ts';
 import { wellKnownProvider, type WellKnownSkill } from './providers/index.ts';
@@ -422,7 +420,8 @@ export interface AddOptions {
 
 /**
  * Handle skills from a well-known endpoint (RFC 8615).
- * Discovers skills from /.well-known/skills/index.json
+ * Discovers skills from /.well-known/agent-skills/index.json (preferred)
+ * or /.well-known/skills/index.json (legacy fallback).
  */
 async function handleWellKnownSkills(
   source: string,
@@ -439,7 +438,7 @@ async function handleWellKnownSkills(
     spinner.stop(pc.red('No skills found'));
     p.outro(
       pc.red(
-        'No skills found at this URL. Make sure the server has a /.well-known/skills/index.json file.'
+        'No skills found at this URL. Make sure the server has a /.well-known/agent-skills/index.json or /.well-known/skills/index.json file.'
       )
     );
     process.exit(1);

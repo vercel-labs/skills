@@ -263,7 +263,8 @@ export function parseSource(input: string): ParsedSource {
   }
 
   // Well-known skills: arbitrary HTTP(S) URLs that aren't GitHub/GitLab
-  // This is the final fallback for URLs - we'll check for /.well-known/skills/index.json
+  // This is the final fallback for URLs - we'll check for /.well-known/agent-skills/index.json
+  // then fall back to /.well-known/skills/index.json
   if (isWellKnownUrl(input)) {
     return {
       type: 'well-known',

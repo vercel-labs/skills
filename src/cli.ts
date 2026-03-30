@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 
-import { spawn, spawnSync } from 'child_process';
-import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs';
+import { spawnSync } from 'child_process';
+import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { basename, join, dirname } from 'path';
 import { homedir } from 'os';
-import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
 import { runFind } from './find.ts';
@@ -279,7 +278,6 @@ Describe when this skill should be used.
 
 const AGENTS_DIR = '.agents';
 const LOCK_FILE = '.skill-lock.json';
-const CHECK_UPDATES_API_URL = 'https://add-skill.vercel.sh/check-updates';
 const CURRENT_LOCK_VERSION = 3; // Bumped from 2 to 3 for folder hash support
 
 interface SkillLockEntry {
@@ -296,29 +294,6 @@ interface SkillLockEntry {
 interface SkillLockFile {
   version: number;
   skills: Record<string, SkillLockEntry>;
-}
-
-interface CheckUpdatesRequest {
-  skills: Array<{
-    name: string;
-    source: string;
-    path?: string;
-    skillFolderHash: string;
-  }>;
-}
-
-interface CheckUpdatesResponse {
-  updates: Array<{
-    name: string;
-    source: string;
-    currentHash: string;
-    latestHash: string;
-  }>;
-  errors?: Array<{
-    name: string;
-    source: string;
-    error: string;
-  }>;
 }
 
 function getSkillLockPath(): string {
@@ -346,15 +321,6 @@ function readSkillLock(): SkillLockFile {
   } catch {
     return { version: CURRENT_LOCK_VERSION, skills: {} };
   }
-}
-
-function writeSkillLock(lock: SkillLockFile): void {
-  const lockPath = getSkillLockPath();
-  const dir = dirname(lockPath);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-  writeFileSync(lockPath, JSON.stringify(lock, null, 2), 'utf-8');
 }
 
 interface SkippedSkill {
@@ -487,6 +453,11 @@ async function runCheck(args: string[] = []): Promise<void> {
   if (errors.length > 0) {
     console.log();
     console.log(`${DIM}Could not check ${errors.length} skill(s) (may need reinstall)${RESET}`);
+    console.log();
+    for (const error of errors) {
+      console.log(`  ${DIM}✗${RESET} ${error.name}`);
+      console.log(`    ${DIM}source: ${error.source}${RESET}`);
+    }
   }
 
   printSkippedSkills(skipped);
@@ -587,9 +558,18 @@ async function runUpdate(): Promise<void> {
       installUrl = `${installUrl}/tree/main/${skillFolder}`;
     }
 
-    // Use skills CLI to reinstall with -g -y flags
-    const result = spawnSync('npx', ['-y', 'skills', 'add', installUrl, '-g', '-y'], {
+    // Reinstall using the current CLI entrypoint directly (avoid nested npm exec/npx)
+    const cliEntry = join(__dirname, '..', 'bin', 'cli.mjs');
+    if (!existsSync(cliEntry)) {
+      failCount++;
+      console.log(
+        `  ${DIM}✗ Failed to update ${update.name}: CLI entrypoint not found at ${cliEntry}${RESET}`
+      );
+      continue;
+    }
+    const result = spawnSync(process.execPath, [cliEntry, 'add', installUrl, '-g', '-y'], {
       stdio: ['inherit', 'pipe', 'pipe'],
+      encoding: 'utf-8',
       shell: process.platform === 'win32',
     });
 

@@ -68,19 +68,34 @@ describe('WellKnownProvider', () => {
   });
 
   describe('toRawUrl', () => {
-    it('should return index.json URL for base URLs', () => {
+    it('should return index.json URL for base URLs using agent-skills path', () => {
       const result = provider.toRawUrl('https://example.com');
-      expect(result).toBe('https://example.com/.well-known/skills/index.json');
+      expect(result).toBe('https://example.com/.well-known/agent-skills/index.json');
     });
 
-    it('should return index.json URL with path', () => {
+    it('should return index.json URL with path using agent-skills path', () => {
       const result = provider.toRawUrl('https://example.com/docs');
-      expect(result).toBe('https://example.com/docs/.well-known/skills/index.json');
+      expect(result).toBe('https://example.com/docs/.well-known/agent-skills/index.json');
     });
 
     it('should return SKILL.md URL if already pointing to skill.md', () => {
       const url = 'https://example.com/.well-known/skills/my-skill/SKILL.md';
       expect(provider.toRawUrl(url)).toBe(url);
+    });
+
+    it('should return SKILL.md URL for agent-skills path', () => {
+      const url = 'https://example.com/.well-known/agent-skills/my-skill/SKILL.md';
+      expect(provider.toRawUrl(url)).toBe(url);
+    });
+
+    it('should convert legacy skills skill path to agent-skills SKILL.md URL', () => {
+      const result = provider.toRawUrl('https://example.com/.well-known/skills/my-skill');
+      expect(result).toBe('https://example.com/.well-known/agent-skills/my-skill/SKILL.md');
+    });
+
+    it('should convert agent-skills skill path to SKILL.md URL', () => {
+      const result = provider.toRawUrl('https://example.com/.well-known/agent-skills/my-skill');
+      expect(result).toBe('https://example.com/.well-known/agent-skills/my-skill/SKILL.md');
     });
   });
 

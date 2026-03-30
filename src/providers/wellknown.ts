@@ -34,13 +34,18 @@ export interface WellKnownSkill extends RemoteSkill {
  * Well-known skills provider using RFC 8615 well-known URIs.
  *
  * Organizations can publish skills at:
- * https://example.com/.well-known/skills/
+ * https://example.com/.well-known/agent-skills/  (preferred)
+ * https://example.com/.well-known/skills/         (legacy fallback)
+ *
+ * The provider first checks /.well-known/agent-skills/index.json,
+ * then falls back to /.well-known/skills/index.json.
  *
  * URL formats supported:
  * - https://example.com (discovers all skills from root)
- * - https://example.com/docs (discovers from /docs/.well-known/skills/)
- * - https://example.com/.well-known/skills (discovers all skills)
- * - https://example.com/.well-known/skills/skill-name (specific skill)
+ * - https://example.com/docs (discovers from /docs/.well-known/agent-skills/)
+ * - https://example.com/.well-known/agent-skills (discovers all skills)
+ * - https://example.com/.well-known/agent-skills/skill-name (specific skill)
+ * - https://example.com/.well-known/skills (legacy fallback)
  *
  * The source identifier is "wellknown/{hostname}" or "wellknown/{hostname}/path".
  */
@@ -48,7 +53,7 @@ export class WellKnownProvider implements HostProvider {
   readonly id = 'well-known';
   readonly displayName = 'Well-Known Skills';
 
-  private readonly WELL_KNOWN_PATH = '.well-known/skills';
+  private readonly WELL_KNOWN_PATHS = ['.well-known/agent-skills', '.well-known/skills'] as const;
   private readonly INDEX_FILE = 'index.json';
 
   /**
@@ -83,34 +88,47 @@ export class WellKnownProvider implements HostProvider {
 
   /**
    * Fetch the skills index from a well-known endpoint.
-   * Tries both the path-relative .well-known and the root .well-known.
+   * Tries /.well-known/agent-skills/index.json first, then falls back to
+   * /.well-known/skills/index.json. For each path, tries path-relative
+   * first, then root .well-known.
    */
-  async fetchIndex(
-    baseUrl: string
-  ): Promise<{ index: WellKnownIndex; resolvedBaseUrl: string } | null> {
+  async fetchIndex(baseUrl: string): Promise<{
+    index: WellKnownIndex;
+    resolvedBaseUrl: string;
+    resolvedWellKnownPath: string;
+  } | null> {
     try {
       const parsed = new URL(baseUrl);
       const basePath = parsed.pathname.replace(/\/$/, ''); // Remove trailing slash
 
-      // Try path-relative .well-known first (e.g., /docs/.well-known/skills/)
-      // then fall back to root .well-known
-      const urlsToTry = [
-        // Path-relative: https://example.com/docs/.well-known/skills/index.json
-        {
-          indexUrl: `${parsed.protocol}//${parsed.host}${basePath}/${this.WELL_KNOWN_PATH}/${this.INDEX_FILE}`,
-          baseUrl: `${parsed.protocol}//${parsed.host}${basePath}`,
-        },
-      ];
+      // Build list of URLs to try:
+      // For each well-known path (agent-skills first, then skills fallback),
+      // try path-relative first, then root .well-known
+      const urlsToTry: Array<{
+        indexUrl: string;
+        baseUrl: string;
+        wellKnownPath: string;
+      }> = [];
 
-      // Also try root if we have a path
-      if (basePath && basePath !== '') {
+      for (const wellKnownPath of this.WELL_KNOWN_PATHS) {
+        // Path-relative: https://example.com/docs/.well-known/agent-skills/index.json
         urlsToTry.push({
-          indexUrl: `${parsed.protocol}//${parsed.host}/${this.WELL_KNOWN_PATH}/${this.INDEX_FILE}`,
-          baseUrl: `${parsed.protocol}//${parsed.host}`,
+          indexUrl: `${parsed.protocol}//${parsed.host}${basePath}/${wellKnownPath}/${this.INDEX_FILE}`,
+          baseUrl: `${parsed.protocol}//${parsed.host}${basePath}`,
+          wellKnownPath,
         });
+
+        // Also try root if we have a path
+        if (basePath && basePath !== '') {
+          urlsToTry.push({
+            indexUrl: `${parsed.protocol}//${parsed.host}/${wellKnownPath}/${this.INDEX_FILE}`,
+            baseUrl: `${parsed.protocol}//${parsed.host}`,
+            wellKnownPath,
+          });
+        }
       }
 
-      for (const { indexUrl, baseUrl: resolvedBase } of urlsToTry) {
+      for (const { indexUrl, baseUrl: resolvedBase, wellKnownPath } of urlsToTry) {
         try {
           const response = await fetch(indexUrl);
 
@@ -135,7 +153,7 @@ export class WellKnownProvider implements HostProvider {
           }
 
           if (allValid) {
-            return { index, resolvedBaseUrl: resolvedBase };
+            return { index, resolvedBaseUrl: resolvedBase, resolvedWellKnownPath: wellKnownPath };
           }
         } catch {
           // Try next URL
@@ -198,13 +216,15 @@ export class WellKnownProvider implements HostProvider {
         return null;
       }
 
-      const { index, resolvedBaseUrl } = result;
+      const { index, resolvedBaseUrl, resolvedWellKnownPath } = result;
 
       // Determine which skill to fetch
       let skillName: string | null = null;
 
-      // Check if URL specifies a specific skill
-      const pathMatch = parsed.pathname.match(/\/.well-known\/skills\/([^/]+)\/?$/);
+      // Check if URL specifies a specific skill (matches both agent-skills and skills paths)
+      const pathMatch = parsed.pathname.match(
+        /\/.well-known\/(?:agent-skills|skills)\/([^/]+)\/?$/
+      );
       if (pathMatch && pathMatch[1] && pathMatch[1] !== 'index.json') {
         skillName = pathMatch[1];
       } else if (index.skills.length === 1) {
@@ -223,7 +243,7 @@ export class WellKnownProvider implements HostProvider {
         return null;
       }
 
-      return this.fetchSkillByEntry(resolvedBaseUrl, skillEntry);
+      return this.fetchSkillByEntry(resolvedBaseUrl, skillEntry, resolvedWellKnownPath);
     } catch {
       return null;
     }
@@ -233,14 +253,17 @@ export class WellKnownProvider implements HostProvider {
    * Fetch a skill by its index entry.
    * @param baseUrl - The base URL (e.g., https://example.com or https://example.com/docs)
    * @param entry - The skill entry from index.json
+   * @param wellKnownPath - The resolved well-known path prefix (e.g., '.well-known/agent-skills')
    */
   async fetchSkillByEntry(
     baseUrl: string,
-    entry: WellKnownSkillEntry
+    entry: WellKnownSkillEntry,
+    wellKnownPath?: string
   ): Promise<WellKnownSkill | null> {
     try {
-      // Build the skill base URL: {baseUrl}/.well-known/skills/{skill-name}
-      const skillBaseUrl = `${baseUrl.replace(/\/$/, '')}/${this.WELL_KNOWN_PATH}/${entry.name}`;
+      const resolvedPath = wellKnownPath ?? this.WELL_KNOWN_PATHS[0];
+      // Build the skill base URL: {baseUrl}/.well-known/agent-skills/{skill-name}
+      const skillBaseUrl = `${baseUrl.replace(/\/$/, '')}/${resolvedPath}/${entry.name}`;
 
       // Fetch SKILL.md first (required)
       const skillMdUrl = `${skillBaseUrl}/SKILL.md`;
@@ -310,11 +333,11 @@ export class WellKnownProvider implements HostProvider {
         return [];
       }
 
-      const { index, resolvedBaseUrl } = result;
+      const { index, resolvedBaseUrl, resolvedWellKnownPath } = result;
 
       // Fetch all skills in parallel
       const skillPromises = index.skills.map((entry: WellKnownSkillEntry) =>
-        this.fetchSkillByEntry(resolvedBaseUrl, entry)
+        this.fetchSkillByEntry(resolvedBaseUrl, entry, resolvedWellKnownPath)
       );
       const results = await Promise.all(skillPromises);
 
@@ -327,6 +350,7 @@ export class WellKnownProvider implements HostProvider {
   /**
    * Convert a user-facing URL to a skill URL.
    * For well-known, this extracts the base domain and constructs the proper path.
+   * Uses agent-skills as the primary path for new URLs.
    */
   toRawUrl(url: string): string {
     try {
@@ -336,16 +360,20 @@ export class WellKnownProvider implements HostProvider {
         return url;
       }
 
-      // Check if URL specifies a skill path
-      const pathMatch = parsed.pathname.match(/\/.well-known\/skills\/([^/]+)\/?$/);
+      const primaryPath = this.WELL_KNOWN_PATHS[0];
+
+      // Check if URL specifies a skill path (matches both agent-skills and skills)
+      const pathMatch = parsed.pathname.match(
+        /\/.well-known\/(?:agent-skills|skills)\/([^/]+)\/?$/
+      );
       if (pathMatch && pathMatch[1]) {
-        const basePath = parsed.pathname.replace(/\/.well-known\/skills\/.*$/, '');
-        return `${parsed.protocol}//${parsed.host}${basePath}/${this.WELL_KNOWN_PATH}/${pathMatch[1]}/SKILL.md`;
+        const basePath = parsed.pathname.replace(/\/.well-known\/(?:agent-skills|skills)\/.*$/, '');
+        return `${parsed.protocol}//${parsed.host}${basePath}/${primaryPath}/${pathMatch[1]}/SKILL.md`;
       }
 
-      // Otherwise, return the index URL
+      // Otherwise, return the index URL (using primary path)
       const basePath = parsed.pathname.replace(/\/$/, '');
-      return `${parsed.protocol}//${parsed.host}${basePath}/${this.WELL_KNOWN_PATH}/${this.INDEX_FILE}`;
+      return `${parsed.protocol}//${parsed.host}${basePath}/${primaryPath}/${this.INDEX_FILE}`;
     } catch {
       return url;
     }
