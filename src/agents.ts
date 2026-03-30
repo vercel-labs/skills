@@ -94,6 +94,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(process.cwd(), '.codebuddy')) || existsSync(join(home, '.codebuddy'));
     },
   },
+  codestudio: {
+    name: 'codestudio',
+    displayName: 'Code Studio',
+    skillsDir: '.codestudio/skills',
+    globalSkillsDir: join(home, '.codestudio/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(process.cwd(), '.codestudio')) || existsSync(join(home, '.codestudio'));
+    },
+  },
   codex: {
     name: 'codex',
     displayName: 'Codex',

@@ -6,6 +6,7 @@ export type AgentType =
   | 'openclaw'
   | 'cline'
   | 'codebuddy'
+  | 'codestudio'
   | 'codex'
   | 'command-code'
   | 'continue'
