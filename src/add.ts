@@ -626,10 +626,14 @@ async function handleWellKnownSkills(
   }
 
   // Determine install mode (symlink vs copy)
+  // Default to symlink mode unless --copy is explicitly specified
   let installMode: InstallMode = options.copy ? 'copy' : 'symlink';
 
-  // Only prompt for install mode when there are multiple unique target directories.
-  // When all selected agents share the same skillsDir, symlink vs copy is meaningless.
+  // Only prompt for install mode when there are multiple unique target directories
+  // and we're in interactive mode.
+  // Note: For non-universal agents, symlink is still meaningful even with a single
+  // agent because the canonical location (~/.agents/skills) differs from the
+  // agent-specific location (e.g., ~/.claude/skills).
   const uniqueDirs = new Set(targetAgents.map((a) => agents[a].skillsDir));
 
   if (!options.copy && !options.yes && uniqueDirs.size > 1) {
@@ -651,10 +655,10 @@ async function handleWellKnownSkills(
     }
 
     installMode = modeChoice as InstallMode;
-  } else if (uniqueDirs.size <= 1) {
-    // Single target directory — default to copy (no symlink needed)
-    installMode = 'copy';
   }
+  // For non-interactive mode with single agent or all agents sharing the same dir,
+  // keep the default symlink mode. Symlink is still valuable for non-universal agents
+  // because it creates a single source of truth in ~/.agents/skills.
 
   const cwd = process.cwd();
 
@@ -1249,10 +1253,14 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     // Determine install mode (symlink vs copy)
+    // Default to symlink mode unless --copy is explicitly specified
     let installMode: InstallMode = options.copy ? 'copy' : 'symlink';
 
-    // Only prompt for install mode when there are multiple unique target directories.
-    // When all selected agents share the same skillsDir, symlink vs copy is meaningless.
+    // Only prompt for install mode when there are multiple unique target directories
+    // and we're in interactive mode.
+    // Note: For non-universal agents, symlink is still meaningful even with a single
+    // agent because the canonical location (~/.agents/skills) differs from the
+    // agent-specific location (e.g., ~/.claude/skills).
     const uniqueDirs = new Set(targetAgents.map((a) => agents[a].skillsDir));
 
     if (!options.copy && !options.yes && uniqueDirs.size > 1) {
@@ -1275,10 +1283,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
 
       installMode = modeChoice as InstallMode;
-    } else if (uniqueDirs.size <= 1) {
-      // Single target directory — default to copy (no symlink needed)
-      installMode = 'copy';
     }
+    // For non-interactive mode with single agent or all agents sharing the same dir,
+    // keep the default symlink mode. Symlink is still valuable for non-universal agents
+    // because it creates a single source of truth in ~/.agents/skills.
 
     const cwd = process.cwd();
 
