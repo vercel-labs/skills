@@ -1506,7 +1506,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             const skillPathValue = skillFiles[skill.name];
             if (parsed.type === 'github' && skillPathValue) {
               const token = getGitHubToken();
-              const hash = await fetchSkillFolderHash(normalizedSource, skillPathValue, token);
+              const hash = await fetchSkillFolderHash(normalizedSource, skillPathValue, token, parsed.ref);
               if (hash) skillFolderHash = hash;
             }
 
@@ -1517,6 +1517,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               skillPath: skillPathValue,
               skillFolderHash,
               pluginName: skill.pluginName,
+              ref: parsed.ref,
             });
           } catch {
             // Don't fail installation if lock file update fails

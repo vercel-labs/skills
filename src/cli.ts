@@ -413,7 +413,7 @@ async function runCheck(args: string[] = []): Promise<void> {
   for (const [source, skills] of skillsBySource) {
     for (const { name, entry } of skills) {
       try {
-        const latestHash = await fetchSkillFolderHash(source, entry.skillPath!, token);
+        const latestHash = await fetchSkillFolderHash(source, entry.skillPath!, token, entry.ref);
 
         if (!latestHash) {
           errors.push({ name, source, error: 'Could not fetch from GitHub' });
@@ -503,7 +503,7 @@ async function runUpdate(): Promise<void> {
     }
 
     try {
-      const latestHash = await fetchSkillFolderHash(entry.source, entry.skillPath, token);
+      const latestHash = await fetchSkillFolderHash(entry.source, entry.skillPath, token, entry.ref);
 
       if (latestHash && latestHash !== entry.skillFolderHash) {
         updates.push({ name: skillName, source: entry.source, entry });
@@ -555,7 +555,8 @@ async function runUpdate(): Promise<void> {
       // Convert git URL to tree URL with path
       // https://github.com/owner/repo.git -> https://github.com/owner/repo/tree/main/path
       installUrl = update.entry.sourceUrl.replace(/\.git$/, '').replace(/\/$/, '');
-      installUrl = `${installUrl}/tree/main/${skillFolder}`;
+      const branch = update.entry.ref || 'main';
+      installUrl = `${installUrl}/tree/${branch}/${skillFolder}`;
     }
 
     // Reinstall using the current CLI entrypoint directly (avoid nested npm exec/npx)

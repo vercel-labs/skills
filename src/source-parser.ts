@@ -135,17 +135,30 @@ export function parseSource(input: string): ParsedSource {
     input = alias;
   }
 
+  // Extract #ref fragment from input (e.g., owner/repo#branch, github:owner/repo#branch)
+  // Only for non-URL, non-local inputs — full URLs encode branch in /tree/branch
+  let fragmentRef: string | undefined;
+  const hashIndex = input.indexOf('#');
+  if (hashIndex !== -1 && !isLocalPath(input) && !input.startsWith('http')) {
+    fragmentRef = input.slice(hashIndex + 1);
+    input = input.slice(0, hashIndex);
+  }
+
   // Prefix shorthand: github:owner/repo -> owner/repo (handled by existing shorthand logic)
   // Also supports github:owner/repo/subpath and github:owner/repo@skill
   const githubPrefixMatch = input.match(/^github:(.+)$/);
   if (githubPrefixMatch) {
-    return parseSource(githubPrefixMatch[1]!);
+    const result = parseSource(githubPrefixMatch[1]!);
+    if (fragmentRef && !result.ref) result.ref = fragmentRef;
+    return result;
   }
 
   // Prefix shorthand: gitlab:owner/repo -> https://gitlab.com/owner/repo
   const gitlabPrefixMatch = input.match(/^gitlab:(.+)$/);
   if (gitlabPrefixMatch) {
-    return parseSource(`https://gitlab.com/${gitlabPrefixMatch[1]!}`);
+    const result = parseSource(`https://gitlab.com/${gitlabPrefixMatch[1]!}`);
+    if (fragmentRef && !result.ref) result.ref = fragmentRef;
+    return result;
   }
 
   // Local path: absolute, relative, or current directory
@@ -249,6 +262,7 @@ export function parseSource(input: string): ParsedSource {
       type: 'github',
       url: `https://github.com/${owner}/${repo}.git`,
       skillFilter,
+      ref: fragmentRef,
     };
   }
 
@@ -259,6 +273,7 @@ export function parseSource(input: string): ParsedSource {
       type: 'github',
       url: `https://github.com/${owner}/${repo}.git`,
       subpath: subpath ? sanitizeSubpath(subpath) : subpath,
+      ref: fragmentRef,
     };
   }
 

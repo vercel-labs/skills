@@ -163,6 +163,51 @@ describe('parseSource', () => {
     });
   });
 
+  describe('Branch ref with # syntax', () => {
+    it('GitHub shorthand - owner/repo#branch', () => {
+      const result = parseSource('owner/repo#feature-branch');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+      expect(result.ref).toBe('feature-branch');
+      expect(result.subpath).toBeUndefined();
+    });
+
+    it('GitHub shorthand - owner/repo/subpath#branch', () => {
+      const result = parseSource('owner/repo/skills/my-skill#develop');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+      expect(result.ref).toBe('develop');
+      expect(result.subpath).toBe('skills/my-skill');
+    });
+
+    it('GitHub shorthand - owner/repo@skill#branch', () => {
+      const result = parseSource('owner/repo@my-skill#v2');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+      expect(result.skillFilter).toBe('my-skill');
+      expect(result.ref).toBe('v2');
+    });
+
+    it('github: prefix with #branch', () => {
+      const result = parseSource('github:owner/repo#staging');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+      expect(result.ref).toBe('staging');
+    });
+
+    it('gitlab: prefix with #branch', () => {
+      const result = parseSource('gitlab:owner/repo#staging');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.com/owner/repo.git');
+      expect(result.ref).toBe('staging');
+    });
+
+    it('no # means ref is undefined', () => {
+      const result = parseSource('owner/repo');
+      expect(result.ref).toBeUndefined();
+    });
+  });
+
   describe('Local path tests', () => {
     it('Local path - relative with ./', () => {
       const result = parseSource('./my-skills');

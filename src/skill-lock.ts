@@ -32,6 +32,8 @@ export interface SkillLockEntry {
   updatedAt: string;
   /** Name of the plugin this skill belongs to (if any) */
   pluginName?: string;
+  /** Git ref (branch/tag) to track for updates. If unset, defaults to main/master. */
+  ref?: string;
 }
 
 /**
@@ -168,7 +170,8 @@ export function getGitHubToken(): string | null {
 export async function fetchSkillFolderHash(
   ownerRepo: string,
   skillPath: string,
-  token?: string | null
+  token?: string | null,
+  ref?: string
 ): Promise<string | null> {
   // Normalize to forward slashes first (for GitHub API compatibility)
   let folderPath = skillPath.replace(/\\/g, '/');
@@ -185,7 +188,7 @@ export async function fetchSkillFolderHash(
     folderPath = folderPath.slice(0, -1);
   }
 
-  const branches = ['main', 'master'];
+  const branches = ref ? [ref] : ['main', 'master'];
 
   for (const branch of branches) {
     try {
