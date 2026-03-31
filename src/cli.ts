@@ -579,8 +579,8 @@ async function runUpdate(): Promise<void> {
       }
 
       // Use shorthand syntax to avoid ambiguity with branch names containing slashes.
-      // owner/repo + path + #ref
-      installUrl = `${update.entry.source}/${skillFolder}`;
+      // owner/repo[/path] + #ref
+      installUrl = skillFolder ? `${update.entry.source}/${skillFolder}` : update.entry.source;
       if (update.entry.ref) {
         installUrl = `${installUrl}#${update.entry.ref}`;
       }

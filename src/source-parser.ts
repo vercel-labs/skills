@@ -143,14 +143,27 @@ function decodeFragmentValue(value: string): string {
 }
 
 function looksLikeGitSource(input: string): boolean {
-  if (
-    input.startsWith('github:') ||
-    input.startsWith('gitlab:') ||
-    input.startsWith('git@') ||
-    input.includes('github.com/') ||
-    input.includes('gitlab.com/')
-  ) {
+  if (input.startsWith('github:') || input.startsWith('gitlab:') || input.startsWith('git@')) {
     return true;
+  }
+
+  if (input.startsWith('http://') || input.startsWith('https://')) {
+    try {
+      const parsed = new URL(input);
+      const pathname = parsed.pathname;
+
+      // Only treat GitHub fragments as refs for repo/tree URLs.
+      if (parsed.hostname === 'github.com') {
+        return /^\/[^/]+\/[^/]+(?:\.git)?(?:\/tree\/[^/]+(?:\/.*)?)?\/?$/.test(pathname);
+      }
+
+      // Only treat gitlab.com fragments as refs for repo/tree URLs.
+      if (parsed.hostname === 'gitlab.com') {
+        return /^\/.+?\/[^/]+(?:\.git)?(?:\/-\/tree\/[^/]+(?:\/.*)?)?\/?$/.test(pathname);
+      }
+    } catch {
+      // Fall through to generic checks below.
+    }
   }
 
   if (/^https?:\/\/.+\.git(?:$|[/?])/i.test(input)) {
@@ -344,7 +357,7 @@ export function parseSource(input: string): ParsedSource {
     };
   }
 
-  const shorthandMatch = input.match(/^([^/]+)\/([^/]+)(?:\/(.+))?$/);
+  const shorthandMatch = input.match(/^([^/]+)\/([^/]+)(?:\/(.+?))?\/?$/);
   if (shorthandMatch && !input.includes(':') && !input.startsWith('.') && !input.startsWith('/')) {
     const [, owner, repo, subpath] = shorthandMatch;
     return {

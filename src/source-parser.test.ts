@@ -92,12 +92,29 @@ describe('source-parser', () => {
       });
     });
 
+    it('does not treat GitHub blob anchors as refs', () => {
+      const result = parseSource('https://github.com/owner/repo/blob/main/README.md#L10');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://github.com/owner/repo.git',
+      });
+    });
+
     it('parses github shorthand with #branch', () => {
       const result = parseSource('vercel-labs/agent-skills#feature/install');
       expect(result).toEqual({
         type: 'github',
         url: 'https://github.com/vercel-labs/agent-skills.git',
         ref: 'feature/install',
+        subpath: undefined,
+      });
+    });
+
+    it('parses github shorthand with trailing slash', () => {
+      const result = parseSource('vercel-labs/agent-skills/');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://github.com/vercel-labs/agent-skills.git',
         subpath: undefined,
       });
     });

@@ -35,6 +35,13 @@ describe('parseSource', () => {
       expect(result.ref).toBe('feature/install');
     });
 
+    it('GitHub blob URL anchor is not treated as a ref', () => {
+      const result = parseSource('https://github.com/owner/repo/blob/main/README.md#L10');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+      expect(result.ref).toBeUndefined();
+    });
+
     it('GitHub URL - tree with branch only', () => {
       const result = parseSource('https://github.com/owner/repo/tree/feature-branch');
       expect(result.type).toBe('github');
@@ -152,6 +159,13 @@ describe('parseSource', () => {
       expect(result.type).toBe('github');
       expect(result.url).toBe('https://github.com/owner/repo.git');
       expect(result.subpath).toBe('skills/my-skill');
+    });
+
+    it('GitHub shorthand - owner/repo/ trailing slash', () => {
+      const result = parseSource('owner/repo/');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+      expect(result.subpath).toBeUndefined();
     });
 
     it('GitHub shorthand - owner/repo@skill (skill filter syntax)', () => {
