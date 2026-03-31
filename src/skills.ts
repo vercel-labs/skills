@@ -1,8 +1,8 @@
 import { readdir, readFile, stat } from 'fs/promises';
-import { join, basename, dirname } from 'path';
+import { join, basename, dirname, resolve, normalize, sep } from 'path';
 import matter from 'gray-matter';
 import type { Skill } from './types.ts';
-import { getPluginSkillPaths } from './plugin-manifest.ts';
+import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
 
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
 
@@ -34,6 +34,11 @@ export async function parseSkillMd(
     const { data } = matter(content);
 
     if (!data.name || !data.description) {
+      return null;
+    }
+
+    // Ensure name and description are strings (YAML can parse numbers, booleans, etc.)
+    if (typeof data.name !== 'string' || typeof data.description !== 'string') {
       return null;
     }
 
@@ -88,6 +93,18 @@ export interface DiscoverSkillsOptions {
   fullDepth?: boolean;
 }
 
+/**
+ * Validates that a resolved subpath stays within the base directory.
+ * Prevents path traversal attacks where subpath contains ".." segments
+ * that would escape the cloned repository directory.
+ */
+export function isSubpathSafe(basePath: string, subpath: string): boolean {
+  const normalizedBase = normalize(resolve(basePath));
+  const normalizedTarget = normalize(resolve(join(basePath, subpath)));
+
+  return normalizedTarget.startsWith(normalizedBase + sep) || normalizedTarget === normalizedBase;
+}
+
 export async function discoverSkills(
   basePath: string,
   subpath?: string,
@@ -95,12 +112,34 @@ export async function discoverSkills(
 ): Promise<Skill[]> {
   const skills: Skill[] = [];
   const seenNames = new Set<string>();
+
+  // Validate subpath doesn't escape basePath (prevent path traversal)
+  if (subpath && !isSubpathSafe(basePath, subpath)) {
+    throw new Error(
+      `Invalid subpath: "${subpath}" resolves outside the repository directory. Subpath must not contain ".." segments that escape the base path.`
+    );
+  }
+
   const searchPath = subpath ? join(basePath, subpath) : basePath;
+
+  // Get plugin groupings to map skills to their parent plugin
+  // We search for plugin definitions from the base search path
+  const pluginGroupings = await getPluginGroupings(searchPath);
+
+  // Helper to assign plugin name if available
+  const enhanceSkill = (skill: Skill) => {
+    const resolvedPath = resolve(skill.path);
+    if (pluginGroupings.has(resolvedPath)) {
+      skill.pluginName = pluginGroupings.get(resolvedPath);
+    }
+    return skill;
+  };
 
   // If pointing directly at a skill, add it (and return early unless fullDepth is set)
   if (await hasSkillMd(searchPath)) {
-    const skill = await parseSkillMd(join(searchPath, 'SKILL.md'), options);
+    let skill = await parseSkillMd(join(searchPath, 'SKILL.md'), options);
     if (skill) {
+      skill = enhanceSkill(skill);
       skills.push(skill);
       seenNames.add(skill.name);
       // Only return early if fullDepth is not set
@@ -117,7 +156,6 @@ export async function discoverSkills(
     join(searchPath, 'skills/.curated'),
     join(searchPath, 'skills/.experimental'),
     join(searchPath, 'skills/.system'),
-    join(searchPath, '.agent/skills'),
     join(searchPath, '.agents/skills'),
     join(searchPath, '.claude/skills'),
     join(searchPath, '.cline/skills'),
@@ -125,7 +163,7 @@ export async function discoverSkills(
     join(searchPath, '.codex/skills'),
     join(searchPath, '.commandcode/skills'),
     join(searchPath, '.continue/skills'),
-    join(searchPath, '.cursor/skills'),
+
     join(searchPath, '.github/skills'),
     join(searchPath, '.goose/skills'),
     join(searchPath, '.iflow/skills'),
@@ -155,8 +193,9 @@ export async function discoverSkills(
         if (entry.isDirectory()) {
           const skillDir = join(dir, entry.name);
           if (await hasSkillMd(skillDir)) {
-            const skill = await parseSkillMd(join(skillDir, 'SKILL.md'), options);
+            let skill = await parseSkillMd(join(skillDir, 'SKILL.md'), options);
             if (skill && !seenNames.has(skill.name)) {
+              skill = enhanceSkill(skill);
               skills.push(skill);
               seenNames.add(skill.name);
             }
@@ -173,8 +212,9 @@ export async function discoverSkills(
     const allSkillDirs = await findSkillDirs(searchPath);
 
     for (const skillDir of allSkillDirs) {
-      const skill = await parseSkillMd(join(skillDir, 'SKILL.md'), options);
+      let skill = await parseSkillMd(join(skillDir, 'SKILL.md'), options);
       if (skill && !seenNames.has(skill.name)) {
+        skill = enhanceSkill(skill);
         skills.push(skill);
         seenNames.add(skill.name);
       }

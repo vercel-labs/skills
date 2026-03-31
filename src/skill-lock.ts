@@ -18,6 +18,8 @@ export interface SkillLockEntry {
   sourceType: string;
   /** The original URL used to install the skill (for re-fetching updates) */
   sourceUrl: string;
+  /** Branch or tag ref used for installation (for ref-aware updates) */
+  ref?: string;
   /** Subpath within the source repo, if applicable */
   skillPath?: string;
   /**
@@ -30,6 +32,8 @@ export interface SkillLockEntry {
   installedAt: string;
   /** ISO timestamp when the skill was last updated */
   updatedAt: string;
+  /** Name of the plugin this skill belongs to (if any) */
+  pluginName?: string;
 }
 
 /**
@@ -56,9 +60,14 @@ export interface SkillLockFile {
 
 /**
  * Get the path to the global skill lock file.
- * Located at ~/.agents/.skill-lock.json
+ * Use $XDG_STATE_HOME/skills/.skill-lock.json if set.
+ * otherwise fall back to ~/.agents/.skill-lock.json
  */
 export function getSkillLockPath(): string {
+  const xdgStateHome = process.env.XDG_STATE_HOME;
+  if (xdgStateHome) {
+    return join(xdgStateHome, 'skills', LOCK_FILE);
+  }
   return join(homedir(), AGENTS_DIR, LOCK_FILE);
 }
 
@@ -156,12 +165,14 @@ export function getGitHubToken(): string | null {
  * @param ownerRepo - GitHub owner/repo (e.g., "vercel-labs/agent-skills")
  * @param skillPath - Path to skill folder or SKILL.md (e.g., "skills/react-best-practices/SKILL.md")
  * @param token - Optional GitHub token for authenticated requests (higher rate limits)
+ * @param ref - Optional branch/tag ref. Defaults to trying main then master.
  * @returns The tree SHA for the skill folder, or null if not found
  */
 export async function fetchSkillFolderHash(
   ownerRepo: string,
   skillPath: string,
-  token?: string | null
+  token?: string | null,
+  ref?: string
 ): Promise<string | null> {
   // Normalize to forward slashes first (for GitHub API compatibility)
   let folderPath = skillPath.replace(/\\/g, '/');
@@ -178,11 +189,11 @@ export async function fetchSkillFolderHash(
     folderPath = folderPath.slice(0, -1);
   }
 
-  const branches = ['main', 'master'];
+  const branches = ref ? [ref] : ['main', 'master'];
 
   for (const branch of branches) {
     try {
-      const url = `https://api.github.com/repos/${ownerRepo}/git/trees/${branch}?recursive=1`;
+      const url = `https://api.github.com/repos/${ownerRepo}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
       const headers: Record<string, string> = {
         Accept: 'application/vnd.github.v3+json',
         'User-Agent': 'skills-cli',
