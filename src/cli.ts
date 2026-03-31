@@ -11,6 +11,7 @@ import { runInstallFromLock } from './install.ts';
 import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
+import { runVerify } from './verify.ts';
 import { track } from './telemetry.ts';
 import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
 import { buildUpdateInstallSource, formatSourceInput } from './update-source.ts';
@@ -88,7 +89,10 @@ function showBanner(): void {
   );
   console.log();
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills experimental_install${RESET} ${DIM}Restore from skills-lock.json${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}npx skills ci${RESET}                    ${DIM}Restore from skills-lock.json${RESET}`
+  );
+  console.log(
+    `  ${DIM}$${RESET} ${TEXT}npx skills verify${RESET}                ${DIM}Verify installed skills match lockfile${RESET}`
   );
   console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills init ${DIM}[name]${RESET}          ${DIM}Create a new skill${RESET}`
@@ -120,7 +124,8 @@ ${BOLD}Updates:${RESET}
   update               Update all skills to latest versions
 
 ${BOLD}Project:${RESET}
-  experimental_install Restore skills from skills-lock.json
+  ci                   Restore skills from skills-lock.json (alias: experimental_install)
+  verify               Verify installed skills match lockfile hashes
   init [name]          Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)
   experimental_sync    Sync skills from node_modules into agent directories
 
@@ -133,6 +138,7 @@ ${BOLD}Add Options:${RESET}
   --copy                 Copy files instead of symlinking to agent directories
   --all                  Shorthand for --skill '*' --agent '*' -y
   --full-depth           Search all subdirectories even when a root SKILL.md exists
+  --frozen-lockfile      Fail if installed content doesn't match lockfile hashes
 
 ${BOLD}Remove Options:${RESET}
   -g, --global           Remove from global scope
@@ -170,7 +176,9 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills find typescript               ${DIM}# search by keyword${RESET}
   ${DIM}$${RESET} skills check
   ${DIM}$${RESET} skills update
-  ${DIM}$${RESET} skills experimental_install            ${DIM}# restore from skills-lock.json${RESET}
+  ${DIM}$${RESET} skills ci                               ${DIM}# restore from skills-lock.json${RESET}
+  ${DIM}$${RESET} skills ci --frozen-lockfile              ${DIM}# restore and verify integrity${RESET}
+  ${DIM}$${RESET} skills verify                            ${DIM}# check installed vs lockfile${RESET}
   ${DIM}$${RESET} skills init my-skill
   ${DIM}$${RESET} skills experimental_sync              ${DIM}# sync from node_modules${RESET}
   ${DIM}$${RESET} skills experimental_sync -y           ${DIM}# sync without prompts${RESET}
@@ -633,6 +641,7 @@ async function main(): Promise<void> {
       console.log();
       runInit(restArgs);
       break;
+    case 'ci':
     case 'experimental_install': {
       showLogo();
       await runInstallFromLock(restArgs);
@@ -667,6 +676,9 @@ async function main(): Promise<void> {
     case 'list':
     case 'ls':
       await runList(restArgs);
+      break;
+    case 'verify':
+      await runVerify(restArgs);
       break;
     case 'check':
       runCheck(restArgs);

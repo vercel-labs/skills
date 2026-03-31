@@ -21,7 +21,7 @@ async function isSourcePrivate(source: string): Promise<boolean | null> {
   }
   return isRepoPrivate(ownerRepo.owner, ownerRepo.repo);
 }
-import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
+import { cloneRepo, cleanupTempDir, getHeadSha, GitCloneError } from './git.ts';
 import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
 import {
   installSkillForAgent,
@@ -416,6 +416,7 @@ export interface AddOptions {
   all?: boolean;
   fullDepth?: boolean;
   copy?: boolean;
+  frozenLockfile?: boolean;
 }
 
 /**
@@ -941,6 +942,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     let skillsDir: string;
+    let commitSha = '';
 
     if (parsed.type === 'local') {
       // Use local path directly, no cloning needed
@@ -957,6 +959,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       spinner.start('Cloning repository...');
       tempDir = await cloneRepo(parsed.url, parsed.ref);
       skillsDir = tempDir;
+      commitSha = await getHeadSha(tempDir);
       spinner.stop('Repository cloned');
     }
 
@@ -1522,6 +1525,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               ref: parsed.ref,
               skillPath: skillPathValue,
               skillFolderHash,
+              commitSha: commitSha || undefined,
               pluginName: skill.pluginName,
             });
           } catch {
@@ -1807,6 +1811,8 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       options.fullDepth = true;
     } else if (arg === '--copy') {
       options.copy = true;
+    } else if (arg === '--frozen-lockfile' || arg === '--frozen') {
+      options.frozenLockfile = true;
     } else if (arg && !arg.startsWith('-')) {
       source.push(arg);
     }

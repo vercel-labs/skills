@@ -70,6 +70,20 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
   }
 }
 
+/**
+ * Get the HEAD commit SHA from a cloned repository.
+ * Returns empty string if the SHA cannot be determined.
+ */
+export async function getHeadSha(repoDir: string): Promise<string> {
+  try {
+    const git = simpleGit(repoDir);
+    const log = await git.log({ maxCount: 1 });
+    return log.latest?.hash ?? '';
+  } catch {
+    return '';
+  }
+}
+
 export async function cleanupTempDir(dir: string): Promise<void> {
   // Validate that the directory path is within tmpdir to prevent deletion of arbitrary paths
   const normalizedDir = normalize(resolve(dir));
