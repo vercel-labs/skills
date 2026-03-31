@@ -54,6 +54,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.augment'));
     },
   },
+  bob: {
+    name: 'bob',
+    displayName: 'IBM Bob',
+    skillsDir: '.bob/skills',
+    globalSkillsDir: join(home, '.bob/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.bob'));
+    },
+  },
   'claude-code': {
     name: 'claude-code',
     displayName: 'Claude Code',
@@ -164,6 +173,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.factory/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.factory'));
+    },
+  },
+  firebender: {
+    name: 'firebender',
+    displayName: 'Firebender',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.firebender/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.firebender'));
     },
   },
   'gemini-cli': {

@@ -1,6 +1,6 @@
 {
   "name": "skills",
-  "version": "1.4.6",
+  "version": "1.4.7",
   "description": "The open agent skills ecosystem",
   "type": "module",
   "bin": {
@@ -39,6 +39,7 @@
     "amp",
     "antigravity",
     "augment",
+    "bob",
     "claude-code",
     "openclaw",
     "cline",
@@ -51,6 +52,7 @@
     "cursor",
     "deepagents",
     "droid",
+    "firebender",
     "gemini-cli",
     "github-copilot",
     "goose",

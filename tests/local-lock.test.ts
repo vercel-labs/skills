@@ -200,6 +200,32 @@ describe('local-lock', () => {
         await rm(dir, { recursive: true, force: true });
       }
     });
+
+    it('stores optional ref when present', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await addSkillToLocalLock(
+          'branch-skill',
+          {
+            source: 'org/repo',
+            ref: 'feature/install',
+            sourceType: 'github',
+            computedHash: 'hash123',
+          },
+          dir
+        );
+
+        const lock = await readLocalLock(dir);
+        expect(lock.skills['branch-skill']).toEqual({
+          source: 'org/repo',
+          ref: 'feature/install',
+          sourceType: 'github',
+          computedHash: 'hash123',
+        });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('removeSkillFromLocalLock', () => {
