@@ -28,6 +28,13 @@ describe('parseSource', () => {
       expect(result.url).toBe('https://github.com/owner/repo.git');
     });
 
+    it('GitHub URL - with .git suffix and #branch', () => {
+      const result = parseSource('https://github.com/owner/repo.git#feature/install');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+      expect(result.ref).toBe('feature/install');
+    });
+
     it('GitHub URL - tree with branch only', () => {
       const result = parseSource('https://github.com/owner/repo/tree/feature-branch');
       expect(result.type).toBe('github');
@@ -161,6 +168,30 @@ describe('parseSource', () => {
       expect(result.url).toBe('https://github.com/vercel-labs/agent-skills.git');
       expect(result.skillFilter).toBe('find-skills');
     });
+
+    it('GitHub shorthand - owner/repo#branch', () => {
+      const result = parseSource('owner/repo#my-branch');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+      expect(result.ref).toBe('my-branch');
+      expect(result.subpath).toBeUndefined();
+    });
+
+    it('GitHub shorthand - owner/repo/path#branch', () => {
+      const result = parseSource('owner/repo/skills/my-skill#feature/skills');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+      expect(result.ref).toBe('feature/skills');
+      expect(result.subpath).toBe('skills/my-skill');
+    });
+
+    it('GitHub shorthand - owner/repo#branch@skill', () => {
+      const result = parseSource('owner/repo#my-branch@my-skill');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+      expect(result.ref).toBe('my-branch');
+      expect(result.skillFilter).toBe('my-skill');
+    });
   });
 
   describe('Local path tests', () => {
@@ -198,10 +229,24 @@ describe('parseSource', () => {
       expect(result.url).toBe('git@github.com:owner/repo.git');
     });
 
+    it('Git URL - SSH format with #branch', () => {
+      const result = parseSource('git@github.com:owner/repo.git#feature/install');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@github.com:owner/repo.git');
+      expect(result.ref).toBe('feature/install');
+    });
+
     it('Git URL - custom host', () => {
       const result = parseSource('https://git.example.com/owner/repo.git');
       expect(result.type).toBe('git');
       expect(result.url).toBe('https://git.example.com/owner/repo.git');
+    });
+
+    it('Git URL - https format with #branch', () => {
+      const result = parseSource('https://git.example.com/owner/repo.git#release-2026');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://git.example.com/owner/repo.git');
+      expect(result.ref).toBe('release-2026');
     });
   });
 });
@@ -384,6 +429,13 @@ describe('Prefix shorthand tests', () => {
       const result = parseSource('github:googleworkspace/cli');
       expect(result.type).toBe('github');
       expect(result.url).toBe('https://github.com/googleworkspace/cli.git');
+    });
+
+    it('github:owner/repo#branch', () => {
+      const result = parseSource('github:owner/repo#feature/install');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+      expect(result.ref).toBe('feature/install');
     });
   });
 

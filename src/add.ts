@@ -1506,7 +1506,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             const skillPathValue = skillFiles[skill.name];
             if (parsed.type === 'github' && skillPathValue) {
               const token = getGitHubToken();
-              const hash = await fetchSkillFolderHash(normalizedSource, skillPathValue, token);
+              const hash = await fetchSkillFolderHash(
+                normalizedSource,
+                skillPathValue,
+                token,
+                parsed.ref
+              );
               if (hash) skillFolderHash = hash;
             }
 
@@ -1514,6 +1519,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               source: lockSource || normalizedSource,
               sourceType: parsed.type,
               sourceUrl: parsed.url,
+              ref: parsed.ref,
               skillPath: skillPathValue,
               skillFolderHash,
               pluginName: skill.pluginName,
@@ -1537,6 +1543,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               skill.name,
               {
                 source: lockSource || parsed.url,
+                ref: parsed.ref,
                 sourceType: parsed.type,
                 computedHash,
               },

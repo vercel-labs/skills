@@ -91,5 +91,24 @@ describe('source-parser', () => {
         subpath: 'path',
       });
     });
+
+    it('parses github shorthand with #branch', () => {
+      const result = parseSource('vercel-labs/agent-skills#feature/install');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://github.com/vercel-labs/agent-skills.git',
+        ref: 'feature/install',
+        subpath: undefined,
+      });
+    });
+
+    it('parses SSH git URL with #branch', () => {
+      const result = parseSource('git@github.com:owner/repo.git#feature/install');
+      expect(result).toEqual({
+        type: 'git',
+        url: 'git@github.com:owner/repo.git',
+        ref: 'feature/install',
+      });
+    });
   });
 });
