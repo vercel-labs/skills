@@ -13,6 +13,7 @@ import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track } from './telemetry.ts';
 import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
+import { buildUpdateInstallSource, formatSourceInput } from './update-source.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -331,13 +332,6 @@ interface SkippedSkill {
   ref?: string;
 }
 
-function formatSourceInput(sourceUrl: string, ref?: string): string {
-  if (!ref) {
-    return sourceUrl;
-  }
-  return `${sourceUrl}#${ref}`;
-}
-
 /**
  * Determine why a skill cannot be checked for updates automatically.
  */
@@ -565,26 +559,7 @@ async function runUpdate(): Promise<void> {
 
     // Build the source input to target the specific skill directory/ref.
     // e.g., owner/repo/skills/my-skill#feature-branch
-    let installUrl = formatSourceInput(update.entry.sourceUrl, update.entry.ref);
-    if (update.entry.skillPath) {
-      // Extract the skill folder path (remove /SKILL.md suffix)
-      let skillFolder = update.entry.skillPath;
-      if (skillFolder.endsWith('/SKILL.md')) {
-        skillFolder = skillFolder.slice(0, -9);
-      } else if (skillFolder.endsWith('SKILL.md')) {
-        skillFolder = skillFolder.slice(0, -8);
-      }
-      if (skillFolder.endsWith('/')) {
-        skillFolder = skillFolder.slice(0, -1);
-      }
-
-      // Use shorthand syntax to avoid ambiguity with branch names containing slashes.
-      // owner/repo[/path] + #ref
-      installUrl = skillFolder ? `${update.entry.source}/${skillFolder}` : update.entry.source;
-      if (update.entry.ref) {
-        installUrl = `${installUrl}#${update.entry.ref}`;
-      }
-    }
+    const installUrl = buildUpdateInstallSource(update.entry);
 
     // Reinstall using the current CLI entrypoint directly (avoid nested npm exec/npx)
     const cliEntry = join(__dirname, '..', 'bin', 'cli.mjs');
