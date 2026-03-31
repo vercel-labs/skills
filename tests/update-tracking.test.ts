@@ -140,7 +140,7 @@ describe('update tracking', () => {
     );
 
     expect(latestHash).toBe(await computeTrackedSkillDirectoryHash(skillDir));
-    expect(cloneRepoMock).toHaveBeenCalledWith('https://gitlab.com/group/repo.git');
+    expect(cloneRepoMock).toHaveBeenCalledWith('https://gitlab.com/group/repo.git', undefined);
     expect(cleanupTempDirMock).toHaveBeenCalledWith(repoDir);
 
     await rm(repoDir, { recursive: true, force: true });
