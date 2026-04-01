@@ -14,6 +14,7 @@ export type AgentType =
   | 'crush'
   | 'cursor'
   | 'deepagents'
+  | 'dexto'
   | 'droid'
   | 'firebender'
   | 'gemini-cli'

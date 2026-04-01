@@ -4,7 +4,7 @@ The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
 
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [41 more](#available-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [42 more](#available-agents).
 
 <!-- agent-list:end -->
 
@@ -234,7 +234,7 @@ Skills can be installed to any of these agents:
 | IBM Bob                               | `bob`                                    | `.bob/skills/`         | `~/.bob/skills/`                |
 | Claude Code                           | `claude-code`                            | `.claude/skills/`      | `~/.claude/skills/`             |
 | OpenClaw                              | `openclaw`                               | `skills/`              | `~/.openclaw/skills/`           |
-| Cline, Warp                           | `cline`, `warp`                          | `.agents/skills/`      | `~/.agents/skills/`             |
+| Cline, Dexto, Warp                    | `cline`, `dexto`, `warp`                 | `.agents/skills/`      | `~/.agents/skills/`             |
 | CodeBuddy                             | `codebuddy`                              | `.codebuddy/skills/`   | `~/.codebuddy/skills/`          |
 | Codex                                 | `codex`                                  | `.agents/skills/`      | `~/.codex/skills/`              |
 | Command Code                          | `command-code`                           | `.commandcode/skills/` | `~/.commandcode/skills/`        |

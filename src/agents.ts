@@ -166,6 +166,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.deepagents'));
     },
   },
+  dexto: {
+    name: 'dexto',
+    displayName: 'Dexto',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.dexto/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.dexto'));
+    },
+  },
   droid: {
     name: 'droid',
     displayName: 'Droid',
