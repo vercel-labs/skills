@@ -416,6 +416,7 @@ export interface AddOptions {
   all?: boolean;
   fullDepth?: boolean;
   copy?: boolean;
+  features?: string[];
 }
 
 /**
@@ -1807,6 +1808,12 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       options.fullDepth = true;
     } else if (arg === '--copy') {
       options.copy = true;
+    } else if (arg === '--features') {
+      i++;
+      const nextArg = args[i];
+      if (nextArg) {
+        options.features = nextArg.split(',').map((f) => f.trim());
+      }
     } else if (arg && !arg.startsWith('-')) {
       source.push(arg);
     }
