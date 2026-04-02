@@ -955,7 +955,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     } else {
       // Clone repository for remote sources
       spinner.start('Cloning repository...');
-      tempDir = await cloneRepo(parsed.url, parsed.ref);
+      tempDir = await cloneRepo(parsed.url, parsed.ref, parsed.subpath);
       skillsDir = tempDir;
       spinner.stop('Repository cloned');
     }
