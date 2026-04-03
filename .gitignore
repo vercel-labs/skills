@@ -39,6 +39,7 @@ package-lock.json
 .agent/
 .agents/
 .claude/
+.codemaker/
 .cursor/
 .gemini/
 .github/skills/

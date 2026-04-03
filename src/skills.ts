@@ -180,6 +180,7 @@ export async function discoverSkills(
     join(searchPath, '.trae/skills'),
     join(searchPath, '.windsurf/skills'),
     join(searchPath, '.zencoder/skills'),
+    join(searchPath, '.codemaker/skills'),
   ];
 
   // Add skill paths declared in plugin manifests
