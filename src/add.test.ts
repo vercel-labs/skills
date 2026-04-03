@@ -90,6 +90,31 @@ Instructions here.
     expect(result.exitCode).toBe(0);
   });
 
+  it('should show opencode project path in summary for copy installs', () => {
+    const skillDir = join(testDir, 'skills', 'my-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: my-skill
+description: My test skill
+---
+
+# My Skill
+
+Instructions here.
+`
+    );
+
+    const targetDir = join(testDir, 'project');
+    mkdirSync(targetDir, { recursive: true });
+
+    const result = runCli(['add', testDir, '-y', '--agent', 'opencode'], targetDir);
+    expect(result.stdout).toContain('.opencode/skills/my-skill');
+    expect(result.stdout).not.toContain('.agents/skills/my-skill');
+    expect(result.exitCode).toBe(0);
+  });
+
   it('should filter skills by name with --skill flag', () => {
     // Create multiple test skills
     const skill1Dir = join(testDir, 'skills', 'skill-one');
