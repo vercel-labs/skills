@@ -28,6 +28,7 @@ import {
   installBlobSkillForAgent,
   isSkillInstalled,
   getCanonicalPath,
+  getInstallPath,
   installWellKnownSkillForAgent,
   type InstallMode,
 } from './installer.ts';
@@ -227,6 +228,26 @@ function buildAgentSummaryLines(targetAgents: AgentType[], installMode: InstallM
 }
 
 /**
+ * Builds the summary path shown before installation.
+ * In copy mode, the real target path is agent-specific.
+ * In symlink mode, the canonical .agents/skills path is used.
+ */
+function getSummaryPath(
+  skillName: string,
+  targetAgents: AgentType[],
+  installGlobally: boolean,
+  installMode: InstallMode,
+  cwd: string
+): string {
+  const path =
+    installMode === 'copy'
+      ? getInstallPath(skillName, targetAgents[0]!, { global: installGlobally, cwd })
+      : getCanonicalPath(skillName, { global: installGlobally, cwd });
+
+  return shortenPath(path, cwd);
+}
+
+/**
  * Ensures universal agents are always included in the target agents list.
  * Used when -y flag is passed or when auto-selecting agents.
  */
@@ -386,11 +407,19 @@ async function selectAgentsInteractive(options: {
     // Silently ignore errors
   }
 
-  const initialSelected = lastSelected
-    ? (lastSelected.filter(
-        (a) => otherAgents.includes(a as AgentType) && !universalAgents.includes(a as AgentType)
-      ) as AgentType[])
+  let detectedOther: AgentType[] = [];
+  try {
+    const detected = await detectInstalledAgents();
+    detectedOther = detected.filter((a) => otherAgents.includes(a));
+  } catch {
+    // Silently ignore errors
+  }
+
+  const lastOther = lastSelected
+    ? (lastSelected.filter((a) => otherAgents.includes(a as AgentType)) as AgentType[])
     : [];
+
+  const initialSelected = [...new Set([...lastOther, ...detectedOther])];
 
   const selected = await searchMultiselect({
     message: 'Which agents do you want to install to?',
@@ -690,9 +719,14 @@ async function handleWellKnownSkills(
   for (const skill of selectedSkills) {
     if (summaryLines.length > 0) summaryLines.push('');
 
-    const canonicalPath = getCanonicalPath(skill.installName, { global: installGlobally });
-    const shortCanonical = shortenPath(canonicalPath, cwd);
-    summaryLines.push(`${pc.cyan(shortCanonical)}`);
+    const summaryPath = getSummaryPath(
+      skill.installName,
+      targetAgents,
+      installGlobally,
+      installMode,
+      cwd
+    );
+    summaryLines.push(`${pc.cyan(summaryPath)}`);
     summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
     if (skill.files.size > 1) {
       summaryLines.push(`  ${pc.dim('files:')} ${skill.files.size}`);
@@ -1373,9 +1407,14 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       for (const skill of skills) {
         if (summaryLines.length > 0) summaryLines.push('');
 
-        const canonicalPath = getCanonicalPath(skill.name, { global: installGlobally });
-        const shortCanonical = shortenPath(canonicalPath, cwd);
-        summaryLines.push(`${pc.cyan(shortCanonical)}`);
+        const summaryPath = getSummaryPath(
+          skill.name,
+          targetAgents,
+          installGlobally,
+          installMode,
+          cwd
+        );
+        summaryLines.push(`${pc.cyan(summaryPath)}`);
         summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
 
         const skillOverwrites = overwriteStatus.get(skill.name);

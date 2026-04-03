@@ -237,7 +237,7 @@ Skills can be installed to any of these agents:
 | MCPJam | `mcpjam` | `.mcpjam/skills/` | `~/.mcpjam/skills/` |
 | Mistral Vibe | `mistral-vibe` | `.vibe/skills/` | `~/.vibe/skills/` |
 | Mux | `mux` | `.mux/skills/` | `~/.mux/skills/` |
-| OpenCode | `opencode` | `.agents/skills/` | `~/.config/opencode/skills/` |
+| OpenCode | `opencode` | `.opencode/skills/` | `~/.config/opencode/skills/` |
 | OpenHands | `openhands` | `.openhands/skills/` | `~/.openhands/skills/` |
 | Pi | `pi` | `.pi/skills/` | `~/.pi/agent/skills/` |
 | Qoder | `qoder` | `.qoder/skills/` | `~/.qoder/skills/` |
@@ -339,6 +339,7 @@ The CLI searches for skills in these locations within a repository:
 - `.mcpjam/skills/`
 - `.vibe/skills/`
 - `.mux/skills/`
+- `.opencode/skills/`
 - `.openhands/skills/`
 - `.pi/skills/`
 - `.qoder/skills/`

@@ -16,12 +16,18 @@
 import { describe, it, expect } from 'vitest';
 import { homedir } from 'os';
 import { join } from 'path';
-import { agents } from '../src/agents.ts';
+import { agents, getUniversalAgents, isUniversalAgent } from '../src/agents.ts';
 
 describe('XDG config paths', () => {
   const home = homedir();
 
   describe('OpenCode', () => {
+    it('uses .opencode/skills for project skills (not .agents/skills)', () => {
+      expect(agents.opencode.skillsDir).toBe('.opencode/skills');
+      expect(isUniversalAgent('opencode')).toBe(false);
+      expect(getUniversalAgents()).not.toContain('opencode');
+    });
+
     it('uses ~/.config/opencode/skills for global skills (not ~/Library/Preferences)', () => {
       const expected = join(home, '.config', 'opencode', 'skills');
       expect(agents.opencode.globalSkillsDir).toBe(expected);
