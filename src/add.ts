@@ -29,6 +29,7 @@ import {
   isSkillInstalled,
   getCanonicalPath,
   installWellKnownSkillForAgent,
+  installSkillToDir,
   type InstallMode,
 } from './installer.ts';
 import {
@@ -423,6 +424,8 @@ export interface AddOptions {
   all?: boolean;
   fullDepth?: boolean;
   copy?: boolean;
+  /** Install directly to a specific directory, bypassing agent detection and prompts */
+  targetDir?: string;
 }
 
 /**
@@ -1183,6 +1186,51 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       selectedSkills = selected as Skill[];
     }
 
+    // --skills-dir fast path: copy skills directly to the target directory,
+    // bypassing agent detection, scope selection, and lock files.
+    if (options.targetDir) {
+      const targetDir = options.targetDir;
+      spinner.start('Installing skills...');
+
+      const results: { skill: string; success: boolean; path: string; error?: string }[] = [];
+      for (const skill of selectedSkills) {
+        const result = await installSkillToDir(skill, targetDir);
+        results.push({ skill: getSkillDisplayName(skill), ...result });
+      }
+
+      spinner.stop('Installation complete');
+
+      console.log();
+      const successful = results.filter((r) => r.success);
+      const failed = results.filter((r) => !r.success);
+
+      if (successful.length > 0) {
+        const resultLines = successful.map(
+          (r) => `${pc.green('✓')} ${r.skill} ${pc.dim('→')} ${r.path}`
+        );
+        const title = pc.green(
+          `Installed ${successful.length} skill${successful.length !== 1 ? 's' : ''}`
+        );
+        p.note(resultLines.join('\n'), title);
+      }
+
+      if (failed.length > 0) {
+        p.log.error(pc.red(`Failed to install ${failed.length}`));
+        for (const r of failed) {
+          p.log.message(`  ${pc.red('✗')} ${r.skill}: ${pc.dim(r.error)}`);
+        }
+      }
+
+      console.log();
+      p.outro(
+        pc.green('Done!') +
+          pc.dim('  Review skills before use; they run with full agent permissions.')
+      );
+
+      await cleanup(tempDir);
+      return;
+    }
+
     // Kick off security audit fetch early (non-blocking) so it runs
     // in parallel with agent selection, scope, and mode prompts.
     const ownerRepoForAudit = getOwnerRepo(parsed);
@@ -1878,6 +1926,9 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       options.fullDepth = true;
     } else if (arg === '--copy') {
       options.copy = true;
+    } else if (arg === '--skills-dir') {
+      i++;
+      options.targetDir = args[i];
     } else if (arg && !arg.startsWith('-')) {
       source.push(arg);
     }

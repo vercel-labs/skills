@@ -133,6 +133,7 @@ ${BOLD}Add Options:${RESET}
   --copy                 Copy files instead of symlinking to agent directories
   --all                  Shorthand for --skill '*' --agent '*' -y
   --full-depth           Search all subdirectories even when a root SKILL.md exists
+  --skills-dir <path>    Install directly to a directory, skipping agent detection
 
 ${BOLD}Remove Options:${RESET}
   -g, --global           Remove from global scope
@@ -174,6 +175,7 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills init my-skill
   ${DIM}$${RESET} skills experimental_sync              ${DIM}# sync from node_modules${RESET}
   ${DIM}$${RESET} skills experimental_sync -y           ${DIM}# sync without prompts${RESET}
+  ${DIM}$${RESET} skills add owner/repo@skill --skills-dir <your-skills-dir> -y  ${DIM}# install directly to a directory${RESET}
 
 Discover more skills at ${TEXT}https://skills.sh/${RESET}
 `);

@@ -1052,3 +1052,39 @@ export async function listInstalledSkills(
 
   return Array.from(skillsMap.values());
 }
+
+/**
+ * Install a skill directly to a caller-specified directory.
+ *
+ * This bypasses all agent detection, scope selection, symlink logic, and lock
+ * files. It is designed for non-interactive, agent-driven installation where
+ * the caller already knows the target directory.
+ */
+export async function installSkillToDir(
+  skill: Skill,
+  targetDir: string
+): Promise<{ success: boolean; path: string; error?: string }> {
+  const rawSkillName = skill.name || basename(skill.path);
+  const skillName = sanitizeName(rawSkillName);
+  const destDir = join(targetDir, skillName);
+
+  if (!isPathSafe(targetDir, destDir)) {
+    return {
+      success: false,
+      path: destDir,
+      error: 'Invalid skill name: potential path traversal detected',
+    };
+  }
+
+  try {
+    await cleanAndCreateDirectory(destDir);
+    await copyDirectory(skill.path, destDir);
+    return { success: true, path: destDir };
+  } catch (error) {
+    return {
+      success: false,
+      path: destDir,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
