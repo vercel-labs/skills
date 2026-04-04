@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveDependencies } from './skills.ts';
+import { resolveDependencies, formatDependencyTree } from './skills.ts';
 import type { Skill } from './types.ts';
 
 describe('resolveDependencies', () => {
@@ -98,5 +98,52 @@ describe('resolveDependencies', () => {
 
     const resolved = resolveDependencies(skillA, allSkills);
     expect(resolved.map((s) => s.name)).toEqual(['skill-a']);
+  });
+});
+
+describe('formatDependencyTree', () => {
+  it('should format simple dependency tree', () => {
+    const skillA: Skill = {
+      name: 'skill-a',
+      description: 'Skill A',
+      path: '/path/a',
+      depends: ['skill-b'],
+    };
+    const skillB: Skill = {
+      name: 'skill-b',
+      description: 'Skill B',
+      path: '/path/b',
+    };
+    const resolved = [skillB, skillA];
+
+    const tree = formatDependencyTree(skillA, resolved);
+    expect(tree).toContain('skill-a');
+    expect(tree).toContain('└─ skill-b');
+  });
+
+  it('should format nested dependency tree', () => {
+    const skillA: Skill = {
+      name: 'skill-a',
+      description: 'Skill A',
+      path: '/path/a',
+      depends: ['skill-b'],
+    };
+    const skillB: Skill = {
+      name: 'skill-b',
+      description: 'Skill B',
+      path: '/path/b',
+      depends: ['skill-c'],
+    };
+    const skillC: Skill = {
+      name: 'skill-c',
+      description: 'Skill C',
+      path: '/path/c',
+    };
+    const resolved = [skillC, skillB, skillA];
+
+    const tree = formatDependencyTree(skillA, resolved);
+    expect(tree).toContain('skill-a');
+    expect(tree).toContain('└─ skill-b');
+    expect(tree).toContain('   └─ skill-c');
   });
 });

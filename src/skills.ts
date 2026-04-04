@@ -324,3 +324,41 @@ export function resolveDependencies(
 
   return resolved;
 }
+
+/**
+ * Formats a dependency tree for display to the user.
+ *
+ * @param skill - The root skill
+ * @param resolved - Resolved dependencies in installation order
+ * @returns Formatted tree string
+ */
+export function formatDependencyTree(skill: Skill, resolved: Skill[]): string {
+  const lines: string[] = [];
+
+  function buildTree(s: Skill, indent: string, isLast: boolean): void {
+    const prefix = indent + (isLast ? '└─ ' : '├─ ');
+    lines.push(prefix + s.name);
+
+    if (s.depends && s.depends.length > 0) {
+      const newIndent = indent + (isLast ? '   ' : '│  ');
+      s.depends.forEach((depName, index) => {
+        const depSkill = resolved.find((rs) => rs.name === depName);
+        if (depSkill) {
+          buildTree(depSkill, newIndent, index === s.depends!.length - 1);
+        }
+      });
+    }
+  }
+
+  lines.push(skill.name);
+  if (skill.depends && skill.depends.length > 0) {
+    skill.depends.forEach((depName, index) => {
+      const depSkill = resolved.find((s) => s.name === depName);
+      if (depSkill) {
+        buildTree(depSkill, '', index === skill.depends!.length - 1);
+      }
+    });
+  }
+
+  return lines.join('\n');
+}
