@@ -258,3 +258,69 @@ export function filterSkills(skills: Skill[], inputNames: string[]): Skill[] {
     return normalizedInputs.some((input) => input === name || input === displayName);
   });
 }
+
+/**
+ * Resolves dependencies for a skill recursively, returning skills in installation order
+ * (dependencies first, then the skill itself).
+ *
+ * @param skill - The skill to resolve dependencies for
+ * @param allSkills - All available skills in the repository
+ * @param visited - Set of skill names already visited (for cycle detection)
+ * @param path - Current dependency path (for error messages)
+ * @returns Array of skills in installation order (dependencies first)
+ * @throws Error if circular dependency or missing dependency detected
+ */
+export function resolveDependencies(
+  skill: Skill,
+  allSkills: Skill[],
+  visited: Set<string> = new Set(),
+  path: string[] = []
+): Skill[] {
+  // Check for circular dependency
+  if (visited.has(skill.name)) {
+    const cycle = [...path, skill.name].join(' -> ');
+    throw new Error(`Circular dependency detected: ${cycle}`);
+  }
+
+  // Mark as visited
+  visited.add(skill.name);
+  path.push(skill.name);
+
+  // If no dependencies, return just this skill
+  if (!skill.depends || skill.depends.length === 0) {
+    return [skill];
+  }
+
+  // Resolve each dependency recursively
+  const resolved: Skill[] = [];
+  const seen = new Set<string>();
+
+  for (const depName of skill.depends) {
+    // Find dependency skill
+    const depSkill = allSkills.find((s) => s.name === depName);
+    if (!depSkill) {
+      throw new Error(
+        `Dependency "${depName}" not found for skill "${skill.name}". ` +
+          `Make sure the dependency exists in the same repository.`
+      );
+    }
+
+    // Recursively resolve dependency's dependencies
+    const depResolved = resolveDependencies(depSkill, allSkills, new Set(visited), [...path]);
+
+    // Add to resolved list (avoiding duplicates)
+    for (const s of depResolved) {
+      if (!seen.has(s.name)) {
+        resolved.push(s);
+        seen.add(s.name);
+      }
+    }
+  }
+
+  // Add the skill itself last (dependencies first)
+  if (!seen.has(skill.name)) {
+    resolved.push(skill);
+  }
+
+  return resolved;
+}
