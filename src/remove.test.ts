@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, rmSync, mkdirSync, writeFileSync, readdirSync } from 'fs';
+import { existsSync, rmSync, mkdirSync, writeFileSync, readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli, runCliWithInput } from './test-utils.js';
@@ -102,6 +102,38 @@ This is a test skill.
       // Verify other skills still exist
       expect(existsSync(join(skillsDir, 'skill-two'))).toBe(true);
       expect(existsSync(join(skillsDir, 'skill-three'))).toBe(true);
+    });
+
+    it('should update skills-lock.json when removing a local skill', () => {
+      writeFileSync(
+        join(testDir, 'skills-lock.json'),
+        JSON.stringify(
+          {
+            version: 1,
+            skills: {
+              'skill-one': {
+                source: 'demo/skill-one',
+                sourceType: 'github',
+                computedHash: 'abc',
+              },
+              'skill-two': {
+                source: 'demo/skill-two',
+                sourceType: 'github',
+                computedHash: 'def',
+              },
+            },
+          },
+          null,
+          2
+        ) + '\n'
+      );
+
+      const result = runCli(['remove', 'skill-one', '-y'], testDir);
+      expect(result.stdout).toContain('Successfully removed');
+
+      const lock = JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8'));
+      expect(lock.skills['skill-one']).toBeUndefined();
+      expect(lock.skills['skill-two']).toBeDefined();
     });
 
     it('should remove multiple skills by name', () => {
