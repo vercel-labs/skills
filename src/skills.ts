@@ -50,12 +50,28 @@ export async function parseSkillMd(
       return null;
     }
 
+    // Parse depends field - must be array of strings if present
+    let depends: string[] | undefined;
+    if (data.depends) {
+      if (Array.isArray(data.depends)) {
+        // Validate all elements are strings
+        if (data.depends.every((dep) => typeof dep === 'string')) {
+          depends = data.depends as string[];
+        } else {
+          console.warn(`Skill ${data.name}: depends field must be an array of strings`);
+        }
+      } else {
+        console.warn(`Skill ${data.name}: depends field must be an array`);
+      }
+    }
+
     return {
       name: data.name,
       description: data.description,
       path: dirname(skillMdPath),
       rawContent: content,
       metadata: data.metadata,
+      depends,
     };
   } catch {
     return null;
