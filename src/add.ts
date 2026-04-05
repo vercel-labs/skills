@@ -22,7 +22,13 @@ async function isSourcePrivate(source: string): Promise<boolean | null> {
   return isRepoPrivate(ownerRepo.owner, ownerRepo.repo);
 }
 import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
-import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
+import {
+  discoverSkills,
+  getSkillDisplayName,
+  filterSkills,
+  resolveDependencies,
+  formatDependencyTree,
+} from './skills.ts';
 import {
   installSkillForAgent,
   installBlobSkillForAgent,
@@ -1182,6 +1188,54 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
       selectedSkills = selected as Skill[];
     }
+
+    // Resolve dependencies for selected skills
+    const skillsToInstall: Skill[] = [];
+    const processedSkills = new Set<string>();
+
+    for (const skill of selectedSkills) {
+      try {
+        // Resolve dependencies recursively
+        const resolved = resolveDependencies(skill, skills);
+
+        // Add resolved skills to install list (avoiding duplicates)
+        for (const s of resolved) {
+          if (!processedSkills.has(s.name)) {
+            skillsToInstall.push(s);
+            processedSkills.add(s.name);
+          }
+        }
+      } catch (error) {
+        if (error instanceof Error) {
+          p.log.error(`Failed to resolve dependencies for ${skill.name}: ${error.message}`);
+
+          // Suggest manual installation
+          if (error.message.includes('not found')) {
+            p.log.info(`Try installing dependencies manually first.`);
+          }
+
+          // Continue with other skills if user selected multiple
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    // Display dependency tree for skills with dependencies
+    const skillsWithDeps = selectedSkills.filter((s) => s.depends && s.depends.length > 0);
+    if (skillsWithDeps.length > 0) {
+      console.log();
+      p.log.info(pc.bold('Dependency tree:'));
+      for (const skill of skillsWithDeps) {
+        const resolved = resolveDependencies(skill, skills);
+        const tree = formatDependencyTree(skill, resolved);
+        console.log(tree);
+      }
+      console.log();
+    }
+
+    // Replace selectedSkills with resolved list (in dependency order)
+    selectedSkills = skillsToInstall;
 
     // Kick off security audit fetch early (non-blocking) so it runs
     // in parallel with agent selection, scope, and mode prompts.
