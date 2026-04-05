@@ -47,6 +47,8 @@ describe('init command', () => {
       "---
       name: my-test-skill
       description: A brief description of what this skill does
+      # depends:
+      #   - prerequisite-skill
       ---
 
       # my-test-skill
