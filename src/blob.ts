@@ -174,6 +174,7 @@ const PRIORITY_PREFIXES = [
   '.pi/skills/',
   '.qoder/skills/',
   '.roo/skills/',
+  '.rovodev/skills/',
   '.trae/skills/',
   '.windsurf/skills/',
   '.zencoder/skills/',

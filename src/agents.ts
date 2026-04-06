@@ -356,6 +356,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.roo'));
     },
   },
+  rovodev: {
+    name: 'rovodev',
+    displayName: 'Rovo Dev',
+    skillsDir: '.rovodev/skills',
+    globalSkillsDir: join(home, '.rovodev/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.rovodev'));
+    },
+  },
   trae: {
     name: 'trae',
     displayName: 'Trae',
