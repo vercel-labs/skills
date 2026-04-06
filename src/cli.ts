@@ -9,6 +9,7 @@ import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
 import { runFind } from './find.ts';
 import { runInstallFromLock } from './install.ts';
 import { runList } from './list.ts';
+import { runInfo } from './info.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track } from './telemetry.ts';
@@ -79,6 +80,9 @@ function showBanner(): void {
   console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills find ${DIM}[query]${RESET}         ${DIM}Search for skills${RESET}`
   );
+  console.log(
+    `  ${DIM}$${RESET} ${TEXT}npx skills info ${DIM}<source>${RESET}        ${DIM}Show skill content${RESET}`
+  );
   console.log();
   console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills check${RESET}                ${DIM}Check for updates${RESET}`
@@ -114,6 +118,7 @@ ${BOLD}Manage Skills:${RESET}
   remove [skills]      Remove installed skills
   list, ls             List installed skills
   find [query]         Search for skills interactively
+  info <source>        Show skill content and metadata
 
 ${BOLD}Updates:${RESET}
   check                Check for available skill updates
@@ -168,6 +173,7 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills ls --json                      ${DIM}# JSON output${RESET}
   ${DIM}$${RESET} skills find                          ${DIM}# interactive search${RESET}
   ${DIM}$${RESET} skills find typescript               ${DIM}# search by keyword${RESET}
+  ${DIM}$${RESET} skills info owner/repo@skill          ${DIM}# show skill content${RESET}
   ${DIM}$${RESET} skills check
   ${DIM}$${RESET} skills update
   ${DIM}$${RESET} skills experimental_install            ${DIM}# restore from skills-lock.json${RESET}
@@ -667,6 +673,9 @@ async function main(): Promise<void> {
     case 'list':
     case 'ls':
       await runList(restArgs);
+      break;
+    case 'info':
+      await runInfo(restArgs);
       break;
     case 'check':
       runCheck(restArgs);
