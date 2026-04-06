@@ -1,8 +1,12 @@
 import { homedir } from 'os';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import matter from 'gray-matter';
 import type { AgentType } from './types.ts';
 import { agents } from './agents.ts';
 import { listInstalledSkills, type InstalledSkill } from './installer.ts';
 import { getAllLockedSkills } from './skill-lock.ts';
+import { parseLifecycle, formatLifecycleAnnotation } from './lifecycle.ts';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -130,6 +134,20 @@ export async function runList(args: string[]): Promise<void> {
       skill.agents.length > 0 ? formatList(agentNames) : `${YELLOW}not linked${RESET}`;
     console.log(`${prefix}${CYAN}${skill.name}${RESET} ${DIM}${shortPath}${RESET}`);
     console.log(`${prefix}  ${DIM}Agents:${RESET} ${agentInfo}`);
+
+    // Show lifecycle annotation if deprecated or yanked
+    try {
+      const skillMdPath = join(skill.canonicalPath, 'SKILL.md');
+      const content = readFileSync(skillMdPath, 'utf-8');
+      const { data } = matter(content);
+      const lifecycle = parseLifecycle(data);
+      const annotation = formatLifecycleAnnotation(lifecycle);
+      if (annotation) {
+        console.log(`${prefix}  ${annotation}`);
+      }
+    } catch {
+      // Can't read SKILL.md, skip annotation
+    }
   }
 
   console.log(`${BOLD}${scopeLabel} Skills${RESET}`);

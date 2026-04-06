@@ -11,6 +11,7 @@ import { runInstallFromLock } from './install.ts';
 import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
+import { runStatus } from './status.ts';
 import { track } from './telemetry.ts';
 import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
 import { buildUpdateInstallSource, formatSourceInput } from './update-source.ts';
@@ -118,6 +119,7 @@ ${BOLD}Manage Skills:${RESET}
 ${BOLD}Updates:${RESET}
   check                Check for available skill updates
   update               Update all skills to latest versions
+  status               Show lifecycle status of installed skills
 
 ${BOLD}Project:${RESET}
   experimental_install Restore skills from skills-lock.json
@@ -664,6 +666,9 @@ async function main(): Promise<void> {
       await runSync(restArgs, syncOptions);
       break;
     }
+    case 'status':
+      await runStatus(restArgs);
+      break;
     case 'list':
     case 'ls':
       await runList(restArgs);
