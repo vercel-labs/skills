@@ -53,13 +53,26 @@ interface SyncTelemetryData {
   agents: string;
 }
 
+interface VerifyTelemetryData {
+  event: 'verify';
+  scope: 'project' | 'global';
+  skillCount: string;
+  okCount: string;
+  modifiedCount: string;
+  missingCount: string;
+  untrackedCount: string;
+  invalidCount: string;
+  brokenSymlinksCount: string;
+}
+
 type TelemetryData =
   | InstallTelemetryData
   | RemoveTelemetryData
   | CheckTelemetryData
   | UpdateTelemetryData
   | FindTelemetryData
-  | SyncTelemetryData;
+  | SyncTelemetryData
+  | VerifyTelemetryData;
 
 let cliVersion: string | null = null;
 

@@ -99,6 +99,7 @@ When installing interactively, you can choose:
 | `npx skills remove [skills]` | Remove installed skills from agents            |
 | `npx skills check`           | Check for available skill updates              |
 | `npx skills update`          | Update all installed skills to latest versions |
+| `npx skills verify`          | Verify integrity of installed skills           |
 | `npx skills init [name]`     | Create a new SKILL.md template                 |
 
 ### `skills list`
@@ -146,6 +147,27 @@ npx skills init
 
 # Create a new skill in a subdirectory
 npx skills init my-skill
+```
+
+### `skills verify`
+
+Verify integrity of installed skills by checking hash consistency, symlink targets, and lock file status.
+
+```bash
+# Verify project skills
+npx skills verify
+
+# Verify global skills
+npx skills verify -g
+
+# Verbose output (show all skills including OK ones)
+npx skills verify -v
+
+# Filter by specific agents
+npx skills verify -a claude-code cursor
+
+# Output as JSON (useful for CI)
+npx skills verify --json
 ```
 
 ### `skills remove`
