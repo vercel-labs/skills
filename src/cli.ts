@@ -116,7 +116,7 @@ ${BOLD}Manage Skills:${RESET}
   find [query]         Search for skills interactively
 
 ${BOLD}Updates:${RESET}
-  check                Check for available skill updates
+  check [--json]       Check for available skill updates
   update               Update all skills to latest versions
 
 ${BOLD}Project:${RESET}
@@ -169,6 +169,7 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills find                          ${DIM}# interactive search${RESET}
   ${DIM}$${RESET} skills find typescript               ${DIM}# search by keyword${RESET}
   ${DIM}$${RESET} skills check
+  ${DIM}$${RESET} skills check --json                 ${DIM}# machine-readable output${RESET}
   ${DIM}$${RESET} skills update
   ${DIM}$${RESET} skills experimental_install            ${DIM}# restore from skills-lock.json${RESET}
   ${DIM}$${RESET} skills init my-skill
@@ -368,15 +369,23 @@ function printSkippedSkills(skipped: SkippedSkill[]): void {
 }
 
 async function runCheck(args: string[] = []): Promise<void> {
-  console.log(`${TEXT}Checking for skill updates...${RESET}`);
-  console.log();
+  const jsonOutput = args.includes('--json');
+
+  if (!jsonOutput) {
+    console.log(`${TEXT}Checking for skill updates...${RESET}`);
+    console.log();
+  }
 
   const lock = readSkillLock();
   const skillNames = Object.keys(lock.skills);
 
   if (skillNames.length === 0) {
-    console.log(`${DIM}No skills tracked in lock file.${RESET}`);
-    console.log(`${DIM}Install skills with${RESET} ${TEXT}npx skills add <package>${RESET}`);
+    if (jsonOutput) {
+      console.log(JSON.stringify([]));
+    } else {
+      console.log(`${DIM}No skills tracked in lock file.${RESET}`);
+      console.log(`${DIM}Install skills with${RESET} ${TEXT}npx skills add <package>${RESET}`);
+    }
     return;
   }
 
@@ -409,12 +418,18 @@ async function runCheck(args: string[] = []): Promise<void> {
 
   const totalSkills = skillNames.length - skipped.length;
   if (totalSkills === 0) {
-    console.log(`${DIM}No GitHub skills to check.${RESET}`);
-    printSkippedSkills(skipped);
+    if (jsonOutput) {
+      console.log(JSON.stringify([]));
+    } else {
+      console.log(`${DIM}No GitHub skills to check.${RESET}`);
+      printSkippedSkills(skipped);
+    }
     return;
   }
 
-  console.log(`${DIM}Checking ${totalSkills} skill(s) for updates...${RESET}`);
+  if (!jsonOutput) {
+    console.log(`${DIM}Checking ${totalSkills} skill(s) for updates...${RESET}`);
+  }
 
   const updates: Array<{ name: string; source: string }> = [];
   const errors: Array<{ name: string; source: string; error: string }> = [];
@@ -441,6 +456,11 @@ async function runCheck(args: string[] = []): Promise<void> {
         });
       }
     }
+  }
+
+  if (jsonOutput) {
+    console.log(JSON.stringify(updates, null, 2));
+    return;
   }
 
   console.log();
