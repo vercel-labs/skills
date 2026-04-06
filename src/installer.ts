@@ -327,7 +327,6 @@ const EXCLUDE_DIRS = new Set(['.git', '__pycache__', '__pypackages__']);
 
 const isExcluded = (name: string, isDirectory: boolean = false): boolean => {
   if (EXCLUDE_FILES.has(name)) return true;
-  if (name.startsWith('.')) return true;
   if (isDirectory && EXCLUDE_DIRS.has(name)) return true;
   return false;
 };
