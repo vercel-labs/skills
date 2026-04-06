@@ -85,4 +85,16 @@ describe('skills CLI', () => {
       expect(hasLogo(output)).toBe(false);
     }, 60000);
   });
+
+  describe('install command', () => {
+    it('should include install in help', () => {
+      const output = runCliOutput(['--help']);
+      expect(output).toContain('install');
+    });
+
+    it('should include ci in help', () => {
+      const output = runCliOutput(['--help']);
+      expect(output).toContain('  ci ');
+    });
+  });
 });
