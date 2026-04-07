@@ -414,6 +414,12 @@ describe('Source aliases', () => {
     expect(result.type).toBe('github');
     expect(result.url).toBe('https://github.com/coinbase/agentic-wallet-skills.git');
   });
+
+  it('resolves cookiy to cookiy-ai/cookiy-skill', () => {
+    const result = parseSource('cookiy');
+    expect(result.type).toBe('github');
+    expect(result.url).toBe('https://github.com/cookiy-ai/cookiy-skill.git');
+  });
 });
 
 describe('Prefix shorthand tests', () => {
