@@ -1,0 +1,110 @@
+{
+  "name": "skills",
+  "version": "1.4.1",
+  "description": "The open agent skills ecosystem",
+  "type": "module",
+  "bin": {
+    "skills": "./bin/cli.mjs",
+    "add-skill": "./bin/cli.mjs"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md",
+    "ThirdPartyNoticeText.txt"
+  ],
+  "scripts": {
+    "build": "node scripts/generate-licenses.ts && obuild",
+    "generate-licenses": "node scripts/generate-licenses.ts",
+    "dev": "node src/cli.ts",
+    "exec:test": "node scripts/execute-tests.ts",
+    "prepublishOnly": "npm run build",
+    "format": "prettier --write 'src/**/*.ts' 'scripts/**/*.ts'",
+    "format:check": "prettier --check 'src/**/*.ts' 'scripts/**/*.ts'",
+    "prepare": "husky",
+    "test": "vitest",
+    "type-check": "tsc --noEmit",
+    "publish:snapshot": "npm version prerelease --preid=snapshot --no-git-tag-version && npm publish --tag snapshot"
+  },
+  "lint-staged": {
+    "src/**/*.ts": "prettier --write",
+    "scripts/**/*.ts": "prettier --write",
+    "tests/**/*.ts": "prettier --write"
+  },
+  "keywords": [
+    "cli",
+    "agent-skills",
+    "skills",
+    "ai-agents",
+    "amp",
+    "antigravity",
+    "augment",
+    "claude-code",
+    "openclaw",
+    "cline",
+    "codebuddy",
+    "codex",
+    "command-code",
+    "continue",
+    "cortex",
+    "crush",
+    "cursor",
+    "droid",
+    "gemini-cli",
+    "github-copilot",
+    "goose",
+    "junie",
+    "iflow-cli",
+    "kilo",
+    "kimi-cli",
+    "kiro-cli",
+    "kode",
+    "mcpjam",
+    "mistral-vibe",
+    "mux",
+    "opencode",
+    "openhands",
+    "pi",
+    "qoder",
+    "qwen-code",
+    "replit",
+    "roo",
+    "trae",
+    "trae-cn",
+    "windsurf",
+    "zencoder",
+    "neovate",
+    "pochi",
+    "adal",
+    "universal"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vercel-labs/skills.git"
+  },
+  "homepage": "https://github.com/vercel-labs/skills#readme",
+  "bugs": {
+    "url": "https://github.com/vercel-labs/skills/issues"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@clack/prompts": "^0.11.0",
+    "@types/bun": "latest",
+    "@types/node": "^22.10.0",
+    "gray-matter": "^4.0.3",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7",
+    "obuild": "^0.4.22",
+    "picocolors": "^1.1.1",
+    "prettier": "^3.8.1",
+    "simple-git": "^3.27.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.17",
+    "xdg-basedir": "^5.1.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "packageManager": "pnpm@10.17.1"
+}
