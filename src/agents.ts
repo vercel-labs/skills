@@ -170,7 +170,7 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'dexto',
     displayName: 'Dexto',
     skillsDir: '.agents/skills',
-    globalSkillsDir: join(home, '.dexto/skills'),
+    globalSkillsDir: join(home, '.agents/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.dexto'));
     },

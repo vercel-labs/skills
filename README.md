@@ -269,7 +269,6 @@ Skills can be installed to any of these agents:
 | Neovate                               | `neovate`                                | `.neovate/skills/`     | `~/.neovate/skills/`            |
 | Pochi                                 | `pochi`                                  | `.pochi/skills/`       | `~/.pochi/skills/`              |
 | AdaL                                  | `adal`                                   | `.adal/skills/`        | `~/.adal/skills/`               |
-
 <!-- supported-agents:end -->
 
 > [!NOTE]
