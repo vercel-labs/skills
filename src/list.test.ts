@@ -226,9 +226,29 @@ description: A project skill
 `
       );
 
+      // Create an isolated global skill under the test HOME used by runCli()
+      const globalSkillDir = join(
+        testDir,
+        '.skills-cli-test-home',
+        '.agents',
+        'skills',
+        'global-skill'
+      );
+      mkdirSync(globalSkillDir, { recursive: true });
+      writeFileSync(
+        join(globalSkillDir, 'SKILL.md'),
+        `---
+name: global-skill
+description: A global skill
+---
+# Global Skill
+`
+      );
+
       const result = runCli(['list', '-g'], testDir);
       // Should not show project skill when -g is specified
       expect(result.stdout).not.toContain('project-skill');
+      expect(result.stdout).toContain('global-skill');
       expect(result.stdout).toContain('Global Skills');
     });
 

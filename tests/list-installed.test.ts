@@ -116,13 +116,45 @@ ${skillData.description}
   });
 
   it('should handle global scope option', async () => {
-    // Test with global: true - verifies the function doesn't crash
-    // Note: This checks ~/.agents/skills, results depend on system state
-    const skills = await listInstalledSkills({
+    const fakeHome = join(testDir, '.fake-home');
+    const fakeGlobalSkillDir = join(fakeHome, '.agents', 'skills', 'global-skill');
+
+    await mkdir(fakeGlobalSkillDir, { recursive: true });
+    await writeFile(
+      join(fakeGlobalSkillDir, 'SKILL.md'),
+      `---
+name: global-skill
+description: A global test skill
+---
+
+# global-skill
+
+A global test skill
+`
+    );
+
+    vi.resetModules();
+    vi.doMock('os', async () => {
+      const actual = await vi.importActual<typeof import('os')>('os');
+      return { ...actual, homedir: () => fakeHome };
+    });
+
+    const isolatedInstallerModule = await import('../src/installer.ts');
+    const isolatedAgentsModule = await import('../src/agents.ts');
+
+    vi.spyOn(isolatedAgentsModule, 'detectInstalledAgents').mockResolvedValue([]);
+
+    const skills = await isolatedInstallerModule.listInstalledSkills({
       global: true,
       cwd: testDir,
     });
-    expect(Array.isArray(skills)).toBe(true);
+
+    expect(skills).toHaveLength(1);
+    expect(skills[0]!.name).toBe('global-skill');
+    expect(skills[0]!.scope).toBe('global');
+
+    vi.doUnmock('os');
+    vi.resetModules();
   });
 
   it('should apply agent filter', async () => {
