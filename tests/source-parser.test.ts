@@ -414,6 +414,12 @@ describe('Source aliases', () => {
     expect(result.type).toBe('github');
     expect(result.url).toBe('https://github.com/coinbase/agentic-wallet-skills.git');
   });
+
+  it('resolves scandit to Scandit/scandit-sdk-skills', () => {
+    const result = parseSource('scandit');
+    expect(result.type).toBe('github');
+    expect(result.url).toBe('https://github.com/Scandit/scandit-sdk-skills.git');
+  });
 });
 
 describe('Prefix shorthand tests', () => {
