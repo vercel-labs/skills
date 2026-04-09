@@ -335,14 +335,19 @@ export async function installSkillForAgent(
 
     if (!symlinkCreated) {
       // Symlink failed, fall back to copy
-      await cleanAndCreateDirectory(agentDir);
-      await copyDirectory(skill.path, agentDir);
+      // Check if source is already at agent location to prevent deletion
+      const isSourceAlreadyAgent = await isSamePath(skill.path, agentDir);
+
+      if (!isSourceAlreadyAgent) {
+        await cleanAndCreateDirectory(agentDir);
+        await copyDirectory(skill.path, agentDir);
+      }
 
       return {
         success: true,
         path: agentDir,
         canonicalPath: canonicalDir,
-        mode: 'symlink',
+        mode: 'copy',
         symlinkFailed: true,
       };
     }
