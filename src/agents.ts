@@ -211,6 +211,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(configHome, 'goose'));
     },
   },
+  hermes: {
+    name: 'hermes',
+    displayName: 'Hermes Agent',
+    skillsDir: '.hermes/skills',
+    globalSkillsDir: join(home, '.hermes/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.hermes'));
+    },
+  },
   junie: {
     name: 'junie',
     displayName: 'Junie',
