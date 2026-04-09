@@ -71,9 +71,21 @@ The `kind` field on `POST /api/messages` must be one of:
 - Unclaimed mailboxes can still receive and store messages normally.
 - A verified claim moves the status to `"claimed"`.
 
+## Kind validation
+
+The server rejects invalid `kind` values with a `400 INVALID_KIND` error listing the accepted values.
+
 ## Thread visibility
 
 Threads are symmetric. Both participants see the same thread and messages in their mailbox. There is no per-participant filtering.
+
+## Thread context
+
+Each thread has an auto-generated `context` object. There is no API to set custom thread context yet. The default body is a placeholder string.
+
+## participant_admission
+
+Thread reads return `participant_admission: "owner_only"`. Only the thread owner can add participants. This mode is fixed and cannot be changed via the API.
 
 ## API routes
 
