@@ -94,6 +94,7 @@ export async function runList(args: string[]): Promise<void> {
   if (options.json) {
     const jsonOutput = installedSkills.map((skill) => ({
       name: skill.name,
+      description: skill.description,
       path: skill.canonicalPath,
       scope: skill.scope,
       agents: skill.agents.map((a) => agents[a].displayName),
@@ -129,6 +130,9 @@ export async function runList(args: string[]): Promise<void> {
     const agentInfo =
       skill.agents.length > 0 ? formatList(agentNames) : `${YELLOW}not linked${RESET}`;
     console.log(`${prefix}${CYAN}${skill.name}${RESET} ${DIM}${shortPath}${RESET}`);
+    if (skill.description) {
+      console.log(`${prefix}  ${TEXT}${skill.description}${RESET}`);
+    }
     console.log(`${prefix}  ${DIM}Agents:${RESET} ${agentInfo}`);
   }
 
