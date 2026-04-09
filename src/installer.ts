@@ -309,8 +309,15 @@ export async function installSkillForAgent(
     }
 
     // Symlink mode: copy to canonical location and symlink to agent location
-    await cleanAndCreateDirectory(canonicalDir);
-    await copyDirectory(skill.path, canonicalDir);
+    // Check if source is already at canonical location to prevent deletion
+    const isSourceAlreadyCanonical = await isSamePath(skill.path, canonicalDir);
+
+    if (!isSourceAlreadyCanonical) {
+      // Only clean and copy if source is different from destination
+      await cleanAndCreateDirectory(canonicalDir);
+      await copyDirectory(skill.path, canonicalDir);
+    }
+    // If source === canonical, files are already in place, skip to symlink creation
 
     // For universal agents with global install, the skill is already in the canonical
     // ~/.agents/skills directory. Skip creating a symlink to the agent-specific global dir
