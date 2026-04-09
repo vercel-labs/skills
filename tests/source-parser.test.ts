@@ -414,6 +414,12 @@ describe('Source aliases', () => {
     expect(result.type).toBe('github');
     expect(result.url).toBe('https://github.com/coinbase/agentic-wallet-skills.git');
   });
+
+  it('resolves resemble-ai/detect to resemble-ai/detect-skill', () => {
+    const result = parseSource('resemble-ai/detect');
+    expect(result.type).toBe('github');
+    expect(result.url).toBe('https://github.com/resemble-ai/detect-skill.git');
+  });
 });
 
 describe('Prefix shorthand tests', () => {
