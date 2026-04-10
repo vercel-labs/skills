@@ -323,7 +323,6 @@ The CLI searches for skills in these locations within a repository:
 - `.augment/skills/`
 - `.bob/skills/`
 - `.claude/skills/`
-- `./skills/`
 - `.codebuddy/skills/`
 - `.commandcode/skills/`
 - `.continue/skills/`
