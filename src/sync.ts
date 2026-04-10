@@ -13,6 +13,7 @@ import {
 } from './agents.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 import { addSkillToLocalLock, computeSkillFolderHash, readLocalLock } from './local-lock.ts';
+import { makeLockKey } from './skill-lock.ts';
 import type { Skill, AgentType } from './types.ts';
 import { track } from './telemetry.ts';
 
@@ -169,7 +170,8 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     p.log.info(pc.dim('Force mode: reinstalling all skills'));
   } else {
     for (const skill of discoveredSkills) {
-      const existingEntry = localLock.skills[skill.name];
+      const lockKey = makeLockKey(skill.packageName, skill.name);
+      const existingEntry = localLock.skills[lockKey];
       if (existingEntry) {
         // Compute current hash and compare
         const currentHash = await computeSkillFolderHash(skill.path);

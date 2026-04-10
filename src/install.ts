@@ -4,6 +4,7 @@ import { readLocalLock } from './local-lock.ts';
 import { runAdd } from './add.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { getUniversalAgents } from './agents.ts';
+import { parseLockKey } from './skill-lock.ts';
 
 /**
  * Install all skills from the local skills-lock.json.
@@ -34,7 +35,8 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
   const nodeModuleSkills: string[] = [];
   const bySource = new Map<string, { sourceType: string; skills: string[] }>();
 
-  for (const [skillName, entry] of skillEntries) {
+  for (const [lockKey, entry] of skillEntries) {
+    const { skillName } = parseLockKey(lockKey);
     if (entry.sourceType === 'node_modules') {
       nodeModuleSkills.push(skillName);
       continue;

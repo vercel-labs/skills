@@ -29,7 +29,7 @@ describe('local-lock', () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
         const lock = await readLocalLock(dir);
-        expect(lock).toEqual({ version: 1, skills: {} });
+        expect(lock).toEqual({ version: 2, skills: {} });
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
@@ -39,9 +39,9 @@ describe('local-lock', () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
         const content = {
-          version: 1,
+          version: 2,
           skills: {
-            'my-skill': {
+            'vercel-labs/skills::my-skill': {
               source: 'vercel-labs/skills',
               sourceType: 'github',
               computedHash: 'abc123',
@@ -51,8 +51,8 @@ describe('local-lock', () => {
         await writeFile(join(dir, 'skills-lock.json'), JSON.stringify(content), 'utf-8');
 
         const lock = await readLocalLock(dir);
-        expect(lock.version).toBe(1);
-        expect(lock.skills['my-skill']).toEqual({
+        expect(lock.version).toBe(2);
+        expect(lock.skills['vercel-labs/skills::my-skill']).toEqual({
           source: 'vercel-labs/skills',
           sourceType: 'github',
           computedHash: 'abc123',
@@ -66,19 +66,19 @@ describe('local-lock', () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
         const conflicted = `{
-  "version": 1,
+  "version": 2,
   "skills": {
 <<<<<<< HEAD
-    "skill-a": { "source": "org/repo-a", "sourceType": "github", "computedHash": "aaa" }
+    "org/repo-a::skill-a": { "source": "org/repo-a", "sourceType": "github", "computedHash": "aaa" }
 =======
-    "skill-b": { "source": "org/repo-b", "sourceType": "github", "computedHash": "bbb" }
+    "org/repo-b::skill-b": { "source": "org/repo-b", "sourceType": "github", "computedHash": "bbb" }
 >>>>>>> feature-branch
   }
 }`;
         await writeFile(join(dir, 'skills-lock.json'), conflicted, 'utf-8');
 
         const lock = await readLocalLock(dir);
-        expect(lock).toEqual({ version: 1, skills: {} });
+        expect(lock).toEqual({ version: 2, skills: {} });
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
@@ -89,7 +89,7 @@ describe('local-lock', () => {
       try {
         await writeFile(join(dir, 'skills-lock.json'), '{"version": 1}', 'utf-8');
         const lock = await readLocalLock(dir);
-        expect(lock).toEqual({ version: 1, skills: {} });
+        expect(lock).toEqual({ version: 2, skills: {} });
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
@@ -102,19 +102,19 @@ describe('local-lock', () => {
       try {
         await writeLocalLock(
           {
-            version: 1,
+            version: 2,
             skills: {
-              'zebra-skill': {
+              'org/z::zebra-skill': {
                 source: 'org/z',
                 sourceType: 'github',
                 computedHash: 'zzz',
               },
-              'alpha-skill': {
+              'org/a::alpha-skill': {
                 source: 'org/a',
                 sourceType: 'github',
                 computedHash: 'aaa',
               },
-              'middle-skill': {
+              'org/m::middle-skill': {
                 source: 'org/m',
                 sourceType: 'github',
                 computedHash: 'mmm',
@@ -129,7 +129,7 @@ describe('local-lock', () => {
 
         const parsed = JSON.parse(raw);
         const keys = Object.keys(parsed.skills);
-        expect(keys).toEqual(['alpha-skill', 'middle-skill', 'zebra-skill']);
+        expect(keys).toEqual(['org/a::alpha-skill', 'org/m::middle-skill', 'org/z::zebra-skill']);
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
@@ -147,7 +147,7 @@ describe('local-lock', () => {
         );
 
         const lock = await readLocalLock(dir);
-        expect(lock.skills['new-skill']).toEqual({
+        expect(lock.skills['org/repo::new-skill']).toEqual({
           source: 'org/repo',
           sourceType: 'github',
           computedHash: 'hash123',
@@ -172,7 +172,7 @@ describe('local-lock', () => {
         );
 
         const lock = await readLocalLock(dir);
-        expect(lock.skills['my-skill']!.computedHash).toBe('new-hash');
+        expect(lock.skills['org/repo::my-skill']!.computedHash).toBe('new-hash');
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
@@ -194,8 +194,8 @@ describe('local-lock', () => {
 
         const lock = await readLocalLock(dir);
         expect(Object.keys(lock.skills)).toHaveLength(2);
-        expect(lock.skills['skill-a']!.computedHash).toBe('aaa');
-        expect(lock.skills['skill-b']!.computedHash).toBe('bbb');
+        expect(lock.skills['org/a::skill-a']!.computedHash).toBe('aaa');
+        expect(lock.skills['org/b::skill-b']!.computedHash).toBe('bbb');
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
@@ -216,7 +216,7 @@ describe('local-lock', () => {
         );
 
         const lock = await readLocalLock(dir);
-        expect(lock.skills['branch-skill']).toEqual({
+        expect(lock.skills['org/repo::branch-skill']).toEqual({
           source: 'org/repo',
           ref: 'feature/install',
           sourceType: 'github',
@@ -242,7 +242,7 @@ describe('local-lock', () => {
         expect(removed).toBe(true);
 
         const lock = await readLocalLock(dir);
-        expect(lock.skills['my-skill']).toBeUndefined();
+        expect(Object.keys(lock.skills)).toHaveLength(0);
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
@@ -391,7 +391,7 @@ describe('local-lock', () => {
         const branchA = await readFile(join(dir, 'skills-lock.json'), 'utf-8');
 
         // Reset to empty
-        await writeFile(join(dir, 'skills-lock.json'), '{"version":1,"skills":{}}', 'utf-8');
+        await writeFile(join(dir, 'skills-lock.json'), '{"version":2,"skills":{}}', 'utf-8');
 
         // Simulate branch B adding skill-b
         await addSkillToLocalLock(
@@ -404,14 +404,14 @@ describe('local-lock', () => {
         // Both branches produce valid JSON with no timestamps to conflict on
         const parsedA = JSON.parse(branchA);
         const parsedB = JSON.parse(branchB);
-        expect(parsedA.skills['skill-a']).toBeDefined();
-        expect(parsedA.skills['skill-a'].computedHash).toBeDefined();
-        expect(parsedB.skills['skill-b']).toBeDefined();
-        expect(parsedB.skills['skill-b'].computedHash).toBeDefined();
+        expect(parsedA.skills['org/a::skill-a']).toBeDefined();
+        expect(parsedA.skills['org/a::skill-a'].computedHash).toBeDefined();
+        expect(parsedB.skills['org/b::skill-b']).toBeDefined();
+        expect(parsedB.skills['org/b::skill-b'].computedHash).toBeDefined();
 
         // No timestamps present
-        expect(parsedA.skills['skill-a'].installedAt).toBeUndefined();
-        expect(parsedA.skills['skill-a'].updatedAt).toBeUndefined();
+        expect(parsedA.skills['org/a::skill-a'].installedAt).toBeUndefined();
+        expect(parsedA.skills['org/a::skill-a'].updatedAt).toBeUndefined();
       } finally {
         await rm(dir, { recursive: true, force: true });
       }

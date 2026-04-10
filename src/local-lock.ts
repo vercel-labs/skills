@@ -1,9 +1,10 @@
 import { readFile, writeFile, readdir, stat } from 'fs/promises';
 import { join, relative } from 'path';
 import { createHash } from 'crypto';
+import { makeLockKey, parseLockKey } from './skill-lock.ts';
 
 const LOCAL_LOCK_FILE = 'skills-lock.json';
-const CURRENT_VERSION = 1;
+const CURRENT_VERSION = 2;
 
 /**
  * Represents a single skill entry in the local (project) lock file.
@@ -147,7 +148,8 @@ export async function addSkillToLocalLock(
   cwd?: string
 ): Promise<void> {
   const lock = await readLocalLock(cwd);
-  lock.skills[skillName] = entry;
+  const key = makeLockKey(entry.source, skillName);
+  lock.skills[key] = entry;
   await writeLocalLock(lock, cwd);
 }
 
@@ -157,11 +159,18 @@ export async function addSkillToLocalLock(
 export async function removeSkillFromLocalLock(skillName: string, cwd?: string): Promise<boolean> {
   const lock = await readLocalLock(cwd);
 
-  if (!(skillName in lock.skills)) {
+  const keysToRemove = Object.keys(lock.skills).filter(
+    (key) => parseLockKey(key).skillName === skillName
+  );
+
+  if (keysToRemove.length === 0) {
     return false;
   }
 
-  delete lock.skills[skillName];
+  for (const key of keysToRemove) {
+    delete lock.skills[key];
+  }
+
   await writeLocalLock(lock, cwd);
   return true;
 }
