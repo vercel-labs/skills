@@ -31,17 +31,17 @@ That gap matters because harnesses typically frontload skill metadata into the p
 
 ### Existing Commands
 
-| Command | Aliases | Purpose | Lockfile Relationship |
-| --- | --- | --- | --- |
-| `skills add <source>` | `a`, `install`, `i` | Install skills from repo/path/well-known source | Writes global lock for global installs, writes project lock for project installs |
-| `skills remove [skills...]` | `rm`, `r` | Remove installed skills | Currently removes from global lock only; project lock cleanup must be added |
-| `skills list` | `ls` | List installed skills | Reads filesystem and global lock plugin metadata |
-| `skills find [query]` | `search`, `f`, `s` | Search remote skills | No lockfile mutation |
-| `skills check` | none | Check for updates | Reads global lock only |
-| `skills update` | `upgrade` | Reinstall updated global skills | Reads global lock only |
-| `skills experimental_install` | none | Restore project skills from `skills-lock.json` | Reads project lock only |
-| `skills experimental_sync` | none | Sync node_modules skills into project scope | Reads and writes project lock |
-| `skills init [name]` | none | Scaffold a `SKILL.md` | No lockfile mutation |
+| Command                       | Aliases             | Purpose                                         | Lockfile Relationship                                                            |
+| ----------------------------- | ------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------- |
+| `skills add <source>`         | `a`, `install`, `i` | Install skills from repo/path/well-known source | Writes global lock for global installs, writes project lock for project installs |
+| `skills remove [skills...]`   | `rm`, `r`           | Remove installed skills                         | Currently removes from global lock only; project lock cleanup must be added      |
+| `skills list`                 | `ls`                | List installed skills                           | Reads filesystem and global lock plugin metadata                                 |
+| `skills find [query]`         | `search`, `f`, `s`  | Search remote skills                            | No lockfile mutation                                                             |
+| `skills check`                | none                | Check for updates                               | Reads global lock only                                                           |
+| `skills update`               | `upgrade`           | Reinstall updated global skills                 | Reads global lock only                                                           |
+| `skills experimental_install` | none                | Restore project skills from `skills-lock.json`  | Reads project lock only                                                          |
+| `skills experimental_sync`    | none                | Sync node_modules skills into project scope     | Reads and writes project lock                                                    |
+| `skills init [name]`          | none                | Scaffold a `SKILL.md`                           | No lockfile mutation                                                             |
 
 ### Existing Flags
 
@@ -67,13 +67,16 @@ There are currently two persistent lockfiles:
 - Current version: `1`
 - Purpose: reproducible project restore
 - Current contents: `skills` map with source metadata and `computedHash`
+- Project-scope groups and `skills-manager` designation must be persisted only in this file
 
 #### Global lock
 
-- Path: `~/.agents/.skill-lock.json` or `$XDG_STATE_HOME/skills/.skill-lock.json`
+- Path: `$XDG_STATE_HOME/skills/.skill-lock.json` when `XDG_STATE_HOME` is set; otherwise `~/.agents/.skill-lock.json`
 - Current version: `3`
 - Purpose: global install tracking and update checks
 - Current contents: `skills` map with source metadata, timestamps, `skillFolderHash`, optional `pluginName`, plus global-only fields like `dismissed` and `lastSelectedAgents`
+- Global-scope groups and `skills-manager` designation must be persisted only in this file
+- This global state file may continue to store global UX and preference state such as `dismissed` prompts or `lastSelectedAgents`, but it must not store project management state. Only global management state and groups.
 
 ### Existing Install Model
 
@@ -668,13 +671,9 @@ Proposed per-skill JSON shape:
 ```json
 {
   "groups": {
-    "ai": [
-      { "name": "api-design", "status": "enabled" }
-    ]
+    "ai": [{ "name": "api-design", "status": "enabled" }]
   },
-  "ungrouped": [
-    { "name": "email", "status": "disabled" }
-  ],
+  "ungrouped": [{ "name": "email", "status": "disabled" }],
   "managerSkill": "find-skills",
   "warnings": []
 }
