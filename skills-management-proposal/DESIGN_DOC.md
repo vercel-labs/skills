@@ -13,8 +13,8 @@ The design keeps the current install/update/remove model intact and layers manag
 
 The key decisions are:
 
-- Disabled state is derived from filenames, not stored in lockfiles
-- A disabled skill is represented by renaming `SKILL.md` to `SKILL.disabled.md`
+- Disabled state is derived from on-disk location, not stored in lockfiles
+- A disabled skill is represented by moving its installed entry from `skills/` to `disabled_skills/`
 - Groups are multi-membership collections of skill names
 - Project and global scopes remain completely separate
 - Group membership and the designated `skills-manager` skill are stored in both lockfiles
@@ -86,8 +86,8 @@ Installed skills are materialized in a canonical skill directory and may also ap
 
 This matters because enable/disable must work for both:
 
-- Symlinked installs, where changing the canonical copy is usually sufficient
-- Copied installs, where every materialized copy must be renamed separately
+- Symlinked installs, where the canonical skill directory and any agent-specific symlink entries must move between active and disabled roots together
+- Copied installs, where every materialized copy must move between the active and disabled roots
 
 ## Goals
 
@@ -104,20 +104,24 @@ This matters because enable/disable must work for both:
 - Group-level stored enabled/disabled state
 - Automatic group assignment during fresh install
 - Changing how `check` and `update` decide what is updatable
-- Replacing the existing install layout
+- Redesigning the broader install layout beyond adding a parallel `disabled_skills` directory
 
 ## Final Design Decisions
 
 ### 1. Disabled State
 
-Disabled state is derived from filenames:
+Disabled state is derived from on-disk location:
 
-- Enabled: `SKILL.md`
-- Disabled: `SKILL.disabled.md`
+- Enabled: `<scope-root>/skills/<skill>/SKILL.md`
+- Disabled: `<scope-root>/disabled_skills/<skill>/SKILL.md`
+
+Enabling or disabling a skill moves its installed entry between those sibling roots. The `SKILL.md` file itself is unchanged.
+
+For example, disabling project skill `api-design` moves it from `<cwd>/.agents/skills/api-design` to `<cwd>/.agents/disabled_skills/api-design`.
 
 No lockfile field stores enabled/disabled state.
 
-This keeps the runtime source of truth aligned with what harnesses actually load.
+This keeps the runtime source of truth aligned with what harnesses actually load, because harnesses continue to discover active skills from the `skills/` tree only.
 
 ### 2. Group Model
 
@@ -244,7 +248,7 @@ Enabled:
 Disabled:
 
 ```text
-[-] browser-testing ~/dev-projects/skills/.agents/skills/browser-testing
+[-] browser-testing ~/dev-projects/skills/.agents/disabled_skills/browser-testing
   Agents: Claude Code, Codex, Cursor, GitHub Copilot, OpenCode
 ```
 
@@ -310,10 +314,10 @@ Two additional drift states are useful for diagnostics:
 
 ### Canonical status derivation
 
-Per installed skill directory:
+Per skill within a concrete install root:
 
-- `SKILL.md` present and `SKILL.disabled.md` absent => enabled
-- `SKILL.disabled.md` present and `SKILL.md` absent => disabled
+- `skills/<skill>/SKILL.md` present and `disabled_skills/<skill>` absent => enabled
+- `disabled_skills/<skill>/SKILL.md` present and `skills/<skill>` absent => disabled
 - Both present or neither present => invalid/inconsistent
 
 ### Scope-wide skill status
@@ -326,15 +330,18 @@ To do that safely, the CLI must enumerate every concrete installed copy of a ski
 - Agent-specific copies created by `--copy`
 - Agent-specific fallback copies created when symlinks failed
 
-Symlink aliases should be deduplicated by `realpath` so a single underlying directory is not renamed twice.
+For symlinked installs, the implementation should treat the canonical directory and agent-specific alias entries separately:
+
+- The canonical target should only be moved once
+- Agent-specific symlink entries should still move between `skills/` and `disabled_skills/` so discovery paths remain clean
 
 ### Why no stored disabled flag
 
-Disabled state intentionally lives in the filesystem because harnesses already key off the presence of `SKILL.md`.
+Disabled state intentionally lives in the filesystem because harnesses already key off the active `skills/` discovery tree.
 
 This has one important consequence:
 
-- In-place reinstall/update operations can preserve disabled state by snapshotting current filenames and restoring them afterward
+- In-place reinstall/update operations can preserve disabled state by snapshotting whether each installed entry currently lives in `skills/` or `disabled_skills/` and restoring that placement afterward
 - A clean restore into an empty scope cannot reconstruct disabled state from lockfiles alone
 
 That tradeoff is accepted in this design.
@@ -430,7 +437,7 @@ Behavior:
 - Expands the selector to concrete skill names in the selected scope
 - Ignores duplicates after expansion
 - Skips the `skills-manager` skill in bulk if it is already enabled
-- Renames `SKILL.disabled.md` -> `SKILL.md` in every concrete installed copy
+- Moves each installed skill entry from `disabled_skills/` to `skills/` in every concrete installed location
 - Reports missing or inconsistent copies as failures
 
 ### `skills disable`
@@ -446,7 +453,7 @@ Behavior:
 - Expands the selector to concrete skill names in the selected scope
 - Explicitly targeting the `skills-manager` skill fails
 - Bulk operations skip the `skills-manager` skill and report the skip
-- Renames `SKILL.md` -> `SKILL.disabled.md` in every concrete installed copy
+- Moves each installed skill entry from `skills/` to `disabled_skills/` in every concrete installed location
 - Reports missing or inconsistent copies as failures
 
 ### `skills group create`
@@ -556,7 +563,7 @@ However, when `add` reinstalls a skill that already exists in the selected scope
 
 - Existing group membership from the relevant lockfile
 - Existing `skills-manager` designation if the reinstalled skill is the manager skill
-- Existing disabled state by snapshotting the current on-disk filename state before replacement and restoring it afterward
+- Existing disabled state by snapshotting the current active-vs-disabled location before replacement and restoring it afterward
 
 This allows `skills add` to behave sensibly as both an install and a reinstall mechanism.
 
@@ -689,8 +696,8 @@ Proposed per-skill JSON shape:
 
 - Add a helper to detect enabled, disabled, inconsistent, and missing states
 - Add a helper to enumerate all concrete installed copies for a skill in a scope
-- Deduplicate symlink aliases with `realpath`
-- Add rename helpers for enable/disable operations
+- Track canonical targets separately from agent-specific symlink alias entries
+- Add move helpers that switch installed entries between `skills/` and `disabled_skills/`
 
 ### Phase 3: New commands
 
@@ -736,12 +743,12 @@ Proposed per-skill JSON shape:
 
 ## Open Tradeoff to Revisit Later
 
-The biggest tradeoff in this design is the decision to derive disabled state entirely from filenames instead of storing it in lockfiles.
+The biggest tradeoff in this design is the decision to derive disabled state entirely from on-disk location instead of storing it in lockfiles.
 
 That buys:
 
 - Very simple runtime semantics
-- Direct compatibility with harnesses that load `SKILL.md`
+- Direct compatibility with harnesses that load from the active `skills/` tree
 - No duplicated source of truth
 
 It costs:

@@ -12,7 +12,7 @@ The `skills` CLI gains a lightweight management layer for installed skills:
 Project and global scope remain separate. The same commands work in both, with `-g` selecting global scope.
 
 > **NOTE**
-> In an ideal world, we wouldn't need to rename a SKILL.md file in order to disable it. Instead, we would set a flag in the frontmatter.
+> In an ideal world, we wouldn't need to move a skill out of the active `skills/` tree in order to disable it. Instead, we would set a flag in the frontmatter.
 > However, this would require buy-in from harness authors and, ultimately, official support in the SKILL.md spec.
 
 ## Command Surface
@@ -79,7 +79,7 @@ Normal `skills list` keeps the current format and only adds status markers:
 [+] api-design ~/dev-projects/skills/.agents/skills/api-design
   Agents: Claude Code, Codex, Cursor, GitHub Copilot, OpenCode
 
-[-] browser-testing ~/dev-projects/skills/.agents/skills/browser-testing
+[-] browser-testing ~/dev-projects/skills/.agents/disabled_skills/browser-testing
   Agents: Claude Code, Codex, Cursor, GitHub Copilot, OpenCode
 ```
 
@@ -103,10 +103,12 @@ UNGROUPED SKILLS (1/2 enabled)
 
 ### Disabled state is derived from the filesystem
 
-Disabled skills are represented by renaming:
+Disabled skills are represented by where they live on disk:
 
-- `SKILL.md` -> enabled
-- `SKILL.disabled.md` -> disabled
+- `.agents/skills/<skill>/SKILL.md` -> enabled
+- `.agents/disabled_skills/<skill>/SKILL.md` -> disabled
+
+Disabling a skill moves its folder from `skills/` to `disabled_skills/`. Enabling it moves the folder back.
 
 The lockfile does not store an explicit enabled/disabled flag.
 
@@ -143,7 +145,7 @@ If a skill was disabled before an in-place reinstall, it should still be disable
 
 ## Key Tradeoffs
 
-### Why derive disabled state from filenames?
+### Why derive disabled state from on-disk location?
 
 Pros:
 
