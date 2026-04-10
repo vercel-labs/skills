@@ -1470,7 +1470,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     // Check for name collisions with skills from different sources (global installs only)
-    const currentSource = getOwnerRepo(parsed) || parsed.url;
+    // Use the same source normalization as lock writes: SSH URLs are stored raw,
+    // HTTPS sources are normalized to owner/repo. This prevents false collisions
+    // when reinstalling the same repo via SSH.
+    const isSSH = parsed.url.startsWith('git@');
+    const normalizedSource = getOwnerRepo(parsed);
+    const currentSource = isSSH ? parsed.url : normalizedSource || parsed.url;
     const skillsToSkip = new Set<string>();
 
     if (installGlobally) {
@@ -1601,13 +1606,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
-    // Normalize source to owner/repo format for telemetry
-    const normalizedSource = getOwnerRepo(parsed);
-
     // Preserve SSH URLs in lock files instead of normalizing to owner/repo shorthand.
     // When normalizedSource is used, parseSource() later resolves it to HTTPS,
     // breaking restore for private repos that require SSH authentication.
-    const isSSH = parsed.url.startsWith('git@');
     const lockSource = isSSH ? parsed.url : normalizedSource;
 
     // Only track if we have a valid remote source and it's not a private repo
