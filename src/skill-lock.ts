@@ -281,7 +281,8 @@ export async function getSkillsBySource(): Promise<
   const lock = await readSkillLock();
   const bySource = new Map<string, { skills: string[]; entry: SkillLockEntry }>();
 
-  for (const [skillName, entry] of Object.entries(lock.skills)) {
+  for (const [key, entry] of Object.entries(lock.skills)) {
+    const { skillName } = parseLockKey(key);
     const existing = bySource.get(entry.source);
     if (existing) {
       existing.skills.push(skillName);

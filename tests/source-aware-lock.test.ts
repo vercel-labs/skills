@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -14,20 +14,14 @@ import {
 
 describe('source-aware lock keys', () => {
   let tempDir: string;
-  let originalEnv: string | undefined;
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'lock-test-'));
-    originalEnv = process.env.XDG_STATE_HOME;
-    process.env.XDG_STATE_HOME = tempDir;
+    vi.stubEnv('XDG_STATE_HOME', tempDir);
   });
 
   afterEach(async () => {
-    if (originalEnv === undefined) {
-      delete process.env.XDG_STATE_HOME;
-    } else {
-      process.env.XDG_STATE_HOME = originalEnv;
-    }
+    vi.unstubAllEnvs();
     await rm(tempDir, { recursive: true, force: true });
   });
 
