@@ -145,7 +145,9 @@ export async function discoverSkills(
     return skill;
   };
 
-  // If pointing directly at a skill, add it (and return early unless fullDepth is set)
+  // If pointing directly at a skill, add it (and return early unless fullDepth is set).
+  // Root-level SKILL.md is intentionally exempt from name-directory validation because
+  // the directory name is the repo/clone name, not the skill name.
   if (await hasSkillMd(searchPath)) {
     let skill = await parseSkillMd(join(searchPath, 'SKILL.md'), options);
     if (skill) {
