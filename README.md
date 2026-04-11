@@ -92,14 +92,18 @@ When installing interactively, you can choose:
 
 ## Other Commands
 
-| Command                      | Description                                    |
-| ---------------------------- | ---------------------------------------------- |
-| `npx skills list`            | List installed skills (alias: `ls`)            |
-| `npx skills find [query]`    | Search for skills interactively or by keyword  |
-| `npx skills remove [skills]` | Remove installed skills from agents            |
-| `npx skills check`           | Check for available skill updates              |
-| `npx skills update`          | Update all installed skills to latest versions |
-| `npx skills init [name]`     | Create a new SKILL.md template                 |
+| Command                       | Description                                    |
+| ----------------------------- | ---------------------------------------------- |
+| `npx skills list`             | List installed skills (alias: `ls`)            |
+| `npx skills find [query]`     | Search for skills interactively or by keyword  |
+| `npx skills remove [skills]`  | Remove installed skills from agents            |
+| `npx skills enable [skills]`  | Enable installed skills                        |
+| `npx skills disable [skills]` | Disable installed skills without removing them |
+| `npx skills group <action>`   | Manage skill groups                            |
+| `npx skills manager <action>` | Manage the protected manager skill             |
+| `npx skills check`            | Check for available skill updates              |
+| `npx skills update`           | Update all installed skills to latest versions |
+| `npx skills init [name]`      | Create a new SKILL.md template                 |
 
 ### `skills list`
 
@@ -114,6 +118,9 @@ npx skills ls -g
 
 # Filter by specific agents
 npx skills ls -a claude-code -a cursor
+
+# Show skills organized by group
+npx skills list --groups
 ```
 
 ### `skills find`
@@ -188,6 +195,77 @@ npx skills rm my-skill
 | `-s, --skill`  | Specify skills to remove (use `'*'` for all)     |
 | `-y, --yes`    | Skip confirmation prompts                        |
 | `--all`        | Shorthand for `--skill '*' --agent '*' -y`       |
+
+### `skills enable` / `skills disable`
+
+Enable or disable installed skills without removing them. Disabled skills are moved out of the active `skills/` directory so agents won't load them.
+
+```bash
+# Enable specific skills
+npx skills enable foo bar
+
+# Disable specific skills
+npx skills disable foo bar
+
+# Enable/disable all skills in a group
+npx skills enable --group ai architecture
+npx skills disable --group ai
+
+# Enable/disable all skills in a scope
+npx skills enable --all
+npx skills disable --all
+
+# Operate on global scope
+npx skills disable foo -g
+```
+
+| Option              | Description                             |
+| ------------------- | --------------------------------------- |
+| `-g, --global`      | Operate on global scope                 |
+| `--group <groups>`  | Target all skills in the named group(s) |
+| `--all`             | Target all installed skills             |
+
+> [!NOTE]
+> The designated manager skill cannot be disabled. Bulk disable operations skip it automatically.
+
+### `skills group`
+
+Organize installed skills into named groups for batch operations.
+
+```bash
+# Create groups
+npx skills group create ai architecture
+
+# Delete groups
+npx skills group delete ai
+
+# Add skills to a group
+npx skills group add ai --skill foo bar
+
+# Remove skills from a group
+npx skills group remove ai --skill foo
+
+# Operate on global scope
+npx skills group create ai -g
+```
+
+### `skills manager`
+
+Designate a protected manager skill that cannot be disabled or added to groups.
+
+```bash
+# Set the manager skill
+npx skills manager set find-skills
+
+# Show the current manager skill
+npx skills manager show
+
+# Clear the manager skill
+npx skills manager clear
+
+# Operate on global scope
+npx skills manager set find-skills -g
+```
 
 ## What are Agent Skills?
 
