@@ -246,6 +246,133 @@ description: Old version
     expect(readFileSync(join(disabledDir, 'SKILL.md'), 'utf-8')).toContain('Restored version');
   });
 
+  it('should preserve group membership when reinstalling a project skill', () => {
+    const sourceSkillDir = join(testDir, 'source', 'skills', 'my-skill');
+    mkdirSync(sourceSkillDir, { recursive: true });
+    writeFileSync(
+      join(sourceSkillDir, 'SKILL.md'),
+      `---
+name: my-skill
+description: New version
+---
+# My Skill
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    const skillDir = join(projectDir, '.agents', 'skills', 'my-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: my-skill
+description: Old version
+---
+# My Skill
+`
+    );
+
+    // Pre-seed lockfile with group membership and managerSkill
+    writeFileSync(
+      join(projectDir, 'skills-lock.json'),
+      JSON.stringify(
+        {
+          version: 2,
+          skills: {
+            'my-skill': {
+              source: join(testDir, 'source'),
+              sourceType: 'local',
+              computedHash: 'old-hash',
+            },
+          },
+          management: {
+            groups: {
+              'my-group': ['my-skill'],
+            },
+            managerSkill: 'some-other-skill',
+          },
+        },
+        null,
+        2
+      )
+    );
+
+    const result = runCli(['add', join(testDir, 'source'), '-y', '--agent', 'cursor'], projectDir);
+    expect(result.exitCode).toBe(0);
+
+    const lockAfter = JSON.parse(readFileSync(join(projectDir, 'skills-lock.json'), 'utf-8'));
+    expect(lockAfter.management.groups['my-group']).toContain('my-skill');
+    expect(lockAfter.management.managerSkill).toBe('some-other-skill');
+  });
+
+  it('should preserve group membership when reinstalling a global skill', () => {
+    const sourceSkillDir = join(testDir, 'global-source', 'skills', 'global-skill');
+    mkdirSync(sourceSkillDir, { recursive: true });
+    writeFileSync(
+      join(sourceSkillDir, 'SKILL.md'),
+      `---
+name: global-skill
+description: New global version
+---
+# Global Skill
+`
+    );
+
+    const fakeHome = join(testDir, 'fake-home');
+    const skillDir = join(fakeHome, '.agents', 'skills', 'global-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: global-skill
+description: Old global version
+---
+# Global Skill
+`
+    );
+
+    // Pre-seed global lockfile with group membership and managerSkill
+    const lockDir = join(fakeHome, '.agents');
+    writeFileSync(
+      join(lockDir, '.skill-lock.json'),
+      JSON.stringify(
+        {
+          version: 4,
+          skills: {
+            'global-skill': {
+              source: join(testDir, 'global-source'),
+              sourceType: 'local',
+              sourceUrl: '',
+              skillFolderHash: 'old-hash',
+              installedAt: '2026-01-01T00:00:00.000Z',
+              updatedAt: '2026-01-01T00:00:00.000Z',
+            },
+          },
+          dismissed: {},
+          management: {
+            groups: {
+              infra: ['global-skill'],
+            },
+            managerSkill: 'another-skill',
+          },
+        },
+        null,
+        2
+      )
+    );
+
+    const result = runCli(
+      ['add', join(testDir, 'global-source'), '-y', '-g', '--agent', 'cursor'],
+      testDir,
+      { HOME: fakeHome }
+    );
+    expect(result.exitCode).toBe(0);
+
+    const lockAfter = JSON.parse(readFileSync(join(lockDir, '.skill-lock.json'), 'utf-8'));
+    expect(lockAfter.management.groups['infra']).toContain('global-skill');
+    expect(lockAfter.management.managerSkill).toBe('another-skill');
+  });
+
   it('should preserve disabled state when reinstalling a global skill from a local source', () => {
     const sourceSkillDir = join(testDir, 'global-source', 'skills', 'global-skill');
     mkdirSync(sourceSkillDir, { recursive: true });
