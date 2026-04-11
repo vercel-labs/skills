@@ -1,6 +1,7 @@
 import simpleGit from 'simple-git';
 import { join, normalize, resolve, sep } from 'path';
 import { mkdtemp, mkdir, rm } from 'fs/promises';
+import { existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -21,6 +22,21 @@ interface GitHubRepoInfo {
   sshUrl: string;
 }
 
+interface SshCloneInfo {
+  host: string;
+  user: string;
+}
+
+interface SshHostConfig {
+  identitiesOnly: boolean;
+  identityFiles: string[];
+}
+
+interface SshPassphrasePromptIssue {
+  host: string;
+  identityFile: string;
+}
+
 export class GitCloneError extends Error {
   readonly url: string;
   readonly isTimeout: boolean;
@@ -32,6 +48,27 @@ export class GitCloneError extends Error {
     this.url = url;
     this.isTimeout = isTimeout;
     this.isAuthError = isAuthError;
+  }
+}
+
+export function parseSshCloneUrl(url: string): SshCloneInfo | null {
+  const scpStyleMatch = url.match(/^([^@]+)@([^:]+):(.+)$/);
+  if (scpStyleMatch) {
+    return {
+      user: scpStyleMatch[1]!,
+      host: scpStyleMatch[2]!,
+    };
+  }
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'ssh:' || !parsed.hostname) return null;
+    return {
+      user: parsed.username || 'git',
+      host: parsed.hostname,
+    };
+  } catch {
+    return null;
   }
 }
 
@@ -109,7 +146,7 @@ function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
       GIT_LFS_SKIP_SMUDGE: '1',
       ...extraEnv,
     },
-    // When git-lfs is NOT installed, GIT_LFS_SKIP_SMUDGE has no effect —
+    // When git-lfs is NOT installed, GIT_LFS_SKIP_SMUDGE has no effect -
     // git sees `filter=lfs` in .gitattributes, tries to run
     // `git-lfs filter-process`, and aborts the checkout with:
     //   git-lfs filter-process: git-lfs: command not found
@@ -119,7 +156,7 @@ function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
     // entirely for this clone, so checkout succeeds regardless of whether
     // git-lfs is installed. LFS-tracked files are left as ~130-byte
     // pointer files, which the skills installer doesn't read anyway
-    // (skills are plain text — HTML/MD/JSON — never LFS-tracked).
+    // (skills are plain text - HTML/MD/JSON - never LFS-tracked).
     //
     // Reported downstream: heygen-com/hyperframes#407.
     config: [
@@ -129,6 +166,109 @@ function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
       'filter.lfs.process=',
     ],
   });
+}
+
+async function getSshHostConfig(host: string): Promise<SshHostConfig | null> {
+  try {
+    const { stdout } = await execFileAsync('ssh', ['-G', host], {
+      timeout: 5000,
+      env: process.env,
+    });
+
+    const config: SshHostConfig = {
+      identitiesOnly: false,
+      identityFiles: [],
+    };
+
+    for (const rawLine of stdout.split('\n')) {
+      const line = rawLine.trim();
+      if (!line) continue;
+
+      if (line.startsWith('identitiesonly ')) {
+        config.identitiesOnly = line.slice('identitiesonly '.length).trim() === 'yes';
+      } else if (line.startsWith('identityfile ')) {
+        config.identityFiles.push(line.slice('identityfile '.length).trim());
+      }
+    }
+
+    return config;
+  } catch {
+    return null;
+  }
+}
+
+async function isPassphraseProtectedKey(identityFile: string): Promise<boolean | null> {
+  if (!existsSync(identityFile)) {
+    return null;
+  }
+
+  try {
+    await execFileAsync('ssh-keygen', ['-y', '-P', '', '-f', identityFile], {
+      timeout: 5000,
+      env: process.env,
+    });
+    return false;
+  } catch (error) {
+    const message =
+      error && typeof error === 'object' && 'stderr' in error
+        ? String((error as { stderr?: string }).stderr || '')
+        : '';
+    const combined = message.toLowerCase();
+
+    if (
+      combined.includes('incorrect passphrase') ||
+      combined.includes('bad passphrase') ||
+      combined.includes('passphrase')
+    ) {
+      return true;
+    }
+
+    return null;
+  }
+}
+
+async function isIdentityUsableThroughAgent(identityFile: string): Promise<boolean | null> {
+  const publicKeyPath = `${identityFile}.pub`;
+  if (!existsSync(publicKeyPath)) {
+    return null;
+  }
+
+  try {
+    await execFileAsync('ssh-add', ['-T', publicKeyPath], {
+      timeout: 5000,
+      env: process.env,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function detectSshPassphrasePromptIssue(
+  url: string
+): Promise<SshPassphrasePromptIssue | null> {
+  const sshClone = parseSshCloneUrl(url);
+  if (!sshClone) return null;
+
+  const config = await getSshHostConfig(sshClone.host);
+  if (!config || !config.identitiesOnly || config.identityFiles.length === 0) {
+    return null;
+  }
+
+  for (const identityFile of config.identityFiles) {
+    const isProtected = await isPassphraseProtectedKey(identityFile);
+    if (isProtected !== true) continue;
+
+    const agentUsable = await isIdentityUsableThroughAgent(identityFile);
+    if (agentUsable === false) {
+      return {
+        host: sshClone.host,
+        identityFile,
+      };
+    }
+  }
+
+  return null;
 }
 
 async function resetTempDir(dir: string): Promise<void> {
@@ -188,12 +328,47 @@ function buildGitHubAuthError(url: string, repo: GitHubRepoInfo | null, message:
   );
 }
 
+function buildSshPassphrasePromptError(
+  url: string,
+  issue: SshPassphrasePromptIssue,
+  interactive: boolean
+): string {
+  if (interactive) {
+    return (
+      `SSH clone for ${url} requires unlocking the passphrase-protected key ${issue.identityFile}, ` +
+      `but the current clone flow does not allow SSH to prompt for that passphrase.\n` +
+      `  - Load the key first: ssh-add ${issue.identityFile}\n` +
+      `  - Then rerun: npx skills add --list ${url}\n` +
+      `  - Host alias involved: ${issue.host}`
+    );
+  }
+
+  return (
+    `SSH clone for ${url} requires unlocking the passphrase-protected key ${issue.identityFile}, ` +
+    `but this session is non-interactive and cannot prompt for that passphrase.\n` +
+    `  - Load the key first: ssh-add ${issue.identityFile}\n` +
+    `  - Then rerun: npx skills add --list ${url}\n` +
+    `  - Host alias involved: ${issue.host}`
+  );
+}
+
 export async function cloneRepo(url: string, ref?: string): Promise<string> {
   const tempDir = await mkdtemp(join(tmpdir(), 'skills-'));
   const cloneOptions = ref ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
   const repo = parseGitHubRepoUrl(url);
 
   try {
+    const sshPromptIssue = await detectSshPassphrasePromptIssue(url);
+    if (sshPromptIssue) {
+      await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      throw new GitCloneError(
+        buildSshPassphrasePromptError(url, sshPromptIssue, !!process.stdin.isTTY),
+        url,
+        false,
+        true
+      );
+    }
+
     await createGitClient().clone(url, tempDir, cloneOptions);
     return tempDir;
   } catch (error) {
