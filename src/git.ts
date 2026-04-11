@@ -62,6 +62,15 @@ export function parseGitHubRepoUrl(url: string): GitHubRepoInfo | null {
   }
 }
 
+export function isGitHubHttpsCloneUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' && parsed.hostname === 'github.com';
+  } catch {
+    return false;
+  }
+}
+
 export function isGitHubSsoAuthError(message: string): boolean {
   const lower = message.toLowerCase();
   return (
@@ -172,7 +181,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
       );
     }
 
-    if (isAuthError && repo && url.startsWith('https://github.com/')) {
+    if (isAuthError && repo && isGitHubHttpsCloneUrl(url)) {
       try {
         await resetTempDir(tempDir);
         if (await tryGhClone(repo, tempDir, ref)) {

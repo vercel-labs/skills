@@ -16,7 +16,13 @@ vi.mock('child_process', async () => {
   };
 });
 
-import { GitCloneError, cloneRepo, isGitHubSsoAuthError, parseGitHubRepoUrl } from './git.ts';
+import {
+  GitCloneError,
+  cloneRepo,
+  isGitHubHttpsCloneUrl,
+  isGitHubSsoAuthError,
+  parseGitHubRepoUrl,
+} from './git.ts';
 
 function createGitClientMock(clone: ReturnType<typeof vi.fn>) {
   return {
@@ -77,6 +83,13 @@ describe('git clone fallbacks', () => {
       isGitHubSsoAuthError("remote: The 'Giphy' organization has enabled or enforced SAML SSO.")
     ).toBe(true);
     expect(isGitHubSsoAuthError('fatal: Authentication failed')).toBe(false);
+  });
+
+  it('only enables automatic auth fallback for GitHub HTTPS clone URLs', () => {
+    expect(isGitHubHttpsCloneUrl('https://github.com/Giphy/giphy-codex-skills.git')).toBe(true);
+    expect(isGitHubHttpsCloneUrl('http://github.com/Giphy/giphy-codex-skills.git')).toBe(false);
+    expect(isGitHubHttpsCloneUrl('git@github.com:Giphy/giphy-codex-skills.git')).toBe(false);
+    expect(isGitHubHttpsCloneUrl('https://gitlab.com/Giphy/giphy-codex-skills.git')).toBe(false);
   });
 
   it('falls back to gh repo clone for GitHub HTTPS auth failures', async () => {
@@ -155,5 +168,31 @@ describe('git clone fallbacks', () => {
       expect((error as Error).message).toMatch(/SAML SSO/);
       expect((error as Error).message).toMatch(/git@github\.com:Giphy\/giphy-codex-skills\.git/);
     }
+  });
+
+  it('does not try gh fallback for GitLab clone URLs', async () => {
+    const primaryClone = vi
+      .fn()
+      .mockRejectedValue(
+        new Error('fatal: unable to access repo: The requested URL returned error: 403')
+      );
+
+    simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+
+    await expect(cloneRepo('https://gitlab.com/Giphy/giphy-codex-skills.git')).rejects.toThrow(
+      GitCloneError
+    );
+    expect(execFileMock).not.toHaveBeenCalled();
+  });
+
+  it('does not try gh fallback for GitHub SSH clone URLs', async () => {
+    const primaryClone = vi.fn().mockRejectedValue(new Error('Permission denied (publickey).'));
+
+    simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+
+    await expect(cloneRepo('git@github.com:Giphy/giphy-codex-skills.git')).rejects.toThrow(
+      GitCloneError
+    );
+    expect(execFileMock).not.toHaveBeenCalled();
   });
 });
