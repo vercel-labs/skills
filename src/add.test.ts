@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { existsSync, rmSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from './test-utils.ts';
@@ -156,6 +156,131 @@ description: Test
   it('should restore from lock file with experimental_install', () => {
     const result = runCli(['experimental_install'], testDir);
     expect(result.stdout).toContain('No project skills found in skills-lock.json');
+  });
+
+  it('should preserve disabled state when reinstalling a project skill from a local source', () => {
+    const sourceSkillDir = join(testDir, 'source', 'skills', 'my-skill');
+    mkdirSync(sourceSkillDir, { recursive: true });
+    writeFileSync(
+      join(sourceSkillDir, 'SKILL.md'),
+      `---
+name: my-skill
+description: New version
+---
+# My Skill
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    const disabledDir = join(projectDir, '.agents', 'disabled_skills', 'my-skill');
+    mkdirSync(disabledDir, { recursive: true });
+    writeFileSync(
+      join(disabledDir, 'SKILL.md'),
+      `---
+name: my-skill
+description: Old version
+---
+# My Skill
+`
+    );
+
+    const result = runCli(['add', join(testDir, 'source'), '-y', '--agent', 'cursor'], projectDir);
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(join(projectDir, '.agents', 'skills', 'my-skill'))).toBe(false);
+    expect(existsSync(disabledDir)).toBe(true);
+    expect(readFileSync(join(disabledDir, 'SKILL.md'), 'utf-8')).toContain('New version');
+  });
+
+  it('should preserve disabled state during experimental_install restores', () => {
+    const sourceSkillDir = join(testDir, 'restore-source', 'skills', 'locked-skill');
+    mkdirSync(sourceSkillDir, { recursive: true });
+    writeFileSync(
+      join(sourceSkillDir, 'SKILL.md'),
+      `---
+name: locked-skill
+description: Restored version
+---
+# Locked Skill
+`
+    );
+
+    const projectDir = join(testDir, 'restore-project');
+    mkdirSync(projectDir, { recursive: true });
+    const disabledDir = join(projectDir, '.agents', 'disabled_skills', 'locked-skill');
+    mkdirSync(disabledDir, { recursive: true });
+    writeFileSync(
+      join(disabledDir, 'SKILL.md'),
+      `---
+name: locked-skill
+description: Old version
+---
+# Locked Skill
+`
+    );
+
+    writeFileSync(
+      join(projectDir, 'skills-lock.json'),
+      JSON.stringify(
+        {
+          version: 2,
+          skills: {
+            'locked-skill': {
+              source: join(testDir, 'restore-source'),
+              sourceType: 'local',
+              computedHash: 'abc123',
+            },
+          },
+          management: {
+            groups: {},
+          },
+        },
+        null,
+        2
+      )
+    );
+
+    const result = runCli(['experimental_install'], projectDir);
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(join(projectDir, '.agents', 'skills', 'locked-skill'))).toBe(false);
+    expect(existsSync(disabledDir)).toBe(true);
+    expect(readFileSync(join(disabledDir, 'SKILL.md'), 'utf-8')).toContain('Restored version');
+  });
+
+  it('should preserve disabled state when reinstalling a global skill from a local source', () => {
+    const sourceSkillDir = join(testDir, 'global-source', 'skills', 'global-skill');
+    mkdirSync(sourceSkillDir, { recursive: true });
+    writeFileSync(
+      join(sourceSkillDir, 'SKILL.md'),
+      `---
+name: global-skill
+description: New global version
+---
+# Global Skill
+`
+    );
+
+    const fakeHome = join(testDir, 'fake-home');
+    const disabledDir = join(fakeHome, '.agents', 'disabled_skills', 'global-skill');
+    mkdirSync(disabledDir, { recursive: true });
+    writeFileSync(
+      join(disabledDir, 'SKILL.md'),
+      `---
+name: global-skill
+description: Old global version
+---
+# Global Skill
+`
+    );
+
+    const result = runCli(
+      ['add', join(testDir, 'global-source'), '-y', '-g', '--agent', 'cursor'],
+      testDir,
+      { HOME: fakeHome }
+    );
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(join(fakeHome, '.agents', 'skills', 'global-skill'))).toBe(false);
+    expect(existsSync(disabledDir)).toBe(true);
+    expect(readFileSync(join(disabledDir, 'SKILL.md'), 'utf-8')).toContain('New global version');
   });
 
   describe('internal skills', () => {

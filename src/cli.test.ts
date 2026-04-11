@@ -11,6 +11,10 @@ describe('skills CLI', () => {
       expect(output).toContain('Manage Skills:');
       expect(output).toContain('init [name]');
       expect(output).toContain('add <package>');
+      expect(output).toContain('enable [skills]');
+      expect(output).toContain('disable [skills]');
+      expect(output).toContain('group <subcommand>');
+      expect(output).toContain('manager <subcommand>');
       expect(output).toContain('check');
       expect(output).toContain('update');
       expect(output).toContain('Add Options:');
@@ -49,6 +53,7 @@ describe('skills CLI', () => {
       const output = stripLogo(runCliOutput([]));
       expect(output).toContain('The open agent skills ecosystem');
       expect(output).toContain('npx skills add');
+      expect(output).toContain('npx skills enable');
       expect(output).toContain('npx skills check');
       expect(output).toContain('npx skills update');
       expect(output).toContain('npx skills init');

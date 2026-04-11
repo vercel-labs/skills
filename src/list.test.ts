@@ -61,6 +61,11 @@ describe('list command', () => {
       expect(options.json).toBe(true);
     });
 
+    it('should parse --groups flag', () => {
+      const options = parseListOptions(['--groups']);
+      expect(options.groups).toBe(true);
+    });
+
     it('should parse combined --json and -g flags', () => {
       const options = parseListOptions(['-g', '--json']);
       expect(options.global).toBe(true);
@@ -146,6 +151,51 @@ description: A skill for JSON testing
       expect(names).toContain('skill-beta');
     });
 
+    it('should include management-aware fields in JSON output', () => {
+      const skillDir = join(testDir, '.agents', 'disabled_skills', 'managed-skill');
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---
+name: managed-skill
+description: Managed skill
+---
+# Managed Skill
+`
+      );
+
+      writeFileSync(
+        join(testDir, 'skills-lock.json'),
+        JSON.stringify(
+          {
+            version: 2,
+            skills: {},
+            management: {
+              groups: {
+                ai: ['managed-skill'],
+                architecture: ['managed-skill'],
+              },
+              managerSkill: 'managed-skill',
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      const result = runCli(['list', '--json'], testDir);
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed).toEqual([
+        expect.objectContaining({
+          name: 'managed-skill',
+          status: 'disabled',
+          groups: ['ai', 'architecture'],
+          isManager: true,
+        }),
+      ]);
+    });
+
     it('should show message when no project skills found', () => {
       const result = runCli(['list'], testDir);
       expect(result.stdout).toContain('No project skills found');
@@ -209,6 +259,39 @@ description: Second skill
       expect(result.stdout).toContain('skill-one');
       expect(result.stdout).toContain('skill-two');
       expect(result.stdout).toContain('Project Skills');
+      expect(result.exitCode).toBe(0);
+    });
+
+    it('shows enabled and disabled skills with status prefixes', () => {
+      const enabledDir = join(testDir, '.agents', 'skills', 'enabled-skill');
+      const disabledDir = join(testDir, '.agents', 'disabled_skills', 'disabled-skill');
+      mkdirSync(enabledDir, { recursive: true });
+      mkdirSync(disabledDir, { recursive: true });
+
+      writeFileSync(
+        join(enabledDir, 'SKILL.md'),
+        `---
+name: enabled-skill
+description: Enabled skill
+---
+# Enabled Skill
+`
+      );
+
+      writeFileSync(
+        join(disabledDir, 'SKILL.md'),
+        `---
+name: disabled-skill
+description: Disabled skill
+---
+# Disabled Skill
+`
+      );
+
+      const result = runCli(['list'], testDir);
+      expect(result.stdout).toContain('[+] enabled-skill');
+      expect(result.stdout).toContain('[-] disabled-skill');
+      expect(result.stdout).toMatch(/disabled_skills[/\\]disabled-skill/);
       expect(result.exitCode).toBe(0);
     });
 
@@ -325,6 +408,166 @@ description: A test skill
       // Path is shown inline with skill name (handles both Unix / and Windows \)
       expect(result.stdout).toMatch(/\.agents[/\\]skills[/\\]test-skill/);
     });
+
+    it('should show groups with enabled counts and drift warnings', () => {
+      const enabledDir = join(testDir, '.agents', 'skills', 'ai-skill');
+      const disabledDir = join(testDir, '.agents', 'disabled_skills', 'disabled-skill');
+      const ungroupedDir = join(testDir, '.agents', 'skills', 'ungrouped-skill');
+      mkdirSync(enabledDir, { recursive: true });
+      mkdirSync(disabledDir, { recursive: true });
+      mkdirSync(ungroupedDir, { recursive: true });
+
+      writeFileSync(
+        join(enabledDir, 'SKILL.md'),
+        `---
+name: ai-skill
+description: AI skill
+---
+# AI Skill
+`
+      );
+
+      writeFileSync(
+        join(disabledDir, 'SKILL.md'),
+        `---
+name: disabled-skill
+description: Disabled skill
+---
+# Disabled Skill
+`
+      );
+
+      writeFileSync(
+        join(ungroupedDir, 'SKILL.md'),
+        `---
+name: ungrouped-skill
+description: Ungrouped skill
+---
+# Ungrouped Skill
+`
+      );
+
+      writeFileSync(
+        join(testDir, 'skills-lock.json'),
+        JSON.stringify(
+          {
+            version: 2,
+            skills: {},
+            management: {
+              groups: {
+                ai: ['ai-skill', 'missing-skill'],
+                architecture: ['disabled-skill'],
+                empty: [],
+              },
+              managerSkill: 'ungrouped-skill',
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      const result = runCli(['list', '--groups'], testDir);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('ai (1/2 enabled)');
+      expect(result.stdout).toContain('[+] ai-skill');
+      expect(result.stdout).toContain('[?] missing-skill (missing)');
+      expect(result.stdout).toContain('architecture (0/1 enabled)');
+      expect(result.stdout).toContain('[-] disabled-skill');
+      expect(result.stdout).toContain('empty (0/0 enabled)');
+      expect(result.stdout).toContain('UNGROUPED SKILLS (1/1 enabled)');
+      expect(result.stdout).toContain('[+] ungrouped-skill');
+      expect(result.stdout).toContain('skills remove missing-skill');
+    });
+
+    it('should output grouped JSON structure with management metadata', () => {
+      const aiDir = join(testDir, '.agents', 'skills', 'ai-skill');
+      const disabledDir = join(testDir, '.agents', 'disabled_skills', 'disabled-skill');
+      const managerDir = join(testDir, '.agents', 'skills', 'ungrouped-skill');
+      mkdirSync(aiDir, { recursive: true });
+      mkdirSync(disabledDir, { recursive: true });
+      mkdirSync(managerDir, { recursive: true });
+
+      writeFileSync(
+        join(aiDir, 'SKILL.md'),
+        `---
+name: ai-skill
+description: AI skill
+---
+# AI Skill
+`
+      );
+
+      writeFileSync(
+        join(disabledDir, 'SKILL.md'),
+        `---
+name: disabled-skill
+description: Disabled skill
+---
+# Disabled Skill
+`
+      );
+
+      writeFileSync(
+        join(managerDir, 'SKILL.md'),
+        `---
+name: ungrouped-skill
+description: Ungrouped skill
+---
+# Ungrouped Skill
+`
+      );
+
+      writeFileSync(
+        join(testDir, 'skills-lock.json'),
+        JSON.stringify(
+          {
+            version: 2,
+            skills: {},
+            management: {
+              groups: {
+                ai: ['ai-skill'],
+                architecture: ['disabled-skill'],
+              },
+              managerSkill: 'ungrouped-skill',
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      const result = runCli(['list', '--groups', '--json'], testDir);
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+
+      expect(parsed.groups.ai).toEqual([
+        expect.objectContaining({
+          name: 'ai-skill',
+          status: 'enabled',
+          groups: ['ai'],
+          isManager: false,
+        }),
+      ]);
+      expect(parsed.groups.architecture).toEqual([
+        expect.objectContaining({
+          name: 'disabled-skill',
+          status: 'disabled',
+          groups: ['architecture'],
+          isManager: false,
+        }),
+      ]);
+      expect(parsed.ungrouped).toEqual([
+        expect.objectContaining({
+          name: 'ungrouped-skill',
+          status: 'enabled',
+          groups: [],
+          isManager: true,
+        }),
+      ]);
+      expect(parsed.managerSkill).toBe('ungrouped-skill');
+      expect(parsed.warnings).toEqual([]);
+    });
   });
 
   describe('help output', () => {
@@ -339,6 +582,7 @@ description: A test skill
       expect(result.stdout).toContain('List Options:');
       expect(result.stdout).toContain('-g, --global');
       expect(result.stdout).toContain('-a, --agent');
+      expect(result.stdout).toContain('--groups');
     });
 
     it('should include list examples in help', () => {
@@ -346,6 +590,7 @@ description: A test skill
       expect(result.stdout).toContain('skills list');
       expect(result.stdout).toContain('skills ls -g');
       expect(result.stdout).toContain('skills ls -a claude-code');
+      expect(result.stdout).toContain('skills ls --groups');
     });
   });
 

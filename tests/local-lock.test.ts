@@ -9,6 +9,11 @@ import {
   removeSkillFromLocalLock,
   computeSkillFolderHash,
   getLocalLockPath,
+  readLocalManagementState,
+  writeLocalManagementState,
+  getLocalSkillGroups,
+  getLocalManagerSkill,
+  scrubSkillFromLocalManagement,
 } from '../src/local-lock.ts';
 
 describe('local-lock', () => {
@@ -29,7 +34,7 @@ describe('local-lock', () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
         const lock = await readLocalLock(dir);
-        expect(lock).toEqual({ version: 1, skills: {} });
+        expect(lock).toEqual({ version: 2, skills: {}, management: { groups: {} } });
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
@@ -39,7 +44,7 @@ describe('local-lock', () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
         const content = {
-          version: 1,
+          version: 2,
           skills: {
             'my-skill': {
               source: 'vercel-labs/skills',
@@ -47,15 +52,61 @@ describe('local-lock', () => {
               computedHash: 'abc123',
             },
           },
+          management: {
+            groups: {
+              ai: ['my-skill'],
+            },
+            managerSkill: 'find-skills',
+          },
         };
         await writeFile(join(dir, 'skills-lock.json'), JSON.stringify(content), 'utf-8');
 
         const lock = await readLocalLock(dir);
-        expect(lock.version).toBe(1);
+        expect(lock.version).toBe(2);
         expect(lock.skills['my-skill']).toEqual({
           source: 'vercel-labs/skills',
           sourceType: 'github',
           computedHash: 'abc123',
+        });
+        expect(lock.management).toEqual({
+          groups: {
+            ai: ['my-skill'],
+          },
+          managerSkill: 'find-skills',
+        });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('migrates a v1 lock file to v2 without losing skills', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        const content = {
+          version: 1,
+          skills: {
+            'legacy-skill': {
+              source: 'vercel-labs/skills',
+              sourceType: 'github',
+              computedHash: 'legacy123',
+            },
+          },
+        };
+        await writeFile(join(dir, 'skills-lock.json'), JSON.stringify(content), 'utf-8');
+
+        const lock = await readLocalLock(dir);
+        expect(lock).toEqual({
+          version: 2,
+          skills: {
+            'legacy-skill': {
+              source: 'vercel-labs/skills',
+              sourceType: 'github',
+              computedHash: 'legacy123',
+            },
+          },
+          management: {
+            groups: {},
+          },
         });
       } finally {
         await rm(dir, { recursive: true, force: true });
@@ -78,7 +129,7 @@ describe('local-lock', () => {
         await writeFile(join(dir, 'skills-lock.json'), conflicted, 'utf-8');
 
         const lock = await readLocalLock(dir);
-        expect(lock).toEqual({ version: 1, skills: {} });
+        expect(lock).toEqual({ version: 2, skills: {}, management: { groups: {} } });
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
@@ -89,7 +140,7 @@ describe('local-lock', () => {
       try {
         await writeFile(join(dir, 'skills-lock.json'), '{"version": 1}', 'utf-8');
         const lock = await readLocalLock(dir);
-        expect(lock).toEqual({ version: 1, skills: {} });
+        expect(lock).toEqual({ version: 2, skills: {}, management: { groups: {} } });
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
@@ -102,7 +153,7 @@ describe('local-lock', () => {
       try {
         await writeLocalLock(
           {
-            version: 1,
+            version: 2,
             skills: {
               'zebra-skill': {
                 source: 'org/z',
@@ -120,6 +171,13 @@ describe('local-lock', () => {
                 computedHash: 'mmm',
               },
             },
+            management: {
+              groups: {
+                architecture: ['zebra-skill', 'alpha-skill', 'zebra-skill'],
+                ai: ['middle-skill', 'alpha-skill'],
+              },
+              managerSkill: 'find-skills',
+            },
           },
           dir
         );
@@ -130,6 +188,91 @@ describe('local-lock', () => {
         const parsed = JSON.parse(raw);
         const keys = Object.keys(parsed.skills);
         expect(keys).toEqual(['alpha-skill', 'middle-skill', 'zebra-skill']);
+        expect(Object.keys(parsed.management.groups)).toEqual(['ai', 'architecture']);
+        expect(parsed.management.groups.ai).toEqual(['alpha-skill', 'middle-skill']);
+        expect(parsed.management.groups.architecture).toEqual(['alpha-skill', 'zebra-skill']);
+        expect(parsed.management.managerSkill).toBe('find-skills');
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('management helpers', () => {
+    it('writes and reads normalized management state', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await writeLocalManagementState(
+          {
+            groups: {
+              Architecture: ['zebra-skill', 'alpha-skill', 'zebra-skill'],
+              ai: ['middle-skill', 'alpha-skill'],
+            },
+            managerSkill: 'find-skills',
+          },
+          dir
+        );
+
+        const management = await readLocalManagementState(dir);
+        expect(management).toEqual({
+          groups: {
+            ai: ['alpha-skill', 'middle-skill'],
+            architecture: ['alpha-skill', 'zebra-skill'],
+          },
+          managerSkill: 'find-skills',
+        });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('resolves skill groups and manager skill from local management state', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await writeLocalManagementState(
+          {
+            groups: {
+              architecture: ['api-design', 'schema'],
+              ai: ['api-design'],
+            },
+            managerSkill: 'find-skills',
+          },
+          dir
+        );
+
+        await expect(getLocalSkillGroups('api-design', dir)).resolves.toEqual([
+          'ai',
+          'architecture',
+        ]);
+        await expect(getLocalSkillGroups('missing', dir)).resolves.toEqual([]);
+        await expect(getLocalManagerSkill(dir)).resolves.toBe('find-skills');
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('scrubs removed skills from groups and clears manager designation', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await writeLocalManagementState(
+          {
+            groups: {
+              ai: ['api-design'],
+              architecture: ['api-design', 'schema'],
+            },
+            managerSkill: 'api-design',
+          },
+          dir
+        );
+
+        await scrubSkillFromLocalManagement('api-design', dir);
+
+        await expect(readLocalManagementState(dir)).resolves.toEqual({
+          groups: {
+            ai: [],
+            architecture: ['schema'],
+          },
+        });
       } finally {
         await rm(dir, { recursive: true, force: true });
       }

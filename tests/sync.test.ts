@@ -115,11 +115,12 @@ Instructions.
       expect(existsSync(lockPath)).toBe(true);
 
       const lock = JSON.parse(readFileSync(lockPath, 'utf-8'));
-      expect(lock.version).toBe(1);
+      expect(lock.version).toBe(2);
       expect(lock.skills['lock-test-skill']).toBeDefined();
       expect(lock.skills['lock-test-skill'].source).toBe('my-pkg');
       expect(lock.skills['lock-test-skill'].sourceType).toBe('node_modules');
       expect(lock.skills['lock-test-skill'].computedHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(lock.management).toEqual({ groups: {} });
     });
 
     it('should not have timestamps in lock entries', () => {
@@ -211,6 +212,40 @@ description: Test force
       const result = runCli(['experimental_sync', '-y', '-a', 'claude-code', '--force'], testDir);
       expect(result.stdout).toContain('force-skill');
       expect(result.stdout).not.toContain('All skills are up to date');
+    });
+
+    it('should preserve disabled state when syncing over an existing disabled skill', () => {
+      const pkgDir = join(testDir, 'node_modules', 'my-pkg');
+      mkdirSync(pkgDir, { recursive: true });
+      writeFileSync(
+        join(pkgDir, 'SKILL.md'),
+        `---
+name: synced-skill
+description: New synced version
+---
+
+# Synced Skill
+`
+      );
+
+      const disabledDir = join(testDir, '.agents', 'disabled_skills', 'synced-skill');
+      mkdirSync(disabledDir, { recursive: true });
+      writeFileSync(
+        join(disabledDir, 'SKILL.md'),
+        `---
+name: synced-skill
+description: Old version
+---
+
+# Synced Skill
+`
+      );
+
+      const result = runCli(['experimental_sync', '-y', '-a', 'claude-code'], testDir);
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(join(testDir, '.agents', 'skills', 'synced-skill'))).toBe(false);
+      expect(existsSync(disabledDir)).toBe(true);
+      expect(readFileSync(join(disabledDir, 'SKILL.md'), 'utf-8')).toContain('New synced version');
     });
   });
 
