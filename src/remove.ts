@@ -264,15 +264,20 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
       const effectiveSource = globalEntry?.source || localEntry?.source || 'local';
       const effectiveSourceType = globalEntry?.sourceType || localEntry?.sourceType || 'local';
 
-      if (isGlobal) {
-        const removedFromLock = await removeSkillFromLock(skillName);
-        if (!removedFromLock && isSkillReferencedInManagement(globalLock?.management, skillName)) {
-          await scrubSkillFromGlobalManagement(skillName);
-        }
-      } else {
-        const removedFromLock = await removeSkillFromLocalLock(skillName, cwd);
-        if (!removedFromLock && isSkillReferencedInManagement(localLock?.management, skillName)) {
-          await scrubSkillFromLocalManagement(skillName, cwd);
+      if (!isStillUsed) {
+        if (isGlobal) {
+          const removedFromLock = await removeSkillFromLock(skillName);
+          if (
+            !removedFromLock &&
+            isSkillReferencedInManagement(globalLock?.management, skillName)
+          ) {
+            await scrubSkillFromGlobalManagement(skillName);
+          }
+        } else {
+          const removedFromLock = await removeSkillFromLocalLock(skillName, cwd);
+          if (!removedFromLock && isSkillReferencedInManagement(localLock?.management, skillName)) {
+            await scrubSkillFromLocalManagement(skillName, cwd);
+          }
         }
       }
 
