@@ -205,6 +205,48 @@ description: Test skill
     expect(await readlink(activeAliasPath)).toBe('../../.agents/skills/test-skill');
   });
 
+  it('deduplicates agent roots when the agent skills directory is a symlink to canonical', async () => {
+    const canonicalRoot = join(testDir, '.agents', 'skills');
+    await writeSkill(canonicalRoot, 'test-skill');
+
+    // Symlink .claude/skills -> .agents/skills (the entire directory, not per-skill)
+    const claudeSkillsDir = join(testDir, '.claude', 'skills');
+    await mkdir(join(testDir, '.claude'), { recursive: true });
+    await symlink(canonicalRoot, claudeSkillsDir);
+
+    const snapshot = await getInstalledSkillSnapshot('test-skill', { cwd: testDir });
+
+    // The agent entry via .claude/skills should be deduplicated since it resolves
+    // to the same physical directory as .agents/skills (the canonical root).
+    // Without dedup, setInstalledSkillState would try to rename the same directory twice.
+    expect(snapshot.canonical).toMatchObject({
+      kind: 'canonical',
+      status: 'enabled',
+    });
+
+    // No agent entries should appear — the symlinked root resolves to canonical
+    const claudeEntries = snapshot.agentEntries.filter((e) => e.agentType === 'claude-code');
+    expect(claudeEntries).toHaveLength(0);
+  });
+
+  it('disables cleanly when the agent skills directory is a symlink to canonical', async () => {
+    const canonicalRoot = join(testDir, '.agents', 'skills');
+    await writeSkill(canonicalRoot, 'test-skill');
+
+    // Symlink .claude/skills -> .agents/skills (entire directory)
+    const claudeSkillsDir = join(testDir, '.claude', 'skills');
+    await mkdir(join(testDir, '.claude'), { recursive: true });
+    await symlink(canonicalRoot, claudeSkillsDir);
+
+    // This would ENOENT before the fix — the canonical rename succeeds,
+    // then the "copy" rename fails because it points to the same directory.
+    const moved = await setInstalledSkillState('test-skill', 'disabled', { cwd: testDir });
+
+    expect(moved.status).toBe('disabled');
+    const disabledPath = join(testDir, '.agents', 'disabled_skills', 'test-skill');
+    expect((await lstat(disabledPath)).isDirectory()).toBe(true);
+  });
+
   it('rejects moves when the on-disk state is inconsistent', async () => {
     await writeSkill(join(testDir, '.agents', 'skills'), 'test-skill');
     await writeSkill(join(testDir, '.agents', 'disabled_skills'), 'test-skill');

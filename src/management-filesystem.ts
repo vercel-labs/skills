@@ -1,4 +1,4 @@
-import { lstat, mkdir, readlink, rename, rm, stat, symlink } from 'node:fs/promises';
+import { lstat, mkdir, readlink, realpath, rename, rm, stat, symlink } from 'node:fs/promises';
 import { platform } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { agents, isUniversalAgent } from './agents.ts';
@@ -74,7 +74,10 @@ export async function getInstalledSkillSnapshot(
   });
 
   const agentEntries: InstalledSkillEntry[] = [];
-  const seenRoots = new Set<string>();
+  const resolvedCanonicalRoot = await realpath(canonicalSkillsRoot).catch(
+    () => canonicalSkillsRoot
+  );
+  const seenRoots = new Set<string>([resolvedCanonicalRoot]);
 
   for (const [agentType, agent] of Object.entries(agents) as [
     AgentType,
@@ -84,10 +87,12 @@ export async function getInstalledSkillSnapshot(
       continue;
     }
 
-    const skillsRoot = isGlobal ? agent.globalSkillsDir : join(cwd, agent.skillsDir);
-    if (!skillsRoot) {
+    const rawSkillsRoot = isGlobal ? agent.globalSkillsDir : join(cwd, agent.skillsDir);
+    if (!rawSkillsRoot) {
       continue;
     }
+
+    const skillsRoot = await realpath(rawSkillsRoot).catch(() => rawSkillsRoot);
 
     if (seenRoots.has(skillsRoot)) {
       continue;
