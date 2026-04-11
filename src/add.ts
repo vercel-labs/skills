@@ -21,7 +21,14 @@ async function isSourcePrivate(source: string): Promise<boolean | null> {
   }
   return isRepoPrivate(ownerRepo.owner, ownerRepo.repo);
 }
-import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
+import {
+  cloneRepo,
+  cloneRepoInteractive,
+  cleanupTempDir,
+  GitCloneError,
+  GitInteractiveSshPromptRequiredError,
+  getInteractiveSshRetryMessage,
+} from './git.ts';
 import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
 import {
   installSkillForAgent,
@@ -66,6 +73,30 @@ import {
 import packageJson from '../package.json' with { type: 'json' };
 export function initTelemetry(version: string): void {
   setVersion(version);
+}
+
+async function cloneRepoWithPromptHandling(
+  spinner: ReturnType<typeof p.spinner>,
+  url: string,
+  ref?: string
+): Promise<string> {
+  spinner.start('Cloning repository...');
+
+  try {
+    const tempDir = await cloneRepo(url, ref);
+    spinner.stop('Repository cloned');
+    return tempDir;
+  } catch (error) {
+    if (error instanceof GitInteractiveSshPromptRequiredError) {
+      spinner.stop(pc.dim('SSH authentication requires terminal interaction...'));
+      p.log.message(pc.dim(getInteractiveSshRetryMessage(url, error.sshPromptIssue)));
+      const tempDir = await cloneRepoInteractive(url, ref);
+      p.log.step('Repository cloned');
+      return tempDir;
+    }
+
+    throw error;
+  }
 }
 
 // ─── Security Advisory ───
@@ -1025,9 +1056,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
       } else {
         // Blob failed — fall back to git clone
-        spinner.start('Cloning repository...');
-        tempDir = await cloneRepo(parsed.url, parsed.ref);
-        spinner.stop('Repository cloned');
+        tempDir = await cloneRepoWithPromptHandling(spinner, parsed.url, parsed.ref);
 
         spinner.start('Discovering skills...');
         skills = await discoverSkills(tempDir, parsed.subpath, {
@@ -1037,9 +1066,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     } else {
       // GitLab, git URL, or --full-depth: always clone
-      spinner.start('Cloning repository...');
-      tempDir = await cloneRepo(parsed.url, parsed.ref);
-      spinner.stop('Repository cloned');
+      tempDir = await cloneRepoWithPromptHandling(spinner, parsed.url, parsed.ref);
 
       spinner.start('Discovering skills...');
       skills = await discoverSkills(tempDir, parsed.subpath, {

@@ -3,7 +3,7 @@ import { join, normalize, resolve, sep } from 'path';
 import { mkdtemp, rm } from 'fs/promises';
 import { existsSync } from 'fs';
 import { tmpdir } from 'os';
-import { execFile } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import { promisify } from 'util';
 
 const CLONE_TIMEOUT_MS = 60000; // 60 seconds
@@ -24,6 +24,10 @@ interface SshPassphrasePromptIssue {
   identityFile: string;
 }
 
+interface CloneRepoOptions {
+  allowInteractiveSshPrompt?: boolean;
+}
+
 export class GitCloneError extends Error {
   readonly url: string;
   readonly isTimeout: boolean;
@@ -35,6 +39,23 @@ export class GitCloneError extends Error {
     this.url = url;
     this.isTimeout = isTimeout;
     this.isAuthError = isAuthError;
+  }
+}
+
+export class GitInteractiveSshPromptRequiredError extends GitCloneError {
+  readonly sshPromptIssue: SshPassphrasePromptIssue | null;
+
+  constructor(url: string, sshPromptIssue: SshPassphrasePromptIssue | null) {
+    super(
+      sshPromptIssue
+        ? `SSH authentication for ${url} needs terminal interaction to unlock ${sshPromptIssue.identityFile}.`
+        : `SSH authentication for ${url} needs terminal interaction.`,
+      url,
+      false,
+      true
+    );
+    this.name = 'GitInteractiveSshPromptRequiredError';
+    this.sshPromptIssue = sshPromptIssue;
   }
 }
 
@@ -186,26 +207,75 @@ function buildSshPassphrasePromptError(
   );
 }
 
-export async function cloneRepo(url: string, ref?: string): Promise<string> {
-  const tempDir = await mkdtemp(join(tmpdir(), 'skills-'));
-  const git = simpleGit({
+function buildSshInteractiveRetryMessage(
+  url: string,
+  issue: SshPassphrasePromptIssue | null
+): string {
+  if (issue) {
+    return (
+      `SSH clone for ${url} requires terminal interaction to unlock ${issue.identityFile}.\n` +
+      `  skills will retry without the spinner so git and ssh can prompt directly.\n` +
+      `  - Host alias involved: ${issue.host}`
+    );
+  }
+
+  return (
+    `SSH clone for ${url} requires terminal interaction.\n` +
+    `  skills will retry without the spinner so git and ssh can prompt directly.`
+  );
+}
+
+function buildNonInteractiveSshAuthError(
+  url: string,
+  issue: SshPassphrasePromptIssue | null
+): string {
+  if (issue) {
+    return buildSshPassphrasePromptError(url, issue, false);
+  }
+
+  const sshClone = parseSshCloneUrl(url);
+  const aliasLine = sshClone ? `\n  - Host alias involved: ${sshClone.host}` : '';
+
+  return (
+    `SSH authentication for ${url} could not complete without terminal interaction.\n` +
+    `  - If you use an SSH agent, unlock or approve the key there and retry\n` +
+    `  - Otherwise load the key first with ssh-add${aliasLine}`
+  );
+}
+
+function buildBatchModeSshCommand(command?: string): string {
+  if (!command || command.trim() === '') {
+    return 'ssh -o BatchMode=yes';
+  }
+
+  if (/BatchMode\s*=\s*yes/i.test(command) || /-o\s+BatchMode=yes/i.test(command)) {
+    return command;
+  }
+
+  return `${command} -o BatchMode=yes`;
+}
+
+function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
+  return simpleGit({
     timeout: { block: CLONE_TIMEOUT_MS },
-    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
-  });
+  }).env({ ...process.env, GIT_TERMINAL_PROMPT: '0', ...extraEnv });
+}
+
+export async function cloneRepo(
+  url: string,
+  ref?: string,
+  options: CloneRepoOptions = {}
+): Promise<string> {
+  const tempDir = await mkdtemp(join(tmpdir(), 'skills-'));
+  const sshClone = parseSshCloneUrl(url);
+  const git = createGitClient(
+    sshClone
+      ? { GIT_SSH_COMMAND: buildBatchModeSshCommand(process.env.GIT_SSH_COMMAND) }
+      : undefined
+  );
   const cloneOptions = ref ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
 
   try {
-    const sshPromptIssue = await detectSshPassphrasePromptIssue(url);
-    if (sshPromptIssue) {
-      await rm(tempDir, { recursive: true, force: true }).catch(() => {});
-      throw new GitCloneError(
-        buildSshPassphrasePromptError(url, sshPromptIssue, !!process.stdin.isTTY),
-        url,
-        false,
-        true
-      );
-    }
-
     await git.clone(url, tempDir, cloneOptions);
     return tempDir;
   } catch (error) {
@@ -232,6 +302,21 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
       );
     }
 
+    if (sshClone && isAuthError) {
+      const sshPromptIssue = await detectSshPassphrasePromptIssue(url);
+
+      if (process.stdin.isTTY && options.allowInteractiveSshPrompt !== false) {
+        throw new GitInteractiveSshPromptRequiredError(url, sshPromptIssue);
+      }
+
+      throw new GitCloneError(
+        buildNonInteractiveSshAuthError(url, sshPromptIssue),
+        url,
+        false,
+        true
+      );
+    }
+
     if (isAuthError) {
       throw new GitCloneError(
         `Authentication failed for ${url}.\n` +
@@ -246,6 +331,68 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
 
     throw new GitCloneError(`Failed to clone ${url}: ${errorMessage}`, url, false, false);
   }
+}
+
+export async function cloneRepoInteractive(url: string, ref?: string): Promise<string> {
+  const tempDir = await mkdtemp(join(tmpdir(), 'skills-'));
+  const cloneArgs = ref
+    ? ['clone', '--depth', '1', '--branch', ref, url, tempDir]
+    : ['clone', '--depth', '1', url, tempDir];
+
+  try {
+    await new Promise<void>((resolvePromise, rejectPromise) => {
+      const child = spawn('git', cloneArgs, {
+        stdio: 'inherit',
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+      });
+
+      const forwardSigint = () => {
+        child.kill('SIGINT');
+      };
+
+      process.once('SIGINT', forwardSigint);
+
+      child.once('error', (spawnError) => {
+        process.removeListener('SIGINT', forwardSigint);
+        rejectPromise(spawnError);
+      });
+
+      child.once('exit', (code, signal) => {
+        process.removeListener('SIGINT', forwardSigint);
+
+        if (code === 0) {
+          resolvePromise();
+          return;
+        }
+
+        if (signal === 'SIGINT' || code === 130) {
+          rejectPromise(new GitCloneError('Clone canceled.', url, false, false));
+          return;
+        }
+
+        rejectPromise(
+          new GitCloneError(
+            `Failed to clone ${url}: interactive git clone exited with code ${code ?? 'unknown'}`,
+            url,
+            false,
+            false
+          )
+        );
+      });
+    });
+
+    return tempDir;
+  } catch (error) {
+    await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  }
+}
+
+export function getInteractiveSshRetryMessage(
+  url: string,
+  issue: SshPassphrasePromptIssue | null
+): string {
+  return buildSshInteractiveRetryMessage(url, issue);
 }
 
 export async function cleanupTempDir(dir: string): Promise<void> {
