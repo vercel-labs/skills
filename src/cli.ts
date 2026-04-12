@@ -20,6 +20,7 @@ import {
   buildLocalUpdateSource,
   formatSourceInput,
 } from './update-source.ts';
+import { installFromManifest, type ManifestInstallOptions } from './manifest-install.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -140,6 +141,9 @@ ${BOLD}Add Options:${RESET}
   --copy                 Copy files instead of symlinking to agent directories
   --all                  Shorthand for --skill '*' --agent '*' -y
   --full-depth           Search all subdirectories even when a root SKILL.md exists
+  -f, --from-file <path> Install skills from a TOML manifest file
+  --no-lock              Skip lock file generation (with --from-file)
+  --frozen               Use exact versions from lock file (with --from-file)
 
 ${BOLD}Remove Options:${RESET}
   -g, --global           Remove from global scope
@@ -872,8 +876,35 @@ async function main(): Promise<void> {
     case 'a':
     case 'add': {
       showLogo();
-      const { source: addSource, options: addOpts } = parseAddOptions(restArgs);
-      await runAdd(addSource, addOpts);
+      // Check for --from-file flag (manifest mode)
+      const fromFileIdx = restArgs.findIndex((a) => a === '-f' || a === '--from-file');
+      if (fromFileIdx !== -1) {
+        const manifestPath = restArgs[fromFileIdx + 1];
+        if (!manifestPath) {
+          console.log(`${TEXT}Error:${RESET} --from-file requires a path argument`);
+          process.exit(1);
+        }
+        const manifestOpts: ManifestInstallOptions = {};
+        for (const arg of restArgs) {
+          if (arg === '-g' || arg === '--global') manifestOpts.global = true;
+          if (arg === '-y' || arg === '--yes') manifestOpts.yes = true;
+          if (arg === '--no-lock') manifestOpts.noLock = true;
+          if (arg === '--frozen') manifestOpts.frozen = true;
+          if (arg === '-a' || arg === '--agent') {
+            manifestOpts.agent = manifestOpts.agent || [];
+            const agentIdx = restArgs.indexOf(arg);
+            let j = agentIdx + 1;
+            while (j < restArgs.length && restArgs[j] && !restArgs[j]!.startsWith('-')) {
+              manifestOpts.agent.push(restArgs[j]!);
+              j++;
+            }
+          }
+        }
+        await installFromManifest(manifestPath, manifestOpts);
+      } else {
+        const { source: addSource, options: addOpts } = parseAddOptions(restArgs);
+        await runAdd(addSource, addOpts);
+      }
       break;
     }
     case 'remove':

@@ -80,6 +80,37 @@ export interface ParsedSource {
 /**
  * Represents a skill fetched from a remote host provider.
  */
+// ─── Manifest types (fork feature: TOML-based batch installation) ───
+
+/** Entry in a TOML manifest file */
+export interface ManifestSkillEntry {
+  source: string; // "owner/repo" or full git URL
+  name: string; // Skill name to install
+  version?: string; // Optional: requested version
+  locations?: string[]; // Optional: ["global", "project", "packages/app"]
+}
+
+/** Parsed manifest file */
+export interface SkillManifest {
+  skills: ManifestSkillEntry[];
+}
+
+/** Entry in the manifest lock file */
+export interface ManifestLockEntry {
+  source: string;
+  name: string;
+  version: string;
+  resolvedRef: string; // Actual git commit SHA used
+  installedAt: string; // ISO timestamp
+  location?: string; // Which location this entry was installed to
+}
+
+/** Manifest lock file structure */
+export interface ManifestLockFile {
+  lockVersion: number;
+  skills: ManifestLockEntry[];
+}
+
 export interface RemoteSkill {
   /** Display name of the skill (from frontmatter) */
   name: string;

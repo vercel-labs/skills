@@ -1,4 +1,6 @@
-# skills
+# @zot24/skills
+
+> Fork of [vercel-labs/skills](https://github.com/vercel-labs/skills) with TOML manifest-based batch installation, frozen mode, and opt-in telemetry. See [FORK.md](FORK.md) for fork-specific features.
 
 The CLI for the open agent skills ecosystem.
 
