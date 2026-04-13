@@ -26,6 +26,7 @@ export type AgentType =
   | 'kiro-cli'
   | 'kode'
   | 'mcpjam'
+  | 'minimax-cli'
   | 'mistral-vibe'
   | 'mux'
   | 'neovate'

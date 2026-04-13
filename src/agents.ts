@@ -274,6 +274,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.mcpjam'));
     },
   },
+  'minimax-cli': {
+    name: 'minimax-cli',
+    displayName: 'MiniMax CLI',
+    skillsDir: '.mmx/skills',
+    globalSkillsDir: join(home, '.mmx/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.mmx'));
+    },
+  },
   'mistral-vibe': {
     name: 'mistral-vibe',
     displayName: 'Mistral Vibe',
