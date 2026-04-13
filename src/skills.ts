@@ -159,6 +159,7 @@ export async function discoverSkills(
     join(searchPath, '.agents/skills'),
     join(searchPath, '.claude/skills'),
     join(searchPath, '.cline/skills'),
+    join(searchPath, '.codeartsdoer/skills'),
     join(searchPath, '.codebuddy/skills'),
     join(searchPath, '.codex/skills'),
     join(searchPath, '.commandcode/skills'),

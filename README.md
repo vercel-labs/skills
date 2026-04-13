@@ -235,6 +235,7 @@ Skills can be installed to any of these agents:
 | Claude Code                           | `claude-code`                            | `.claude/skills/`      | `~/.claude/skills/`             |
 | OpenClaw                              | `openclaw`                               | `skills/`              | `~/.openclaw/skills/`           |
 | Cline, Warp                           | `cline`, `warp`                          | `.agents/skills/`      | `~/.agents/skills/`             |
+| CodeArts Agent                        | `codearts-agent`                         | `.codeartsdoer/skills/`| `~/.codeartsdoer/skills/`       |
 | CodeBuddy                             | `codebuddy`                              | `.codebuddy/skills/`   | `~/.codebuddy/skills/`          |
 | Codex                                 | `codex`                                  | `.agents/skills/`      | `~/.codex/skills/`              |
 | Command Code                          | `command-code`                           | `.commandcode/skills/` | `~/.commandcode/skills/`        |
@@ -345,6 +346,7 @@ The CLI searches for skills in these locations within a repository:
 - `.bob/skills/`
 - `.claude/skills/`
 - `./skills/`
+- `.codeartsdoer/skills/`
 - `.codebuddy/skills/`
 - `.commandcode/skills/`
 - `.continue/skills/`
