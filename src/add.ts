@@ -64,6 +64,29 @@ import {
   type BlobInstallResult,
 } from './blob.ts';
 import packageJson from '../package.json' with { type: 'json' };
+import { appendFile as appendLockTempFile } from 'fs/promises';
+
+/**
+ * If SKILLS_LOCK_ENTRY_FILE is set, append lock entry as a JSONL line to temp file
+ * instead of writing to the shared lock. Supports multiple skills per child process.
+ * Returns true if entry was written to temp file (caller should skip normal lock write).
+ */
+async function writeLockEntryToTempFile(entry: {
+  type: 'global' | 'local';
+  name: string;
+  data: Record<string, unknown>;
+}): Promise<boolean> {
+  const tempFile = process.env.SKILLS_LOCK_ENTRY_FILE;
+  if (!tempFile) return false;
+  try {
+    await appendLockTempFile(tempFile, JSON.stringify(entry) + '\n', 'utf-8');
+  } catch {
+    // Fall through to normal lock write if temp file fails
+    return false;
+  }
+  return true;
+}
+
 export function initTelemetry(version: string): void {
   setVersion(version);
 }
@@ -784,12 +807,20 @@ async function handleWellKnownSkills(
     for (const skill of selectedSkills) {
       if (successfulSkillNames.has(skill.installName)) {
         try {
-          await addSkillToLock(skill.installName, {
+          const lockData = {
             source: sourceIdentifier,
             sourceType: 'well-known',
             sourceUrl: skill.sourceUrl,
             skillFolderHash: '', // Well-known skills don't have a folder hash
+          };
+          const written = await writeLockEntryToTempFile({
+            type: 'global',
+            name: skill.installName,
+            data: lockData,
           });
+          if (!written) {
+            await addSkillToLock(skill.installName, lockData);
+          }
         } catch {
           // Don't fail installation if lock file update fails
         }
@@ -807,15 +838,19 @@ async function handleWellKnownSkills(
           const installDir = matchingResult?.canonicalPath || matchingResult?.path;
           if (installDir) {
             const computedHash = await computeSkillFolderHash(installDir);
-            await addSkillToLocalLock(
-              skill.installName,
-              {
-                source: sourceIdentifier,
-                sourceType: 'well-known',
-                computedHash,
-              },
-              cwd
-            );
+            const lockData = {
+              source: sourceIdentifier,
+              sourceType: 'well-known',
+              computedHash,
+            };
+            const written = await writeLockEntryToTempFile({
+              type: 'local',
+              name: skill.installName,
+              data: lockData,
+            });
+            if (!written) {
+              await addSkillToLocalLock(skill.installName, lockData, cwd);
+            }
           }
         } catch {
           // Don't fail installation if lock file update fails
@@ -1603,7 +1638,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               if (hash) skillFolderHash = hash;
             }
 
-            await addSkillToLock(skill.name, {
+            const lockData = {
               source: lockSource || normalizedSource,
               sourceType: parsed.type,
               sourceUrl: parsed.url,
@@ -1611,7 +1646,15 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               skillPath: skillPathValue,
               skillFolderHash,
               pluginName: skill.pluginName,
+            };
+            const written = await writeLockEntryToTempFile({
+              type: 'global',
+              name: skill.name,
+              data: lockData,
             });
+            if (!written) {
+              await addSkillToLock(skill.name, lockData);
+            }
           } catch {
             // Don't fail installation if lock file update fails
           }
@@ -1631,16 +1674,20 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               blobResult && 'snapshotHash' in skill
                 ? (skill as BlobSkill).snapshotHash
                 : await computeSkillFolderHash(skill.path);
-            await addSkillToLocalLock(
-              skill.name,
-              {
-                source: lockSource || parsed.url,
-                ref: parsed.ref,
-                sourceType: parsed.type,
-                computedHash,
-              },
-              cwd
-            );
+            const localLockData = {
+              source: lockSource || parsed.url,
+              ref: parsed.ref,
+              sourceType: parsed.type,
+              computedHash,
+            };
+            const localWritten = await writeLockEntryToTempFile({
+              type: 'local',
+              name: skill.name,
+              data: localLockData,
+            });
+            if (!localWritten) {
+              await addSkillToLocalLock(skill.name, localLockData, cwd);
+            }
           } catch {
             // Don't fail installation if lock file update fails
           }
