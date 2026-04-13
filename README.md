@@ -3,7 +3,9 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
+
 Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [41 more](#available-agents).
+
 <!-- agent-list:end -->
 
 ## Install a Skill
@@ -102,7 +104,7 @@ When installing interactively, you can choose:
 | `npx skills group <action>`   | Manage skill groups                            |
 | `npx skills manager <action>` | Manage the protected manager skill             |
 | `npx skills check`            | Check for available skill updates              |
-| `npx skills update`           | Update all installed skills to latest versions |
+| `npx skills update [skills]`  | Update installed skills to latest versions     |
 | `npx skills init [name]`      | Create a new SKILL.md template                 |
 
 ### `skills list`
@@ -135,15 +137,32 @@ npx skills find
 npx skills find typescript
 ```
 
-### `skills check` / `skills update`
+### `skills update`
 
 ```bash
-# Check if any installed skills have updates
-npx skills check
-
-# Update all skills to latest versions
+# Update all skills (interactive scope prompt)
 npx skills update
+
+# Update a single skill by name
+npx skills update my-skill
+
+# Update multiple specific skills
+npx skills update frontend-design web-design-guidelines
+
+# Update only global or project skills
+npx skills update -g
+npx skills update -p
+
+# Non-interactive (auto-detects scope: project if in a project, else global)
+npx skills update -y
 ```
+
+| Option          | Description                                                               |
+| --------------- | ------------------------------------------------------------------------- |
+| `-g, --global`  | Only update global skills                                                 |
+| `-p, --project` | Only update project skills                                                |
+| `-y, --yes`     | Skip scope prompt (auto-detect: project if in a project dir, else global) |
+| `[skills...]`   | Update specific skills by name instead of all                             |
 
 ### `skills init`
 
@@ -285,49 +304,51 @@ Discover skills at **[skills.sh](https://skills.sh)**
 Skills can be installed to any of these agents:
 
 <!-- supported-agents:start -->
-| Agent | `--agent` | Project Path | Global Path |
-|-------|-----------|--------------|-------------|
-| Amp, Kimi Code CLI, Replit, Universal | `amp`, `kimi-cli`, `replit`, `universal` | `.agents/skills/` | `~/.config/agents/skills/` |
-| Antigravity | `antigravity` | `.agents/skills/` | `~/.gemini/antigravity/skills/` |
-| Augment | `augment` | `.augment/skills/` | `~/.augment/skills/` |
-| IBM Bob | `bob` | `.bob/skills/` | `~/.bob/skills/` |
-| Claude Code | `claude-code` | `.claude/skills/` | `~/.claude/skills/` |
-| OpenClaw | `openclaw` | `skills/` | `~/.openclaw/skills/` |
-| Cline, Warp | `cline`, `warp` | `.agents/skills/` | `~/.agents/skills/` |
-| CodeBuddy | `codebuddy` | `.codebuddy/skills/` | `~/.codebuddy/skills/` |
-| Codex | `codex` | `.agents/skills/` | `~/.codex/skills/` |
-| Command Code | `command-code` | `.commandcode/skills/` | `~/.commandcode/skills/` |
-| Continue | `continue` | `.continue/skills/` | `~/.continue/skills/` |
-| Cortex Code | `cortex` | `.cortex/skills/` | `~/.snowflake/cortex/skills/` |
-| Crush | `crush` | `.crush/skills/` | `~/.config/crush/skills/` |
-| Cursor | `cursor` | `.agents/skills/` | `~/.cursor/skills/` |
-| Deep Agents | `deepagents` | `.agents/skills/` | `~/.deepagents/agent/skills/` |
-| Droid | `droid` | `.factory/skills/` | `~/.factory/skills/` |
-| Firebender | `firebender` | `.agents/skills/` | `~/.firebender/skills/` |
-| Gemini CLI | `gemini-cli` | `.agents/skills/` | `~/.gemini/skills/` |
-| GitHub Copilot | `github-copilot` | `.agents/skills/` | `~/.copilot/skills/` |
-| Goose | `goose` | `.goose/skills/` | `~/.config/goose/skills/` |
-| Junie | `junie` | `.junie/skills/` | `~/.junie/skills/` |
-| iFlow CLI | `iflow-cli` | `.iflow/skills/` | `~/.iflow/skills/` |
-| Kilo Code | `kilo` | `.kilocode/skills/` | `~/.kilocode/skills/` |
-| Kiro CLI | `kiro-cli` | `.kiro/skills/` | `~/.kiro/skills/` |
-| Kode | `kode` | `.kode/skills/` | `~/.kode/skills/` |
-| MCPJam | `mcpjam` | `.mcpjam/skills/` | `~/.mcpjam/skills/` |
-| Mistral Vibe | `mistral-vibe` | `.vibe/skills/` | `~/.vibe/skills/` |
-| Mux | `mux` | `.mux/skills/` | `~/.mux/skills/` |
-| OpenCode | `opencode` | `.agents/skills/` | `~/.config/opencode/skills/` |
-| OpenHands | `openhands` | `.openhands/skills/` | `~/.openhands/skills/` |
-| Pi | `pi` | `.pi/skills/` | `~/.pi/agent/skills/` |
-| Qoder | `qoder` | `.qoder/skills/` | `~/.qoder/skills/` |
-| Qwen Code | `qwen-code` | `.qwen/skills/` | `~/.qwen/skills/` |
-| Roo Code | `roo` | `.roo/skills/` | `~/.roo/skills/` |
-| Trae | `trae` | `.trae/skills/` | `~/.trae/skills/` |
-| Trae CN | `trae-cn` | `.trae/skills/` | `~/.trae-cn/skills/` |
-| Windsurf | `windsurf` | `.windsurf/skills/` | `~/.codeium/windsurf/skills/` |
-| Zencoder | `zencoder` | `.zencoder/skills/` | `~/.zencoder/skills/` |
-| Neovate | `neovate` | `.neovate/skills/` | `~/.neovate/skills/` |
-| Pochi | `pochi` | `.pochi/skills/` | `~/.pochi/skills/` |
-| AdaL | `adal` | `.adal/skills/` | `~/.adal/skills/` |
+
+| Agent                                 | `--agent`                                | Project Path           | Global Path                     |
+| ------------------------------------- | ---------------------------------------- | ---------------------- | ------------------------------- |
+| Amp, Kimi Code CLI, Replit, Universal | `amp`, `kimi-cli`, `replit`, `universal` | `.agents/skills/`      | `~/.config/agents/skills/`      |
+| Antigravity                           | `antigravity`                            | `.agents/skills/`      | `~/.gemini/antigravity/skills/` |
+| Augment                               | `augment`                                | `.augment/skills/`     | `~/.augment/skills/`            |
+| IBM Bob                               | `bob`                                    | `.bob/skills/`         | `~/.bob/skills/`                |
+| Claude Code                           | `claude-code`                            | `.claude/skills/`      | `~/.claude/skills/`             |
+| OpenClaw                              | `openclaw`                               | `skills/`              | `~/.openclaw/skills/`           |
+| Cline, Warp                           | `cline`, `warp`                          | `.agents/skills/`      | `~/.agents/skills/`             |
+| CodeBuddy                             | `codebuddy`                              | `.codebuddy/skills/`   | `~/.codebuddy/skills/`          |
+| Codex                                 | `codex`                                  | `.agents/skills/`      | `~/.codex/skills/`              |
+| Command Code                          | `command-code`                           | `.commandcode/skills/` | `~/.commandcode/skills/`        |
+| Continue                              | `continue`                               | `.continue/skills/`    | `~/.continue/skills/`           |
+| Cortex Code                           | `cortex`                                 | `.cortex/skills/`      | `~/.snowflake/cortex/skills/`   |
+| Crush                                 | `crush`                                  | `.crush/skills/`       | `~/.config/crush/skills/`       |
+| Cursor                                | `cursor`                                 | `.agents/skills/`      | `~/.cursor/skills/`             |
+| Deep Agents                           | `deepagents`                             | `.agents/skills/`      | `~/.deepagents/agent/skills/`   |
+| Droid                                 | `droid`                                  | `.factory/skills/`     | `~/.factory/skills/`            |
+| Firebender                            | `firebender`                             | `.agents/skills/`      | `~/.firebender/skills/`         |
+| Gemini CLI                            | `gemini-cli`                             | `.agents/skills/`      | `~/.gemini/skills/`             |
+| GitHub Copilot                        | `github-copilot`                         | `.agents/skills/`      | `~/.copilot/skills/`            |
+| Goose                                 | `goose`                                  | `.goose/skills/`       | `~/.config/goose/skills/`       |
+| Junie                                 | `junie`                                  | `.junie/skills/`       | `~/.junie/skills/`              |
+| iFlow CLI                             | `iflow-cli`                              | `.iflow/skills/`       | `~/.iflow/skills/`              |
+| Kilo Code                             | `kilo`                                   | `.kilocode/skills/`    | `~/.kilocode/skills/`           |
+| Kiro CLI                              | `kiro-cli`                               | `.kiro/skills/`        | `~/.kiro/skills/`               |
+| Kode                                  | `kode`                                   | `.kode/skills/`        | `~/.kode/skills/`               |
+| MCPJam                                | `mcpjam`                                 | `.mcpjam/skills/`      | `~/.mcpjam/skills/`             |
+| Mistral Vibe                          | `mistral-vibe`                           | `.vibe/skills/`        | `~/.vibe/skills/`               |
+| Mux                                   | `mux`                                    | `.mux/skills/`         | `~/.mux/skills/`                |
+| OpenCode                              | `opencode`                               | `.agents/skills/`      | `~/.config/opencode/skills/`    |
+| OpenHands                             | `openhands`                              | `.openhands/skills/`   | `~/.openhands/skills/`          |
+| Pi                                    | `pi`                                     | `.pi/skills/`          | `~/.pi/agent/skills/`           |
+| Qoder                                 | `qoder`                                  | `.qoder/skills/`       | `~/.qoder/skills/`              |
+| Qwen Code                             | `qwen-code`                              | `.qwen/skills/`        | `~/.qwen/skills/`               |
+| Roo Code                              | `roo`                                    | `.roo/skills/`         | `~/.roo/skills/`                |
+| Trae                                  | `trae`                                   | `.trae/skills/`        | `~/.trae/skills/`               |
+| Trae CN                               | `trae-cn`                                | `.trae/skills/`        | `~/.trae-cn/skills/`            |
+| Windsurf                              | `windsurf`                               | `.windsurf/skills/`    | `~/.codeium/windsurf/skills/`   |
+| Zencoder                              | `zencoder`                               | `.zencoder/skills/`    | `~/.zencoder/skills/`           |
+| Neovate                               | `neovate`                                | `.neovate/skills/`     | `~/.neovate/skills/`            |
+| Pochi                                 | `pochi`                                  | `.pochi/skills/`       | `~/.pochi/skills/`              |
+| AdaL                                  | `adal`                                   | `.adal/skills/`        | `~/.adal/skills/`               |
+
 <!-- supported-agents:end -->
 
 > [!NOTE]
@@ -392,6 +413,7 @@ metadata:
 The CLI searches for skills in these locations within a repository:
 
 <!-- skill-discovery:start -->
+
 - Root directory (if it contains `SKILL.md`)
 - `skills/`
 - `skills/.curated/`

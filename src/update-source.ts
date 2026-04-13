@@ -5,6 +5,11 @@ export interface UpdateSourceEntry {
   skillPath?: string;
 }
 
+export interface LocalUpdateSourceEntry {
+  source: string;
+  ref?: string;
+}
+
 export function formatSourceInput(sourceUrl: string, ref?: string): string {
   if (!ref) {
     return sourceUrl;
@@ -37,4 +42,13 @@ export function buildUpdateInstallSource(entry: UpdateSourceEntry): string {
     installSource = `${installSource}#${entry.ref}`;
   }
   return installSource;
+}
+
+/**
+ * Build the source argument for `skills add` during project-level update.
+ * Local lock entries only have `source` and `ref` (no skillPath or sourceUrl),
+ * so we use the source directly (e.g., "vercel-labs/agent-skills").
+ */
+export function buildLocalUpdateSource(entry: LocalUpdateSourceEntry): string {
+  return formatSourceInput(entry.source, entry.ref);
 }
