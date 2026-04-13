@@ -23,7 +23,13 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
   const tempDir = await mkdtemp(join(tmpdir(), 'skills-'));
   const git = simpleGit({
     timeout: { block: CLONE_TIMEOUT_MS },
-    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    env: {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: '0',
+      // Prevent Git Credential Manager from opening interactive GUI prompts
+      // that block indefinitely when git is spawned as a child process.
+      GCM_INTERACTIVE: 'never',
+    },
   });
   const cloneOptions = ref ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
 

@@ -424,6 +424,7 @@ export interface AddOptions {
   fullDepth?: boolean;
   copy?: boolean;
   dangerouslyAcceptOpenclawRisks?: boolean;
+  sourceType?: 'git' | 'well-known';
 }
 
 /**
@@ -938,6 +939,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     spinner.start('Parsing source...');
     const parsed = parseSource(source);
+
+    // Allow CLI override of auto-detected source type
+    if (options.sourceType) {
+      parsed.type = options.sourceType;
+    }
+
     spinner.stop(
       `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
     );
@@ -1901,6 +1908,11 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       options.copy = true;
     } else if (arg === '--dangerously-accept-openclaw-risks') {
       options.dangerouslyAcceptOpenclawRisks = true;
+    } else if (arg === '--source-type') {
+      const value = args[++i];
+      if (value === 'git' || value === 'well-known') {
+        options.sourceType = value;
+      }
     } else if (arg && !arg.startsWith('-')) {
       source.push(arg);
     }

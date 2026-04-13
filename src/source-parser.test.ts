@@ -63,6 +63,19 @@ describe('source-parser', () => {
       expect(result.url).toBe('https://google.com/search/result');
     });
 
+    it('Azure DevOps HTTPS URL without .git suffix falls through to well-known (use --source-type git to override)', () => {
+      const result = parseSource('https://dev.azure.com/ORG/PROJECT/_git/REPO');
+      // Without .git suffix, Azure DevOps URLs are classified as well-known.
+      // Users can use --source-type git to force git handling.
+      expect(result.type).toBe('well-known');
+    });
+
+    it('Azure DevOps HTTPS URL with .git suffix is detected as git source', () => {
+      const result = parseSource('https://dev.azure.com/ORG/PROJECT/_git/REPO.git');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://dev.azure.com/ORG/PROJECT/_git/REPO.git');
+    });
+
     it('retains official gitlab.com parsing for convenience', () => {
       const result = parseSource('https://gitlab.com/owner/repo');
       expect(result).toEqual({
