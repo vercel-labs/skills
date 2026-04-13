@@ -8,17 +8,22 @@ This file provides guidance to AI coding agents working on the `skills` CLI code
 
 ## Commands
 
-| Command                       | Description                                         |
-| ----------------------------- | --------------------------------------------------- |
-| `skills`                      | Show banner with available commands                 |
-| `skills add <pkg>`            | Install skills from git repos, URLs, or local paths |
-| `skills experimental_install` | Restore skills from skills-lock.json                |
-| `skills experimental_sync`    | Sync skills from node_modules into agent dirs       |
-| `skills list`                 | List installed skills (alias: `ls`)                 |
-| `skills update [skills...]`   | Update skills to latest versions                    |
-| `skills init [name]`          | Create a new SKILL.md template                      |
+| Command                       | Description                                                      |
+| ----------------------------- | ---------------------------------------------------------------- |
+| `skills`                      | Show banner with available commands                              |
+| `skills add <pkg>`            | Install skills from git repos, URLs, or local paths              |
+| `skills remove [skills...]`   | Remove installed skills and scrub management metadata             |
+| `skills enable [skills...]`   | Enable disabled skills (also accepts `--group` or `--all`)       |
+| `skills disable [skills...]`  | Disable skills without removing them (`--group` or `--all`)      |
+| `skills group <action>`       | Manage skill groups (create, delete, add, remove)                |
+| `skills manager <action>`     | Manage the protected manager skill (set, show, clear)            |
+| `skills experimental_install` | Restore skills from skills-lock.json                             |
+| `skills experimental_sync`    | Sync skills from node_modules into agent dirs                    |
+| `skills list`                 | List installed skills (alias: `ls`)                              |
+| `skills update [skills...]`   | Update skills to latest versions                                 |
+| `skills init [name]`          | Create a new SKILL.md template                                   |
 
-Aliases: `skills a` works for `add`. `skills i`, `skills install` (no args) restore from `skills-lock.json`. `skills ls` works for `list`. `skills experimental_install` restores from `skills-lock.json`. `skills experimental_sync` crawls `node_modules` for skills.
+Aliases: `skills a` works for `add`. `skills i`, `skills install` (no args) restore from `skills-lock.json`. `skills ls` works for `list`. `skills rm` / `skills r` works for `remove`. `skills experimental_install` restores from `skills-lock.json`. `skills experimental_sync` crawls `node_modules` for skills.
 
 ## Architecture
 
@@ -35,6 +40,10 @@ src/
 ├── list.test.ts     # List command tests
 ├── remove.ts         # Remove command implementation
 ├── remove.test.ts    # Remove command tests
+├── management.ts     # Enable/disable, group, and manager command handlers
+├── management.test.ts # Management command integration tests
+├── management-state.ts # Management data model, group/manager helpers, lockfile scrubbing
+├── management-filesystem.ts # Skill status detection (enabled/disabled/inconsistent/missing) and move helpers
 ├── agents.ts        # Agent definitions and detection
 ├── installer.ts     # Skill installation logic (symlink/copy) + listInstalledSkills
 ├── skills.ts        # Skill discovery and parsing
@@ -72,6 +81,8 @@ tests/
 ├── skill-path.test.ts        # Tests for skill path handling
 ├── wellknown-provider.test.ts # Tests for well-known provider
 ├── xdg-config-paths.test.ts   # XDG global path handling tests
+├── management-filesystem.test.ts # Skill status detection and enable/disable filesystem ops
+├── skill-lock.test.ts         # Global lock management state and v3→v4 migration tests
 └── dist.test.ts               # Tests for built distribution
 ```
 
@@ -88,18 +99,24 @@ tests/
 
 ### Lock File Compatibility
 
-The lock file format is v3. Key field: `skillFolderHash` (GitHub tree SHA for the skill folder).
+The global lock file format is v4. The project lock file format is v2. Both include a `management` section for groups and `managerSkill`.
 
-If reading an older lock file version, it's wiped. Users must reinstall skills to populate the new format.
+Key field: `skillFolderHash` (GitHub tree SHA for the skill folder).
+
+Lockfile migrations are explicit: global v3→v4 and project v1→v2 preserve existing data and add an empty `management` block. Only invalid or unsupported versions are wiped.
 
 ## Key Integration Points
 
-| Feature                    | Implementation                                                |
-| -------------------------- | ------------------------------------------------------------- |
-| `skills add`               | `src/add.ts` - full implementation                            |
-| `skills experimental_sync` | `src/sync.ts` - crawl node_modules                            |
-| `skills check`             | `src/cli.ts` + `fetchSkillFolderHash` in `src/skill-lock.ts`  |
-| `skills update`            | `src/cli.ts` direct hash compare + reinstall via `skills add` |
+| Feature                    | Implementation                                                       |
+| -------------------------- | -------------------------------------------------------------------- |
+| `skills add`               | `src/add.ts` - full implementation                                   |
+| `skills remove`            | `src/remove.ts` - remove files + scrub lockfile/groups/manager       |
+| `skills enable/disable`    | `src/management.ts` → `src/management-filesystem.ts` for moves      |
+| `skills group`             | `src/management.ts` → `src/management-state.ts` for lockfile CRUD   |
+| `skills manager`           | `src/management.ts` → lockfile `managerSkill` field                  |
+| `skills experimental_sync` | `src/sync.ts` - crawl node_modules                                   |
+| `skills check`             | `src/cli.ts` + `fetchSkillFolderHash` in `src/skill-lock.ts`        |
+| `skills update`            | `src/cli.ts` direct hash compare + reinstall via `skills add`        |
 
 ## Development
 
