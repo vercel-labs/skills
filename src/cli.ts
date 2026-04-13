@@ -88,7 +88,10 @@ function showBanner(): void {
     `  ${DIM}$${RESET} ${TEXT}npx skills list${RESET}                 ${DIM}List installed skills${RESET}`
   );
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills enable ${DIM}<skill>${RESET}        ${DIM}Enable or disable skills${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}npx skills enable ${DIM}<skill>${RESET}        ${DIM}Enable installed skills${RESET}`
+  );
+  console.log(
+    `  ${DIM}$${RESET} ${TEXT}npx skills disable ${DIM}<skill>${RESET}       ${DIM}Disable installed skills${RESET}`
   );
   console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills find ${DIM}[query]${RESET}         ${DIM}Search for skills${RESET}`
@@ -131,6 +134,7 @@ ${BOLD}Manage Skills:${RESET}
   find [query]         Search for skills interactively
 
 ${BOLD}Updates:${RESET}
+  check               Check for skill updates
   update [skills...]   Update skills to latest versions (alias: upgrade)
 
 ${BOLD}Update Options:${RESET}
@@ -170,6 +174,25 @@ ${BOLD}List Options:${RESET}
   --groups               Group skills by management groups
   --json                 Output as JSON (machine-readable, no ANSI codes)
 
+${BOLD}Enable/Disable Options:${RESET}
+  --group <groups>       Target all skills in the named groups
+  --all                  Target all skills in scope
+  -g, --global           Operate on global scope
+  -y, --yes              Skip confirmation prompts
+
+${BOLD}Group Subcommands:${RESET}
+  create <groups...>              Create empty groups
+  delete <groups...>              Delete groups (keeps skills)
+  add <group> --skill <skills>    Add skills to a group
+  remove <group> --skill <skills> Remove skills from a group
+  -g, --global                    Operate on global scope
+
+${BOLD}Manager Subcommands:${RESET}
+  set <skill>            Designate the manager skill
+  show                   Display current manager skill
+  clear                  Unset the manager skill
+  -g, --global           Operate on global scope
+
 ${BOLD}Options:${RESET}
   --help, -h        Show this help message
   --version, -v     Show version number
@@ -179,10 +202,17 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills add vercel-labs/agent-skills -g
   ${DIM}$${RESET} skills add vercel-labs/agent-skills --agent claude-code cursor
   ${DIM}$${RESET} skills add vercel-labs/agent-skills --skill pr-review commit
-  ${DIM}$${RESET} skills disable my-skill
-  ${DIM}$${RESET} skills enable --group ai architecture
-  ${DIM}$${RESET} skills group create ai architecture
-  ${DIM}$${RESET} skills manager set find-skills
+  ${DIM}$${RESET} skills enable my-skill                ${DIM}# enable a skill${RESET}
+  ${DIM}$${RESET} skills disable my-skill               ${DIM}# disable a skill${RESET}
+  ${DIM}$${RESET} skills enable --group ai architecture  ${DIM}# enable by group${RESET}
+  ${DIM}$${RESET} skills disable --all                   ${DIM}# disable all skills${RESET}
+  ${DIM}$${RESET} skills group create ai architecture    ${DIM}# create groups${RESET}
+  ${DIM}$${RESET} skills group delete ai                 ${DIM}# delete a group${RESET}
+  ${DIM}$${RESET} skills group add ai --skill foo bar    ${DIM}# add skills to group${RESET}
+  ${DIM}$${RESET} skills group remove ai --skill foo     ${DIM}# remove skill from group${RESET}
+  ${DIM}$${RESET} skills manager set find-skills         ${DIM}# set manager skill${RESET}
+  ${DIM}$${RESET} skills manager show                    ${DIM}# show manager skill${RESET}
+  ${DIM}$${RESET} skills manager clear                   ${DIM}# clear manager skill${RESET}
   ${DIM}$${RESET} skills remove                        ${DIM}# interactive remove${RESET}
   ${DIM}$${RESET} skills remove web-design             ${DIM}# remove by name${RESET}
   ${DIM}$${RESET} skills rm --global frontend-design

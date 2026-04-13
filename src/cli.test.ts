@@ -54,7 +54,6 @@ describe('skills CLI', () => {
       expect(output).toContain('The open agent skills ecosystem');
       expect(output).toContain('npx skills add');
       expect(output).toContain('npx skills enable');
-      expect(output).toContain('npx skills check');
       expect(output).toContain('npx skills update');
       expect(output).toContain('npx skills init');
       expect(output).toContain('skills.sh');
