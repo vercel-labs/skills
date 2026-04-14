@@ -36,6 +36,7 @@ export type AgentType =
   | 'qwen-code'
   | 'replit'
   | 'roo'
+  | 'tabnine-cli'
   | 'trae'
   | 'trae-cn'
   | 'warp'
