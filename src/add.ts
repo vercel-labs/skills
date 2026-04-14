@@ -2,7 +2,7 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
-import { sep } from 'path';
+import { sep, join, dirname } from 'path';
 import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 
@@ -1600,6 +1600,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
                 token,
                 parsed.ref
               );
+              if (hash) skillFolderHash = hash;
+            } else if (skillPathValue && tempDir) {
+              // Non-GitHub git source (Bitbucket, GitLab, Azure DevOps, self-hosted, etc.):
+              // compute hash from local clone — no platform API needed
+              const skillDir = join(tempDir, dirname(skillPathValue));
+              const hash = await computeSkillFolderHash(skillDir);
               if (hash) skillFolderHash = hash;
             }
 
