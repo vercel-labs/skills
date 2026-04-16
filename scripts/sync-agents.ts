@@ -72,7 +72,7 @@ function generateSkillDiscoveryPaths(): string {
 
   const agentPaths = [...new Set(Object.values(agents).map((a) => a.skillsDir))]
     .filter((p) => p !== 'skills') // Filter out the standard `skills/` path
-    .map((p) => `- \`.${p.startsWith('.') ? p.slice(1) : '/' + p}/\``);
+    .map((p) => `- \`${p}/\``);
 
   return [...standardPaths, ...agentPaths].join('\n');
 }
