@@ -3,8 +3,10 @@ import pc from 'picocolors';
 import { readdir, rm, lstat } from 'fs/promises';
 import { join } from 'path';
 import { agents, detectInstalledAgents } from './agents.ts';
+import { readLocalLock, removeSkillFromLocalLock } from './local-lock.ts';
 import { track } from './telemetry.ts';
-import { removeSkillFromLock, getSkillFromLock } from './skill-lock.ts';
+import { readSkillLock, removeSkillFromLock } from './skill-lock.ts';
+import { getOwnerRepo, parseSource } from './source-parser.ts';
 import type { AgentType } from './types.ts';
 import {
   getInstallPath,
@@ -18,11 +20,66 @@ export interface RemoveOptions {
   agent?: string[];
   yes?: boolean;
   all?: boolean;
+  source?: string[];
+}
+
+interface RemoveLockEntry {
+  source: string;
+  sourceType: string;
+}
+
+function getSourceFilterValues(sourceFilters: string[]): Set<string> {
+  const values = new Set<string>();
+
+  for (const sourceFilter of sourceFilters) {
+    const trimmedSource = sourceFilter.trim();
+    if (!trimmedSource) {
+      continue;
+    }
+
+    values.add(trimmedSource);
+
+    const parsedSource = parseSource(trimmedSource);
+    const ownerRepo = getOwnerRepo(parsedSource);
+    if (ownerRepo) {
+      values.add(ownerRepo);
+    }
+
+    if (parsedSource.type === 'local' || parsedSource.type === 'git') {
+      values.add(parsedSource.url);
+    }
+
+    if (parsedSource.type === 'well-known') {
+      try {
+        const url = new URL(parsedSource.url);
+        values.add(`wellknown/${url.hostname}`);
+      } catch {
+        values.add(parsedSource.url);
+      }
+    }
+  }
+
+  return values;
+}
+
+function matchesSourceFilter(
+  lockEntry: RemoveLockEntry | undefined,
+  sourceFilters: Set<string>
+): boolean {
+  if (!lockEntry) {
+    return false;
+  }
+
+  return sourceFilters.has(lockEntry.source);
 }
 
 export async function removeCommand(skillNames: string[], options: RemoveOptions) {
   const isGlobal = options.global ?? false;
   const cwd = process.cwd();
+  const globalLock = isGlobal ? await readSkillLock() : null;
+  const localLock = !isGlobal ? await readLocalLock(cwd) : null;
+  const lockEntries = isGlobal ? globalLock?.skills : localLock?.skills;
+  const sourceFilters = options.source ? getSourceFilterValues(options.source) : null;
 
   const spinner = p.spinner();
 
@@ -78,21 +135,39 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     }
   }
 
+  const availableSkills = sourceFilters
+    ? installedSkills.filter((skillName) =>
+        matchesSourceFilter(lockEntries?.[skillName], sourceFilters)
+      )
+    : installedSkills;
+
+  if (sourceFilters && availableSkills.length === 0) {
+    p.log.error(`No installed skills found for source: ${options.source?.join(', ')}`);
+    return;
+  }
+
   let selectedSkills: string[] = [];
 
   if (options.all) {
-    selectedSkills = installedSkills;
+    selectedSkills = availableSkills;
   } else if (skillNames.length > 0) {
-    selectedSkills = installedSkills.filter((s) =>
+    selectedSkills = availableSkills.filter((s) =>
       skillNames.some((name) => name.toLowerCase() === s.toLowerCase())
     );
 
     if (selectedSkills.length === 0) {
+      if (sourceFilters) {
+        p.log.error(
+          `No matching skills found for: ${skillNames.join(', ')} from source: ${options.source?.join(', ')}`
+        );
+        return;
+      }
+
       p.log.error(`No matching skills found for: ${skillNames.join(', ')}`);
       return;
     }
   } else {
-    const choices = installedSkills.map((s) => ({
+    const choices = availableSkills.map((s) => ({
       value: s,
       label: s,
     }));
@@ -208,12 +283,14 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
         await rm(canonicalPath, { recursive: true, force: true });
       }
 
-      const lockEntry = isGlobal ? await getSkillFromLock(skillName) : null;
+      const lockEntry = lockEntries?.[skillName];
       const effectiveSource = lockEntry?.source || 'local';
       const effectiveSourceType = lockEntry?.sourceType || 'local';
 
       if (isGlobal) {
         await removeSkillFromLock(skillName);
+      } else {
+        await removeSkillFromLocalLock(skillName, cwd);
       }
 
       results.push({
@@ -292,6 +369,16 @@ export function parseRemoveOptions(args: string[]): { skills: string[]; options:
       options.yes = true;
     } else if (arg === '--all') {
       options.all = true;
+    } else if (arg === '--source') {
+      options.source = options.source || [];
+      i++;
+      let nextArg = args[i];
+      while (i < args.length && nextArg && !nextArg.startsWith('-')) {
+        options.source.push(nextArg);
+        i++;
+        nextArg = args[i];
+      }
+      i--; // Back up one since the loop will increment
     } else if (arg === '-a' || arg === '--agent') {
       options.agent = options.agent || [];
       i++;

@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, rmSync, mkdirSync, writeFileSync, readdirSync } from 'fs';
+import { existsSync, rmSync, mkdirSync, writeFileSync, readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli, runCliWithInput } from './test-utils.js';
+import { parseRemoveOptions } from './remove.ts';
 
 describe('remove command', { timeout: 30000 }, () => {
   let testDir: string;
@@ -44,6 +45,31 @@ This is a test skill.
     const agentSkillsDir = join(testDir, agentName, 'skills');
     mkdirSync(agentSkillsDir, { recursive: true });
     return agentSkillsDir;
+  }
+
+  function writeProjectLock(skills: Record<string, { source: string; sourceType: string }>) {
+    const lockPath = join(testDir, 'skills-lock.json');
+    const entries = Object.fromEntries(
+      Object.entries(skills).map(([skillName, entry]) => [
+        skillName,
+        {
+          ...entry,
+          computedHash: `${skillName}-hash`,
+        },
+      ])
+    );
+
+    writeFileSync(
+      lockPath,
+      JSON.stringify(
+        {
+          version: 1,
+          skills: entries,
+        },
+        null,
+        2
+      ) + '\n'
+    );
   }
 
   function createSymlink(skillName: string, targetDir: string) {
@@ -125,6 +151,43 @@ This is a test skill.
       expect(existsSync(join(skillsDir, 'skill-one'))).toBe(false);
       expect(existsSync(join(skillsDir, 'skill-two'))).toBe(false);
       expect(existsSync(join(skillsDir, 'skill-three'))).toBe(false);
+    });
+
+    it('should remove only skills from the requested source', () => {
+      writeProjectLock({
+        'skill-one': {
+          source: 'get-convex/agent-skills',
+          sourceType: 'github',
+        },
+        'skill-two': {
+          source: 'get-convex/agent-skills',
+          sourceType: 'github',
+        },
+        'skill-three': {
+          source: 'vercel-labs/skills',
+          sourceType: 'github',
+        },
+      });
+
+      const result = runCli(
+        ['remove', '--source', 'get-convex/agent-skills', '--all', '-y'],
+        testDir
+      );
+
+      expect(result.stdout).toContain('Successfully removed');
+      expect(result.stdout).toContain('2 skill');
+      expect(existsSync(join(skillsDir, 'skill-one'))).toBe(false);
+      expect(existsSync(join(skillsDir, 'skill-two'))).toBe(false);
+      expect(existsSync(join(skillsDir, 'skill-three'))).toBe(true);
+
+      const lock = JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8'));
+      expect(lock.skills).toEqual({
+        'skill-three': {
+          source: 'vercel-labs/skills',
+          sourceType: 'github',
+          computedHash: 'skill-three-hash',
+        },
+      });
     });
 
     it('should show error for non-existent skill name when skills exist', () => {
@@ -275,6 +338,7 @@ This is a test skill.
       expect(result.stdout).toContain('remove');
       expect(result.stdout).toContain('--global');
       expect(result.stdout).toContain('--agent');
+      expect(result.stdout).toContain('--source');
       expect(result.stdout).toContain('--yes');
       expect(result.exitCode).toBe(0);
     });
@@ -313,6 +377,19 @@ This is a test skill.
         testDir
       );
       expect(result.stdout).not.toContain('Invalid agents');
+    });
+
+    it('should parse --source values', () => {
+      const result = parseRemoveOptions([
+        'parse-test-skill',
+        '--source',
+        'get-convex/agent-skills',
+        '--all',
+      ]);
+
+      expect(result.skills).toEqual(['parse-test-skill']);
+      expect(result.options.source).toEqual(['get-convex/agent-skills']);
+      expect(result.options.all).toBe(true);
     });
   });
 });

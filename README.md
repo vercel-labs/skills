@@ -186,6 +186,9 @@ npx skills remove --global web-design-guidelines
 # Remove from specific agents only
 npx skills remove --agent claude-code cursor my-skill
 
+# Remove every skill installed from a specific source
+npx skills remove --source get-convex/agent-skills --all
+
 # Remove all installed skills without confirmation
 npx skills remove --all
 
@@ -199,13 +202,14 @@ npx skills remove my-skill --agent '*'
 npx skills rm my-skill
 ```
 
-| Option         | Description                                      |
-| -------------- | ------------------------------------------------ |
-| `-g, --global` | Remove from global scope (~/) instead of project |
-| `-a, --agent`  | Remove from specific agents (use `'*'` for all)  |
-| `-s, --skill`  | Specify skills to remove (use `'*'` for all)     |
-| `-y, --yes`    | Skip confirmation prompts                        |
-| `--all`        | Shorthand for `--skill '*' --agent '*' -y`       |
+| Option         | Description                                       |
+| -------------- | ------------------------------------------------- |
+| `-g, --global` | Remove from global scope (~/) instead of project  |
+| `-a, --agent`  | Remove from specific agents (use `'*'` for all)   |
+| `--source`     | Remove skills from a specific installation source |
+| `-s, --skill`  | Specify skills to remove (use `'*'` for all)      |
+| `-y, --yes`    | Skip confirmation prompts                         |
+| `--all`        | Shorthand for `--skill '*' --agent '*' -y`        |
 
 ## What are Agent Skills?
 
