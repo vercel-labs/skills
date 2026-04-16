@@ -292,18 +292,33 @@ export function parseRemoveOptions(args: string[]): { skills: string[]; options:
       options.yes = true;
     } else if (arg === '--all') {
       options.all = true;
-    } else if (arg === '-a' || arg === '--agent') {
+    } else if (arg === '-a' || arg === '--agent' || arg === '--agents') {
       options.agent = options.agent || [];
       i++;
       let nextArg = args[i];
       while (i < args.length && nextArg && !nextArg.startsWith('-')) {
-        options.agent.push(nextArg);
+        nextArg.split(',').forEach((a) => {
+          if (a.trim()) options.agent!.push(a.trim());
+        });
+        i++;
+        nextArg = args[i];
+      }
+      i--; // Back up one since the loop will increment
+    } else if (arg === '-s' || arg === '--skill' || arg === '--skills') {
+      i++;
+      let nextArg = args[i];
+      while (i < args.length && nextArg && !nextArg.startsWith('-')) {
+        nextArg.split(',').forEach((s) => {
+          if (s.trim()) skills.push(s.trim());
+        });
         i++;
         nextArg = args[i];
       }
       i--; // Back up one since the loop will increment
     } else if (arg && !arg.startsWith('-')) {
-      skills.push(arg);
+      arg.split(',').forEach((s) => {
+        if (s.trim()) skills.push(s.trim());
+      });
     }
   }
 

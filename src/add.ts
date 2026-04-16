@@ -1875,22 +1875,26 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       options.list = true;
     } else if (arg === '--all') {
       options.all = true;
-    } else if (arg === '-a' || arg === '--agent') {
+    } else if (arg === '-a' || arg === '--agent' || arg === '--agents') {
       options.agent = options.agent || [];
       i++;
       let nextArg = args[i];
       while (i < args.length && nextArg && !nextArg.startsWith('-')) {
-        options.agent.push(nextArg);
+        nextArg.split(',').forEach((a) => {
+          if (a.trim()) options.agent!.push(a.trim());
+        });
         i++;
         nextArg = args[i];
       }
       i--; // Back up one since the loop will increment
-    } else if (arg === '-s' || arg === '--skill') {
+    } else if (arg === '-s' || arg === '--skill' || arg === '--skills') {
       options.skill = options.skill || [];
       i++;
       let nextArg = args[i];
       while (i < args.length && nextArg && !nextArg.startsWith('-')) {
-        options.skill.push(nextArg);
+        nextArg.split(',').forEach((s) => {
+          if (s.trim()) options.skill!.push(s.trim());
+        });
         i++;
         nextArg = args[i];
       }

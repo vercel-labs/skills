@@ -132,21 +132,21 @@ ${BOLD}Project:${RESET}
   experimental_sync    Sync skills from node_modules into agent directories
 
 ${BOLD}Add Options:${RESET}
-  -g, --global           Install skill globally (user-level) instead of project-level
-  -a, --agent <agents>   Specify agents to install to (use '*' for all agents)
-  -s, --skill <skills>   Specify skill names to install (use '*' for all skills)
-  -l, --list             List available skills in the repository without installing
-  -y, --yes              Skip confirmation prompts
-  --copy                 Copy files instead of symlinking to agent directories
-  --all                  Shorthand for --skill '*' --agent '*' -y
-  --full-depth           Search all subdirectories even when a root SKILL.md exists
+  -g, --global             Install skill globally (user-level) instead of project-level
+  -a, --agent, --agents <agents> Specify agents to install to (comma-separated or multiple flags)
+  -s, --skill, --skills <skills> Specify skill names to install (comma-separated or multiple flags)
+  -l, --list               List available skills in the repository without installing
+  -y, --yes                Skip confirmation prompts
+  --copy                   Copy files instead of symlinking to agent directories
+  --all                    Shorthand for --skill '*' --agent '*' -y
+  --full-depth             Search all subdirectories even when a root SKILL.md exists
 
 ${BOLD}Remove Options:${RESET}
-  -g, --global           Remove from global scope
-  -a, --agent <agents>   Remove from specific agents (use '*' for all agents)
-  -s, --skill <skills>   Specify skills to remove (use '*' for all skills)
-  -y, --yes              Skip confirmation prompts
-  --all                  Shorthand for --skill '*' --agent '*' -y
+  -g, --global             Remove from global scope
+  -a, --agent, --agents <agents> Remove from specific agents (comma-separated or multiple flags)
+  -s, --skill, --skills <skills> Specify skills to remove (comma-separated or multiple flags)
+  -y, --yes                Skip confirmation prompts
+  --all                    Shorthand for --skill '*' --agent '*' -y
   
 ${BOLD}Experimental Sync Options:${RESET}
   -a, --agent <agents>   Specify agents to install to (use '*' for all agents)
