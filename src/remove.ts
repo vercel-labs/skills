@@ -289,7 +289,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
       if (isGlobal) {
         await removeSkillFromLock(skillName);
-      } else {
+      } else if (!isStillUsed) {
         await removeSkillFromLocalLock(skillName, cwd);
       }
 

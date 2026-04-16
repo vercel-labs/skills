@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdir, rm, writeFile, lstat, symlink } from 'node:fs/promises';
+import { mkdir, rm, writeFile, lstat, symlink, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { removeCommand } from '../src/remove.ts';
@@ -46,6 +46,7 @@ describe('removeCommand canonical protection', () => {
     const canonicalPath = join(tempDir, '.agents/skills', skillName);
     const claudePath = join(tempDir, '.claude/skills', skillName);
     const continuePath = join(tempDir, '.continue/skills', skillName);
+    const lockPath = join(tempDir, 'skills-lock.json');
 
     // 1. Create canonical storage
     await mkdir(canonicalPath, { recursive: true });
@@ -54,6 +55,23 @@ describe('removeCommand canonical protection', () => {
     // 2. Install (symlink) to Claude and Continue
     await symlink(canonicalPath, claudePath, 'junction');
     await symlink(canonicalPath, continuePath, 'junction');
+    await writeFile(
+      lockPath,
+      JSON.stringify(
+        {
+          version: 1,
+          skills: {
+            [skillName]: {
+              source: 'get-convex/agent-skills',
+              sourceType: 'github',
+              computedHash: 'test-hash',
+            },
+          },
+        },
+        null,
+        2
+      ) + '\n'
+    );
 
     // Verify setup
     expect(
@@ -81,6 +99,13 @@ describe('removeCommand canonical protection', () => {
     expect(
       (await lstat(continuePath)).isSymbolicLink() || (await lstat(continuePath)).isDirectory()
     ).toBe(true);
+
+    const lock = JSON.parse(await readFile(lockPath, 'utf-8'));
+    expect(lock.skills[skillName]).toEqual({
+      source: 'get-convex/agent-skills',
+      sourceType: 'github',
+      computedHash: 'test-hash',
+    });
   });
 
   it('should remove canonical storage if NO other agents are using it', async () => {
