@@ -1493,9 +1493,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           );
         } else {
           // Disk-based install: copy from cloned/local directory
+          // For repo sources, preserve dotfiles since the repo already excludes dev files
           result = await installSkillForAgent(skill, agent, {
             global: installGlobally,
             mode: installMode,
+            preserveDotfiles: parsed.type !== 'local',
           });
         }
         results.push({

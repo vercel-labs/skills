@@ -212,7 +212,7 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
 export async function installSkillForAgent(
   skill: Skill,
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
+  options: { global?: boolean; cwd?: string; mode?: InstallMode; preserveDotfiles?: boolean } = {}
 ): Promise<InstallResult> {
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
@@ -265,7 +265,9 @@ export async function installSkillForAgent(
     // For copy mode, skip canonical directory and copy directly to agent location
     if (installMode === 'copy') {
       await cleanAndCreateDirectory(agentDir);
-      await copyDirectory(skill.path, agentDir);
+      await copyDirectory(skill.path, agentDir, {
+        preserveDotfiles: options.preserveDotfiles,
+      });
 
       return {
         success: true,
@@ -276,7 +278,9 @@ export async function installSkillForAgent(
 
     // Symlink mode: copy to canonical location and symlink to agent location
     await cleanAndCreateDirectory(canonicalDir);
-    await copyDirectory(skill.path, canonicalDir);
+    await copyDirectory(skill.path, canonicalDir, {
+      preserveDotfiles: options.preserveDotfiles,
+    });
 
     // For universal agents with global install, the skill is already in the canonical
     // ~/.agents/skills directory. Skip creating a symlink to the agent-specific global dir
@@ -295,7 +299,9 @@ export async function installSkillForAgent(
     if (!symlinkCreated) {
       // Symlink failed, fall back to copy
       await cleanAndCreateDirectory(agentDir);
-      await copyDirectory(skill.path, agentDir);
+      await copyDirectory(skill.path, agentDir, {
+        preserveDotfiles: options.preserveDotfiles,
+      });
 
       return {
         success: true,
@@ -325,14 +331,22 @@ export async function installSkillForAgent(
 const EXCLUDE_FILES = new Set(['metadata.json']);
 const EXCLUDE_DIRS = new Set(['.git', '__pycache__', '__pypackages__']);
 
-const isExcluded = (name: string, isDirectory: boolean = false): boolean => {
+const isExcluded = (
+  name: string,
+  isDirectory: boolean = false,
+  preserveDotfiles: boolean = false
+): boolean => {
   if (EXCLUDE_FILES.has(name)) return true;
-  if (name.startsWith('.')) return true;
+  if (!preserveDotfiles && name.startsWith('.')) return true;
   if (isDirectory && EXCLUDE_DIRS.has(name)) return true;
   return false;
 };
 
-async function copyDirectory(src: string, dest: string): Promise<void> {
+async function copyDirectory(
+  src: string,
+  dest: string,
+  options: { preserveDotfiles?: boolean } = {}
+): Promise<void> {
   await mkdir(dest, { recursive: true });
 
   const entries = await readdir(src, { withFileTypes: true });
@@ -340,13 +354,13 @@ async function copyDirectory(src: string, dest: string): Promise<void> {
   // Copy files and directories in parallel
   await Promise.all(
     entries
-      .filter((entry) => !isExcluded(entry.name, entry.isDirectory()))
+      .filter((entry) => !isExcluded(entry.name, entry.isDirectory(), options.preserveDotfiles))
       .map(async (entry) => {
         const srcPath = join(src, entry.name);
         const destPath = join(dest, entry.name);
 
         if (entry.isDirectory()) {
-          await copyDirectory(srcPath, destPath);
+          await copyDirectory(srcPath, destPath, options);
         } else {
           try {
             await cp(srcPath, destPath, {
