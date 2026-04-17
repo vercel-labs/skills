@@ -99,6 +99,7 @@ When installing interactively, you can choose:
 | `npx skills list`            | List installed skills (alias: `ls`)           |
 | `npx skills find [query]`    | Search for skills interactively or by keyword |
 | `npx skills remove [skills]` | Remove installed skills from agents           |
+| `npx skills outdated [skills]` | List skills with available updates (read-only) |
 | `npx skills update [skills]` | Update installed skills to latest versions    |
 | `npx skills init [name]`     | Create a new SKILL.md template                |
 
@@ -155,6 +156,69 @@ npx skills update -y
 | `-p, --project` | Only update project skills                                                |
 | `-y, --yes`     | Skip scope prompt (auto-detect: project if in a project dir, else global) |
 | `[skills...]`   | Update specific skills by name instead of all                             |
+
+### `skills outdated`
+
+Report which installed skills have updates available, without installing anything. Intended for CI checks, status dashboards, and tools that surface update reminders to users.
+
+```bash
+# Human-readable report across project + global scopes
+npx skills outdated
+
+# Machine-readable JSON (implies -y)
+npx skills outdated --json
+
+# Scope-specific
+npx skills outdated -g
+npx skills outdated -p
+
+# Filter by skill name
+npx skills outdated my-skill
+```
+
+The `--json` flag emits a schema-versioned payload on stdout:
+
+```json
+{
+  "schema": 1,
+  "checkedAt": "2026-04-17T18:00:00.000Z",
+  "scope": "global",
+  "skills": [
+    {
+      "name": "gmail",
+      "scope": "global",
+      "source": "sanjay3290/ai-skills",
+      "sourceUrl": "https://github.com/sanjay3290/ai-skills",
+      "sourceType": "github",
+      "ref": "main",
+      "skillPath": "skills/gmail/SKILL.md",
+      "localHash": "abc...",
+      "upstreamHash": "def...",
+      "outdated": true,
+      "error": null
+    }
+  ],
+  "summary": { "checked": 13, "outdated": 1, "upToDate": 10, "skipped": 2, "errored": 0 }
+}
+```
+
+`outdated` is a tri-state boolean:
+
+- `true` — upstream folder hash differs from local; `npx skills update` will refresh
+- `false` — hashes match; skill is current
+- `null` — could not determine (local path, well-known skill, missing metadata, fetch error); `error` holds the reason
+
+Project-scope skills always surface with `outdated: null` and `error: "Project-scope skills are refreshed on update"`, since project-scoped update is an unconditional re-clone.
+
+Exit code is `0` for any successful scan regardless of how many skills are outdated — callers should inspect `summary.outdated` in the JSON output rather than the exit code.
+
+| Option          | Description                                                 |
+| --------------- | ----------------------------------------------------------- |
+| `-g, --global`  | Only check global skills                                    |
+| `-p, --project` | Only check project skills                                   |
+| `-y, --yes`     | Skip scope prompt (auto-detect)                             |
+| `--json`        | Emit machine-readable JSON (implies `-y`)                   |
+| `[skills...]`   | Filter to specific skills by name                           |
 
 ### `skills init`
 
