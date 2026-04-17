@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 
-import { spawnSync } from 'child_process';
+import { spawn } from 'child_process';
 import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync } from 'fs';
 import { basename, join, dirname } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
+import { readFile as readTempFile, rm as rmTempFile } from 'fs/promises';
+import { tmpdir } from 'os';
+import { randomUUID } from 'crypto';
 import * as p from '@clack/prompts';
 import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
 import { runFind } from './find.ts';
@@ -13,8 +16,15 @@ import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track } from './telemetry.ts';
-import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
-import { readLocalLock, type LocalSkillLockEntry } from './local-lock.ts';
+import {
+  getGitHubToken,
+  readSkillLock as readSkillLockAsync,
+  writeSkillLock,
+  type SkillLockEntry,
+  type SkillLockFile,
+} from './skill-lock.ts';
+import { fetchRepoTree, getSkillFolderHashFromTree, type RepoTree } from './blob.ts';
+import { readLocalLock, writeLocalLock, type LocalSkillLockEntry } from './local-lock.ts';
 import {
   buildUpdateInstallSource,
   buildLocalUpdateSource,
@@ -281,6 +291,117 @@ Describe when this skill should be used.
   console.log();
 }
 
+/**
+ * Run async functions with bounded concurrency.
+ * Returns results in the same order as the input.
+ */
+async function pLimit<T>(concurrency: number, tasks: (() => Promise<T>)[]): Promise<T[]> {
+  const results: T[] = new Array(tasks.length);
+  let nextIndex = 0;
+
+  async function runNext() {
+    while (nextIndex < tasks.length) {
+      const index = nextIndex++;
+      results[index] = await tasks[index]!();
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(concurrency, tasks.length) }, () => runNext());
+  await Promise.all(workers);
+  return results;
+}
+
+/**
+ * Run a child process asynchronously. Returns exit code.
+ */
+function spawnAsync(
+  command: string,
+  args: string[],
+  options: { env?: NodeJS.ProcessEnv }
+): Promise<{ code: number | null }> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      stdio: ['inherit', 'ignore', 'ignore'],
+      env: options.env,
+      shell: process.platform === 'win32',
+    });
+    child.on('close', (code) => {
+      resolve({ code });
+    });
+    child.on('error', () => {
+      resolve({ code: 1 });
+    });
+  });
+}
+
+/**
+ * Read lock entries from a JSONL temp file written by a child process.
+ * Each line is one JSON object. Supports multi-skill repos.
+ */
+async function readLockEntryFile(
+  filePath: string
+): Promise<Array<{ type: 'global' | 'local'; name: string; data: Record<string, unknown> }>> {
+  try {
+    const content = await readTempFile(filePath, 'utf-8');
+    const entries: Array<{
+      type: 'global' | 'local';
+      name: string;
+      data: Record<string, unknown>;
+    }> = [];
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        entries.push(JSON.parse(trimmed));
+      } catch {
+        // Skip malformed lines
+      }
+    }
+    return entries;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Merge collected lock entries into the global lock file in a single write.
+ */
+async function mergeGlobalLockEntries(
+  entries: Array<{ name: string; data: Record<string, unknown> }>
+): Promise<void> {
+  if (entries.length === 0) return;
+  const lock = await readSkillLockAsync();
+  const now = new Date().toISOString();
+
+  for (const entry of entries) {
+    const existing = lock.skills[entry.name];
+    lock.skills[entry.name] = {
+      ...entry.data,
+      installedAt: existing?.installedAt ?? now,
+      updatedAt: now,
+    } as SkillLockEntry;
+  }
+
+  await writeSkillLock(lock);
+}
+
+/**
+ * Merge collected lock entries into the local (project) lock file in a single write.
+ */
+async function mergeLocalLockEntries(
+  entries: Array<{ name: string; data: Record<string, unknown> }>,
+  cwd?: string
+): Promise<void> {
+  if (entries.length === 0) return;
+  const lock = await readLocalLock(cwd);
+
+  for (const entry of entries) {
+    lock.skills[entry.name] = entry.data as unknown as LocalSkillLockEntry;
+  }
+
+  await writeLocalLock(lock, cwd);
+}
+
 // ============================================
 // Check and Update Commands
 // ============================================
@@ -288,23 +409,6 @@ Describe when this skill should be used.
 const AGENTS_DIR = '.agents';
 const LOCK_FILE = '.skill-lock.json';
 const CURRENT_LOCK_VERSION = 3; // Bumped from 2 to 3 for folder hash support
-
-interface SkillLockEntry {
-  source: string;
-  sourceType: string;
-  sourceUrl: string;
-  ref?: string;
-  skillPath?: string;
-  /** GitHub tree SHA for the entire skill folder (v3) */
-  skillFolderHash: string;
-  installedAt: string;
-  updatedAt: string;
-}
-
-interface SkillLockFile {
-  version: number;
-  skills: Record<string, SkillLockEntry>;
-}
 
 function getSkillLockPath(): string {
   const xdgStateHome = process.env.XDG_STATE_HOME;
@@ -627,24 +731,42 @@ async function updateGlobalSkills(
     checkable.push({ name: skillName, entry });
   }
 
-  for (let i = 0; i < checkable.length; i++) {
-    const { name: skillName, entry } = checkable[i]!;
-    process.stdout.write(
-      `\r${DIM}Checking global skill ${i + 1}/${checkable.length}: ${skillName}${RESET}\x1b[K`
-    );
+  // Cache tree fetches per repo — same repo skills share one API call
+  const treeCache = new Map<string, Promise<RepoTree | null>>();
+  function getCachedTree(ownerRepo: string, ref: string | undefined) {
+    const key = `${ownerRepo}#${ref ?? ''}`;
+    if (!treeCache.has(key)) {
+      treeCache.set(key, fetchRepoTree(ownerRepo, ref, token));
+    }
+    return treeCache.get(key)!;
+  }
 
-    try {
-      const latestHash = await fetchSkillFolderHash(
-        entry.source,
-        entry.skillPath!,
-        token,
-        entry.ref
-      );
-      if (latestHash && latestHash !== entry.skillFolderHash) {
-        updates.push({ name: skillName, source: entry.source, entry });
+  let checkedSoFar = 0;
+  const checkResults = await pLimit(
+    6,
+    checkable.map(({ name: skillName, entry }) => async () => {
+      try {
+        const tree = await getCachedTree(entry.source, entry.ref);
+        if (!tree) return null;
+        const latestHash = getSkillFolderHashFromTree(tree, entry.skillPath!);
+        if (latestHash && latestHash !== entry.skillFolderHash) {
+          return { name: skillName, source: entry.source, entry };
+        }
+      } catch {
+        // Skip skills that fail to check
+      } finally {
+        checkedSoFar++; // Safe: Node is single-threaded, only used for progress display
+        process.stdout.write(
+          `\r${DIM}Checked ${checkedSoFar}/${checkable.length} global skills${RESET}\x1b[K`
+        );
       }
-    } catch {
-      // Skip skills that fail to check
+      return null;
+    })
+  );
+
+  for (const result of checkResults) {
+    if (result) {
+      updates.push(result);
     }
   }
 
@@ -674,31 +796,50 @@ async function updateGlobalSkills(
   console.log(`${TEXT}Found ${updates.length} global update(s)${RESET}`);
   console.log();
 
-  for (const update of updates) {
-    console.log(`${TEXT}Updating ${update.name}...${RESET}`);
-    const installUrl = buildUpdateInstallSource(update.entry);
-
-    const cliEntry = join(__dirname, '..', 'bin', 'cli.mjs');
-    if (!existsSync(cliEntry)) {
-      failCount++;
-      console.log(
-        `  ${DIM}✗ Failed to update ${update.name}: CLI entrypoint not found at ${cliEntry}${RESET}`
-      );
-      continue;
-    }
-    const result = spawnSync(process.execPath, [cliEntry, 'add', installUrl, '-g', '-y'], {
-      stdio: ['inherit', 'pipe', 'pipe'],
-      encoding: 'utf-8',
-      shell: process.platform === 'win32',
+  const cliEntry = join(__dirname, '..', 'bin', 'cli.mjs');
+  if (!existsSync(cliEntry)) {
+    console.log(`  ${DIM}✗ CLI entrypoint not found at ${cliEntry}${RESET}`);
+    failCount += updates.length;
+  } else {
+    const tempBase = tmpdir();
+    const installJobs = updates.map((update) => {
+      const tempFile = join(tempBase, `skills-lock-${randomUUID()}.json`);
+      return { update, tempFile };
     });
 
-    if (result.status === 0) {
-      successCount++;
-      console.log(`  ${TEXT}✓${RESET} Updated ${update.name}`);
-    } else {
-      failCount++;
-      console.log(`  ${DIM}✗ Failed to update ${update.name}${RESET}`);
+    const installResults = await pLimit(
+      4,
+      installJobs.map(({ update, tempFile }) => async () => {
+        const installUrl = buildUpdateInstallSource(update.entry);
+        const result = await spawnAsync(
+          process.execPath,
+          [cliEntry, 'add', installUrl, '-g', '-y'],
+          {
+            env: { ...process.env, SKILLS_LOCK_ENTRY_FILE: tempFile },
+          }
+        );
+        return { update, tempFile, code: result.code };
+      })
+    );
+
+    const lockEntries: Array<{ name: string; data: Record<string, unknown> }> = [];
+
+    for (const { update, tempFile, code, stderr } of installResults) {
+      if (code === 0) {
+        successCount++;
+        console.log(`  ${TEXT}✓${RESET} Updated ${update.name}`);
+        const entries = await readLockEntryFile(tempFile);
+        for (const entry of entries) {
+          lockEntries.push({ name: entry.name, data: entry.data });
+        }
+      } else {
+        failCount++;
+        console.log(`  ${DIM}✗ Failed to update ${update.name}${RESET}`);
+      }
+      await rmTempFile(tempFile, { force: true }).catch(() => {});
     }
+
+    await mergeGlobalLockEntries(lockEntries);
   }
 
   printSkippedSkills(skipped);
@@ -729,33 +870,46 @@ async function updateProjectSkills(
   console.log(`${TEXT}Refreshing ${projectSkills.length} project skill(s)...${RESET}`);
   console.log();
 
-  for (const skill of projectSkills) {
-    console.log(`${TEXT}Updating ${skill.name}...${RESET}`);
-    const installUrl = buildLocalUpdateSource(skill.entry);
-
-    const cliEntry = join(__dirname, '..', 'bin', 'cli.mjs');
-    if (!existsSync(cliEntry)) {
-      failCount++;
-      console.log(
-        `  ${DIM}✗ Failed to update ${skill.name}: CLI entrypoint not found at ${cliEntry}${RESET}`
-      );
-      continue;
-    }
-
-    // Re-clone without -g to install at project scope
-    const result = spawnSync(process.execPath, [cliEntry, 'add', installUrl, '-y'], {
-      stdio: ['inherit', 'pipe', 'pipe'],
-      encoding: 'utf-8',
-      shell: process.platform === 'win32',
+  const cliEntry = join(__dirname, '..', 'bin', 'cli.mjs');
+  if (!existsSync(cliEntry)) {
+    console.log(`  ${DIM}✗ CLI entrypoint not found at ${cliEntry}${RESET}`);
+    failCount += projectSkills.length;
+  } else {
+    const tempBase = tmpdir();
+    const installJobs = projectSkills.map((skill) => {
+      const tempFile = join(tempBase, `skills-lock-${randomUUID()}.json`);
+      return { skill, tempFile };
     });
 
-    if (result.status === 0) {
-      successCount++;
-      console.log(`  ${TEXT}✓${RESET} Updated ${skill.name}`);
-    } else {
-      failCount++;
-      console.log(`  ${DIM}✗ Failed to update ${skill.name}${RESET}`);
+    const installResults = await pLimit(
+      4,
+      installJobs.map(({ skill, tempFile }) => async () => {
+        const installUrl = buildLocalUpdateSource(skill.entry);
+        const result = await spawnAsync(process.execPath, [cliEntry, 'add', installUrl, '-y'], {
+          env: { ...process.env, SKILLS_LOCK_ENTRY_FILE: tempFile },
+        });
+        return { skill, tempFile, code: result.code };
+      })
+    );
+
+    const lockEntries: Array<{ name: string; data: Record<string, unknown> }> = [];
+
+    for (const { skill, tempFile, code, stderr } of installResults) {
+      if (code === 0) {
+        successCount++;
+        console.log(`  ${TEXT}✓${RESET} Updated ${skill.name}`);
+        const entries = await readLockEntryFile(tempFile);
+        for (const entry of entries) {
+          lockEntries.push({ name: entry.name, data: entry.data });
+        }
+      } else {
+        failCount++;
+        console.log(`  ${DIM}✗ Failed to update ${skill.name}${RESET}`);
+      }
+      await rmTempFile(tempFile, { force: true }).catch(() => {});
     }
+
+    await mergeLocalLockEntries(lockEntries);
   }
 
   return { successCount, failCount, foundCount: projectSkills.length };
