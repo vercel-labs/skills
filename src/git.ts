@@ -3,7 +3,13 @@ import { join, normalize, resolve, sep } from 'path';
 import { mkdtemp, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 
-const CLONE_TIMEOUT_MS = 60000; // 60 seconds
+const DEFAULT_CLONE_TIMEOUT_MS = 300_000; // 5 minutes
+const CLONE_TIMEOUT_MS = (() => {
+  const raw = process.env.SKILLS_CLONE_TIMEOUT_MS;
+  if (!raw) return DEFAULT_CLONE_TIMEOUT_MS;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_CLONE_TIMEOUT_MS;
+})();
 
 export class GitCloneError extends Error {
   readonly url: string;
@@ -43,11 +49,14 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
       errorMessage.includes('Repository not found');
 
     if (isTimeout) {
+      const seconds = Math.round(CLONE_TIMEOUT_MS / 1000);
       throw new GitCloneError(
-        `Clone timed out after 60s. This often happens with private repos that require authentication.\n` +
-          `  Ensure you have access and your SSH keys or credentials are configured:\n` +
-          `  - For SSH: ssh-add -l (to check loaded keys)\n` +
-          `  - For HTTPS: gh auth status (if using GitHub CLI)`,
+        `Clone timed out after ${seconds}s. Common causes:\n` +
+          `  - Large repository: raise the timeout with SKILLS_CLONE_TIMEOUT_MS=600000 (10m)\n` +
+          `  - Slow network: retry, or clone manually and pass the local path to 'skills add'\n` +
+          `  - Private repo without credentials: ensure auth is configured\n` +
+          `      - For SSH: ssh-add -l (to check loaded keys)\n` +
+          `      - For HTTPS: gh auth status (if using GitHub CLI)`,
         url,
         true,
         false
