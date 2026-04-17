@@ -6,6 +6,7 @@ import {
   symlink,
   lstat,
   rm,
+  rename,
   readlink,
   writeFile,
   stat,
@@ -209,6 +210,225 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
   }
 }
 
+type InstalledPlacementStatus = 'enabled' | 'disabled' | 'missing' | 'inconsistent';
+type InstalledPlacementEntryKind = 'canonical' | 'alias' | 'copy';
+
+interface InstalledPlacementEntry {
+  kind: InstalledPlacementEntryKind;
+  enabledPath: string;
+  disabledPath: string;
+  currentPath: string;
+}
+
+async function withPreservedDisabledState(
+  skillName: string,
+  options: { global?: boolean; cwd?: string; mode: InstallMode; fallbackPath: string },
+  installFn: () => Promise<InstallResult>
+): Promise<InstallResult> {
+  const placement = await getInstalledPlacementSnapshot(skillName, options);
+  if (placement.status !== 'disabled') {
+    return installFn();
+  }
+
+  try {
+    await moveInstalledPlacement(skillName, 'enabled', options);
+  } catch (error) {
+    return {
+      success: false,
+      path: options.fallbackPath,
+      mode: options.mode,
+      error:
+        error instanceof Error ? error.message : 'Failed to prepare disabled skill for reinstall',
+    };
+  }
+
+  const result = await installFn();
+
+  if (!result.success) {
+    await moveInstalledPlacement(skillName, 'disabled', options).catch(() => undefined);
+    return result;
+  }
+
+  try {
+    await moveInstalledPlacement(skillName, 'disabled', options);
+    return {
+      ...result,
+      path: toDisabledSiblingPath(result.path),
+      canonicalPath: result.canonicalPath
+        ? toDisabledSiblingPath(result.canonicalPath)
+        : result.canonicalPath,
+    };
+  } catch (error) {
+    return {
+      ...result,
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to restore disabled skill state',
+    };
+  }
+}
+
+async function getInstalledPlacementSnapshot(
+  skillName: string,
+  options: { global?: boolean; cwd?: string }
+): Promise<{ status: InstalledPlacementStatus; entries: InstalledPlacementEntry[] }> {
+  const cwd = options.cwd || process.cwd();
+  const isGlobal = options.global ?? false;
+  const sanitizedSkillName = sanitizeName(skillName);
+  const canonicalRoot = getCanonicalSkillsDir(isGlobal, cwd);
+  const entries: InstalledPlacementEntry[] = [];
+  const statuses: InstalledPlacementStatus[] = [];
+  const canonicalEnabledPath = join(canonicalRoot, sanitizedSkillName);
+  const canonicalDisabledPath = join(getDisabledSkillsDir(canonicalRoot), sanitizedSkillName);
+
+  const canonicalEntry = await inspectInstalledPlacementEntry({
+    kind: 'canonical',
+    enabledPath: canonicalEnabledPath,
+    disabledPath: canonicalDisabledPath,
+  });
+  if (canonicalEntry) {
+    entries.push(canonicalEntry);
+    statuses.push(getPlacementStatus(canonicalEntry));
+  }
+
+  const seenAgentRoots = new Set<string>();
+  for (const agentType of Object.keys(agents) as AgentType[]) {
+    if (isUniversalAgent(agentType)) {
+      continue;
+    }
+
+    if (isGlobal && agents[agentType].globalSkillsDir === undefined) {
+      continue;
+    }
+
+    const agentRoot = getAgentBaseDir(agentType, isGlobal, cwd);
+    if (seenAgentRoots.has(agentRoot)) {
+      continue;
+    }
+    seenAgentRoots.add(agentRoot);
+
+    const entry = await inspectInstalledPlacementEntry({
+      kind: 'agent',
+      enabledPath: join(agentRoot, sanitizedSkillName),
+      disabledPath: join(getDisabledSkillsDir(agentRoot), sanitizedSkillName),
+    });
+
+    if (entry) {
+      entries.push(entry);
+      statuses.push(getPlacementStatus(entry));
+    }
+  }
+
+  if (statuses.length === 0) {
+    return { status: 'missing', entries: [] };
+  }
+
+  if (statuses.every((status) => status === 'disabled')) {
+    return { status: 'disabled', entries };
+  }
+
+  if (statuses.every((status) => status === 'enabled')) {
+    return { status: 'enabled', entries };
+  }
+
+  return { status: 'inconsistent', entries };
+}
+
+async function inspectInstalledPlacementEntry(options: {
+  kind: 'canonical' | 'agent';
+  enabledPath: string;
+  disabledPath: string;
+}): Promise<InstalledPlacementEntry | undefined> {
+  const enabled = await inspectPlacementPath(options.enabledPath);
+  const disabled = await inspectPlacementPath(options.disabledPath);
+
+  if (!enabled.exists && !disabled.exists) {
+    return undefined;
+  }
+
+  const currentPath = enabled.exists ? options.enabledPath : options.disabledPath;
+  const stats = await lstat(currentPath).catch(() => null);
+  const kind =
+    options.kind === 'canonical' ? 'canonical' : stats?.isSymbolicLink() ? 'alias' : 'copy';
+
+  return {
+    kind,
+    enabledPath: options.enabledPath,
+    disabledPath: options.disabledPath,
+    currentPath,
+  };
+}
+
+async function inspectPlacementPath(
+  path: string
+): Promise<{ exists: boolean; hasSkillFile: boolean }> {
+  const exists = await lstat(path)
+    .then(() => true)
+    .catch(() => false);
+  const hasSkillFile = await stat(join(path, 'SKILL.md'))
+    .then(() => true)
+    .catch(() => false);
+  return { exists, hasSkillFile };
+}
+
+function getPlacementStatus(entry: InstalledPlacementEntry): InstalledPlacementStatus {
+  const isEnabled = entry.currentPath === entry.enabledPath;
+  const isDisabled = entry.currentPath === entry.disabledPath;
+  if (isEnabled) return 'enabled';
+  if (isDisabled) return 'disabled';
+  return 'inconsistent';
+}
+
+async function moveInstalledPlacement(
+  skillName: string,
+  targetState: 'enabled' | 'disabled',
+  options: { global?: boolean; cwd?: string }
+): Promise<void> {
+  const snapshot = await getInstalledPlacementSnapshot(skillName, options);
+  if (snapshot.status === 'missing') {
+    return;
+  }
+
+  if (snapshot.status === 'inconsistent') {
+    throw new Error(`Cannot preserve "${skillName}" because its installed state is inconsistent.`);
+  }
+
+  const canonicalEntry = snapshot.entries.find((entry) => entry.kind === 'canonical');
+  const canonicalTargetPath =
+    targetState === 'enabled' ? canonicalEntry?.enabledPath : canonicalEntry?.disabledPath;
+
+  for (const entry of snapshot.entries.filter((candidate) => candidate.kind !== 'alias')) {
+    const targetPath = targetState === 'enabled' ? entry.enabledPath : entry.disabledPath;
+    if (entry.currentPath === targetPath) {
+      continue;
+    }
+
+    await mkdir(dirname(targetPath), { recursive: true });
+    await rm(targetPath, { recursive: true, force: true });
+    await rename(entry.currentPath, targetPath);
+  }
+
+  for (const entry of snapshot.entries.filter((candidate) => candidate.kind === 'alias')) {
+    const targetPath = targetState === 'enabled' ? entry.enabledPath : entry.disabledPath;
+    if (entry.currentPath === targetPath) {
+      continue;
+    }
+
+    if (!canonicalTargetPath) {
+      throw new Error(`Cannot preserve "${skillName}" because its canonical target is missing.`);
+    }
+
+    await rm(entry.currentPath, { recursive: true, force: true });
+    const symlinkCreated = await createSymlink(canonicalTargetPath, targetPath);
+    if (!symlinkCreated) {
+      throw new Error(`Cannot recreate alias entry for "${skillName}".`);
+    }
+  }
+}
+
+function toDisabledSiblingPath(path: string): string {
+  return join(getDisabledSkillsDir(dirname(path)), basename(path));
+}
+
 export async function installSkillForAgent(
   skill: Skill,
   agentType: AgentType,
@@ -261,65 +481,71 @@ export async function installSkillForAgent(
     };
   }
 
-  try {
-    // For copy mode, skip canonical directory and copy directly to agent location
-    if (installMode === 'copy') {
-      await cleanAndCreateDirectory(agentDir);
-      await copyDirectory(skill.path, agentDir);
+  return withPreservedDisabledState(
+    skillName,
+    { global: isGlobal, cwd, mode: installMode, fallbackPath: agentDir },
+    async () => {
+      try {
+        // For copy mode, skip canonical directory and copy directly to agent location
+        if (installMode === 'copy') {
+          await cleanAndCreateDirectory(agentDir);
+          await copyDirectory(skill.path, agentDir);
 
-      return {
-        success: true,
-        path: agentDir,
-        mode: 'copy',
-      };
+          return {
+            success: true,
+            path: agentDir,
+            mode: 'copy',
+          };
+        }
+
+        // Symlink mode: copy to canonical location and symlink to agent location
+        await cleanAndCreateDirectory(canonicalDir);
+        await copyDirectory(skill.path, canonicalDir);
+
+        // For universal agents with global install, the skill is already in the canonical
+        // ~/.agents/skills directory. Skip creating a symlink to the agent-specific global dir
+        // (e.g. ~/.copilot/skills) to avoid duplicates.
+        if (isGlobal && isUniversalAgent(agentType)) {
+          return {
+            success: true,
+            path: canonicalDir,
+            canonicalPath: canonicalDir,
+            mode: 'symlink',
+          };
+        }
+
+        const symlinkCreated = await createSymlink(canonicalDir, agentDir);
+
+        if (!symlinkCreated) {
+          // Symlink failed, fall back to copy
+          await cleanAndCreateDirectory(agentDir);
+          await copyDirectory(skill.path, agentDir);
+
+          return {
+            success: true,
+            path: agentDir,
+            canonicalPath: canonicalDir,
+            mode: 'symlink',
+            symlinkFailed: true,
+          };
+        }
+
+        return {
+          success: true,
+          path: agentDir,
+          canonicalPath: canonicalDir,
+          mode: 'symlink',
+        };
+      } catch (error) {
+        return {
+          success: false,
+          path: agentDir,
+          mode: installMode,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        };
+      }
     }
-
-    // Symlink mode: copy to canonical location and symlink to agent location
-    await cleanAndCreateDirectory(canonicalDir);
-    await copyDirectory(skill.path, canonicalDir);
-
-    // For universal agents with global install, the skill is already in the canonical
-    // ~/.agents/skills directory. Skip creating a symlink to the agent-specific global dir
-    // (e.g. ~/.copilot/skills) to avoid duplicates.
-    if (isGlobal && isUniversalAgent(agentType)) {
-      return {
-        success: true,
-        path: canonicalDir,
-        canonicalPath: canonicalDir,
-        mode: 'symlink',
-      };
-    }
-
-    const symlinkCreated = await createSymlink(canonicalDir, agentDir);
-
-    if (!symlinkCreated) {
-      // Symlink failed, fall back to copy
-      await cleanAndCreateDirectory(agentDir);
-      await copyDirectory(skill.path, agentDir);
-
-      return {
-        success: true,
-        path: agentDir,
-        canonicalPath: canonicalDir,
-        mode: 'symlink',
-        symlinkFailed: true,
-      };
-    }
-
-    return {
-      success: true,
-      path: agentDir,
-      canonicalPath: canonicalDir,
-      mode: 'symlink',
-    };
-  } catch (error) {
-    return {
-      success: false,
-      path: agentDir,
-      mode: installMode,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
-  }
+  );
 }
 
 const EXCLUDE_FILES = new Set(['metadata.json']);
@@ -500,66 +726,72 @@ export async function installRemoteSkillForAgent(
     };
   }
 
-  try {
-    // For copy mode, write directly to agent location
-    if (installMode === 'copy') {
-      await cleanAndCreateDirectory(agentDir);
-      const skillMdPath = join(agentDir, 'SKILL.md');
-      await writeFile(skillMdPath, skill.content, 'utf-8');
+  return withPreservedDisabledState(
+    skillName,
+    { global: isGlobal, cwd, mode: installMode, fallbackPath: agentDir },
+    async () => {
+      try {
+        // For copy mode, write directly to agent location
+        if (installMode === 'copy') {
+          await cleanAndCreateDirectory(agentDir);
+          const skillMdPath = join(agentDir, 'SKILL.md');
+          await writeFile(skillMdPath, skill.content, 'utf-8');
 
-      return {
-        success: true,
-        path: agentDir,
-        mode: 'copy',
-      };
+          return {
+            success: true,
+            path: agentDir,
+            mode: 'copy',
+          };
+        }
+
+        // Symlink mode: write to canonical location and symlink to agent location
+        await cleanAndCreateDirectory(canonicalDir);
+        const skillMdPath = join(canonicalDir, 'SKILL.md');
+        await writeFile(skillMdPath, skill.content, 'utf-8');
+
+        // For universal agents with global install, skip creating agent-specific symlink
+        if (isGlobal && isUniversalAgent(agentType)) {
+          return {
+            success: true,
+            path: canonicalDir,
+            canonicalPath: canonicalDir,
+            mode: 'symlink',
+          };
+        }
+
+        const symlinkCreated = await createSymlink(canonicalDir, agentDir);
+
+        if (!symlinkCreated) {
+          // Symlink failed, fall back to copy
+          await cleanAndCreateDirectory(agentDir);
+          const agentSkillMdPath = join(agentDir, 'SKILL.md');
+          await writeFile(agentSkillMdPath, skill.content, 'utf-8');
+
+          return {
+            success: true,
+            path: agentDir,
+            canonicalPath: canonicalDir,
+            mode: 'symlink',
+            symlinkFailed: true,
+          };
+        }
+
+        return {
+          success: true,
+          path: agentDir,
+          canonicalPath: canonicalDir,
+          mode: 'symlink',
+        };
+      } catch (error) {
+        return {
+          success: false,
+          path: agentDir,
+          mode: installMode,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        };
+      }
     }
-
-    // Symlink mode: write to canonical location and symlink to agent location
-    await cleanAndCreateDirectory(canonicalDir);
-    const skillMdPath = join(canonicalDir, 'SKILL.md');
-    await writeFile(skillMdPath, skill.content, 'utf-8');
-
-    // For universal agents with global install, skip creating agent-specific symlink
-    if (isGlobal && isUniversalAgent(agentType)) {
-      return {
-        success: true,
-        path: canonicalDir,
-        canonicalPath: canonicalDir,
-        mode: 'symlink',
-      };
-    }
-
-    const symlinkCreated = await createSymlink(canonicalDir, agentDir);
-
-    if (!symlinkCreated) {
-      // Symlink failed, fall back to copy
-      await cleanAndCreateDirectory(agentDir);
-      const agentSkillMdPath = join(agentDir, 'SKILL.md');
-      await writeFile(agentSkillMdPath, skill.content, 'utf-8');
-
-      return {
-        success: true,
-        path: agentDir,
-        canonicalPath: canonicalDir,
-        mode: 'symlink',
-        symlinkFailed: true,
-      };
-    }
-
-    return {
-      success: true,
-      path: agentDir,
-      canonicalPath: canonicalDir,
-      mode: 'symlink',
-    };
-  } catch (error) {
-    return {
-      success: false,
-      path: agentDir,
-      mode: installMode,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
-  }
+  );
 }
 
 /**
@@ -640,63 +872,69 @@ export async function installWellKnownSkillForAgent(
     }
   }
 
-  try {
-    // For copy mode, write directly to agent location
-    if (installMode === 'copy') {
-      await cleanAndCreateDirectory(agentDir);
-      await writeSkillFiles(agentDir);
+  return withPreservedDisabledState(
+    skillName,
+    { global: isGlobal, cwd, mode: installMode, fallbackPath: agentDir },
+    async () => {
+      try {
+        // For copy mode, write directly to agent location
+        if (installMode === 'copy') {
+          await cleanAndCreateDirectory(agentDir);
+          await writeSkillFiles(agentDir);
 
-      return {
-        success: true,
-        path: agentDir,
-        mode: 'copy',
-      };
+          return {
+            success: true,
+            path: agentDir,
+            mode: 'copy',
+          };
+        }
+
+        // Symlink mode: write to canonical location and symlink to agent location
+        await cleanAndCreateDirectory(canonicalDir);
+        await writeSkillFiles(canonicalDir);
+
+        // For universal agents with global install, skip creating agent-specific symlink
+        if (isGlobal && isUniversalAgent(agentType)) {
+          return {
+            success: true,
+            path: canonicalDir,
+            canonicalPath: canonicalDir,
+            mode: 'symlink',
+          };
+        }
+
+        const symlinkCreated = await createSymlink(canonicalDir, agentDir);
+
+        if (!symlinkCreated) {
+          // Symlink failed, fall back to copy
+          await cleanAndCreateDirectory(agentDir);
+          await writeSkillFiles(agentDir);
+
+          return {
+            success: true,
+            path: agentDir,
+            canonicalPath: canonicalDir,
+            mode: 'symlink',
+            symlinkFailed: true,
+          };
+        }
+
+        return {
+          success: true,
+          path: agentDir,
+          canonicalPath: canonicalDir,
+          mode: 'symlink',
+        };
+      } catch (error) {
+        return {
+          success: false,
+          path: agentDir,
+          mode: installMode,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        };
+      }
     }
-
-    // Symlink mode: write to canonical location and symlink to agent location
-    await cleanAndCreateDirectory(canonicalDir);
-    await writeSkillFiles(canonicalDir);
-
-    // For universal agents with global install, skip creating agent-specific symlink
-    if (isGlobal && isUniversalAgent(agentType)) {
-      return {
-        success: true,
-        path: canonicalDir,
-        canonicalPath: canonicalDir,
-        mode: 'symlink',
-      };
-    }
-
-    const symlinkCreated = await createSymlink(canonicalDir, agentDir);
-
-    if (!symlinkCreated) {
-      // Symlink failed, fall back to copy
-      await cleanAndCreateDirectory(agentDir);
-      await writeSkillFiles(agentDir);
-
-      return {
-        success: true,
-        path: agentDir,
-        canonicalPath: canonicalDir,
-        mode: 'symlink',
-        symlinkFailed: true,
-      };
-    }
-
-    return {
-      success: true,
-      path: agentDir,
-      canonicalPath: canonicalDir,
-      mode: 'symlink',
-    };
-  } catch (error) {
-    return {
-      success: false,
-      path: agentDir,
-      mode: installMode,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
-  }
+  );
 }
 
 /**
@@ -761,54 +999,60 @@ export async function installBlobSkillForAgent(
     }
   }
 
-  try {
-    if (installMode === 'copy') {
-      await cleanAndCreateDirectory(agentDir);
-      await writeSkillFiles(agentDir);
-      return { success: true, path: agentDir, mode: 'copy' };
+  return withPreservedDisabledState(
+    skillName,
+    { global: isGlobal, cwd, mode: installMode, fallbackPath: agentDir },
+    async () => {
+      try {
+        if (installMode === 'copy') {
+          await cleanAndCreateDirectory(agentDir);
+          await writeSkillFiles(agentDir);
+          return { success: true, path: agentDir, mode: 'copy' };
+        }
+
+        // Symlink mode
+        await cleanAndCreateDirectory(canonicalDir);
+        await writeSkillFiles(canonicalDir);
+
+        if (isGlobal && isUniversalAgent(agentType)) {
+          return {
+            success: true,
+            path: canonicalDir,
+            canonicalPath: canonicalDir,
+            mode: 'symlink',
+          };
+        }
+
+        const symlinkCreated = await createSymlink(canonicalDir, agentDir);
+
+        if (!symlinkCreated) {
+          await cleanAndCreateDirectory(agentDir);
+          await writeSkillFiles(agentDir);
+          return {
+            success: true,
+            path: agentDir,
+            canonicalPath: canonicalDir,
+            mode: 'symlink',
+            symlinkFailed: true,
+          };
+        }
+
+        return {
+          success: true,
+          path: agentDir,
+          canonicalPath: canonicalDir,
+          mode: 'symlink',
+        };
+      } catch (error) {
+        return {
+          success: false,
+          path: agentDir,
+          mode: installMode,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        };
+      }
     }
-
-    // Symlink mode
-    await cleanAndCreateDirectory(canonicalDir);
-    await writeSkillFiles(canonicalDir);
-
-    if (isGlobal && isUniversalAgent(agentType)) {
-      return {
-        success: true,
-        path: canonicalDir,
-        canonicalPath: canonicalDir,
-        mode: 'symlink',
-      };
-    }
-
-    const symlinkCreated = await createSymlink(canonicalDir, agentDir);
-
-    if (!symlinkCreated) {
-      await cleanAndCreateDirectory(agentDir);
-      await writeSkillFiles(agentDir);
-      return {
-        success: true,
-        path: agentDir,
-        canonicalPath: canonicalDir,
-        mode: 'symlink',
-        symlinkFailed: true,
-      };
-    }
-
-    return {
-      success: true,
-      path: agentDir,
-      canonicalPath: canonicalDir,
-      mode: 'symlink',
-    };
-  } catch (error) {
-    return {
-      success: false,
-      path: agentDir,
-      mode: installMode,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
-  }
+  );
 }
 
 export interface InstalledSkill {
@@ -818,6 +1062,18 @@ export interface InstalledSkill {
   canonicalPath: string;
   scope: 'project' | 'global';
   agents: AgentType[];
+  status: 'enabled' | 'disabled' | 'inconsistent';
+}
+
+function getDisabledSkillsDir(skillsRoot: string): string {
+  return join(dirname(skillsRoot), 'disabled_skills');
+}
+
+function mergeInstalledSkillStatus(
+  current: InstalledSkill['status'],
+  incoming: InstalledSkill['status']
+): InstalledSkill['status'] {
+  return current === incoming ? current : 'inconsistent';
 }
 
 /**
@@ -872,8 +1128,10 @@ export async function listInstalledSkills(
   // Skills in agent-specific dirs skip the expensive "check all agents" loop.
   //
   for (const { global: isGlobal } of scopeTypes) {
-    // Add canonical directory
-    scopes.push({ global: isGlobal, path: getCanonicalSkillsDir(isGlobal, cwd) });
+    // Add canonical directories
+    const canonicalDir = getCanonicalSkillsDir(isGlobal, cwd);
+    scopes.push({ global: isGlobal, path: canonicalDir });
+    scopes.push({ global: isGlobal, path: getDisabledSkillsDir(canonicalDir) });
 
     // Add each installed agent's skills directory
     for (const agentType of agentsToCheck) {
@@ -885,6 +1143,11 @@ export async function listInstalledSkills(
       // Avoid duplicate paths
       if (!scopes.some((s) => s.path === agentDir && s.global === isGlobal)) {
         scopes.push({ global: isGlobal, path: agentDir, agentType });
+        scopes.push({
+          global: isGlobal,
+          path: getDisabledSkillsDir(agentDir),
+          agentType,
+        });
       }
     }
 
@@ -901,6 +1164,14 @@ export async function listInstalledSkills(
       if (scopes.some((s) => s.path === agentDir && s.global === isGlobal)) continue;
       if (existsSync(agentDir)) {
         scopes.push({ global: isGlobal, path: agentDir, agentType });
+        const disabledAgentDir = getDisabledSkillsDir(agentDir);
+        if (existsSync(disabledAgentDir)) {
+          scopes.push({
+            global: isGlobal,
+            path: disabledAgentDir,
+            agentType,
+          });
+        }
       }
     }
   }
@@ -933,6 +1204,8 @@ export async function listInstalledSkills(
 
         const scopeKey = scope.global ? 'global' : 'project';
         const skillKey = `${scopeKey}:${skill.name}`;
+        const status: InstalledSkill['status'] =
+          basename(scope.path) === 'disabled_skills' ? 'disabled' : 'enabled';
 
         // If scanning an agent-specific directory, attribute directly to that agent
         if (scope.agentType) {
@@ -941,6 +1214,7 @@ export async function listInstalledSkills(
             if (!existing.agents.includes(scope.agentType)) {
               existing.agents.push(scope.agentType);
             }
+            existing.status = mergeInstalledSkillStatus(existing.status, status);
           } else {
             skillsMap.set(skillKey, {
               name: skill.name,
@@ -949,6 +1223,7 @@ export async function listInstalledSkills(
               canonicalPath: skillDir,
               scope: scopeKey,
               agents: [scope.agentType],
+              status,
             });
           }
           continue;
@@ -1034,6 +1309,7 @@ export async function listInstalledSkills(
               existing.agents.push(agent);
             }
           }
+          existing.status = mergeInstalledSkillStatus(existing.status, status);
         } else {
           skillsMap.set(skillKey, {
             name: skill.name,
@@ -1042,6 +1318,7 @@ export async function listInstalledSkills(
             canonicalPath: skillDir,
             scope: scopeKey,
             agents: installedAgents,
+            status,
           });
         }
       }

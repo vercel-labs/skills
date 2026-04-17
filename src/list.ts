@@ -2,7 +2,9 @@ import { homedir } from 'os';
 import type { AgentType } from './types.ts';
 import { agents } from './agents.ts';
 import { listInstalledSkills, type InstalledSkill } from './installer.ts';
-import { getAllLockedSkills } from './skill-lock.ts';
+import { getAllLockedSkills, readGlobalManagementState } from './skill-lock.ts';
+import { getGroupsForSkill } from './management-state.ts';
+import { readLocalManagementState } from './local-lock.ts';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -15,6 +17,32 @@ interface ListOptions {
   global?: boolean;
   agent?: string[];
   json?: boolean;
+  groups?: boolean;
+}
+
+type ListSkillStatus = InstalledSkill['status'] | 'missing';
+
+interface ManagedListSkill {
+  name: string;
+  path?: string;
+  scope: 'project' | 'global';
+  agents: string[];
+  status: ListSkillStatus;
+  groups: string[];
+  isManager: boolean;
+}
+
+function getStatusPrefix(status: ListSkillStatus): string {
+  switch (status) {
+    case 'disabled':
+      return '[-]';
+    case 'inconsistent':
+      return '[!]';
+    case 'missing':
+      return '[?]';
+    default:
+      return '[+]';
+  }
 }
 
 /**
@@ -52,6 +80,8 @@ export function parseListOptions(args: string[]): ListOptions {
       options.global = true;
     } else if (arg === '--json') {
       options.json = true;
+    } else if (arg === '--groups') {
+      options.groups = true;
     } else if (arg === '-a' || arg === '--agent') {
       options.agent = options.agent || [];
       // Collect all following arguments until next flag
@@ -89,21 +119,88 @@ export async function runList(args: string[]): Promise<void> {
     global: scope,
     agentFilter,
   });
+  const management = scope
+    ? await readGlobalManagementState()
+    : await readLocalManagementState(process.cwd());
+  const managedSkills = buildManagedListSkills(
+    installedSkills,
+    management,
+    scope ? 'global' : 'project'
+  );
+
+  if (options.groups) {
+    const groupedOutput = buildGroupedSkillOutput(managedSkills, management.groups);
+    const warnings = buildGroupWarnings(groupedOutput.groups, scope);
+
+    if (options.json) {
+      const groups: Record<string, ManagedListSkill[]> = {};
+      for (const [groupName, skills] of groupedOutput.groups) {
+        groups[groupName] = skills;
+      }
+
+      console.log(
+        JSON.stringify(
+          {
+            groups,
+            ungrouped: groupedOutput.ungrouped,
+            managerSkill: management.managerSkill,
+            warnings,
+          },
+          null,
+          2
+        )
+      );
+      return;
+    }
+
+    if (groupedOutput.groups.length === 0 && groupedOutput.ungrouped.length === 0) {
+      console.log(`${DIM}No ${scope ? 'global' : 'project'} skills found.${RESET}`);
+      if (scope) {
+        console.log(`${DIM}Try listing project skills without -g${RESET}`);
+      } else {
+        console.log(`${DIM}Try listing global skills with -g${RESET}`);
+      }
+      return;
+    }
+
+    for (const [groupName, skills] of groupedOutput.groups) {
+      console.log(`${groupName} (${countEnabled(skills)}/${skills.length} enabled)`);
+      for (const skill of skills) {
+        printGroupSkill(skill);
+      }
+      console.log();
+    }
+
+    if (groupedOutput.ungrouped.length > 0 || groupedOutput.groups.length > 0) {
+      console.log(
+        `UNGROUPED SKILLS (${countEnabled(groupedOutput.ungrouped)}/${groupedOutput.ungrouped.length} enabled)`
+      );
+      for (const skill of groupedOutput.ungrouped) {
+        printGroupSkill(skill);
+      }
+      console.log();
+    }
+
+    if (warnings.length > 0) {
+      console.log('Warnings:');
+      for (const warning of warnings) {
+        console.log(`  ${warning}`);
+      }
+      console.log();
+    }
+
+    return;
+  }
 
   // JSON output mode: structured, no ANSI, untruncated agent lists
   if (options.json) {
-    const jsonOutput = installedSkills.map((skill) => ({
-      name: skill.name,
-      path: skill.canonicalPath,
-      scope: skill.scope,
-      agents: skill.agents.map((a) => agents[a].displayName),
-    }));
+    const jsonOutput = installedSkills.map((skill) => managedSkills.get(skill.name)!);
     console.log(JSON.stringify(jsonOutput, null, 2));
     return;
   }
 
   // Fetch lock entries to get plugin grouping info
-  const lockedSkills = await getAllLockedSkills();
+  const lockedSkills = scope ? await getAllLockedSkills() : {};
 
   const cwd = process.cwd();
   const scopeLabel = scope ? 'Global' : 'Project';
@@ -128,7 +225,8 @@ export async function runList(args: string[]): Promise<void> {
     const agentNames = skill.agents.map((a) => agents[a].displayName);
     const agentInfo =
       skill.agents.length > 0 ? formatList(agentNames) : `${YELLOW}not linked${RESET}`;
-    console.log(`${prefix}${CYAN}${skill.name}${RESET} ${DIM}${shortPath}${RESET}`);
+    const statusPrefix = getStatusPrefix(skill.status);
+    console.log(`${prefix}${statusPrefix} ${CYAN}${skill.name}${RESET} ${DIM}${shortPath}${RESET}`);
     console.log(`${prefix}  ${DIM}Agents:${RESET} ${agentInfo}`);
   }
 
@@ -189,4 +287,100 @@ export async function runList(args: string[]): Promise<void> {
     }
     console.log();
   }
+}
+
+function buildManagedListSkills(
+  installedSkills: InstalledSkill[],
+  management: Awaited<ReturnType<typeof readLocalManagementState>>,
+  scope: 'project' | 'global'
+): Map<string, ManagedListSkill> {
+  const managedSkills = new Map<string, ManagedListSkill>();
+
+  for (const skill of installedSkills) {
+    managedSkills.set(skill.name, {
+      name: skill.name,
+      path: skill.canonicalPath,
+      scope,
+      agents: skill.agents.map((agentType) => agents[agentType].displayName),
+      status: skill.status,
+      groups: getGroupsForSkill(management, skill.name),
+      isManager: management.managerSkill === skill.name,
+    });
+  }
+
+  for (const skillName of Object.values(management.groups).flat()) {
+    if (!managedSkills.has(skillName)) {
+      managedSkills.set(skillName, {
+        name: skillName,
+        scope,
+        agents: [],
+        status: 'missing',
+        groups: getGroupsForSkill(management, skillName),
+        isManager: management.managerSkill === skillName,
+      });
+    }
+  }
+
+  return managedSkills;
+}
+
+function buildGroupedSkillOutput(
+  managedSkills: Map<string, ManagedListSkill>,
+  groups: Record<string, string[]>
+): {
+  groups: Array<[string, ManagedListSkill[]]>;
+  ungrouped: ManagedListSkill[];
+} {
+  const groupedSkillNames = new Set<string>();
+  const groupedOutput: Array<[string, ManagedListSkill[]]> = [];
+
+  for (const groupName of Object.keys(groups).sort()) {
+    const skills = (groups[groupName] ?? [])
+      .map((skillName) => managedSkills.get(skillName))
+      .filter((skill): skill is ManagedListSkill => skill !== undefined)
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    for (const skill of skills) {
+      groupedSkillNames.add(skill.name);
+    }
+
+    groupedOutput.push([groupName, skills]);
+  }
+
+  const ungrouped = Array.from(managedSkills.values())
+    .filter((skill) => skill.status !== 'missing' && !groupedSkillNames.has(skill.name))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return { groups: groupedOutput, ungrouped };
+}
+
+function buildGroupWarnings(
+  groups: Array<[string, ManagedListSkill[]]>,
+  isGlobalScope: boolean
+): string[] {
+  const warnings = new Set<string>();
+  const scopeFlag = isGlobalScope ? ' -g' : '';
+
+  for (const [, skills] of groups) {
+    for (const skill of skills) {
+      if (skill.status === 'missing') {
+        warnings.add(
+          `${skill.name} is missing on disk. Run skills remove ${skill.name}${scopeFlag} to clean up stale metadata.`
+        );
+      } else if (skill.status === 'inconsistent') {
+        warnings.add(`${skill.name} has an inconsistent installed state on disk.`);
+      }
+    }
+  }
+
+  return Array.from(warnings).sort();
+}
+
+function countEnabled(skills: ManagedListSkill[]): number {
+  return skills.filter((skill) => skill.status === 'enabled').length;
+}
+
+function printGroupSkill(skill: ManagedListSkill): void {
+  const suffix = skill.status === 'missing' ? ' (missing)' : '';
+  console.log(`  ${getStatusPrefix(skill.status)} ${skill.name}${suffix}`);
 }

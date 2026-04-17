@@ -1,9 +1,16 @@
-import { readFile, writeFile, readdir, stat } from 'fs/promises';
+import { readFile, writeFile, readdir } from 'fs/promises';
 import { join, relative } from 'path';
 import { createHash } from 'crypto';
+import {
+  createEmptyManagementState,
+  getGroupsForSkill,
+  normalizeManagementState,
+  scrubSkillFromManagement,
+  type ManagementState,
+} from './management-state.ts';
 
 const LOCAL_LOCK_FILE = 'skills-lock.json';
-const CURRENT_VERSION = 1;
+const CURRENT_VERSION = 2;
 
 /**
  * Represents a single skill entry in the local (project) lock file.
@@ -39,6 +46,8 @@ export interface LocalSkillLockFile {
   version: number;
   /** Map of skill name to its lock entry (sorted alphabetically) */
   skills: Record<string, LocalSkillLockEntry>;
+  /** Scope-local management metadata */
+  management: ManagementState;
 }
 
 /**
@@ -58,17 +67,33 @@ export async function readLocalLock(cwd?: string): Promise<LocalSkillLockFile> {
 
   try {
     const content = await readFile(lockPath, 'utf-8');
-    const parsed = JSON.parse(content) as LocalSkillLockFile;
+    const parsed = JSON.parse(content) as {
+      version?: unknown;
+      skills?: unknown;
+      management?: unknown;
+    };
 
-    if (typeof parsed.version !== 'number' || !parsed.skills) {
+    if (typeof parsed.version !== 'number' || !isRecord(parsed.skills)) {
       return createEmptyLocalLock();
     }
 
-    if (parsed.version < CURRENT_VERSION) {
+    if (parsed.version === 1) {
+      return {
+        version: CURRENT_VERSION,
+        skills: parsed.skills as Record<string, LocalSkillLockEntry>,
+        management: createEmptyManagementState(),
+      };
+    }
+
+    if (parsed.version !== CURRENT_VERSION) {
       return createEmptyLocalLock();
     }
 
-    return parsed;
+    return {
+      version: CURRENT_VERSION,
+      skills: parsed.skills as Record<string, LocalSkillLockEntry>,
+      management: normalizeManagementState(parsed.management),
+    };
   } catch {
     return createEmptyLocalLock();
   }
@@ -87,9 +112,46 @@ export async function writeLocalLock(lock: LocalSkillLockFile, cwd?: string): Pr
     sortedSkills[key] = lock.skills[key]!;
   }
 
-  const sorted: LocalSkillLockFile = { version: lock.version, skills: sortedSkills };
+  const sorted: LocalSkillLockFile = {
+    version: CURRENT_VERSION,
+    skills: sortedSkills,
+    management: normalizeManagementState(lock.management),
+  };
   const content = JSON.stringify(sorted, null, 2) + '\n';
   await writeFile(lockPath, content, 'utf-8');
+}
+
+export async function readLocalManagementState(cwd?: string): Promise<ManagementState> {
+  const lock = await readLocalLock(cwd);
+  return lock.management;
+}
+
+export async function writeLocalManagementState(
+  management: ManagementState,
+  cwd?: string
+): Promise<void> {
+  const lock = await readLocalLock(cwd);
+  lock.management = normalizeManagementState(management);
+  await writeLocalLock(lock, cwd);
+}
+
+export async function getLocalSkillGroups(skillName: string, cwd?: string): Promise<string[]> {
+  const management = await readLocalManagementState(cwd);
+  return getGroupsForSkill(management, skillName);
+}
+
+export async function getLocalManagerSkill(cwd?: string): Promise<string | undefined> {
+  const management = await readLocalManagementState(cwd);
+  return management.managerSkill;
+}
+
+export async function scrubSkillFromLocalManagement(
+  skillName: string,
+  cwd?: string
+): Promise<void> {
+  const lock = await readLocalLock(cwd);
+  lock.management = scrubSkillFromManagement(lock.management, skillName);
+  await writeLocalLock(lock, cwd);
 }
 
 /**
@@ -162,6 +224,7 @@ export async function removeSkillFromLocalLock(skillName: string, cwd?: string):
   }
 
   delete lock.skills[skillName];
+  lock.management = scrubSkillFromManagement(lock.management, skillName);
   await writeLocalLock(lock, cwd);
   return true;
 }
@@ -170,5 +233,10 @@ function createEmptyLocalLock(): LocalSkillLockFile {
   return {
     version: CURRENT_VERSION,
     skills: {},
+    management: createEmptyManagementState(),
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

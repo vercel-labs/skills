@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, rmSync, mkdirSync, writeFileSync, readdirSync } from 'fs';
+import { existsSync, rmSync, mkdirSync, writeFileSync, readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli, runCliWithInput } from './test-utils.js';
@@ -313,6 +313,143 @@ This is a test skill.
         testDir
       );
       expect(result.stdout).not.toContain('Invalid agents');
+    });
+  });
+
+  describe('management cleanup', () => {
+    it('removes disabled project skills and scrubs local management metadata', () => {
+      const disabledDir = join(testDir, '.agents', 'disabled_skills', 'stale-skill');
+      mkdirSync(disabledDir, { recursive: true });
+      writeFileSync(
+        join(disabledDir, 'SKILL.md'),
+        `---
+name: stale-skill
+description: Stale skill
+---
+# Stale Skill
+`
+      );
+
+      writeFileSync(
+        join(testDir, 'skills-lock.json'),
+        JSON.stringify(
+          {
+            version: 2,
+            skills: {
+              'stale-skill': {
+                source: 'local/source',
+                sourceType: 'local',
+                computedHash: 'abc123',
+              },
+            },
+            management: {
+              groups: {
+                ai: ['stale-skill'],
+              },
+              managerSkill: 'stale-skill',
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      const result = runCli(['remove', 'stale-skill', '-y'], testDir);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Successfully removed');
+      expect(existsSync(disabledDir)).toBe(false);
+
+      const lock = JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8'));
+      expect(lock.skills['stale-skill']).toBeUndefined();
+      expect(lock.management).toEqual({
+        groups: {
+          ai: [],
+        },
+      });
+    });
+
+    it('scrubs stale project metadata even when skill files are already gone', () => {
+      writeFileSync(
+        join(testDir, 'skills-lock.json'),
+        JSON.stringify(
+          {
+            version: 2,
+            skills: {
+              'metadata-only-skill': {
+                source: 'local/source',
+                sourceType: 'local',
+                computedHash: 'abc123',
+              },
+            },
+            management: {
+              groups: {
+                ai: ['metadata-only-skill'],
+              },
+              managerSkill: 'metadata-only-skill',
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      const result = runCli(['remove', 'metadata-only-skill', '-y'], testDir);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Successfully removed');
+
+      const lock = JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8'));
+      expect(lock.skills['metadata-only-skill']).toBeUndefined();
+      expect(lock.management).toEqual({
+        groups: {
+          ai: [],
+        },
+      });
+    });
+
+    it('scrubs stale global metadata even when skill files are already gone', () => {
+      const stateDir = join(testDir, 'xdg-state');
+      mkdirSync(join(stateDir, 'skills'), { recursive: true });
+      writeFileSync(
+        join(stateDir, 'skills', '.skill-lock.json'),
+        JSON.stringify(
+          {
+            version: 4,
+            skills: {
+              'global-stale-skill': {
+                source: 'org/repo',
+                sourceType: 'github',
+                sourceUrl: 'https://github.com/org/repo',
+                skillFolderHash: 'tree-sha',
+                installedAt: '2026-04-07T00:00:00.000Z',
+                updatedAt: '2026-04-07T00:00:00.000Z',
+              },
+            },
+            dismissed: {},
+            management: {
+              groups: {
+                ai: ['global-stale-skill'],
+              },
+              managerSkill: 'global-stale-skill',
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      const result = runCli(['remove', 'global-stale-skill', '-y', '-g'], testDir, {
+        XDG_STATE_HOME: stateDir,
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Successfully removed');
+
+      const lock = JSON.parse(readFileSync(join(stateDir, 'skills', '.skill-lock.json'), 'utf-8'));
+      expect(lock.skills['global-stale-skill']).toBeUndefined();
+      expect(lock.management).toEqual({
+        groups: {
+          ai: [],
+        },
+      });
     });
   });
 });

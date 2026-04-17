@@ -1,10 +1,23 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { readdir, rm, lstat } from 'fs/promises';
-import { join } from 'path';
+import { dirname, join } from 'path';
 import { agents, detectInstalledAgents } from './agents.ts';
 import { track } from './telemetry.ts';
-import { removeSkillFromLock, getSkillFromLock } from './skill-lock.ts';
+import {
+  removeSkillFromLock,
+  getSkillFromLock,
+  readSkillLock,
+  scrubSkillFromGlobalManagement,
+  type SkillLockEntry,
+} from './skill-lock.ts';
+import {
+  readLocalLock,
+  removeSkillFromLocalLock,
+  scrubSkillFromLocalManagement,
+  type LocalSkillLockEntry,
+} from './local-lock.ts';
+import type { ManagementState } from './management-state.ts';
 import type { AgentType } from './types.ts';
 import {
   getInstallPath,
@@ -23,6 +36,8 @@ export interface RemoveOptions {
 export async function removeCommand(skillNames: string[], options: RemoveOptions) {
   const isGlobal = options.global ?? false;
   const cwd = process.cwd();
+  const localLock = isGlobal ? null : await readLocalLock(cwd);
+  const globalLock = isGlobal ? await readSkillLock() : null;
 
   const spinner = p.spinner();
 
@@ -44,27 +59,34 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     }
   };
 
+  const scanSkillRoot = async (skillsRoot: string) => {
+    await scanDir(skillsRoot);
+    await scanDir(getDisabledSkillsDir(skillsRoot));
+  };
+
   if (isGlobal) {
-    await scanDir(getCanonicalSkillsDir(true, cwd));
+    await scanSkillRoot(getCanonicalSkillsDir(true, cwd));
     for (const agent of Object.values(agents)) {
       if (agent.globalSkillsDir !== undefined) {
-        await scanDir(agent.globalSkillsDir);
+        await scanSkillRoot(agent.globalSkillsDir);
       }
     }
   } else {
-    await scanDir(getCanonicalSkillsDir(false, cwd));
+    await scanSkillRoot(getCanonicalSkillsDir(false, cwd));
     for (const agent of Object.values(agents)) {
-      await scanDir(join(cwd, agent.skillsDir));
+      await scanSkillRoot(join(cwd, agent.skillsDir));
     }
   }
 
   const installedSkills = Array.from(skillNamesSet).sort();
+  const trackedSkills = Object.keys(
+    isGlobal ? (globalLock?.skills ?? {}) : (localLock?.skills ?? {})
+  );
+  const management = isGlobal ? globalLock?.management : localLock?.management;
+  const knownSkills = Array.from(
+    new Set([...installedSkills, ...trackedSkills, ...collectManagementSkillNames(management)])
+  ).sort();
   spinner.stop(`Found ${installedSkills.length} unique installed skill(s)`);
-
-  if (installedSkills.length === 0) {
-    p.outro(pc.yellow('No skills found to remove.'));
-    return;
-  }
 
   // Validate agent options BEFORE prompting for skill selection
   if (options.agent && options.agent.length > 0) {
@@ -81,10 +103,24 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   let selectedSkills: string[] = [];
 
   if (options.all) {
-    selectedSkills = installedSkills;
+    if (knownSkills.length === 0) {
+      p.outro(pc.yellow('No skills found to remove.'));
+      return;
+    }
+    selectedSkills = knownSkills;
   } else if (skillNames.length > 0) {
-    selectedSkills = installedSkills.filter((s) =>
-      skillNames.some((name) => name.toLowerCase() === s.toLowerCase())
+    if (knownSkills.length === 0) {
+      p.outro(pc.yellow('No skills found to remove.'));
+      return;
+    }
+
+    const byLowerName = new Map(knownSkills.map((name) => [name.toLowerCase(), name] as const));
+    selectedSkills = Array.from(
+      new Set(
+        skillNames
+          .map((name) => byLowerName.get(name.toLowerCase()))
+          .filter((name): name is string => Boolean(name))
+      )
     );
 
     if (selectedSkills.length === 0) {
@@ -92,6 +128,11 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
       return;
     }
   } else {
+    if (installedSkills.length === 0) {
+      p.outro(pc.yellow('No skills found to remove.'));
+      return;
+    }
+
     const choices = installedSkills.map((s) => ({
       value: s,
       label: s,
@@ -151,34 +192,41 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
   for (const skillName of selectedSkills) {
     try {
+      const sanitizedName = sanitizeName(skillName);
       const canonicalPath = getCanonicalPath(skillName, { global: isGlobal, cwd });
+      const disabledCanonicalPath = join(
+        getDisabledSkillsDir(dirname(canonicalPath)),
+        sanitizedName
+      );
 
       for (const agentKey of targetAgents) {
         const agent = agents[agentKey];
-        const skillPath = getInstallPath(skillName, agentKey, { global: isGlobal, cwd });
+        const activeSkillPath = getInstallPath(skillName, agentKey, { global: isGlobal, cwd });
+        const disabledSkillPath = join(
+          getDisabledSkillsDir(dirname(activeSkillPath)),
+          sanitizedName
+        );
 
         // Determine potential paths to cleanup. For universal agents, getInstallPath
         // now returns the canonical path, so we also need to check their 'native'
         // directory to clean up any legacy symlinks.
-        const pathsToCleanup = new Set([skillPath]);
-        const sanitizedName = sanitizeName(skillName);
+        const pathsToCleanup = new Set([activeSkillPath, disabledSkillPath]);
         if (isGlobal && agent.globalSkillsDir) {
           pathsToCleanup.add(join(agent.globalSkillsDir, sanitizedName));
+          pathsToCleanup.add(join(getDisabledSkillsDir(agent.globalSkillsDir), sanitizedName));
         } else {
           pathsToCleanup.add(join(cwd, agent.skillsDir, sanitizedName));
+          pathsToCleanup.add(join(getDisabledSkillsDir(join(cwd, agent.skillsDir)), sanitizedName));
         }
 
         for (const pathToCleanup of pathsToCleanup) {
-          // Skip if this is the canonical path - we'll handle that after checking all agents
-          if (pathToCleanup === canonicalPath) {
+          // Skip if this is a canonical path - we'll handle that after checking all agents
+          if (pathToCleanup === canonicalPath || pathToCleanup === disabledCanonicalPath) {
             continue;
           }
 
           try {
-            const stats = await lstat(pathToCleanup).catch(() => null);
-            if (stats) {
-              await rm(pathToCleanup, { recursive: true, force: true });
-            }
+            await rm(pathToCleanup, { recursive: true, force: true });
           } catch (err) {
             p.log.warn(
               `Could not remove skill from ${agent.displayName}: ${
@@ -196,9 +244,11 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
       let isStillUsed = false;
       for (const agentKey of remainingAgents) {
-        const path = getInstallPath(skillName, agentKey, { global: isGlobal, cwd });
-        const exists = await lstat(path).catch(() => null);
-        if (exists) {
+        const activePath = getInstallPath(skillName, agentKey, { global: isGlobal, cwd });
+        const disabledPath = join(getDisabledSkillsDir(dirname(activePath)), sanitizedName);
+        const activeExists = await lstat(activePath).catch(() => null);
+        const disabledExists = await lstat(disabledPath).catch(() => null);
+        if (activeExists || disabledExists) {
           isStillUsed = true;
           break;
         }
@@ -206,14 +256,29 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
       if (!isStillUsed) {
         await rm(canonicalPath, { recursive: true, force: true });
+        await rm(disabledCanonicalPath, { recursive: true, force: true });
       }
 
-      const lockEntry = isGlobal ? await getSkillFromLock(skillName) : null;
-      const effectiveSource = lockEntry?.source || 'local';
-      const effectiveSourceType = lockEntry?.sourceType || 'local';
+      const localEntry = localLock?.skills[skillName];
+      const globalEntry = isGlobal ? await getSkillFromLock(skillName) : null;
+      const effectiveSource = globalEntry?.source || localEntry?.source || 'local';
+      const effectiveSourceType = globalEntry?.sourceType || localEntry?.sourceType || 'local';
 
-      if (isGlobal) {
-        await removeSkillFromLock(skillName);
+      if (!isStillUsed) {
+        if (isGlobal) {
+          const removedFromLock = await removeSkillFromLock(skillName);
+          if (
+            !removedFromLock &&
+            isSkillReferencedInManagement(globalLock?.management, skillName)
+          ) {
+            await scrubSkillFromGlobalManagement(skillName);
+          }
+        } else {
+          const removedFromLock = await removeSkillFromLocalLock(skillName, cwd);
+          if (!removedFromLock && isSkillReferencedInManagement(localLock?.management, skillName)) {
+            await scrubSkillFromLocalManagement(skillName, cwd);
+          }
+        }
       }
 
       results.push({
@@ -308,4 +373,34 @@ export function parseRemoveOptions(args: string[]): { skills: string[]; options:
   }
 
   return { skills, options };
+}
+
+function getDisabledSkillsDir(skillsRoot: string): string {
+  return join(dirname(skillsRoot), 'disabled_skills');
+}
+
+function collectManagementSkillNames(management?: ManagementState): string[] {
+  if (!management) {
+    return [];
+  }
+
+  const groupMembers = Object.values(management.groups ?? {}).flat();
+  return management.managerSkill
+    ? Array.from(new Set([...groupMembers, management.managerSkill]))
+    : Array.from(new Set(groupMembers));
+}
+
+function isSkillReferencedInManagement(
+  management: ManagementState | undefined,
+  skillName: string
+): boolean {
+  if (!management) {
+    return false;
+  }
+
+  if (management.managerSkill === skillName) {
+    return true;
+  }
+
+  return Object.values(management.groups ?? {}).some((members) => members.includes(skillName));
 }

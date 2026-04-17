@@ -3,17 +3,22 @@
 import { spawnSync } from 'child_process';
 import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync } from 'fs';
 import { basename, join, dirname } from 'path';
-import { homedir } from 'os';
 import { fileURLToPath } from 'url';
 import * as p from '@clack/prompts';
 import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
 import { runFind } from './find.ts';
 import { runInstallFromLock } from './install.ts';
 import { runList } from './list.ts';
+import { runGroupCommand, runManagerCommand, runToggleCommand } from './management.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track } from './telemetry.ts';
-import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
+import {
+  fetchSkillFolderHash,
+  getGitHubToken,
+  readSkillLock,
+  type SkillLockEntry,
+} from './skill-lock.ts';
 import { readLocalLock, type LocalSkillLockEntry } from './local-lock.ts';
 import {
   buildUpdateInstallSource,
@@ -83,6 +88,12 @@ function showBanner(): void {
     `  ${DIM}$${RESET} ${TEXT}npx skills list${RESET}                 ${DIM}List installed skills${RESET}`
   );
   console.log(
+    `  ${DIM}$${RESET} ${TEXT}npx skills enable ${DIM}<skill>${RESET}        ${DIM}Enable installed skills${RESET}`
+  );
+  console.log(
+    `  ${DIM}$${RESET} ${TEXT}npx skills disable ${DIM}<skill>${RESET}       ${DIM}Disable installed skills${RESET}`
+  );
+  console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills find ${DIM}[query]${RESET}         ${DIM}Search for skills${RESET}`
   );
   console.log();
@@ -114,11 +125,16 @@ ${BOLD}Manage Skills:${RESET}
   add <package>        Add a skill package (alias: a)
                        e.g. vercel-labs/agent-skills
                             https://github.com/vercel-labs/agent-skills
+  enable [skills]      Enable installed skills
+  disable [skills]     Disable installed skills
+  group <subcommand>   Manage skill groups
+  manager <subcommand> Manage the protected manager skill
   remove [skills]      Remove installed skills
   list, ls             List installed skills
   find [query]         Search for skills interactively
 
 ${BOLD}Updates:${RESET}
+  check               Check for skill updates
   update [skills...]   Update skills to latest versions (alias: upgrade)
 
 ${BOLD}Update Options:${RESET}
@@ -155,7 +171,27 @@ ${BOLD}Experimental Sync Options:${RESET}
 ${BOLD}List Options:${RESET}
   -g, --global           List global skills (default: project)
   -a, --agent <agents>   Filter by specific agents
+  --groups               Group skills by management groups
   --json                 Output as JSON (machine-readable, no ANSI codes)
+
+${BOLD}Enable/Disable Options:${RESET}
+  --group <groups>       Target all skills in the named groups
+  --all                  Target all skills in scope
+  -g, --global           Operate on global scope
+  -y, --yes              Skip confirmation prompts
+
+${BOLD}Group Subcommands:${RESET}
+  create <groups...>              Create empty groups
+  delete <groups...>              Delete groups (keeps skills)
+  add <group> --skill <skills>    Add skills to a group
+  remove <group> --skill <skills> Remove skills from a group
+  -g, --global                    Operate on global scope
+
+${BOLD}Manager Subcommands:${RESET}
+  set <skill>            Designate the manager skill
+  show                   Display current manager skill
+  clear                  Unset the manager skill
+  -g, --global           Operate on global scope
 
 ${BOLD}Options:${RESET}
   --help, -h        Show this help message
@@ -166,12 +202,24 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills add vercel-labs/agent-skills -g
   ${DIM}$${RESET} skills add vercel-labs/agent-skills --agent claude-code cursor
   ${DIM}$${RESET} skills add vercel-labs/agent-skills --skill pr-review commit
+  ${DIM}$${RESET} skills enable my-skill                ${DIM}# enable a skill${RESET}
+  ${DIM}$${RESET} skills disable my-skill               ${DIM}# disable a skill${RESET}
+  ${DIM}$${RESET} skills enable --group ai architecture  ${DIM}# enable by group${RESET}
+  ${DIM}$${RESET} skills disable --all                   ${DIM}# disable all skills${RESET}
+  ${DIM}$${RESET} skills group create ai architecture    ${DIM}# create groups${RESET}
+  ${DIM}$${RESET} skills group delete ai                 ${DIM}# delete a group${RESET}
+  ${DIM}$${RESET} skills group add ai --skill foo bar    ${DIM}# add skills to group${RESET}
+  ${DIM}$${RESET} skills group remove ai --skill foo     ${DIM}# remove skill from group${RESET}
+  ${DIM}$${RESET} skills manager set find-skills         ${DIM}# set manager skill${RESET}
+  ${DIM}$${RESET} skills manager show                    ${DIM}# show manager skill${RESET}
+  ${DIM}$${RESET} skills manager clear                   ${DIM}# clear manager skill${RESET}
   ${DIM}$${RESET} skills remove                        ${DIM}# interactive remove${RESET}
   ${DIM}$${RESET} skills remove web-design             ${DIM}# remove by name${RESET}
   ${DIM}$${RESET} skills rm --global frontend-design
   ${DIM}$${RESET} skills list                          ${DIM}# list project skills${RESET}
   ${DIM}$${RESET} skills ls -g                         ${DIM}# list global skills${RESET}
   ${DIM}$${RESET} skills ls -a claude-code             ${DIM}# filter by agent${RESET}
+  ${DIM}$${RESET} skills ls --groups                   ${DIM}# list by management groups${RESET}
   ${DIM}$${RESET} skills ls --json                      ${DIM}# JSON output${RESET}
   ${DIM}$${RESET} skills find                          ${DIM}# interactive search${RESET}
   ${DIM}$${RESET} skills find typescript               ${DIM}# search by keyword${RESET}
@@ -284,54 +332,6 @@ Describe when this skill should be used.
 // ============================================
 // Check and Update Commands
 // ============================================
-
-const AGENTS_DIR = '.agents';
-const LOCK_FILE = '.skill-lock.json';
-const CURRENT_LOCK_VERSION = 3; // Bumped from 2 to 3 for folder hash support
-
-interface SkillLockEntry {
-  source: string;
-  sourceType: string;
-  sourceUrl: string;
-  ref?: string;
-  skillPath?: string;
-  /** GitHub tree SHA for the entire skill folder (v3) */
-  skillFolderHash: string;
-  installedAt: string;
-  updatedAt: string;
-}
-
-interface SkillLockFile {
-  version: number;
-  skills: Record<string, SkillLockEntry>;
-}
-
-function getSkillLockPath(): string {
-  const xdgStateHome = process.env.XDG_STATE_HOME;
-  if (xdgStateHome) {
-    return join(xdgStateHome, 'skills', LOCK_FILE);
-  }
-  return join(homedir(), AGENTS_DIR, LOCK_FILE);
-}
-
-function readSkillLock(): SkillLockFile {
-  const lockPath = getSkillLockPath();
-  try {
-    const content = readFileSync(lockPath, 'utf-8');
-    const parsed = JSON.parse(content) as SkillLockFile;
-    if (typeof parsed.version !== 'number' || !parsed.skills) {
-      return { version: CURRENT_LOCK_VERSION, skills: {} };
-    }
-    // If old version, wipe and start fresh (backwards incompatible change)
-    // v3 adds skillFolderHash - we want fresh installs to populate it
-    if (parsed.version < CURRENT_LOCK_VERSION) {
-      return { version: CURRENT_LOCK_VERSION, skills: {} };
-    }
-    return parsed;
-  } catch {
-    return { version: CURRENT_LOCK_VERSION, skills: {} };
-  }
-}
 
 // ============================================
 // Scope Detection and Prompt
@@ -589,7 +589,7 @@ async function getProjectSkillsForUpdate(
 async function updateGlobalSkills(
   skillFilter?: string[]
 ): Promise<{ successCount: number; failCount: number; checkedCount: number }> {
-  const lock = readSkillLock();
+  const lock = await readSkillLock();
   const skillNames = Object.keys(lock.skills);
   let successCount = 0;
   let failCount = 0;
@@ -886,6 +886,18 @@ async function main(): Promise<void> {
       }
       const { skills, options: removeOptions } = parseRemoveOptions(restArgs);
       await removeCommand(skills, removeOptions);
+      break;
+    case 'enable':
+      await runToggleCommand('enable', restArgs);
+      break;
+    case 'disable':
+      await runToggleCommand('disable', restArgs);
+      break;
+    case 'group':
+      await runGroupCommand(restArgs);
+      break;
+    case 'manager':
+      await runManagerCommand(restArgs);
       break;
     case 'experimental_sync': {
       showLogo();

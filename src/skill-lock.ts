@@ -3,10 +3,17 @@ import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
 import { execSync } from 'child_process';
+import {
+  createEmptyManagementState,
+  getGroupsForSkill,
+  normalizeManagementState,
+  scrubSkillFromManagement,
+  type ManagementState,
+} from './management-state.ts';
 
 const AGENTS_DIR = '.agents';
 const LOCK_FILE = '.skill-lock.json';
-const CURRENT_VERSION = 3; // Bumped from 2 to 3 for folder hash support (GitHub tree SHA)
+const CURRENT_VERSION = 4; // Bumped from 3 to 4 for management metadata support
 
 /**
  * Represents a single installed skill entry in the lock file.
@@ -56,6 +63,8 @@ export interface SkillLockFile {
   dismissed?: DismissedPrompts;
   /** Last selected agents for installation */
   lastSelectedAgents?: string[];
+  /** Scope-local management metadata */
+  management: ManagementState;
 }
 
 /**
@@ -74,29 +83,47 @@ export function getSkillLockPath(): string {
 /**
  * Read the skill lock file.
  * Returns an empty lock file structure if the file doesn't exist.
- * Wipes the lock file if it's an old format (version < CURRENT_VERSION).
+ * Migrates supported older versions forward and resets unsupported formats.
  */
 export async function readSkillLock(): Promise<SkillLockFile> {
   const lockPath = getSkillLockPath();
 
   try {
     const content = await readFile(lockPath, 'utf-8');
-    const parsed = JSON.parse(content) as SkillLockFile;
+    const parsed = JSON.parse(content) as {
+      version?: unknown;
+      skills?: unknown;
+      dismissed?: unknown;
+      lastSelectedAgents?: unknown;
+      management?: unknown;
+    };
 
-    // Validate version - wipe if old format
-    if (typeof parsed.version !== 'number' || !parsed.skills) {
+    if (typeof parsed.version !== 'number' || !isRecord(parsed.skills)) {
       return createEmptyLockFile();
     }
 
-    // If old version, wipe and start fresh (backwards incompatible change)
-    // v3 adds skillFolderHash - we want fresh installs to populate it
-    if (parsed.version < CURRENT_VERSION) {
+    if (parsed.version === 3) {
+      return {
+        version: CURRENT_VERSION,
+        skills: parsed.skills as Record<string, SkillLockEntry>,
+        dismissed: normalizeDismissedPrompts(parsed.dismissed),
+        lastSelectedAgents: normalizeLastSelectedAgents(parsed.lastSelectedAgents),
+        management: createEmptyManagementState(),
+      };
+    }
+
+    if (parsed.version !== CURRENT_VERSION) {
       return createEmptyLockFile();
     }
 
-    return parsed;
-  } catch (error) {
-    // File doesn't exist or is invalid - return empty
+    return {
+      version: CURRENT_VERSION,
+      skills: parsed.skills as Record<string, SkillLockEntry>,
+      dismissed: normalizeDismissedPrompts(parsed.dismissed),
+      lastSelectedAgents: normalizeLastSelectedAgents(parsed.lastSelectedAgents),
+      management: normalizeManagementState(parsed.management),
+    };
+  } catch {
     return createEmptyLockFile();
   }
 }
@@ -111,9 +138,53 @@ export async function writeSkillLock(lock: SkillLockFile): Promise<void> {
   // Ensure directory exists
   await mkdir(dirname(lockPath), { recursive: true });
 
+  const sortedSkills: Record<string, SkillLockEntry> = {};
+  for (const key of Object.keys(lock.skills).sort()) {
+    sortedSkills[key] = lock.skills[key]!;
+  }
+
+  const normalized: SkillLockFile = {
+    version: CURRENT_VERSION,
+    skills: sortedSkills,
+    dismissed: normalizeDismissedPrompts(lock.dismissed),
+    management: normalizeManagementState(lock.management),
+  };
+
+  const lastSelectedAgents = normalizeLastSelectedAgents(lock.lastSelectedAgents);
+  if (lastSelectedAgents) {
+    normalized.lastSelectedAgents = lastSelectedAgents;
+  }
+
   // Write with pretty formatting for human readability
-  const content = JSON.stringify(lock, null, 2);
+  const content = JSON.stringify(normalized, null, 2);
   await writeFile(lockPath, content, 'utf-8');
+}
+
+export async function readGlobalManagementState(): Promise<ManagementState> {
+  const lock = await readSkillLock();
+  return lock.management;
+}
+
+export async function writeGlobalManagementState(management: ManagementState): Promise<void> {
+  const lock = await readSkillLock();
+  lock.management = normalizeManagementState(management);
+  await writeSkillLock(lock);
+}
+
+export async function getGlobalSkillGroups(skillName: string): Promise<string[]> {
+  const management = await readGlobalManagementState();
+  return getGroupsForSkill(management, skillName);
+}
+
+export async function getGlobalManagerSkill(): Promise<string | undefined> {
+  const management = await readGlobalManagementState();
+  return management.managerSkill;
+}
+
+export async function scrubSkillFromGlobalManagement(skillName: string): Promise<void> {
+  const lock = await readSkillLock();
+  lock.management = scrubSkillFromManagement(lock.management, skillName);
+  await writeSkillLock(lock);
 }
 
 /**
@@ -212,6 +283,7 @@ export async function removeSkillFromLock(skillName: string): Promise<boolean> {
   }
 
   delete lock.skills[skillName];
+  lock.management = scrubSkillFromManagement(lock.management, skillName);
   await writeSkillLock(lock);
   return true;
 }
@@ -261,6 +333,7 @@ function createEmptyLockFile(): SkillLockFile {
     version: CURRENT_VERSION,
     skills: {},
     dismissed: {},
+    management: createEmptyManagementState(),
   };
 }
 
@@ -299,4 +372,24 @@ export async function saveSelectedAgents(agents: string[]): Promise<void> {
   const lock = await readSkillLock();
   lock.lastSelectedAgents = agents;
   await writeSkillLock(lock);
+}
+
+function normalizeDismissedPrompts(value: unknown): DismissedPrompts {
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    return value as DismissedPrompts;
+  }
+  return {};
+}
+
+function normalizeLastSelectedAgents(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const normalized = value.filter((item): item is string => typeof item === 'string');
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
