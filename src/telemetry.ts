@@ -34,6 +34,16 @@ interface UpdateTelemetryData {
   failCount: string;
 }
 
+interface OutdatedTelemetryData {
+  event: 'outdated';
+  scope?: string;
+  skillCount: string;
+  outdatedCount: string;
+  erroredCount: string;
+  /** '1' when --json was used, '0' otherwise */
+  json?: string;
+}
+
 interface FindTelemetryData {
   event: 'find';
   query: string;
@@ -52,6 +62,7 @@ type TelemetryData =
   | InstallTelemetryData
   | RemoveTelemetryData
   | UpdateTelemetryData
+  | OutdatedTelemetryData
   | FindTelemetryData
   | SyncTelemetryData;
 
