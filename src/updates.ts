@@ -429,7 +429,7 @@ async function updateGlobalSkills(
   }
 
   const outdated = selectOutdated(result);
-  const erroredCount = result.checked.filter((c) => c.error !== null).length;
+  const errored = result.checked.filter((c) => c.error !== null);
 
   if (result.checked.length === 0 && result.skipped.length === 0) {
     if (!skillFilter) {
@@ -449,8 +449,20 @@ async function updateGlobalSkills(
     return { successCount, failCount, checkedCount: result.checkedCount };
   }
 
-  if (outdated.length === 0 && erroredCount === 0) {
+  if (outdated.length === 0 && errored.length === 0) {
     console.log(`${TEXT}✓ All global skills are up to date${RESET}`);
+    return { successCount, failCount, checkedCount: result.checkedCount };
+  }
+
+  if (errored.length > 0) {
+    console.log(`${DIM}${errored.length} skill(s) could not be checked (network or auth):${RESET}`);
+    for (const e of errored) {
+      console.log(`  ${DIM}•${RESET} ${e.name}: ${e.error}`);
+    }
+    console.log();
+  }
+
+  if (outdated.length === 0) {
     return { successCount, failCount, checkedCount: result.checkedCount };
   }
 

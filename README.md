@@ -198,7 +198,7 @@ The `--json` flag emits a schema-versioned payload on stdout:
       "error": null
     }
   ],
-  "summary": { "checked": 13, "outdated": 1, "upToDate": 10, "skipped": 2, "errored": 0 }
+  "summary": { "checked": 1, "outdated": 1, "upToDate": 0, "errored": 0, "skipped": 0 }
 }
 ```
 
@@ -206,7 +206,9 @@ The `--json` flag emits a schema-versioned payload on stdout:
 
 - `true` — upstream folder hash differs from local; `npx skills update` will refresh
 - `false` — hashes match; skill is current
-- `null` — could not determine (local path, well-known skill, missing metadata, fetch error); `error` holds the reason
+- `null` — could not determine; `error` holds the reason. Two sub-cases, distinguished by `localHash`:
+  - `localHash` is non-null → counted as `errored` in `summary` (fetch failed, or upstream returned no hash)
+  - `localHash` is null → counted as `skipped` (local-path source, well-known skill, git URL, missing metadata, or project-scope — nothing to compare against)
 
 Project-scope skills always surface with `outdated: null` and `error: "Project-scope skills are refreshed on update"`, since project-scoped update is an unconditional re-clone.
 

@@ -78,11 +78,25 @@ export interface OutdatedJson {
   scope: UpdateScope;
   skills: OutdatedJsonSkill[];
   summary: {
+    /** Total number of skills in the report (sum of all buckets below). */
     checked: number;
+    /** Upstream hash differs from local. `outdated: true`, `error: null`. */
     outdated: number;
+    /** Upstream hash matches local. `outdated: false`, `error: null`. */
     upToDate: number;
-    skipped: number;
+    /**
+     * Skill has a local hash but we couldn't determine the upstream —
+     * either a transport/network failure or the remote returned no
+     * hash (private/deleted repo). `outdated: null`, `error` non-null.
+     */
     errored: number;
+    /**
+     * Skill has no local hash at all (local-path source, git URL,
+     * well-known skill, missing metadata, or project-scope skill
+     * which is always refreshed on update). `outdated: null`,
+     * `localHash: null`.
+     */
+    skipped: number;
   };
 }
 
@@ -179,7 +193,10 @@ async function buildProjectEntries(skillFilter?: string[]): Promise<OutdatedJson
   for (const skill of projectSkills) {
     // LocalSkillLockEntry intentionally doesn't carry sourceUrl — fall
     // back to `source` (owner/repo / npm / path). The UI can reconstruct
-    // a clickable URL from `sourceType` + `source` if needed.
+    // a clickable URL from `sourceType` + `source` if needed. We leave
+    // `localHash: null` so `summarize()` classifies project skills as
+    // `skipped` (no comparison possible) rather than `errored` (fetch
+    // failed) — matches the documented schema semantics.
     entries.push({
       name: skill.name,
       scope: 'project',
@@ -188,7 +205,7 @@ async function buildProjectEntries(skillFilter?: string[]): Promise<OutdatedJson
       sourceType: skill.entry.sourceType ?? 'unknown',
       ref: skill.entry.ref ?? null,
       skillPath: null,
-      localHash: skill.entry.computedHash ?? null,
+      localHash: null,
       upstreamHash: null,
       outdated: null,
       error: 'Project-scope skills are refreshed on update',
