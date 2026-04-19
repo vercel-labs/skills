@@ -461,6 +461,7 @@ Telemetry is automatically disabled in CI environments.
 - [Gemini CLI Skills Documentation](https://geminicli.com/docs/cli/skills/)
 - [GitHub Copilot Agent Skills](https://docs.github.com/en/copilot/concepts/agents/about-agent-skills)
 - [iFlow CLI Skills Documentation](https://platform.iflow.cn/en/cli/examples/skill)
+- [Junie Skills Documentation](https://junie.jetbrains.com/docs/agent-skills.html)
 - [Kimi Code CLI Skills Documentation](https://moonshotai.github.io/kimi-cli/en/customization/skills.html)
 - [Kiro CLI Skills Documentation](https://kiro.dev/docs/cli/custom-agents/configuration-reference/#skill-resources)
 - [Kode Skills Documentation](https://github.com/shareAI-lab/kode/blob/main/docs/skills.md)
