@@ -3,6 +3,10 @@ import type { AgentType } from './types.ts';
 import { agents } from './agents.ts';
 import { listInstalledSkills, type InstalledSkill } from './installer.ts';
 import { getAllLockedSkills } from './skill-lock.ts';
+import { readLocalLock } from './local-lock.ts';
+import { buildSecurityLines } from './security-audit.ts';
+import { fetchAuditData } from './telemetry.ts';
+import { groupInstalledSkillAudits, type SecurityAuditGroup } from './security-audit-list.ts';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -15,6 +19,7 @@ interface ListOptions {
   global?: boolean;
   agent?: string[];
   json?: boolean;
+  audit?: boolean;
 }
 
 /**
@@ -52,6 +57,8 @@ export function parseListOptions(args: string[]): ListOptions {
       options.global = true;
     } else if (arg === '--json') {
       options.json = true;
+    } else if (arg === '--audit') {
+      options.audit = true;
     } else if (arg === '-a' || arg === '--agent') {
       options.agent = options.agent || [];
       // Collect all following arguments until next flag
@@ -62,6 +69,45 @@ export function parseListOptions(args: string[]): ListOptions {
   }
 
   return options;
+}
+
+async function renderSecurityAudit(groups: SecurityAuditGroup[]): Promise<void> {
+  if (groups.length === 0) {
+    return;
+  }
+
+  const auditResults = await Promise.all(
+    groups.map(async (group) => {
+      try {
+        const auditData = await fetchAuditData(
+          group.source,
+          group.skills.map((skill) => skill.slug)
+        );
+        if (!auditData) {
+          return null;
+        }
+        const lines = buildSecurityLines(auditData, group.skills, group.source);
+        return lines.length > 0 ? lines : null;
+      } catch {
+        return null;
+      }
+    })
+  );
+
+  const blocks = auditResults.filter(
+    (lines): lines is string[] => Array.isArray(lines) && lines.length > 0
+  );
+
+  if (blocks.length === 0) {
+    return;
+  }
+
+  console.log(`${BOLD}Security audit${RESET}`);
+
+  for (const lines of blocks) {
+    console.log();
+    console.log(lines.join('\n'));
+  }
 }
 
 export async function runList(args: string[]): Promise<void> {
@@ -188,5 +234,11 @@ export async function runList(args: string[]): Promise<void> {
       printSkill(skill);
     }
     console.log();
+  }
+
+  if (options.audit) {
+    const localLock = await readLocalLock();
+    const auditGroups = groupInstalledSkillAudits(installedSkills, lockedSkills, localLock.skills);
+    await renderSecurityAudit(auditGroups);
   }
 }
