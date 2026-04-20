@@ -34,6 +34,10 @@ npx skills add git@github.com:vercel-labs/agent-skills.git
 
 # Local path
 npx skills add ./my-local-skills
+
+# Third-party provider (see "Extending" below)
+npx skills add @my-org/my-skill --provider @my-org/skills-provider
+SKILLS_PROVIDERS=@my-org/skills-provider npx skills add @my-org/my-skill
 ```
 
 ### Options
@@ -47,6 +51,7 @@ npx skills add ./my-local-skills
 | `--copy`                  | Copy files instead of symlinking to agent directories                                                                                              |
 | `-y, --yes`               | Skip all confirmation prompts                                                                                                                      |
 | `--all`                   | Install all skills to all agents without prompts                                                                                                   |
+| `-P, --provider <module>` | Load a third-party provider package (repeatable). Also via `SKILLS_PROVIDERS=a,b` env var. See [Extending](#extending)                             |
 
 ### Examples
 
@@ -435,6 +440,64 @@ Ensure you have write access to the target directory.
 # Install internal skills
 INSTALL_INTERNAL_SKILLS=1 npx skills add vercel-labs/agent-skills --list
 ```
+
+## Extending
+
+`skills` accepts third-party `HostProvider` plug-ins, letting a package claim
+a URL scheme before the built-in GitHub / GitLab / well-known matchers run.
+This lets private registries (enterprise, internal, paid) integrate without
+forking the CLI. See [`src/providers/types.ts`](src/providers/types.ts) for
+the full interface.
+
+A minimal provider:
+
+```ts
+// my-provider/index.ts
+import { registerProvider } from 'skills';
+
+registerProvider({
+  id: 'my-registry',
+  displayName: 'My Registry',
+  match(url) {
+    return { matches: /^@my-org\//.test(url) };
+  },
+  async fetchSkill(url) {
+    const res = await fetch(`https://my-registry/skills/${url.slice(1)}`);
+    if (!res.ok) return null;
+    return {
+      name: url,
+      description: '',
+      content: await res.text(),
+      installName: url.split('/')[1]!,
+      sourceUrl: url,
+    };
+  },
+  toRawUrl(url) {
+    return url;
+  },
+  getSourceIdentifier(url) {
+    return url;
+  },
+});
+```
+
+Consumers install it and pass `--provider <module>` (or set
+`SKILLS_PROVIDERS=<module>`) when invoking any `skills` command:
+
+```bash
+npm install --save-dev my-provider
+npx skills --provider my-provider add @my-org/my-skill
+# or
+SKILLS_PROVIDERS=my-provider npx skills add @my-org/my-skill
+```
+
+Both flags are repeatable (`--provider a --provider b`) and the env var is
+comma-separated. Import failures are reported on stderr but do not abort
+the CLI — the built-in matchers still work.
+
+For a complete, production-style provider implementation see
+[`src/providers/wellknown.ts`](src/providers/wellknown.ts) (the RFC 8615
+`/.well-known/agent-skills/index.json` provider).
 
 ## Telemetry
 

@@ -45,7 +45,7 @@ import {
   type AuditResponse,
   type PartnerAudit,
 } from './telemetry.ts';
-import { wellKnownProvider, type WellKnownSkill } from './providers/index.ts';
+import { findProvider, wellKnownProvider, type WellKnownSkill } from './providers/index.ts';
 import {
   addSkillToLock,
   fetchSkillFolderHash,
@@ -431,6 +431,80 @@ export interface AddOptions {
  * Discovers skills from /.well-known/agent-skills/index.json (preferred)
  * or /.well-known/skills/index.json (legacy fallback).
  */
+/**
+ * Install via an external HostProvider (see `registerProvider()`).
+ * This is the fast path used by third-party providers such as private
+ * registries. It bypasses the GitHub blob / git clone / well-known
+ * fallback chain in favor of a single `provider.fetchSkill()` call,
+ * then hands off to the standard `installRemoteSkillForAgent()` installer.
+ */
+async function handleProviderInstall(
+  parsed: import('./types.ts').ParsedSource,
+  options: AddOptions,
+  spinner: ReturnType<typeof p.spinner>
+): Promise<void> {
+  const provider = findProvider(parsed.url);
+  if (!provider) {
+    spinner.stop(pc.red('provider not found'));
+    p.outro(pc.red(`No provider registered that matches: ${parsed.url}`));
+    process.exit(1);
+  }
+  spinner.start(`Fetching via ${provider.displayName}…`);
+  const remote = await provider.fetchSkill(parsed.url);
+  if (!remote) {
+    // Provider should have already printed a user-visible reason
+    // (auth / policy / cancel / 404).
+    spinner.stop(pc.red('fetch failed'));
+    process.exit(1);
+  }
+  spinner.stop(`fetched ${pc.cyan(remote.installName)}`);
+
+  // Shape the provider's RemoteSkill into the installer's local one
+  // (adds providerId + sourceIdentifier for telemetry / lockfile).
+  const skill: import('./types.ts').RemoteSkill = {
+    name: remote.name,
+    description: remote.description,
+    content: remote.content,
+    installName: remote.installName,
+    sourceUrl: remote.sourceUrl,
+    providerId: provider.id,
+    sourceIdentifier: parsed.sourceIdentifier ?? provider.getSourceIdentifier(parsed.url),
+    metadata: remote.metadata,
+  };
+
+  // Agent selection: use --agent if given, else detect installed agents,
+  // else default to claude-code. Keep this minimal; richer interactive
+  // selection lives in the well-known and blob flows.
+  const requested = (options.agent ?? []).filter(Boolean) as AgentType[];
+  const detected = requested.length > 0 ? requested : await detectInstalledAgents();
+  const targets: AgentType[] = detected.length > 0 ? detected : ['claude-code'];
+
+  const { installRemoteSkillForAgent } = await import('./installer.ts');
+  for (const agent of targets) {
+    const res = await installRemoteSkillForAgent(skill, agent, {
+      global: options.global ?? false,
+      mode: options.copy ? 'copy' : 'symlink',
+    });
+    if (res.success) {
+      p.log.success(`installed ${pc.cyan(skill.installName)} → ${pc.dim(res.path)} (${agent})`);
+    } else {
+      p.log.error(`install failed for ${agent}: ${res.error ?? 'unknown'}`);
+    }
+  }
+
+  // Telemetry (fire-and-forget).
+  try {
+    track({
+      event: 'skill_install',
+      source: skill.sourceIdentifier,
+      sourceType: 'provider',
+      provider: provider.id,
+    });
+  } catch {
+    /* telemetry best-effort */
+  }
+}
+
 async function handleWellKnownSkills(
   source: string,
   url: string,
@@ -965,6 +1039,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Handle well-known skills from arbitrary URLs
     if (parsed.type === 'well-known') {
       await handleWellKnownSkills(source, parsed.url, options, spinner);
+      return;
+    }
+
+    // Handle external HostProvider (private registries, etc.).
+    if (parsed.type === 'provider' && parsed.providerId) {
+      await handleProviderInstall(parsed, options, spinner);
       return;
     }
 

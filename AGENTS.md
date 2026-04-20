@@ -49,8 +49,10 @@ src/
 ├── plugin-manifest.ts # Plugin manifest discovery support
 ├── prompts/         # Interactive prompt helpers
 │   └── search-multiselect.ts
-├── providers/       # Remote skill providers (GitHub, HuggingFace, Mintlify)
-│   ├── index.ts
+├── providers/       # Remote skill providers (GitHub, HuggingFace, Mintlify).
+│   │                # Third-party packages can also register at runtime
+│   │                # via registerProvider — see README "Extending".
+│   ├── index.ts     # Public entry: registerProvider / findProvider / HostProvider
 │   ├── registry.ts
 │   ├── types.ts
 │   ├── huggingface.ts

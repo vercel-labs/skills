@@ -837,8 +837,41 @@ async function runUpdate(args: string[] = []): Promise<void> {
 // Main
 // ============================================
 
+/**
+ * Dynamically import external provider modules so they can call
+ * `registerProvider()` at import time. Providers are specified via
+ * repeatable `--provider <module>` flags and/or the `SKILLS_PROVIDERS`
+ * env var (comma-separated). Failures are warned, not fatal — the rest
+ * of the CLI still works (GitHub, well-known, etc.).
+ *
+ * Returns argv stripped of the consumed flags.
+ */
+async function loadExternalProviders(argv: string[]): Promise<string[]> {
+  const out: string[] = [];
+  const modules: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    if ((argv[i] === '--provider' || argv[i] === '-P') && argv[i + 1]) {
+      modules.push(argv[++i]!);
+    } else {
+      out.push(argv[i]!);
+    }
+  }
+  const envMods = (process.env.SKILLS_PROVIDERS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  for (const mod of [...envMods, ...modules]) {
+    try {
+      await import(mod);
+    } catch (err) {
+      process.stderr.write(`[skills] failed to load provider ${mod}: ${(err as Error).message}\n`);
+    }
+  }
+  return out;
+}
+
 async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+  const args = await loadExternalProviders(process.argv.slice(2));
 
   if (args.length === 0) {
     showBanner();
