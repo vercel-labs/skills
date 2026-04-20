@@ -67,6 +67,20 @@ function isPathSafe(basePath: string, targetPath: string): boolean {
   return normalizedTarget.startsWith(normalizedBase + sep) || normalizedTarget === normalizedBase;
 }
 
+// Dirent.isDirectory() is false for symlinks; follow and verify the target is a directory.
+async function isDirEntryOrSymlinkToDir(
+  entry: { isDirectory(): boolean; isSymbolicLink(): boolean },
+  entryPath: string
+): Promise<boolean> {
+  if (entry.isDirectory()) return true;
+  if (!entry.isSymbolicLink()) return false;
+  try {
+    return (await stat(entryPath)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 export function getCanonicalSkillsDir(global: boolean, cwd?: string): string {
   const baseDir = global ? homedir() : cwd || process.cwd();
   return join(baseDir, AGENTS_DIR, SKILLS_SUBDIR);
@@ -910,11 +924,9 @@ export async function listInstalledSkills(
       const entries = await readdir(scope.path, { withFileTypes: true });
 
       for (const entry of entries) {
-        if (!entry.isDirectory()) {
-          continue;
-        }
-
         const skillDir = join(scope.path, entry.name);
+        if (!(await isDirEntryOrSymlinkToDir(entry, skillDir))) continue;
+
         const skillMdPath = join(skillDir, 'SKILL.md');
 
         // Check if SKILL.md exists
@@ -999,9 +1011,8 @@ export async function listInstalledSkills(
             try {
               const agentEntries = await readdir(agentBase, { withFileTypes: true });
               for (const agentEntry of agentEntries) {
-                if (!agentEntry.isDirectory()) continue;
-
                 const candidateDir = join(agentBase, agentEntry.name);
+                if (!(await isDirEntryOrSymlinkToDir(agentEntry, candidateDir))) continue;
                 if (!isPathSafe(agentBase, candidateDir)) continue;
 
                 try {
