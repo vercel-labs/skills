@@ -94,14 +94,13 @@ When installing interactively, you can choose:
 
 ## Other Commands
 
-| Command                      | Description                                    |
-| ---------------------------- | ---------------------------------------------- |
-| `npx skills list`            | List installed skills (alias: `ls`)            |
-| `npx skills find [query]`    | Search for skills interactively or by keyword  |
-| `npx skills remove [skills]` | Remove installed skills from agents            |
-| `npx skills check`           | Check for available skill updates              |
-| `npx skills update`          | Update all installed skills to latest versions |
-| `npx skills init [name]`     | Create a new SKILL.md template                 |
+| Command                      | Description                                   |
+| ---------------------------- | --------------------------------------------- |
+| `npx skills list`            | List installed skills (alias: `ls`)           |
+| `npx skills find [query]`    | Search for skills interactively or by keyword |
+| `npx skills remove [skills]` | Remove installed skills from agents           |
+| `npx skills update [skills]` | Update installed skills to latest versions    |
+| `npx skills init [name]`     | Create a new SKILL.md template                |
 
 ### `skills list`
 
@@ -130,15 +129,32 @@ npx skills find
 npx skills find typescript
 ```
 
-### `skills check` / `skills update`
+### `skills update`
 
 ```bash
-# Check if any installed skills have updates
-npx skills check
-
-# Update all skills to latest versions
+# Update all skills (interactive scope prompt)
 npx skills update
+
+# Update a single skill by name
+npx skills update my-skill
+
+# Update multiple specific skills
+npx skills update frontend-design web-design-guidelines
+
+# Update only global or project skills
+npx skills update -g
+npx skills update -p
+
+# Non-interactive (auto-detects scope: project if in a project, else global)
+npx skills update -y
 ```
+
+| Option          | Description                                                               |
+| --------------- | ------------------------------------------------------------------------- |
+| `-g, --global`  | Only update global skills                                                 |
+| `-p, --project` | Only update project skills                                                |
+| `-y, --yes`     | Skip scope prompt (auto-detect: project if in a project dir, else global) |
+| `[skills...]`   | Update specific skills by name instead of all                             |
 
 ### `skills init`
 

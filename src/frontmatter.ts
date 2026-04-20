@@ -1,4 +1,4 @@
-import yaml from 'js-yaml';
+import { parse as parseYaml } from 'yaml';
 
 /**
  * Minimal frontmatter parser. Only supports YAML (the `---` delimiter).
@@ -11,6 +11,6 @@ export function parseFrontmatter(raw: string): {
 } {
   const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   if (!match) return { data: {}, content: raw };
-  const data = (yaml.load(match[1]!) as Record<string, unknown>) ?? {};
+  const data = (parseYaml(match[1]!) as Record<string, unknown>) ?? {};
   return { data, content: match[2] ?? '' };
 }

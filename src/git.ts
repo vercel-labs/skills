@@ -23,7 +23,17 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
   const tempDir = await mkdtemp(join(tmpdir(), 'skills-'));
   const git = simpleGit({
     timeout: { block: CLONE_TIMEOUT_MS },
-    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    env: {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: '0',
+      // Skills are text files (HTML/MD/JSON) and never LFS-tracked. Registry
+      // repos frequently track unrelated large media (test fixtures, demos,
+      // docs videos) via LFS. Downloading those during clone adds tens or
+      // hundreds of MB of bandwidth for files the installer never reads, and
+      // is the main reason `skills add` times out against larger registries
+      // (e.g. heygen-com/hyperframes, see upstream report #300).
+      GIT_LFS_SKIP_SMUDGE: '1',
+    },
   });
   const cloneOptions = ref ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
 

@@ -174,62 +174,10 @@ export async function fetchSkillFolderHash(
   token?: string | null,
   ref?: string
 ): Promise<string | null> {
-  // Normalize to forward slashes first (for GitHub API compatibility)
-  let folderPath = skillPath.replace(/\\/g, '/');
-
-  // Remove SKILL.md suffix to get folder path
-  if (folderPath.endsWith('/SKILL.md')) {
-    folderPath = folderPath.slice(0, -9);
-  } else if (folderPath.endsWith('SKILL.md')) {
-    folderPath = folderPath.slice(0, -8);
-  }
-
-  // Remove trailing slash
-  if (folderPath.endsWith('/')) {
-    folderPath = folderPath.slice(0, -1);
-  }
-
-  const branches = ref ? [ref] : ['main', 'master'];
-
-  for (const branch of branches) {
-    try {
-      const url = `https://api.github.com/repos/${ownerRepo}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
-      const headers: Record<string, string> = {
-        Accept: 'application/vnd.github.v3+json',
-        'User-Agent': 'skills-cli',
-      };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(url, { headers });
-
-      if (!response.ok) continue;
-
-      const data = (await response.json()) as {
-        sha: string;
-        tree: Array<{ path: string; type: string; sha: string }>;
-      };
-
-      // If folderPath is empty, this is a root-level skill - use the root tree SHA
-      if (!folderPath) {
-        return data.sha;
-      }
-
-      // Find the tree entry for the skill folder
-      const folderEntry = data.tree.find(
-        (entry) => entry.type === 'tree' && entry.path === folderPath
-      );
-
-      if (folderEntry) {
-        return folderEntry.sha;
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  return null;
+  const { fetchRepoTree, getSkillFolderHashFromTree } = await import('./blob.ts');
+  const tree = await fetchRepoTree(ownerRepo, ref, token);
+  if (!tree) return null;
+  return getSkillFolderHashFromTree(tree, skillPath);
 }
 
 /**

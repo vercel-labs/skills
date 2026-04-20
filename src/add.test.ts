@@ -391,6 +391,60 @@ describe('parseAddOptions', () => {
   });
 });
 
+describe('openclaw source blocking', () => {
+  let testDir: string;
+
+  beforeEach(() => {
+    testDir = join(tmpdir(), `skills-openclaw-test-${Date.now()}`);
+    mkdirSync(testDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    if (existsSync(testDir)) {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should block openclaw/skills without --dangerously-accept-openclaw-risks', () => {
+    const result = runCli(['add', 'openclaw/skills', '-y'], testDir);
+    expect(result.stdout).toContain('unverified community submissions');
+    expect(result.stdout).toContain('--dangerously-accept-openclaw-risks');
+    expect(result.stdout).toContain('Installation blocked');
+    expect(result.exitCode).toBe(1);
+  });
+
+  it('should block openclaw/anything without the flag', () => {
+    const result = runCli(['add', 'openclaw/some-repo', '-y'], testDir);
+    expect(result.stdout).toContain('unverified community submissions');
+    expect(result.stdout).toContain('--dangerously-accept-openclaw-risks');
+    expect(result.exitCode).toBe(1);
+  });
+
+  it('should block OpenClaw/skills (case-insensitive)', () => {
+    const result = runCli(['add', 'OpenClaw/skills', '-y'], testDir);
+    expect(result.stdout).toContain('unverified community submissions');
+    expect(result.stdout).toContain('--dangerously-accept-openclaw-risks');
+    expect(result.exitCode).toBe(1);
+  });
+
+  it('should not block non-openclaw sources', () => {
+    const result = runCli(['add', 'vercel-labs/agent-skills', '--list'], testDir);
+    expect(result.stdout).not.toContain('--dangerously-accept-openclaw-risks');
+    expect(result.stdout).not.toContain('Installation blocked');
+  });
+
+  it('should parse --dangerously-accept-openclaw-risks flag', () => {
+    const result = parseAddOptions([
+      'openclaw/skills',
+      '--dangerously-accept-openclaw-risks',
+      '-y',
+    ]);
+    expect(result.source).toEqual(['openclaw/skills']);
+    expect(result.options.dangerouslyAcceptOpenclawRisks).toBe(true);
+    expect(result.options.yes).toBe(true);
+  });
+});
+
 describe('find-skills prompt with -y flag', () => {
   let testDir: string;
 

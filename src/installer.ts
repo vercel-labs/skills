@@ -699,6 +699,118 @@ export async function installWellKnownSkillForAgent(
   }
 }
 
+/**
+ * Install a blob-downloaded skill (fetched from skills.sh download API).
+ * Similar to installWellKnownSkillForAgent but takes the snapshot file format
+ * (array of { path, contents }) instead of a Map.
+ */
+export async function installBlobSkillForAgent(
+  skill: { installName: string; files: Array<{ path: string; contents: string }> },
+  agentType: AgentType,
+  options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
+): Promise<InstallResult> {
+  const agent = agents[agentType];
+  const isGlobal = options.global ?? false;
+  const cwd = options.cwd || process.cwd();
+  const installMode = options.mode ?? 'symlink';
+
+  if (isGlobal && agent.globalSkillsDir === undefined) {
+    return {
+      success: false,
+      path: '',
+      mode: installMode,
+      error: `${agent.displayName} does not support global skill installation`,
+    };
+  }
+
+  const skillName = sanitizeName(skill.installName);
+  const canonicalBase = getCanonicalSkillsDir(isGlobal, cwd);
+  const canonicalDir = join(canonicalBase, skillName);
+  const agentBase = getAgentBaseDir(agentType, isGlobal, cwd);
+  const agentDir = join(agentBase, skillName);
+
+  if (!isPathSafe(canonicalBase, canonicalDir)) {
+    return {
+      success: false,
+      path: agentDir,
+      mode: installMode,
+      error: 'Invalid skill name: potential path traversal detected',
+    };
+  }
+
+  if (!isPathSafe(agentBase, agentDir)) {
+    return {
+      success: false,
+      path: agentDir,
+      mode: installMode,
+      error: 'Invalid skill name: potential path traversal detected',
+    };
+  }
+
+  async function writeSkillFiles(targetDir: string): Promise<void> {
+    for (const file of skill.files) {
+      const fullPath = join(targetDir, file.path);
+      if (!isPathSafe(targetDir, fullPath)) continue;
+
+      const parentDir = dirname(fullPath);
+      if (parentDir !== targetDir) {
+        await mkdir(parentDir, { recursive: true });
+      }
+
+      await writeFile(fullPath, file.contents, 'utf-8');
+    }
+  }
+
+  try {
+    if (installMode === 'copy') {
+      await cleanAndCreateDirectory(agentDir);
+      await writeSkillFiles(agentDir);
+      return { success: true, path: agentDir, mode: 'copy' };
+    }
+
+    // Symlink mode
+    await cleanAndCreateDirectory(canonicalDir);
+    await writeSkillFiles(canonicalDir);
+
+    if (isGlobal && isUniversalAgent(agentType)) {
+      return {
+        success: true,
+        path: canonicalDir,
+        canonicalPath: canonicalDir,
+        mode: 'symlink',
+      };
+    }
+
+    const symlinkCreated = await createSymlink(canonicalDir, agentDir);
+
+    if (!symlinkCreated) {
+      await cleanAndCreateDirectory(agentDir);
+      await writeSkillFiles(agentDir);
+      return {
+        success: true,
+        path: agentDir,
+        canonicalPath: canonicalDir,
+        mode: 'symlink',
+        symlinkFailed: true,
+      };
+    }
+
+    return {
+      success: true,
+      path: agentDir,
+      canonicalPath: canonicalDir,
+      mode: 'symlink',
+    };
+  } catch (error) {
+    return {
+      success: false,
+      path: agentDir,
+      mode: installMode,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
 export interface InstalledSkill {
   name: string;
   description: string;

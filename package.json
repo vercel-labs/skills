@@ -1,6 +1,6 @@
 {
   "name": "skills",
-  "version": "1.4.7",
+  "version": "1.5.1",
   "description": "The open agent skills ecosystem",
   "type": "module",
   "bin": {
@@ -95,10 +95,8 @@
   "devDependencies": {
     "@clack/prompts": "^0.11.0",
     "@types/bun": "latest",
-    "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.10.0",
     "husky": "^9.1.7",
-    "js-yaml": "^4.1.1",
     "lint-staged": "^16.2.7",
     "obuild": "^0.4.22",
     "picocolors": "^1.1.1",
@@ -111,5 +109,8 @@
   "engines": {
     "node": ">=18"
   },
-  "packageManager": "pnpm@10.17.1"
+  "packageManager": "pnpm@10.17.1",
+  "dependencies": {
+    "yaml": "^2.8.3"
+  }
 }
