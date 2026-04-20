@@ -13,6 +13,7 @@ import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track } from './telemetry.ts';
+import { isRunningInAgent } from './detect-agent.ts';
 import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
 import { readLocalLock, type LocalSkillLockEntry } from './local-lock.ts';
 import {
@@ -839,9 +840,12 @@ async function runUpdate(args: string[] = []): Promise<void> {
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
+  const inAgent = await isRunningInAgent();
 
   if (args.length === 0) {
-    showBanner();
+    if (!inAgent) {
+      showBanner();
+    }
     return;
   }
 
@@ -853,17 +857,17 @@ async function main(): Promise<void> {
     case 'search':
     case 'f':
     case 's':
-      showLogo();
+      if (!inAgent) showLogo();
       console.log();
       await runFind(restArgs);
       break;
     case 'init':
-      showLogo();
+      if (!inAgent) showLogo();
       console.log();
       runInit(restArgs);
       break;
     case 'experimental_install': {
-      showLogo();
+      if (!inAgent) showLogo();
       await runInstallFromLock(restArgs);
       break;
     }
@@ -871,7 +875,7 @@ async function main(): Promise<void> {
     case 'install':
     case 'a':
     case 'add': {
-      showLogo();
+      if (!inAgent) showLogo();
       const { source: addSource, options: addOpts } = parseAddOptions(restArgs);
       await runAdd(addSource, addOpts);
       break;
@@ -888,7 +892,7 @@ async function main(): Promise<void> {
       await removeCommand(skills, removeOptions);
       break;
     case 'experimental_sync': {
-      showLogo();
+      if (!inAgent) showLogo();
       const { options: syncOptions } = parseSyncOptions(restArgs);
       await runSync(restArgs, syncOptions);
       break;

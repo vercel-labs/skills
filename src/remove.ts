@@ -4,6 +4,7 @@ import { readdir, rm, lstat } from 'fs/promises';
 import { join } from 'path';
 import { agents, detectInstalledAgents } from './agents.ts';
 import { track } from './telemetry.ts';
+import { detectAgent } from './detect-agent.ts';
 import { removeSkillFromLock, getSkillFromLock } from './skill-lock.ts';
 import type { AgentType } from './types.ts';
 import {
@@ -21,6 +22,17 @@ export interface RemoveOptions {
 }
 
 export async function removeCommand(skillNames: string[], options: RemoveOptions) {
+  // Auto-enable non-interactive mode when running inside an AI agent
+  const agentResult = await detectAgent();
+  if (agentResult.isAgent) {
+    options.yes = true;
+    p.log.info(
+      pc.bgCyan(pc.black(pc.bold(` ${agentResult.agent.name} `))) +
+        ' ' +
+        'Agent detected — removing non-interactively'
+    );
+  }
+
   const isGlobal = options.global ?? false;
   const cwd = process.cwd();
 

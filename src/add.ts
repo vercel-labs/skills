@@ -45,6 +45,7 @@ import {
   type AuditResponse,
   type PartnerAudit,
 } from './telemetry.ts';
+import { detectAgent, getAgentType } from './detect-agent.ts';
 import { wellKnownProvider, type WellKnownSkill } from './providers/index.ts';
 import {
   addSkillToLock,
@@ -924,10 +925,31 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     options.yes = true;
   }
 
-  console.log();
-  p.intro(pc.bgCyan(pc.black(' skills ')));
+  // Auto-enable non-interactive mode when running inside an AI agent
+  const agentResult = await detectAgent();
+  if (agentResult.isAgent) {
+    options.yes = true;
+    // Auto-select the detected agent + universal agents (unless user explicitly specified agents)
+    if (!options.agent || options.agent.length === 0) {
+      const mappedAgent = getAgentType(agentResult.agent.name);
+      if (mappedAgent) {
+        options.agent = ensureUniversalAgents([mappedAgent]);
+      }
+    }
+  }
 
-  if (!process.stdin.isTTY) {
+  console.log();
+  if (!agentResult.isAgent) {
+    p.intro(pc.bgCyan(pc.black(' skills ')));
+  }
+
+  if (agentResult.isAgent) {
+    p.log.info(
+      pc.bgCyan(pc.black(pc.bold(` ${agentResult.agent.name} `))) +
+        ' ' +
+        'Agent detected — installing non-interactively'
+    );
+  } else if (!process.stdin.isTTY) {
     showInstallTip();
   }
 

@@ -2,6 +2,7 @@ import * as readline from 'readline';
 import { runAdd, parseAddOptions } from './add.ts';
 import { track } from './telemetry.ts';
 import { isRepoPrivate } from './source-parser.ts';
+import { isRunningInAgent } from './detect-agent.ts';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -304,11 +305,14 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
     return;
   }
 
-  // Interactive mode - show tip only if running non-interactively (likely in a coding agent)
-  if (isNonInteractive) {
+  // Skip interactive search when running inside an AI agent or non-TTY
+  if (isNonInteractive || (await isRunningInAgent())) {
     console.log(agentTip);
     console.log();
+    console.log(`${DIM}Usage: npx skills find <query>${RESET}`);
+    return;
   }
+
   const selected = await runSearchPrompt();
 
   // Track telemetry for interactive search

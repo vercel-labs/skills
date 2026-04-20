@@ -15,6 +15,7 @@ import { searchMultiselect } from './prompts/search-multiselect.ts';
 import { addSkillToLocalLock, computeSkillFolderHash, readLocalLock } from './local-lock.ts';
 import type { Skill, AgentType } from './types.ts';
 import { track } from './telemetry.ts';
+import { detectAgent, getAgentType } from './detect-agent.ts';
 
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
 
@@ -132,8 +133,34 @@ async function discoverNodeModuleSkills(
 export async function runSync(args: string[], options: SyncOptions = {}): Promise<void> {
   const cwd = process.cwd();
 
+  // Auto-enable non-interactive mode when running inside an AI agent
+  const agentResult = await detectAgent();
+  if (agentResult.isAgent) {
+    options.yes = true;
+    if (!options.agent || options.agent.length === 0) {
+      const mappedAgent = getAgentType(agentResult.agent.name);
+      if (mappedAgent) {
+        const agentList: AgentType[] = [mappedAgent];
+        for (const ua of getUniversalAgents()) {
+          if (!agentList.includes(ua)) agentList.push(ua);
+        }
+        options.agent = agentList;
+      }
+    }
+  }
+
   console.log();
-  p.intro(pc.bgCyan(pc.black(' skills experimental_sync ')));
+  if (!agentResult.isAgent) {
+    p.intro(pc.bgCyan(pc.black(' skills experimental_sync ')));
+  }
+
+  if (agentResult.isAgent) {
+    p.log.info(
+      pc.bgCyan(pc.black(pc.bold(` ${agentResult.agent.name} `))) +
+        ' ' +
+        'Agent detected — installing non-interactively'
+    );
+  }
 
   const spinner = p.spinner();
 

@@ -21,6 +21,9 @@ importers:
       '@types/node':
         specifier: ^22.10.0
         version: 22.19.7
+      '@vercel/detect-agent':
+        specifier: ^1.2.1
+        version: 1.2.1
       husky:
         specifier: ^9.1.7
         version: 9.1.7
@@ -496,6 +499,10 @@ packages:
 
   '@types/node@22.19.7':
     resolution: {integrity: sha512-MciR4AKGHWl7xwxkBa6xUGxQJ4VBOmPTF7sL+iGzuahOFaO0jHCsuEfS80pan1ef4gWId1oWOweIhrDEYLuaOw==}
+
+  '@vercel/detect-agent@1.2.1':
+    resolution: {integrity: sha512-U/BJCltQSTFTHwaiCQQTQG3GonTbRoEewjV+OU2mMjcHLAoPOh6CP1SXA2XNmqiqI3c82nkRNJ7piZ14RqmTXw==}
+    engines: {node: '>=14'}
 
   '@vitest/expect@4.0.18':
     resolution: {integrity: sha512-8sCWUyckXXYvx4opfzVY03EOiYVxyNrHS5QxX3DAIi5dpJAAkyJezHCP77VMX4HKA2LDT/Jpfo8i2r5BE3GnQQ==}
@@ -1322,6 +1329,8 @@ snapshots:
   '@types/node@22.19.7':
     dependencies:
       undici-types: 6.21.0
+
+  '@vercel/detect-agent@1.2.1': {}
 
   '@vitest/expect@4.0.18':
     dependencies:
