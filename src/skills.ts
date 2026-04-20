@@ -15,6 +15,27 @@ export function shouldInstallInternalSkills(): boolean {
   return envValue === '1' || envValue === 'true';
 }
 
+/**
+ * Normalize a frontmatter `tags` value into a lowercased string array.
+ * Accepts YAML array form (`tags: [a, b]`) or comma-separated string form
+ * (`tags: a, b`). Non-string items and empty values are dropped. Returns
+ * undefined if no usable tags are present (keeps Skill.tags truly optional).
+ */
+function parseTags(raw: unknown): string[] | undefined {
+  const collect = (xs: unknown[]): string[] =>
+    xs
+      .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+      .map((t) => t.trim().toLowerCase());
+
+  let tags: string[] = [];
+  if (Array.isArray(raw)) {
+    tags = collect(raw);
+  } else if (typeof raw === 'string') {
+    tags = collect(raw.split(','));
+  }
+  return tags.length > 0 ? tags : undefined;
+}
+
 async function hasSkillMd(dir: string): Promise<boolean> {
   try {
     const skillPath = join(dir, 'SKILL.md');
@@ -55,6 +76,7 @@ export async function parseSkillMd(
       description: data.description,
       path: dirname(skillMdPath),
       rawContent: content,
+      tags: parseTags(data.metadata?.tags),
       metadata: data.metadata,
     };
   } catch {
@@ -241,4 +263,14 @@ export function filterSkills(skills: Skill[], inputNames: string[]): Skill[] {
 
     return normalizedInputs.some((input) => input === name || input === displayName);
   });
+}
+
+/**
+ * Filter skills by frontmatter `tags` field (case-insensitive, OR semantics).
+ * A skill matches if any of its tags equals any of the requested tags.
+ * Skills without a `tags` field never match.
+ */
+export function filterSkillsByTag(skills: Skill[], inputTags: string[]): Skill[] {
+  const wanted = new Set(inputTags.map((t) => t.toLowerCase()));
+  return skills.filter((skill) => skill.tags?.some((t) => wanted.has(t.toLowerCase())) ?? false);
 }

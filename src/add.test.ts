@@ -389,6 +389,32 @@ describe('parseAddOptions', () => {
     expect(result.options.list).toBe(true);
     expect(result.options.global).toBe(true);
   });
+
+  it('should parse --tag with a single value', () => {
+    const result = parseAddOptions(['source', '--tag', 'python']);
+    expect(result.source).toEqual(['source']);
+    expect(result.options.tag).toEqual(['python']);
+  });
+
+  it('should parse -t short flag', () => {
+    const result = parseAddOptions(['source', '-t', 'security']);
+    expect(result.options.tag).toEqual(['security']);
+  });
+
+  it('should parse repeated --tag flags and multi-value form', () => {
+    const repeated = parseAddOptions(['source', '--tag', 'python', '--tag', 'security']);
+    expect(repeated.options.tag).toEqual(['python', 'security']);
+
+    const multi = parseAddOptions(['source', '--tag', 'python', 'security']);
+    expect(multi.options.tag).toEqual(['python', 'security']);
+  });
+
+  it('should parse --tag alongside --skill and -g', () => {
+    const result = parseAddOptions(['source', '--skill', 'foo', '--tag', 'python', '-g']);
+    expect(result.options.skill).toEqual(['foo']);
+    expect(result.options.tag).toEqual(['python']);
+    expect(result.options.global).toBe(true);
+  });
 });
 
 describe('openclaw source blocking', () => {
