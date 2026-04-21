@@ -9,6 +9,7 @@ const home = homedir();
 const configHome = xdgConfig ?? join(home, '.config');
 const codexHome = process.env.CODEX_HOME?.trim() || join(home, '.codex');
 const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude');
+const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
 
 export function getOpenClawGlobalSkillsDir(
   homeDir = home,
@@ -278,9 +279,9 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'mistral-vibe',
     displayName: 'Mistral Vibe',
     skillsDir: '.vibe/skills',
-    globalSkillsDir: join(home, '.vibe/skills'),
+    globalSkillsDir: join(vibeHome, 'skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.vibe'));
+      return existsSync(vibeHome);
     },
   },
   mux: {
