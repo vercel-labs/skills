@@ -2,6 +2,12 @@
 
 The CLI for the open agent skills ecosystem.
 
+<!-- README-I18N:START -->
+
+**English** | [简体中文](./README.zh.md)
+
+<!-- README-I18N:END -->
+
 <!-- agent-list:start -->
 
 Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [41 more](#available-agents).
