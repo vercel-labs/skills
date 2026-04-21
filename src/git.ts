@@ -29,6 +29,13 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
       // Prevent Git Credential Manager from opening interactive GUI prompts
       // that block indefinitely when git is spawned as a child process.
       GCM_INTERACTIVE: 'never',
+      // Skills are text files (HTML/MD/JSON) and never LFS-tracked. Registry
+      // repos frequently track unrelated large media (test fixtures, demos,
+      // docs videos) via LFS. Downloading those during clone adds tens or
+      // hundreds of MB of bandwidth for files the installer never reads, and
+      // is the main reason `skills add` times out against larger registries
+      // (e.g. heygen-com/hyperframes, see upstream report #300).
+      GIT_LFS_SKIP_SMUDGE: '1',
     },
   });
   const cloneOptions = ref ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
