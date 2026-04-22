@@ -26,6 +26,9 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
     env: {
       ...process.env,
       GIT_TERMINAL_PROMPT: '0',
+      // Prevent Git Credential Manager from opening interactive GUI prompts
+      // that block indefinitely when git is spawned as a child process.
+      GCM_INTERACTIVE: 'never',
       // Skills are text files (HTML/MD/JSON) and never LFS-tracked. Registry
       // repos frequently track unrelated large media (test fixtures, demos,
       // docs videos) via LFS. Downloading those during clone adds tens or

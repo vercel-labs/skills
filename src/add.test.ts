@@ -389,6 +389,32 @@ describe('parseAddOptions', () => {
     expect(result.options.list).toBe(true);
     expect(result.options.global).toBe(true);
   });
+
+  it('should parse --source-type git', () => {
+    const result = parseAddOptions(['source', '--source-type', 'git']);
+    expect(result.source).toEqual(['source']);
+    expect(result.options.sourceType).toBe('git');
+  });
+
+  it('should parse --source-type well-known', () => {
+    const result = parseAddOptions(['source', '--source-type', 'well-known']);
+    expect(result.source).toEqual(['source']);
+    expect(result.options.sourceType).toBe('well-known');
+  });
+
+  it('should ignore invalid --source-type values', () => {
+    const result = parseAddOptions(['source', '--source-type', 'invalid']);
+    expect(result.source).toEqual(['source']);
+    expect(result.options.sourceType).toBeUndefined();
+  });
+
+  it('should parse --source-type with other flags', () => {
+    const result = parseAddOptions(['source', '--source-type', 'git', '-g', '-y']);
+    expect(result.source).toEqual(['source']);
+    expect(result.options.sourceType).toBe('git');
+    expect(result.options.global).toBe(true);
+    expect(result.options.yes).toBe(true);
+  });
 });
 
 describe('openclaw source blocking', () => {
