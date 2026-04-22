@@ -41,6 +41,13 @@ function getLicenseText(pkgPath: string): string {
 function main() {
   console.log('Generating ThirdPartyNoticeText.txt...');
 
+  // Skip license generation if cwd has no package.json (e.g. when npx runs from /Users/foo with no project)
+  if (!existsSync(join(process.cwd(), 'package.json'))) {
+    console.log('No package.json in cwd — skipping license generation (npx run from non-project dir)');
+    writeFileSync('ThirdPartyNoticeText.txt', '/* No licenses generated — skipped */\n');
+    return;
+  }
+
   // Get license info from license-checker
   const output = execSync('npx license-checker --json', { encoding: 'utf-8' });
   const allLicenses: Record<string, LicenseInfo> = JSON.parse(output);
