@@ -113,6 +113,32 @@ describe('local-lock', () => {
       }
     });
 
+    it('auto-merges conflicts written with CRLF line endings', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        const conflicted = [
+          '{',
+          '  "version": 1,',
+          '  "skills": {',
+          '<<<<<<< HEAD',
+          '    "skill-a": { "source": "org/a", "sourceType": "github", "computedHash": "aaa" }',
+          '=======',
+          '    "skill-b": { "source": "org/b", "sourceType": "github", "computedHash": "bbb" }',
+          '>>>>>>> feature',
+          '  }',
+          '}',
+        ].join('\r\n');
+        await writeFile(join(dir, 'skills-lock.json'), conflicted, 'utf-8');
+
+        const lock = await readLocalLock(dir);
+        expect(Object.keys(lock.skills).sort()).toEqual(['skill-a', 'skill-b']);
+        expect(lock.skills['skill-a']!.computedHash).toBe('aaa');
+        expect(lock.skills['skill-b']!.computedHash).toBe('bbb');
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
     it('on same-skill collision, theirs (incoming) wins', async () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
@@ -476,6 +502,31 @@ describe('local-lock', () => {
       try {
         const resolved = await resolveLocalLockConflicts(dir);
         expect(resolved).toBe(false);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('leaves the file untouched when only one side parses (no silent data loss)', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        const conflicted = `{
+  "version": 1,
+  "skills": {
+<<<<<<< HEAD
+    "skill-a": { "source": "org/a", "sourceType": "github", "computedHash": "aaa" }
+=======
+    this side is truly corrupt and not JSON at all
+>>>>>>> feature
+  }
+}`;
+        await writeFile(join(dir, 'skills-lock.json'), conflicted, 'utf-8');
+
+        const resolved = await resolveLocalLockConflicts(dir);
+        expect(resolved).toBe(false);
+
+        const raw = await readFile(join(dir, 'skills-lock.json'), 'utf-8');
+        expect(raw).toBe(conflicted);
       } finally {
         await rm(dir, { recursive: true, force: true });
       }

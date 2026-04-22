@@ -78,39 +78,44 @@ export async function readLocalLock(cwd?: string): Promise<LocalSkillLockFile> {
   return parsed;
 }
 
+function tryParseLockJson(text: string): LocalSkillLockFile | null {
+  try {
+    const obj = JSON.parse(text) as LocalSkillLockFile;
+    if (typeof obj.version !== 'number' || !obj.skills) return null;
+    return obj;
+  } catch {
+    return null;
+  }
+}
+
+function mergeLocks(a: LocalSkillLockFile, b: LocalSkillLockFile): LocalSkillLockFile {
+  // Union skills; on collision, "theirs" (incoming / `b`) wins. `skills update`
+  // refreshes whichever entry survives, so the tiebreaker is transient.
+  return {
+    version: Math.max(a.version, b.version),
+    skills: { ...a.skills, ...b.skills },
+  };
+}
+
 /**
  * Parse lock file text, auto-resolving git merge conflict markers if present.
- * Returns null if the content cannot be parsed into a valid lock structure.
+ * Lenient: returns whatever can be recovered — both sides unioned when both
+ * parse, or a single side when only one parses. Returns null only when no
+ * valid lock can be reconstructed.
  */
 export function parseLocalLockContent(content: string): LocalSkillLockFile | null {
-  const tryParse = (text: string): LocalSkillLockFile | null => {
-    try {
-      const obj = JSON.parse(text) as LocalSkillLockFile;
-      if (typeof obj.version !== 'number' || !obj.skills) return null;
-      return obj;
-    } catch {
-      return null;
-    }
-  };
-
-  const direct = tryParse(content);
+  const direct = tryParseLockJson(content);
   if (direct) return direct;
 
   const sides = splitConflictSides(content);
   if (!sides) return null;
 
   const [ours, theirs] = sides;
-  const oursParsed = tryParse(ours);
-  const theirsParsed = tryParse(theirs);
+  const oursParsed = tryParseLockJson(ours);
+  const theirsParsed = tryParseLockJson(theirs);
   if (!oursParsed) return theirsParsed;
   if (!theirsParsed) return oursParsed;
-
-  // Union skills; on collision, "theirs" (incoming) wins. `skills update` will
-  // refresh whichever survives, so the tiebreaker mostly affects transient state.
-  return {
-    version: Math.max(oursParsed.version, theirsParsed.version),
-    skills: { ...oursParsed.skills, ...theirsParsed.skills },
-  };
+  return mergeLocks(oursParsed, theirsParsed);
 }
 
 /**
@@ -127,7 +132,9 @@ function splitConflictSides(content: string): [string, string] | null {
   type State = 'common' | 'ours' | 'ancestor' | 'theirs';
   let state: State = 'common';
 
-  for (const line of content.split('\n')) {
+  // Split on either LF or CRLF so marker lines still match their anchored
+  // regexes on Windows repos where git writes conflict markers with \r\n.
+  for (const line of content.split(/\r?\n/)) {
     if (/^<{7}( |$)/.test(line)) {
       state = 'ours';
       continue;
@@ -159,8 +166,14 @@ function splitConflictSides(content: string): [string, string] | null {
 
 /**
  * Detect and resolve merge conflicts in the local lock file on disk.
- * If conflicts were present and successfully merged, writes the resolved
- * lock back to disk and returns true. Otherwise returns false.
+ *
+ * Strict: only rewrites the file when BOTH sides of the conflict parse into
+ * valid lock structures and are unioned. If only one side parses (the other
+ * is truly corrupt), the conflicted file is left on disk so the user can see
+ * there's an issue rather than silently having one side's entries dropped.
+ * `readLocalLock` callers still get the partial recovery in memory.
+ *
+ * Returns true iff a union was produced and persisted.
  */
 export async function resolveLocalLockConflicts(cwd?: string): Promise<boolean> {
   const lockPath = getLocalLockPath(cwd);
@@ -171,12 +184,15 @@ export async function resolveLocalLockConflicts(cwd?: string): Promise<boolean> 
     return false;
   }
 
-  if (!CONFLICT_START_MARKER.test(content)) return false;
+  const sides = splitConflictSides(content);
+  if (!sides) return false;
 
-  const parsed = parseLocalLockContent(content);
-  if (!parsed) return false;
+  const [ours, theirs] = sides;
+  const oursParsed = tryParseLockJson(ours);
+  const theirsParsed = tryParseLockJson(theirs);
+  if (!oursParsed || !theirsParsed) return false;
 
-  await writeLocalLock(parsed, cwd);
+  await writeLocalLock(mergeLocks(oursParsed, theirsParsed), cwd);
   return true;
 }
 
