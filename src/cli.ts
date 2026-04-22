@@ -748,7 +748,8 @@ async function updateProjectSkills(
     }
 
     // Re-clone without -g to install at project scope
-    const result = spawnSync(process.execPath, [cliEntry, 'add', installUrl, '-y'], {
+    // Pass --skill to scope the install to just the requested skill (not the whole source repo)
+    const result = spawnSync(process.execPath, [cliEntry, 'add', installUrl, '--skill', skill.name, '-y'], {
       stdio: ['inherit', 'pipe', 'pipe'],
       encoding: 'utf-8',
       shell: process.platform === 'win32',
