@@ -262,9 +262,7 @@ function getOwnerRepoFromString(pkg: string): { owner: string; repo: string } | 
 
 async function isRepoPublic(owner: string, repo: string): Promise<boolean> {
   const isPrivate = await isRepoPrivate(owner, repo);
-  // Return true only if we know it's public (isPrivate === false)
-  // Return false if private or unable to determine
-  return isPrivate === false;
+  return !isPrivate;
 }
 
 export async function runFind(args: string[]): Promise<void> {

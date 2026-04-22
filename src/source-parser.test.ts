@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { parseSource } from './source-parser.js';
+import { describe, it, expect, vi } from 'vitest';
+import { parseSource, isRepoPrivate } from './source-parser.js';
 
 describe('source-parser', () => {
   describe('GitLab Custom Domains & Subgroups', () => {
@@ -69,6 +69,50 @@ describe('source-parser', () => {
         type: 'gitlab',
         url: 'https://gitlab.com/owner/repo.git',
       });
+    });
+  });
+
+  describe('isRepoPrivate', () => {
+    it('returns false for a confirmed public repo', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve({ private: false }),
+        })
+      );
+      expect(await isRepoPrivate('vercel', 'next.js')).toBe(false);
+      vi.unstubAllGlobals();
+    });
+
+    it('returns true for a confirmed private repo', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve({ private: true }),
+        })
+      );
+      expect(await isRepoPrivate('owner', 'private-repo')).toBe(true);
+      vi.unstubAllGlobals();
+    });
+
+    it('defaults to true when API returns non-OK status', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 404,
+        })
+      );
+      expect(await isRepoPrivate('owner', 'nonexistent')).toBe(true);
+      vi.unstubAllGlobals();
+    });
+
+    it('defaults to true when fetch throws', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network error')));
+      expect(await isRepoPrivate('owner', 'repo')).toBe(true);
+      vi.unstubAllGlobals();
     });
   });
 
