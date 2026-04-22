@@ -3,6 +3,7 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 import { xdgConfig } from 'xdg-basedir';
 import type { AgentConfig, AgentType } from './types.ts';
+import { UNIVERSAL_SKILLS_DIR } from './constants.ts';
 
 const home = homedir();
 // Use xdg-basedir (not env-paths) to match OpenCode/Amp/Goose behavior on all platforms.
@@ -477,7 +478,14 @@ export function getNonUniversalAgents(): AgentType[] {
 
 /**
  * Check if an agent uses the universal .agents/skills directory.
+ * When isGlobal is true, checks globalSkillsDir against the canonical global path.
+ * This matters because some agents (e.g. Cursor) are universal at project level
+ * but have a distinct globalSkillsDir (e.g. ~/.cursor/skills).
  */
-export function isUniversalAgent(type: AgentType): boolean {
-  return agents[type].skillsDir === '.agents/skills';
+export function isUniversalAgent(type: AgentType, isGlobal?: boolean): boolean {
+  const agent = agents[type];
+  if (isGlobal) {
+    return agent.globalSkillsDir === join(home, UNIVERSAL_SKILLS_DIR);
+  }
+  return agent.skillsDir === UNIVERSAL_SKILLS_DIR;
 }
