@@ -1,5 +1,13 @@
-const TELEMETRY_URL = 'https://add-skill.vercel.sh/t';
+const DEFAULT_TELEMETRY_URL = 'https://add-skill.vercel.sh/t';
 const AUDIT_URL = 'https://add-skill.vercel.sh/audit';
+
+function getTelemetryUrl(): string {
+  return (
+    process.env.SKILLS_TELEMETRY_URL ||
+    process.env.npm_config_skills_telemetry_url ||
+    DEFAULT_TELEMETRY_URL
+  );
+}
 
 interface InstallTelemetryData {
   event: 'install';
@@ -146,7 +154,7 @@ export function track(data: TelemetryData): void {
     }
 
     // Fire and forget - don't await, silently ignore errors
-    fetch(`${TELEMETRY_URL}?${params.toString()}`).catch(() => {});
+    fetch(`${getTelemetryUrl()}?${params.toString()}`).catch(() => {});
   } catch {
     // Silently fail - telemetry should never break the CLI
   }
