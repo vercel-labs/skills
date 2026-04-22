@@ -9,6 +9,7 @@ import {
   removeSkillFromLocalLock,
   computeSkillFolderHash,
   getLocalLockPath,
+  resolveLocalLockConflicts,
 } from '../src/local-lock.ts';
 
 describe('local-lock', () => {
@@ -62,7 +63,7 @@ describe('local-lock', () => {
       }
     });
 
-    it('returns empty lock for corrupted JSON (merge conflict markers)', async () => {
+    it('auto-merges skills-lock.json with git conflict markers (union of both sides)', async () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
         const conflicted = `{
@@ -78,7 +79,57 @@ describe('local-lock', () => {
         await writeFile(join(dir, 'skills-lock.json'), conflicted, 'utf-8');
 
         const lock = await readLocalLock(dir);
-        expect(lock).toEqual({ version: 1, skills: {} });
+        expect(lock.version).toBe(1);
+        expect(Object.keys(lock.skills).sort()).toEqual(['skill-a', 'skill-b']);
+        expect(lock.skills['skill-a']!.computedHash).toBe('aaa');
+        expect(lock.skills['skill-b']!.computedHash).toBe('bbb');
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('auto-merges diff3-style conflict markers (ancestor block is ignored)', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        const conflicted = `{
+  "version": 1,
+  "skills": {
+<<<<<<< HEAD
+    "skill-a": { "source": "org/a", "sourceType": "github", "computedHash": "aaa" }
+||||||| merged common ancestors
+    "skill-old": { "source": "org/old", "sourceType": "github", "computedHash": "ooo" }
+=======
+    "skill-b": { "source": "org/b", "sourceType": "github", "computedHash": "bbb" }
+>>>>>>> feature
+  }
+}`;
+        await writeFile(join(dir, 'skills-lock.json'), conflicted, 'utf-8');
+
+        const lock = await readLocalLock(dir);
+        expect(Object.keys(lock.skills).sort()).toEqual(['skill-a', 'skill-b']);
+        expect(lock.skills['skill-old']).toBeUndefined();
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('on same-skill collision, theirs (incoming) wins', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        const conflicted = `{
+  "version": 1,
+  "skills": {
+<<<<<<< HEAD
+    "shared": { "source": "org/x", "sourceType": "github", "computedHash": "ours" }
+=======
+    "shared": { "source": "org/x", "sourceType": "github", "computedHash": "theirs" }
+>>>>>>> feature
+  }
+}`;
+        await writeFile(join(dir, 'skills-lock.json'), conflicted, 'utf-8');
+
+        const lock = await readLocalLock(dir);
+        expect(lock.skills['shared']!.computedHash).toBe('theirs');
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
@@ -372,6 +423,59 @@ describe('local-lock', () => {
 
         const hash2 = await computeSkillFolderHash(skillDir);
         expect(hash1).toBe(hash2);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('resolveLocalLockConflicts', () => {
+    it('rewrites skills-lock.json without conflict markers and returns true', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        const conflicted = `{
+  "version": 1,
+  "skills": {
+<<<<<<< HEAD
+    "skill-a": { "source": "org/a", "sourceType": "github", "computedHash": "aaa" }
+=======
+    "skill-b": { "source": "org/b", "sourceType": "github", "computedHash": "bbb" }
+>>>>>>> feature
+  }
+}`;
+        await writeFile(join(dir, 'skills-lock.json'), conflicted, 'utf-8');
+
+        const resolved = await resolveLocalLockConflicts(dir);
+        expect(resolved).toBe(true);
+
+        const raw = await readFile(join(dir, 'skills-lock.json'), 'utf-8');
+        expect(raw).not.toContain('<<<<<<<');
+        expect(raw).not.toContain('=======');
+        expect(raw).not.toContain('>>>>>>>');
+
+        const parsed = JSON.parse(raw);
+        expect(Object.keys(parsed.skills).sort()).toEqual(['skill-a', 'skill-b']);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('returns false when there are no conflict markers', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await writeFile(join(dir, 'skills-lock.json'), '{"version":1,"skills":{}}', 'utf-8');
+        const resolved = await resolveLocalLockConflicts(dir);
+        expect(resolved).toBe(false);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('returns false when the lock file does not exist', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        const resolved = await resolveLocalLockConflicts(dir);
+        expect(resolved).toBe(false);
       } finally {
         await rm(dir, { recursive: true, force: true });
       }

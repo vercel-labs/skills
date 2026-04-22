@@ -4,6 +4,7 @@ import { createHash } from 'crypto';
 
 const LOCAL_LOCK_FILE = 'skills-lock.json';
 const CURRENT_VERSION = 1;
+const CONFLICT_START_MARKER = /^<{7}( |$)/m;
 
 /**
  * Represents a single skill entry in the local (project) lock file.
@@ -50,28 +51,133 @@ export function getLocalLockPath(cwd?: string): string {
 
 /**
  * Read the local skill lock file.
- * Returns an empty lock file structure if the file doesn't exist
- * or is corrupted (e.g., merge conflict markers).
+ *
+ * If the file contains git merge conflict markers (`<<<<<<<`, `=======`,
+ * `>>>>>>>`), each side is parsed independently and the `skills` maps are
+ * unioned — the "theirs" side wins on key collision. This mirrors the way
+ * `yarn install` heals `yarn.lock` conflicts, which is safe here because the
+ * lock format is intentionally timestamp-free and alphabetically sorted, so
+ * two branches adding different skills only ever conflict on JSON syntax.
+ *
+ * Returns an empty lock file structure if the file doesn't exist or cannot
+ * be parsed even after conflict resolution.
  */
 export async function readLocalLock(cwd?: string): Promise<LocalSkillLockFile> {
   const lockPath = getLocalLockPath(cwd);
 
+  let content: string;
   try {
-    const content = await readFile(lockPath, 'utf-8');
-    const parsed = JSON.parse(content) as LocalSkillLockFile;
-
-    if (typeof parsed.version !== 'number' || !parsed.skills) {
-      return createEmptyLocalLock();
-    }
-
-    if (parsed.version < CURRENT_VERSION) {
-      return createEmptyLocalLock();
-    }
-
-    return parsed;
+    content = await readFile(lockPath, 'utf-8');
   } catch {
     return createEmptyLocalLock();
   }
+
+  const parsed = parseLocalLockContent(content);
+  if (!parsed) return createEmptyLocalLock();
+  if (parsed.version < CURRENT_VERSION) return createEmptyLocalLock();
+  return parsed;
+}
+
+/**
+ * Parse lock file text, auto-resolving git merge conflict markers if present.
+ * Returns null if the content cannot be parsed into a valid lock structure.
+ */
+export function parseLocalLockContent(content: string): LocalSkillLockFile | null {
+  const tryParse = (text: string): LocalSkillLockFile | null => {
+    try {
+      const obj = JSON.parse(text) as LocalSkillLockFile;
+      if (typeof obj.version !== 'number' || !obj.skills) return null;
+      return obj;
+    } catch {
+      return null;
+    }
+  };
+
+  const direct = tryParse(content);
+  if (direct) return direct;
+
+  const sides = splitConflictSides(content);
+  if (!sides) return null;
+
+  const [ours, theirs] = sides;
+  const oursParsed = tryParse(ours);
+  const theirsParsed = tryParse(theirs);
+  if (!oursParsed) return theirsParsed;
+  if (!theirsParsed) return oursParsed;
+
+  // Union skills; on collision, "theirs" (incoming) wins. `skills update` will
+  // refresh whichever survives, so the tiebreaker mostly affects transient state.
+  return {
+    version: Math.max(oursParsed.version, theirsParsed.version),
+    skills: { ...oursParsed.skills, ...theirsParsed.skills },
+  };
+}
+
+/**
+ * If `content` contains git conflict markers, return [oursText, theirsText]
+ * with each side's JSON reconstructed. Returns null when no markers are found.
+ * Handles both default and diff3 styles (the latter inserts a `|||||||`
+ * ancestor block, which is ignored).
+ */
+function splitConflictSides(content: string): [string, string] | null {
+  if (!CONFLICT_START_MARKER.test(content)) return null;
+
+  const ours: string[] = [];
+  const theirs: string[] = [];
+  type State = 'common' | 'ours' | 'ancestor' | 'theirs';
+  let state: State = 'common';
+
+  for (const line of content.split('\n')) {
+    if (/^<{7}( |$)/.test(line)) {
+      state = 'ours';
+      continue;
+    }
+    if (/^\|{7}( |$)/.test(line)) {
+      state = 'ancestor';
+      continue;
+    }
+    if (/^={7}$/.test(line)) {
+      state = 'theirs';
+      continue;
+    }
+    if (/^>{7}( |$)/.test(line)) {
+      state = 'common';
+      continue;
+    }
+    if (state === 'common') {
+      ours.push(line);
+      theirs.push(line);
+    } else if (state === 'ours') {
+      ours.push(line);
+    } else if (state === 'theirs') {
+      theirs.push(line);
+    }
+  }
+
+  return [ours.join('\n'), theirs.join('\n')];
+}
+
+/**
+ * Detect and resolve merge conflicts in the local lock file on disk.
+ * If conflicts were present and successfully merged, writes the resolved
+ * lock back to disk and returns true. Otherwise returns false.
+ */
+export async function resolveLocalLockConflicts(cwd?: string): Promise<boolean> {
+  const lockPath = getLocalLockPath(cwd);
+  let content: string;
+  try {
+    content = await readFile(lockPath, 'utf-8');
+  } catch {
+    return false;
+  }
+
+  if (!CONFLICT_START_MARKER.test(content)) return false;
+
+  const parsed = parseLocalLockContent(content);
+  if (!parsed) return false;
+
+  await writeLocalLock(parsed, cwd);
+  return true;
 }
 
 /**

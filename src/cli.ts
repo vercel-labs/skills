@@ -15,7 +15,11 @@ import { sanitizeMetadata } from './sanitize.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track } from './telemetry.ts';
 import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
-import { readLocalLock, type LocalSkillLockEntry } from './local-lock.ts';
+import {
+  readLocalLock,
+  resolveLocalLockConflicts,
+  type LocalSkillLockEntry,
+} from './local-lock.ts';
 import {
   buildUpdateInstallSource,
   buildLocalUpdateSource,
@@ -773,6 +777,19 @@ async function updateProjectSkills(
 async function runUpdate(args: string[] = []): Promise<void> {
   const options = parseUpdateOptions(args);
   const scope = await resolveUpdateScope(options);
+
+  // Yarn-install-style auto-heal: if skills-lock.json has merge conflict
+  // markers from a branch merge/rebase, resolve them by unioning entries from
+  // both sides and writing the cleaned lock back.
+  if (scope === 'project' || scope === 'both') {
+    try {
+      if (await resolveLocalLockConflicts()) {
+        console.log(`${TEXT}✓ Auto-resolved merge conflicts in skills-lock.json${RESET}`);
+      }
+    } catch {
+      // Non-fatal: fall through to normal update flow.
+    }
+  }
 
   if (options.skills) {
     console.log(`${TEXT}Updating ${options.skills.join(', ')}...${RESET}`);
