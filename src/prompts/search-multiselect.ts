@@ -1,6 +1,7 @@
 import * as readline from 'readline';
 import { Writable } from 'stream';
 import pc from 'picocolors';
+import * as p from '@clack/prompts';
 
 // Silent writable stream to prevent readline from echoing input
 const silentOutput = new Writable({
@@ -21,6 +22,8 @@ export interface LockedSection<T> {
 }
 
 export interface SearchMultiselectOptions<T> {
+  /** Stable id used in agent mode (delegates to clack's multiselect). */
+  id?: string;
   message: string;
   items: SearchItem<T>[];
   maxVisible?: number;
@@ -59,6 +62,31 @@ export async function searchMultiselect<T>(
     required = false,
     lockedSection,
   } = options;
+
+  // Agent mode: the raw-readline loop below never gets keypresses, so hand off
+  // to clack's multiselect (which speaks the JSON + session-file protocol).
+  // Locked items are always included; we only ask about the non-locked ones.
+  if (p.isAgent()) {
+    const lockedValues = lockedSection ? lockedSection.items.map((i) => i.value) : [];
+    const askItems = items.filter((i) => !lockedValues.includes(i.value));
+    const initialValues = initialSelected.filter((v) => !lockedValues.includes(v));
+
+    if (askItems.length === 0) return lockedValues;
+
+    const result = await p.multiselect({
+      id: options.id,
+      message,
+      options: askItems.map((i) => ({
+        value: i.value,
+        label: i.label,
+        hint: i.hint,
+      })) as p.Option<T>[],
+      initialValues,
+      required: required && lockedValues.length === 0,
+    });
+    if (p.isCancel(result)) return result;
+    return [...lockedValues, ...(result as T[])];
+  }
 
   return new Promise((resolve) => {
     const rl = readline.createInterface({

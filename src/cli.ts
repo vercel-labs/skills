@@ -437,12 +437,13 @@ async function resolveUpdateScope(options: UpdateCheckOptions): Promise<UpdateSc
   }
 
   // Non-interactive auto-detection
-  if (options.yes || !process.stdin.isTTY) {
+  if (options.yes || (!process.stdin.isTTY && !p.isAgent())) {
     return hasProjectSkills() ? 'project' : 'global';
   }
 
   // Interactive prompt
   const scope = await p.select({
+    id: 'update-scope',
     message: 'Update scope',
     options: [
       {

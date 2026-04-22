@@ -283,6 +283,7 @@ function buildResultLines(
  * Accepts options with required labels (matching our usage pattern).
  */
 function multiselect<Value>(opts: {
+  id?: string;
   message: string;
   options: Array<{ value: Value; label: string; hint?: string }>;
   initialValues?: Value[];
@@ -332,6 +333,7 @@ export async function promptForAgents(
   }
 
   const selected = await searchMultiselect({
+    id: 'agents-select',
     message,
     items: choices,
     initialSelected: initialValues,
@@ -394,6 +396,7 @@ async function selectAgentsInteractive(options: {
     : [];
 
   const selected = await searchMultiselect({
+    id: 'agents-select',
     message: 'Which agents do you want to install to?',
     items: otherChoices,
     initialSelected,
@@ -512,13 +515,17 @@ async function handleWellKnownSkills(
     p.log.info(`Installing all ${skills.length} skills`);
   } else {
     // Prompt user to select skills
+    // Use installName as value (lightweight string) so the agent-mode session
+    // file doesn't balloon with the full skill object (rawContent, metadata, …).
+    const skillByName = new Map(skills.map((s) => [s.installName, s]));
     const skillChoices = skills.map((s) => ({
-      value: s,
+      value: s.installName,
       label: s.installName,
       hint: s.description.length > 60 ? s.description.slice(0, 57) + '...' : s.description,
     }));
 
     const selected = await multiselect({
+      id: 'select-skills',
       message: 'Select skills to install',
       options: skillChoices,
       required: true,
@@ -529,7 +536,7 @@ async function handleWellKnownSkills(
       process.exit(0);
     }
 
-    selectedSkills = selected as WellKnownSkill[];
+    selectedSkills = (selected as string[]).map((name) => skillByName.get(name)!);
   }
 
   // Detect agents
@@ -611,6 +618,7 @@ async function handleWellKnownSkills(
 
   if (options.global === undefined && !options.yes && supportsGlobal) {
     const scope = await p.select({
+      id: 'install-scope',
       message: 'Installation scope',
       options: [
         {
@@ -643,6 +651,7 @@ async function handleWellKnownSkills(
 
   if (!options.copy && !options.yes && uniqueDirs.size > 1) {
     const modeChoice = await p.select({
+      id: 'install-mode',
       message: 'Installation method',
       options: [
         {
@@ -714,7 +723,10 @@ async function handleWellKnownSkills(
   p.note(summaryLines.join('\n'), 'Installation Summary');
 
   if (!options.yes) {
-    const confirmed = await p.confirm({ message: 'Proceed with installation?' });
+    const confirmed = await p.confirm({
+      id: 'confirm-install',
+      message: 'Proceed with installation?',
+    });
 
     if (p.isCancel(confirmed) || !confirmed) {
       p.cancel('Installation cancelled');
@@ -724,7 +736,7 @@ async function handleWellKnownSkills(
 
   spinner.start('Installing skills...');
 
-  const results: {
+  type InstallResult = {
     skill: string;
     agent: string;
     success: boolean;
@@ -733,21 +745,25 @@ async function handleWellKnownSkills(
     mode: InstallMode;
     symlinkFailed?: boolean;
     error?: string;
-  }[] = [];
+  };
 
-  for (const skill of selectedSkills) {
-    for (const agent of targetAgents) {
-      const result = await installWellKnownSkillForAgent(skill, agent, {
-        global: installGlobally,
-        mode: installMode,
-      });
-      results.push({
-        skill: skill.installName,
-        agent: agents[agent].displayName,
-        ...result,
-      });
+  const results = await p.once('install-results', async () => {
+    const acc: InstallResult[] = [];
+    for (const skill of selectedSkills) {
+      for (const agent of targetAgents) {
+        const result = await installWellKnownSkillForAgent(skill, agent, {
+          global: installGlobally,
+          mode: installMode,
+        });
+        acc.push({
+          skill: skill.installName,
+          agent: agents[agent].displayName,
+          ...result,
+        });
+      }
     }
-  }
+    return acc;
+  });
 
   spinner.stop('Installation complete');
 
@@ -779,51 +795,54 @@ async function handleWellKnownSkills(
     });
   }
 
-  // Add to skill lock file for update tracking (only for global installs)
-  if (successful.length > 0 && installGlobally) {
-    const successfulSkillNames = new Set(successful.map((r) => r.skill));
-    for (const skill of selectedSkills) {
-      if (successfulSkillNames.has(skill.installName)) {
-        try {
-          await addSkillToLock(skill.installName, {
-            source: sourceIdentifier,
-            sourceType: 'well-known',
-            sourceUrl: skill.sourceUrl,
-            skillFolderHash: '', // Well-known skills don't have a folder hash
-          });
-        } catch {
-          // Don't fail installation if lock file update fails
-        }
-      }
-    }
-  }
-
-  // Add to local lock file for project-scoped installs
-  if (successful.length > 0 && !installGlobally) {
-    const successfulSkillNames = new Set(successful.map((r) => r.skill));
-    for (const skill of selectedSkills) {
-      if (successfulSkillNames.has(skill.installName)) {
-        try {
-          const matchingResult = successful.find((r) => r.skill === skill.installName);
-          const installDir = matchingResult?.canonicalPath || matchingResult?.path;
-          if (installDir) {
-            const computedHash = await computeSkillFolderHash(installDir);
-            await addSkillToLocalLock(
-              skill.installName,
-              {
-                source: sourceIdentifier,
-                sourceType: 'well-known',
-                computedHash,
-              },
-              cwd
-            );
+  await p.once('install-lockfile', async () => {
+    // Add to skill lock file for update tracking (only for global installs)
+    if (successful.length > 0 && installGlobally) {
+      const successfulSkillNames = new Set(successful.map((r) => r.skill));
+      for (const skill of selectedSkills) {
+        if (successfulSkillNames.has(skill.installName)) {
+          try {
+            await addSkillToLock(skill.installName, {
+              source: sourceIdentifier,
+              sourceType: 'well-known',
+              sourceUrl: skill.sourceUrl,
+              skillFolderHash: '', // Well-known skills don't have a folder hash
+            });
+          } catch {
+            // Don't fail installation if lock file update fails
           }
-        } catch {
-          // Don't fail installation if lock file update fails
         }
       }
     }
-  }
+
+    // Add to local lock file for project-scoped installs
+    if (successful.length > 0 && !installGlobally) {
+      const successfulSkillNames = new Set(successful.map((r) => r.skill));
+      for (const skill of selectedSkills) {
+        if (successfulSkillNames.has(skill.installName)) {
+          try {
+            const matchingResult = successful.find((r) => r.skill === skill.installName);
+            const installDir = matchingResult?.canonicalPath || matchingResult?.path;
+            if (installDir) {
+              const computedHash = await computeSkillFolderHash(installDir);
+              await addSkillToLocalLock(
+                skill.installName,
+                {
+                  source: sourceIdentifier,
+                  sourceType: 'well-known',
+                  computedHash,
+                },
+                cwd
+              );
+            }
+          } catch {
+            // Don't fail installation if lock file update fails
+          }
+        }
+      }
+    }
+    return true;
+  });
 
   if (successful.length > 0) {
     const bySkill = new Map<string, typeof results>();
@@ -928,7 +947,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
   console.log();
   p.intro(pc.bgCyan(pc.black(' skills ')));
 
-  if (!process.stdin.isTTY) {
+  if (!process.stdin.isTTY && !p.isAgent()) {
     showInstallTip();
   }
 
@@ -1027,7 +1046,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       } else {
         // Blob failed — fall back to git clone
         spinner.start('Cloning repository...');
-        tempDir = await cloneRepo(parsed.url, parsed.ref);
+        tempDir = await p.once('clone', () => cloneRepo(parsed.url, parsed.ref));
         spinner.stop('Repository cloned');
 
         spinner.start('Discovering skills...');
@@ -1156,7 +1175,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       // Check if any skills have plugin grouping
       const hasGroups = sortedSkills.some((s) => s.pluginName);
 
-      let selected: Skill[] | symbol;
+      // Use a short string key as the option value so the agent-mode session
+      // file doesn't serialize full Skill objects (rawContent, metadata, …).
+      const skillKey = (s: Skill): string =>
+        s.pluginName ? `${s.pluginName}/${getSkillDisplayName(s)}` : getSkillDisplayName(s);
+      const skillByKey = new Map(sortedSkills.map((s) => [skillKey(s), s]));
+
+      let selected: string[] | symbol;
 
       if (hasGroups) {
         // Build grouped options for groupMultiselect
@@ -1166,30 +1191,32 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
             .join(' ');
 
-        const grouped: Record<string, p.Option<Skill>[]> = {};
+        const grouped: Record<string, p.Option<string>[]> = {};
         for (const s of sortedSkills) {
           const groupName = s.pluginName ? kebabToTitle(s.pluginName) : 'Other';
           if (!grouped[groupName]) grouped[groupName] = [];
           grouped[groupName]!.push({
-            value: s,
+            value: skillKey(s),
             label: getSkillDisplayName(s),
             hint: s.description.length > 60 ? s.description.slice(0, 57) + '...' : s.description,
           });
         }
 
         selected = await p.groupMultiselect({
+          id: 'select-skills',
           message: `Select skills to install ${pc.dim('(space to toggle)')}`,
           options: grouped,
           required: true,
         });
       } else {
         const skillChoices = sortedSkills.map((s) => ({
-          value: s,
+          value: skillKey(s),
           label: getSkillDisplayName(s),
           hint: s.description.length > 60 ? s.description.slice(0, 57) + '...' : s.description,
         }));
 
         selected = await multiselect({
+          id: 'select-skills',
           message: 'Select skills to install',
           options: skillChoices,
           required: true,
@@ -1202,7 +1229,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         process.exit(0);
       }
 
-      selectedSkills = selected as Skill[];
+      selectedSkills = (selected as string[]).map((key) => skillByKey.get(key)!);
     }
 
     // Kick off security audit fetch early (non-blocking) so it runs
@@ -1296,6 +1323,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     if (options.global === undefined && !options.yes && supportsGlobal) {
       const scope = await p.select({
+        id: 'install-scope',
         message: 'Installation scope',
         options: [
           {
@@ -1329,6 +1357,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     if (!options.copy && !options.yes && uniqueDirs.size > 1) {
       const modeChoice = await p.select({
+        id: 'install-mode',
         message: 'Installation method',
         options: [
           {
@@ -1458,7 +1487,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     if (!options.yes) {
-      const confirmed = await p.confirm({ message: 'Proceed with installation?' });
+      const confirmed = await p.confirm({
+        id: 'confirm-install',
+        message: 'Proceed with installation?',
+      });
 
       if (p.isCancel(confirmed) || !confirmed) {
         p.cancel('Installation cancelled');
@@ -1469,7 +1501,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     spinner.start('Installing skills...');
 
-    const results: {
+    type InstallResult = {
       skill: string;
       agent: string;
       success: boolean;
@@ -1479,34 +1511,38 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       symlinkFailed?: boolean;
       error?: string;
       pluginName?: string;
-    }[] = [];
+    };
 
-    for (const skill of selectedSkills) {
-      for (const agent of targetAgents) {
-        let result;
-        if (blobResult && 'files' in skill) {
-          // Blob-based install: write files from snapshot
-          const blobSkill = skill as BlobSkill;
-          result = await installBlobSkillForAgent(
-            { installName: blobSkill.name, files: blobSkill.files },
-            agent,
-            { global: installGlobally, mode: installMode }
-          );
-        } else {
-          // Disk-based install: copy from cloned/local directory
-          result = await installSkillForAgent(skill, agent, {
-            global: installGlobally,
-            mode: installMode,
+    const results = await p.once('install-results', async () => {
+      const acc: InstallResult[] = [];
+      for (const skill of selectedSkills) {
+        for (const agent of targetAgents) {
+          let result;
+          if (blobResult && 'files' in skill) {
+            // Blob-based install: write files from snapshot
+            const blobSkill = skill as BlobSkill;
+            result = await installBlobSkillForAgent(
+              { installName: blobSkill.name, files: blobSkill.files },
+              agent,
+              { global: installGlobally, mode: installMode }
+            );
+          } else {
+            // Disk-based install: copy from cloned/local directory
+            result = await installSkillForAgent(skill, agent, {
+              global: installGlobally,
+              mode: installMode,
+            });
+          }
+          acc.push({
+            skill: getSkillDisplayName(skill),
+            agent: agents[agent].displayName,
+            pluginName: skill.pluginName,
+            ...result,
           });
         }
-        results.push({
-          skill: getSkillDisplayName(skill),
-          agent: agents[agent].displayName,
-          pluginName: skill.pluginName,
-          ...result,
-        });
       }
-    }
+      return acc;
+    });
 
     spinner.stop('Installation complete');
 
@@ -1578,76 +1614,79 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
-    // Add to skill lock file for update tracking (only for global installs)
-    if (successful.length > 0 && installGlobally && normalizedSource) {
-      const successfulSkillNames = new Set(successful.map((r) => r.skill));
-      for (const skill of selectedSkills) {
-        const skillDisplayName = getSkillDisplayName(skill);
-        if (successfulSkillNames.has(skillDisplayName)) {
-          try {
-            let skillFolderHash = '';
-            const skillPathValue = skillFiles[skill.name];
+    await p.once('install-lockfile', async () => {
+      // Add to skill lock file for update tracking (only for global installs)
+      if (successful.length > 0 && installGlobally && normalizedSource) {
+        const successfulSkillNames = new Set(successful.map((r) => r.skill));
+        for (const skill of selectedSkills) {
+          const skillDisplayName = getSkillDisplayName(skill);
+          if (successfulSkillNames.has(skillDisplayName)) {
+            try {
+              let skillFolderHash = '';
+              const skillPathValue = skillFiles[skill.name];
 
-            if (blobResult && skillPathValue) {
-              // Blob path: extract hash from the tree we already fetched (no extra API call)
-              const hash = getSkillFolderHashFromTree(blobResult.tree, skillPathValue);
-              if (hash) skillFolderHash = hash;
-            } else if (parsed.type === 'github' && skillPathValue) {
-              // Clone path: fetch folder hash from GitHub Trees API
-              const token = getGitHubToken();
-              const hash = await fetchSkillFolderHash(
-                normalizedSource,
-                skillPathValue,
-                token,
-                parsed.ref
-              );
-              if (hash) skillFolderHash = hash;
-            }
+              if (blobResult && skillPathValue) {
+                // Blob path: extract hash from the tree we already fetched (no extra API call)
+                const hash = getSkillFolderHashFromTree(blobResult.tree, skillPathValue);
+                if (hash) skillFolderHash = hash;
+              } else if (parsed.type === 'github' && skillPathValue) {
+                // Clone path: fetch folder hash from GitHub Trees API
+                const token = getGitHubToken();
+                const hash = await fetchSkillFolderHash(
+                  normalizedSource,
+                  skillPathValue,
+                  token,
+                  parsed.ref
+                );
+                if (hash) skillFolderHash = hash;
+              }
 
-            await addSkillToLock(skill.name, {
-              source: lockSource || normalizedSource,
-              sourceType: parsed.type,
-              sourceUrl: parsed.url,
-              ref: parsed.ref,
-              skillPath: skillPathValue,
-              skillFolderHash,
-              pluginName: skill.pluginName,
-            });
-          } catch {
-            // Don't fail installation if lock file update fails
-          }
-        }
-      }
-    }
-
-    // Add to local lock file for project-scoped installs
-    if (successful.length > 0 && !installGlobally) {
-      const successfulSkillNames = new Set(successful.map((r) => r.skill));
-      for (const skill of selectedSkills) {
-        const skillDisplayName = getSkillDisplayName(skill);
-        if (successfulSkillNames.has(skillDisplayName)) {
-          try {
-            // For blob skills, use the snapshot hash; for disk skills, compute from files
-            const computedHash =
-              blobResult && 'snapshotHash' in skill
-                ? (skill as BlobSkill).snapshotHash
-                : await computeSkillFolderHash(skill.path);
-            await addSkillToLocalLock(
-              skill.name,
-              {
-                source: lockSource || parsed.url,
-                ref: parsed.ref,
+              await addSkillToLock(skill.name, {
+                source: lockSource || normalizedSource,
                 sourceType: parsed.type,
-                computedHash,
-              },
-              cwd
-            );
-          } catch {
-            // Don't fail installation if lock file update fails
+                sourceUrl: parsed.url,
+                ref: parsed.ref,
+                skillPath: skillPathValue,
+                skillFolderHash,
+                pluginName: skill.pluginName,
+              });
+            } catch {
+              // Don't fail installation if lock file update fails
+            }
           }
         }
       }
-    }
+
+      // Add to local lock file for project-scoped installs
+      if (successful.length > 0 && !installGlobally) {
+        const successfulSkillNames = new Set(successful.map((r) => r.skill));
+        for (const skill of selectedSkills) {
+          const skillDisplayName = getSkillDisplayName(skill);
+          if (successfulSkillNames.has(skillDisplayName)) {
+            try {
+              // For blob skills, use the snapshot hash; for disk skills, compute from files
+              const computedHash =
+                blobResult && 'snapshotHash' in skill
+                  ? (skill as BlobSkill).snapshotHash
+                  : await computeSkillFolderHash(skill.path);
+              await addSkillToLocalLock(
+                skill.name,
+                {
+                  source: lockSource || parsed.url,
+                  ref: parsed.ref,
+                  sourceType: parsed.type,
+                  computedHash,
+                },
+                cwd
+              );
+            } catch {
+              // Don't fail installation if lock file update fails
+            }
+          }
+        }
+      }
+      return true;
+    });
 
     if (successful.length > 0) {
       const bySkill = new Map<string, typeof results>();
@@ -1793,7 +1832,7 @@ async function promptForFindSkills(
   targetAgents?: AgentType[]
 ): Promise<void> {
   // Skip if already dismissed or not in interactive mode
-  if (!process.stdin.isTTY) return;
+  if (!process.stdin.isTTY && !p.isAgent()) return;
   if (options?.yes) return;
 
   try {
@@ -1813,6 +1852,7 @@ async function promptForFindSkills(
     console.log();
     p.log.message(pc.dim("One-time prompt - you won't be asked again if you dismiss."));
     const install = await p.confirm({
+      id: 'install-find-skills',
       message: `Install the ${pc.cyan('find-skills')} skill? It helps your agent discover and suggest skills.`,
     });
 
@@ -1837,12 +1877,14 @@ async function promptForFindSkills(
       p.log.step('Installing find-skills skill...');
 
       try {
-        // Call runAdd directly
-        await runAdd(['vercel-labs/skills'], {
-          skill: ['find-skills'],
-          global: true,
-          yes: true,
-          agent: findSkillsAgents,
+        await p.once('install-find-skills-run', async () => {
+          await runAdd(['vercel-labs/skills'], {
+            skill: ['find-skills'],
+            global: true,
+            yes: true,
+            agent: findSkillsAgents,
+          });
+          return true;
         });
       } catch {
         p.log.warn('Failed to install find-skills. You can try again with:');

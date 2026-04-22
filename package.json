@@ -93,7 +93,7 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "@clack/prompts": "^0.11.0",
+    "@clack/prompts": "npm:@posva/clack-prompts@^1.2.2",
     "@types/bun": "latest",
     "@types/node": "^22.10.0",
     "husky": "^9.1.7",

@@ -232,6 +232,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
         }));
 
         const selected = await searchMultiselect({
+          id: 'agents-select',
           message: 'Which agents do you want to install to?',
           items: otherChoices,
           initialSelected: [],
@@ -269,6 +270,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
       }));
 
       const selected = await searchMultiselect({
+        id: 'agents-select',
         message: 'Which agents do you want to install to?',
         items: otherChoices,
         initialSelected: installedAgents.filter((a) => !universalAgents.includes(a)),
@@ -303,7 +305,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   p.note(summaryLines.join('\n'), 'Sync Summary');
 
   if (!options.yes) {
-    const confirmed = await p.confirm({ message: 'Proceed with sync?' });
+    const confirmed = await p.confirm({ id: 'confirm-sync', message: 'Proceed with sync?' });
 
     if (p.isCancel(confirmed) || !confirmed) {
       p.cancel('Sync cancelled');
@@ -314,7 +316,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   // 5. Install skills (always project-scoped, always symlink)
   spinner.start('Syncing skills...');
 
-  const results: Array<{
+  type SyncResult = {
     skill: string;
     packageName: string;
     agent: string;
@@ -322,26 +324,30 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     path: string;
     canonicalPath?: string;
     error?: string;
-  }> = [];
+  };
 
-  for (const skill of toInstall) {
-    for (const agent of targetAgents) {
-      const result = await installSkillForAgent(skill, agent, {
-        global: false,
-        cwd,
-        mode: 'symlink',
-      });
-      results.push({
-        skill: skill.name,
-        packageName: skill.packageName,
-        agent: agents[agent].displayName,
-        success: result.success,
-        path: result.path,
-        canonicalPath: result.canonicalPath,
-        error: result.error,
-      });
+  const results = await p.once('sync-results', async () => {
+    const acc: SyncResult[] = [];
+    for (const skill of toInstall) {
+      for (const agent of targetAgents) {
+        const result = await installSkillForAgent(skill, agent, {
+          global: false,
+          cwd,
+          mode: 'symlink',
+        });
+        acc.push({
+          skill: skill.name,
+          packageName: skill.packageName,
+          agent: agents[agent].displayName,
+          success: result.success,
+          path: result.path,
+          canonicalPath: result.canonicalPath,
+          error: result.error,
+        });
+      }
     }
-  }
+    return acc;
+  });
 
   spinner.stop('Sync complete');
 
@@ -350,24 +356,27 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   const failed = results.filter((r) => !r.success);
   const successfulSkillNames = new Set(successful.map((r) => r.skill));
 
-  for (const skill of toInstall) {
-    if (successfulSkillNames.has(skill.name)) {
-      try {
-        const computedHash = await computeSkillFolderHash(skill.path);
-        await addSkillToLocalLock(
-          skill.name,
-          {
-            source: skill.packageName,
-            sourceType: 'node_modules',
-            computedHash,
-          },
-          cwd
-        );
-      } catch {
-        // Don't fail sync if lock file update fails
+  await p.once('sync-lockfile', async () => {
+    for (const skill of toInstall) {
+      if (successfulSkillNames.has(skill.name)) {
+        try {
+          const computedHash = await computeSkillFolderHash(skill.path);
+          await addSkillToLocalLock(
+            skill.name,
+            {
+              source: skill.packageName,
+              sourceType: 'node_modules',
+              computedHash,
+            },
+            cwd
+          );
+        } catch {
+          // Don't fail sync if lock file update fails
+        }
       }
     }
-  }
+    return true;
+  });
 
   // 7. Display results
   console.log();

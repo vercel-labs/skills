@@ -98,6 +98,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     }));
 
     const selected = await p.multiselect({
+      id: 'select-skills-remove',
       message: `Select skills to remove ${pc.dim('(space to toggle)')}`,
       options: choices,
       required: true,
@@ -130,6 +131,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     console.log();
 
     const confirmed = await p.confirm({
+      id: 'confirm-remove',
       message: `Are you sure you want to uninstall ${selectedSkills.length} skill(s)?`,
     });
 
@@ -141,95 +143,99 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
   spinner.start('Removing skills...');
 
-  const results: {
+  type RemoveResult = {
     skill: string;
     success: boolean;
     source?: string;
     sourceType?: string;
     error?: string;
-  }[] = [];
+  };
 
-  for (const skillName of selectedSkills) {
-    try {
-      const canonicalPath = getCanonicalPath(skillName, { global: isGlobal, cwd });
+  const results = await p.once('remove-results', async () => {
+    const acc: RemoveResult[] = [];
+    for (const skillName of selectedSkills) {
+      try {
+        const canonicalPath = getCanonicalPath(skillName, { global: isGlobal, cwd });
 
-      for (const agentKey of targetAgents) {
-        const agent = agents[agentKey];
-        const skillPath = getInstallPath(skillName, agentKey, { global: isGlobal, cwd });
+        for (const agentKey of targetAgents) {
+          const agent = agents[agentKey];
+          const skillPath = getInstallPath(skillName, agentKey, { global: isGlobal, cwd });
 
-        // Determine potential paths to cleanup. For universal agents, getInstallPath
-        // now returns the canonical path, so we also need to check their 'native'
-        // directory to clean up any legacy symlinks.
-        const pathsToCleanup = new Set([skillPath]);
-        const sanitizedName = sanitizeName(skillName);
-        if (isGlobal && agent.globalSkillsDir) {
-          pathsToCleanup.add(join(agent.globalSkillsDir, sanitizedName));
-        } else {
-          pathsToCleanup.add(join(cwd, agent.skillsDir, sanitizedName));
-        }
-
-        for (const pathToCleanup of pathsToCleanup) {
-          // Skip if this is the canonical path - we'll handle that after checking all agents
-          if (pathToCleanup === canonicalPath) {
-            continue;
+          // Determine potential paths to cleanup. For universal agents, getInstallPath
+          // now returns the canonical path, so we also need to check their 'native'
+          // directory to clean up any legacy symlinks.
+          const pathsToCleanup = new Set([skillPath]);
+          const sanitizedName = sanitizeName(skillName);
+          if (isGlobal && agent.globalSkillsDir) {
+            pathsToCleanup.add(join(agent.globalSkillsDir, sanitizedName));
+          } else {
+            pathsToCleanup.add(join(cwd, agent.skillsDir, sanitizedName));
           }
 
-          try {
-            const stats = await lstat(pathToCleanup).catch(() => null);
-            if (stats) {
-              await rm(pathToCleanup, { recursive: true, force: true });
+          for (const pathToCleanup of pathsToCleanup) {
+            // Skip if this is the canonical path - we'll handle that after checking all agents
+            if (pathToCleanup === canonicalPath) {
+              continue;
             }
-          } catch (err) {
-            p.log.warn(
-              `Could not remove skill from ${agent.displayName}: ${
-                err instanceof Error ? err.message : String(err)
-              }`
-            );
+
+            try {
+              const stats = await lstat(pathToCleanup).catch(() => null);
+              if (stats) {
+                await rm(pathToCleanup, { recursive: true, force: true });
+              }
+            } catch (err) {
+              p.log.warn(
+                `Could not remove skill from ${agent.displayName}: ${
+                  err instanceof Error ? err.message : String(err)
+                }`
+              );
+            }
           }
         }
-      }
 
-      // Only remove the canonical path if no other installed agents are using it.
-      // This prevents breaking other agents when uninstalling from a specific agent (#287).
-      const installedAgents = await detectInstalledAgents();
-      const remainingAgents = installedAgents.filter((a) => !targetAgents.includes(a));
+        // Only remove the canonical path if no other installed agents are using it.
+        // This prevents breaking other agents when uninstalling from a specific agent (#287).
+        const installedAgents = await detectInstalledAgents();
+        const remainingAgents = installedAgents.filter((a) => !targetAgents.includes(a));
 
-      let isStillUsed = false;
-      for (const agentKey of remainingAgents) {
-        const path = getInstallPath(skillName, agentKey, { global: isGlobal, cwd });
-        const exists = await lstat(path).catch(() => null);
-        if (exists) {
-          isStillUsed = true;
-          break;
+        let isStillUsed = false;
+        for (const agentKey of remainingAgents) {
+          const path = getInstallPath(skillName, agentKey, { global: isGlobal, cwd });
+          const exists = await lstat(path).catch(() => null);
+          if (exists) {
+            isStillUsed = true;
+            break;
+          }
         }
+
+        if (!isStillUsed) {
+          await rm(canonicalPath, { recursive: true, force: true });
+        }
+
+        const lockEntry = isGlobal ? await getSkillFromLock(skillName) : null;
+        const effectiveSource = lockEntry?.source || 'local';
+        const effectiveSourceType = lockEntry?.sourceType || 'local';
+
+        if (isGlobal) {
+          await removeSkillFromLock(skillName);
+        }
+
+        acc.push({
+          skill: skillName,
+          success: true,
+          source: effectiveSource,
+          sourceType: effectiveSourceType,
+        });
+      } catch (err) {
+        acc.push({
+          skill: skillName,
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
-
-      if (!isStillUsed) {
-        await rm(canonicalPath, { recursive: true, force: true });
-      }
-
-      const lockEntry = isGlobal ? await getSkillFromLock(skillName) : null;
-      const effectiveSource = lockEntry?.source || 'local';
-      const effectiveSourceType = lockEntry?.sourceType || 'local';
-
-      if (isGlobal) {
-        await removeSkillFromLock(skillName);
-      }
-
-      results.push({
-        skill: skillName,
-        success: true,
-        source: effectiveSource,
-        sourceType: effectiveSourceType,
-      });
-    } catch (err) {
-      results.push({
-        skill: skillName,
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-      });
     }
-  }
+    return acc;
+  });
 
   spinner.stop('Removal process complete');
 
