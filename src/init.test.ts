@@ -47,6 +47,10 @@ describe('init command', () => {
       "---
       name: my-test-skill
       description: A brief description of what this skill does
+      author: your-name-or-org
+      license: MIT
+      # repository: https://github.com/owner/repo
+      # keywords: [topic1, topic2]
       ---
 
       # my-test-skill

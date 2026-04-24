@@ -13,6 +13,7 @@ import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
+import { runValidate } from './validate.ts';
 import { track } from './telemetry.ts';
 import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
 import { readLocalLock, type LocalSkillLockEntry } from './local-lock.ts';
@@ -92,6 +93,9 @@ function showBanner(): void {
   );
   console.log();
   console.log(
+    `  ${DIM}$${RESET} ${TEXT}npx skills validate${RESET}              ${DIM}Validate skill metadata${RESET}`
+  );
+  console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills experimental_install${RESET} ${DIM}Restore from skills-lock.json${RESET}`
   );
   console.log(
@@ -127,9 +131,12 @@ ${BOLD}Update Options:${RESET}
   -p, --project          Update project skills only
   -y, --yes              Skip scope prompt (auto-detect: project if in a project, else global)
 
+${BOLD}Authoring:${RESET}
+  validate [path]      Validate skill metadata (alias: lint)
+  init [name]          Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)
+
 ${BOLD}Project:${RESET}
   experimental_install Restore skills from skills-lock.json
-  init [name]          Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)
   experimental_sync    Sync skills from node_modules into agent directories
 
 ${BOLD}Add Options:${RESET}
@@ -240,6 +247,10 @@ function runInit(args: string[]): void {
   const skillContent = `---
 name: ${skillName}
 description: A brief description of what this skill does
+author: your-name-or-org
+license: MIT
+# repository: https://github.com/owner/repo
+# keywords: [topic1, topic2]
 ---
 
 # ${skillName}
@@ -896,6 +907,13 @@ async function main(): Promise<void> {
       showLogo();
       const { options: syncOptions } = parseSyncOptions(restArgs);
       await runSync(restArgs, syncOptions);
+      break;
+    }
+    case 'validate':
+    case 'lint': {
+      showLogo();
+      console.log();
+      await runValidate(restArgs);
       break;
     }
     case 'list':
