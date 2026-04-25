@@ -14,6 +14,8 @@ Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [41 more](#av
 npx skills add vercel-labs/agent-skills
 ```
 
+Chinese users can also search and install skills through [Skills宝](https://skilery.com).
+
 ### Source Formats
 
 ```bash
