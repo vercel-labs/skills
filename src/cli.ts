@@ -13,6 +13,7 @@ import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
+import { runDisable, runEnable, parseToggleOptions } from './toggle.ts';
 import { track } from './telemetry.ts';
 import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
 import { readLocalLock, type LocalSkillLockEntry } from './local-lock.ts';
@@ -117,6 +118,8 @@ ${BOLD}Manage Skills:${RESET}
                             https://github.com/vercel-labs/agent-skills
   remove [skills]      Remove installed skills
   list, ls             List installed skills
+  enable [skills]      Re-enable disabled skills
+  disable [skills]     Disable skills without removing them
   find [query]         Search for skills interactively
 
 ${BOLD}Updates:${RESET}
@@ -169,6 +172,8 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills add vercel-labs/agent-skills --skill pr-review commit
   ${DIM}$${RESET} skills remove                        ${DIM}# interactive remove${RESET}
   ${DIM}$${RESET} skills remove web-design             ${DIM}# remove by name${RESET}
+  ${DIM}$${RESET} skills disable web-design            ${DIM}# disable without removing${RESET}
+  ${DIM}$${RESET} skills enable web-design             ${DIM}# re-enable a disabled skill${RESET}
   ${DIM}$${RESET} skills rm --global frontend-design
   ${DIM}$${RESET} skills list                          ${DIM}# list project skills${RESET}
   ${DIM}$${RESET} skills ls -g                         ${DIM}# list global skills${RESET}
@@ -926,6 +931,16 @@ async function main(): Promise<void> {
       const { skills, options: removeOptions } = parseRemoveOptions(restArgs);
       await removeCommand(skills, removeOptions);
       break;
+    case 'disable': {
+      const { skills: disableSkills } = parseToggleOptions(restArgs);
+      await runDisable(restArgs);
+      break;
+    }
+    case 'enable': {
+      const { skills: enableSkills } = parseToggleOptions(restArgs);
+      await runEnable(restArgs);
+      break;
+    }
     case 'experimental_sync': {
       showLogo();
       const { options: syncOptions } = parseSyncOptions(restArgs);
