@@ -226,6 +226,34 @@ describe('local-lock', () => {
         await rm(dir, { recursive: true, force: true });
       }
     });
+
+    it('stores optional skillPath when present', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await addSkillToLocalLock(
+          'gitlab-skill',
+          {
+            source: 'https://gitlab.example.com/org/repo.git',
+            ref: 'main',
+            sourceType: 'gitlab',
+            skillPath: '.agents/skills/gitlab-skill',
+            computedHash: 'hash456',
+          },
+          dir
+        );
+
+        const lock = await readLocalLock(dir);
+        expect(lock.skills['gitlab-skill']).toEqual({
+          source: 'https://gitlab.example.com/org/repo.git',
+          ref: 'main',
+          sourceType: 'gitlab',
+          skillPath: '.agents/skills/gitlab-skill',
+          computedHash: 'hash456',
+        });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('removeSkillFromLocalLock', () => {

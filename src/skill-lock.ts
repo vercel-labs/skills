@@ -23,9 +23,9 @@ export interface SkillLockEntry {
   /** Subpath within the source repo, if applicable */
   skillPath?: string;
   /**
-   * GitHub tree SHA for the entire skill folder.
-   * This hash changes when ANY file in the skill folder changes.
-   * Fetched via GitHub Trees API by the telemetry server.
+   * Version hash for the skill folder.
+   * For GitHub sources: tree SHA fetched via the GitHub Trees API.
+   * For GitLab / generic git sources: HEAD commit SHA of the branch.
    */
   skillFolderHash: string;
   /** ISO timestamp when the skill was first installed */

@@ -15,6 +15,7 @@ import { sanitizeMetadata } from './sanitize.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track, flushTelemetry } from './telemetry.ts';
 import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
+import { getRemoteCommitSha } from './git.ts';
 import { readLocalLock, type LocalSkillLockEntry } from './local-lock.ts';
 import {
   buildUpdateInstallSource,
@@ -296,7 +297,7 @@ interface SkillLockEntry {
   sourceUrl: string;
   ref?: string;
   skillPath?: string;
-  /** GitHub tree SHA for the entire skill folder (v3) */
+  /** Version hash: GitHub tree SHA (github) or HEAD commit SHA (gitlab/git) */
   skillFolderHash: string;
   installedAt: string;
   updatedAt: string;
@@ -496,9 +497,6 @@ function getSkipReason(entry: SkillLockEntry): string {
   if (entry.sourceType === 'local') {
     return 'Local path';
   }
-  if (entry.sourceType === 'git') {
-    return 'Git URL';
-  }
   if (entry.sourceType === 'well-known') {
     return 'Well-known skill';
   }
@@ -616,7 +614,8 @@ async function updateGlobalSkills(
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    if (!entry.skillFolderHash || !entry.skillPath) {
+    const isGitLike = entry.sourceType === 'gitlab' || entry.sourceType === 'git';
+    if (!entry.skillFolderHash || (!isGitLike && !entry.skillPath)) {
       skipped.push({
         name: skillName,
         reason: getSkipReason(entry),
@@ -637,12 +636,12 @@ async function updateGlobalSkills(
     );
 
     try {
-      const latestHash = await fetchSkillFolderHash(
-        entry.source,
-        entry.skillPath!,
-        token,
-        entry.ref
-      );
+      let latestHash: string | null;
+      if (entry.sourceType === 'gitlab' || entry.sourceType === 'git') {
+        latestHash = await getRemoteCommitSha(entry.sourceUrl, entry.ref);
+      } else {
+        latestHash = await fetchSkillFolderHash(entry.source, entry.skillPath!, token, entry.ref);
+      }
       if (latestHash && latestHash !== entry.skillFolderHash) {
         updates.push({ name: skillName, source: entry.source, entry });
       }
