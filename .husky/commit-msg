@@ -1,0 +1,17 @@
+#!/usr/bin/env sh
+# Husky commit-msg placeholder.
+#
+# This file's existence is what makes Husky source
+# ~/.config/husky/init.sh on every commit-msg invocation. Husky's
+# runner short-circuits with `exit 0` when the user-side hook is
+# missing, before it ever sources init.sh — so without this empty
+# placeholder the global agent-attribution-footer enforcement
+# (strip vendor `Generated with [<Agent>]` footers and add the
+# tool-neutral Fyodor footer) never runs in this repo.
+#
+# Body intentionally empty: all enforcement logic lives in
+# ~/.config/husky/init.sh which sources
+# ~/apps/dotfiles/lib/strip-agent-attribution.sh. Adding logic here
+# would duplicate it across every repo.
+#
+# Bypass: set BOSUN_PIPELINE=1 (init.sh respects it).
