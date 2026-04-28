@@ -48,6 +48,31 @@ export function getOwnerRepo(parsed: ParsedSource): string | null {
 }
 
 /**
+ * Compute the value to write to `skills-lock.json`'s `source` field.
+ *
+ * Round-trip requirement: the value must re-parse via `parseSource` back to a
+ * source that resolves to the same install location. Two cases need care:
+ *
+ * - SSH URLs (e.g. `git@github.com:owner/repo.git`) — preserved verbatim,
+ *   because normalizing to `owner/repo` would later resolve to HTTPS and
+ *   break restore for private repos requiring SSH auth (#588).
+ * - HTTPS shorthand with a subpath (e.g. `owner/repo/skills`) — the subpath
+ *   is part of the install location and must be appended back onto the
+ *   normalized owner/repo, otherwise restore looks at the repo root and
+ *   misses skills nested inside (#1005).
+ */
+export function computeLockSource(parsed: ParsedSource): string | null {
+  if (parsed.url.startsWith('git@')) {
+    return parsed.url;
+  }
+  const normalized = getOwnerRepo(parsed);
+  if (normalized && parsed.subpath) {
+    return `${normalized}/${parsed.subpath}`;
+  }
+  return normalized;
+}
+
+/**
  * Extract owner and repo from an owner/repo string.
  * Returns null if the format is invalid.
  */
