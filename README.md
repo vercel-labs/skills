@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [49 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [50 more](#supported-agents).
 <!-- agent-list:end -->
 
 ## Install a Skill
@@ -251,6 +251,7 @@ Skills can be installed to any of these agents:
 | Gemini CLI | `gemini-cli` | `.agents/skills/` | `~/.gemini/skills/` |
 | GitHub Copilot | `github-copilot` | `.agents/skills/` | `~/.copilot/skills/` |
 | Goose | `goose` | `.goose/skills/` | `~/.config/goose/skills/` |
+| Hermes Agent | `hermes-agent` | `.hermes/skills/` | `~/.hermes/skills/` |
 | Junie | `junie` | `.junie/skills/` | `~/.junie/skills/` |
 | iFlow CLI | `iflow-cli` | `.iflow/skills/` | `~/.iflow/skills/` |
 | Kilo Code | `kilo` | `.kilocode/skills/` | `~/.kilocode/skills/` |
@@ -360,6 +361,7 @@ The CLI searches for skills in these locations within a repository:
 - `.factory/skills/`
 - `.forge/skills/`
 - `.goose/skills/`
+- `.hermes/skills/`
 - `.junie/skills/`
 - `.iflow/skills/`
 - `.kilocode/skills/`
