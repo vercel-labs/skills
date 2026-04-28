@@ -150,8 +150,16 @@ ${BOLD}Remove Options:${RESET}
   --all                  Shorthand for --skill '*' --agent '*' -y
   
 ${BOLD}Experimental Sync Options:${RESET}
+  -s, --source <source>  Source: "node_modules" | "package.json" (default: "package.json")
+  -r, --recursive        Scan monorepo workspace packages
   -a, --agent <agents>   Specify agents to install to (use '*' for all agents)
   -y, --yes              Skip confirmation prompts
+  -f, --force            Ignore lock, force full rescan + reinstall
+  --include <patterns>   Only include matching packages
+  --exclude <patterns>   Exclude matching packages
+  --dry-run              Show what would be done without making changes
+  --no-cleanup           Don't remove stale npm-* skills
+  --no-gitignore         Don't update .gitignore
 
 ${BOLD}List Options:${RESET}
   -g, --global           List global skills (default: project)
@@ -183,6 +191,9 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills init my-skill
   ${DIM}$${RESET} skills experimental_sync              ${DIM}# sync from node_modules${RESET}
   ${DIM}$${RESET} skills experimental_sync -y           ${DIM}# sync without prompts${RESET}
+  ${DIM}$${RESET} skills experimental_sync -r           ${DIM}# sync monorepo recursively${RESET}
+  ${DIM}$${RESET} skills experimental_sync --dry-run    ${DIM}# preview sync changes${RESET}
+  ${DIM}$${RESET} skills experimental_sync -s node_modules ${DIM}# scan all packages${RESET}
 
 Discover more skills at ${TEXT}https://skills.sh/${RESET}
 `);

@@ -4,7 +4,6 @@ import { readdir, stat } from 'fs/promises';
 import { join, sep } from 'path';
 import { homedir } from 'os';
 import { parseSkillMd } from './skills.ts';
-import { installSkillForAgent, getCanonicalPath } from './installer.ts';
 import {
   detectInstalledAgents,
   agents,
@@ -13,8 +12,21 @@ import {
 } from './agents.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 import { addSkillToLocalLock, computeSkillFolderHash, readLocalLock } from './local-lock.ts';
-import type { Skill, AgentType } from './types.ts';
+import type { AgentType } from './types.ts';
 import { track } from './telemetry.ts';
+import { getLastSelectedAgents, saveSelectedAgents } from './skill-lock.ts';
+import {
+  type NpmSkill,
+  createTargetName,
+  sanitizePackageName,
+  getPackageDeps,
+  searchForWorkspaceRoot,
+  getWorkspacePackageRoots,
+  filterNpmSkills,
+  createSkillSymlink,
+  cleanupStaleNpmSkills,
+} from './sync-utils.ts';
+import { updateGitignore } from './gitignore.ts';
 
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
 
@@ -22,11 +34,15 @@ export interface SyncOptions {
   agent?: string[];
   yes?: boolean;
   force?: boolean;
+  source?: 'node_modules' | 'package.json';
+  recursive?: boolean;
+  include?: string[];
+  exclude?: string[];
+  dryRun?: boolean;
+  cleanup?: boolean;
+  gitignore?: boolean;
 }
 
-/**
- * Shortens a path for display: replaces homedir with ~ and cwd with .
- */
 function shortenPath(fullPath: string, cwd: string): string {
   const home = homedir();
   if (fullPath === home || fullPath.startsWith(home + sep)) {
@@ -39,15 +55,20 @@ function shortenPath(fullPath: string, cwd: string): string {
 }
 
 /**
- * Crawl node_modules for SKILL.md files.
- * Searches both top-level packages and scoped packages (@org/pkg).
- * Returns discovered skills with their source package name.
+ * Scan a single node_modules directory for skills.
+ * For each package, checks:
+ *   1. SKILL.md at package root (single-skill package, skips subdirectory scan)
+ *   2. Subdirectories of: package root, skills/, dist/skills/, .agents/skills/
  */
-async function discoverNodeModuleSkills(
-  cwd: string
-): Promise<Array<Skill & { packageName: string }>> {
+async function scanNodeModulesDir(
+  cwd: string,
+  source: 'node_modules' | 'package.json' = 'package.json'
+): Promise<NpmSkill[]> {
   const nodeModulesDir = join(cwd, 'node_modules');
-  const skills: Array<Skill & { packageName: string }> = [];
+  const skills: NpmSkill[] = [];
+  const seenTargetNames = new Set<string>();
+
+  const packageDeps = source === 'package.json' ? await getPackageDeps(cwd) : null;
 
   let topNames: string[];
   try {
@@ -56,16 +77,35 @@ async function discoverNodeModuleSkills(
     return skills;
   }
 
+  const addSkill = (skill: NpmSkill) => {
+    if (!seenTargetNames.has(skill.targetName)) {
+      seenTargetNames.add(skill.targetName);
+      skills.push(skill);
+    }
+  };
+
   const processPackageDir = async (pkgDir: string, packageName: string) => {
-    // Check for SKILL.md at package root
+    // 1. Check for SKILL.md at package root (simple single-skill package)
     const rootSkill = await parseSkillMd(join(pkgDir, 'SKILL.md'));
     if (rootSkill) {
-      skills.push({ ...rootSkill, packageName });
+      addSkill({
+        packageName,
+        skillName: sanitizePackageName(packageName),
+        skillPath: rootSkill.path,
+        targetName: createTargetName(packageName),
+        name: rootSkill.name,
+        description: rootSkill.description,
+      });
       return;
     }
 
-    // Check common skill locations within the package
-    const searchDirs = [pkgDir, join(pkgDir, 'skills'), join(pkgDir, '.agents', 'skills')];
+    // 2. Scan subdirectories of common skill locations
+    const searchDirs = [
+      pkgDir,
+      join(pkgDir, 'skills'),
+      join(pkgDir, 'dist', 'skills'),
+      join(pkgDir, '.agents', 'skills'),
+    ];
 
     for (const searchDir of searchDirs) {
       try {
@@ -80,7 +120,14 @@ async function discoverNodeModuleSkills(
           }
           const skill = await parseSkillMd(join(skillDir, 'SKILL.md'));
           if (skill) {
-            skills.push({ ...skill, packageName });
+            addSkill({
+              packageName,
+              skillName: name,
+              skillPath: skill.path,
+              targetName: createTargetName(packageName, name),
+              name: skill.name,
+              description: skill.description,
+            });
           }
         }
       } catch {
@@ -102,25 +149,29 @@ async function discoverNodeModuleSkills(
       }
 
       if (name.startsWith('@')) {
-        // Scoped package: read @org/* entries
         try {
           const scopeNames = await readdir(fullPath);
           await Promise.all(
             scopeNames.map(async (scopedName) => {
               const scopedPath = join(fullPath, scopedName);
+              const fullPackageName = `${name}/${scopedName}`;
+
+              if (packageDeps && !packageDeps.includes(fullPackageName)) return;
+
               try {
                 const s = await stat(scopedPath);
                 if (!s.isDirectory()) return;
               } catch {
                 return;
               }
-              await processPackageDir(scopedPath, `${name}/${scopedName}`);
+              await processPackageDir(scopedPath, fullPackageName);
             })
           );
         } catch {
           // Scope directory not readable
         }
       } else {
+        if (packageDeps && !packageDeps.includes(name)) return;
         await processPackageDir(fullPath, name);
       }
     })
@@ -129,7 +180,40 @@ async function discoverNodeModuleSkills(
   return skills;
 }
 
-export async function runSync(args: string[], options: SyncOptions = {}): Promise<void> {
+/**
+ * Discover npm skills from node_modules.
+ * Supports --source filtering and --recursive monorepo scanning.
+ */
+async function discoverNodeModuleSkills(
+  cwd: string,
+  options: { source?: 'node_modules' | 'package.json'; recursive?: boolean } = {}
+): Promise<NpmSkill[]> {
+  const source = options.source || 'package.json';
+
+  if (!options.recursive) {
+    return scanNodeModulesDir(cwd, source);
+  }
+
+  // Recursive mode: find workspace root and scan all package roots
+  const workspaceRoot = searchForWorkspaceRoot(cwd);
+  const packageRoots = await getWorkspacePackageRoots(workspaceRoot);
+  const allRoots = [workspaceRoot, ...packageRoots];
+
+  const allSkills = new Map<string, NpmSkill>();
+
+  for (const root of allRoots) {
+    const skills = await scanNodeModulesDir(root, source);
+    for (const skill of skills) {
+      if (!allSkills.has(skill.targetName)) {
+        allSkills.set(skill.targetName, skill);
+      }
+    }
+  }
+
+  return Array.from(allSkills.values());
+}
+
+export async function runSync(_args: string[], options: SyncOptions = {}): Promise<void> {
   const cwd = process.cwd();
 
   console.log();
@@ -139,7 +223,10 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
 
   // 1. Discover skills from node_modules
   spinner.start('Scanning node_modules for skills...');
-  const discoveredSkills = await discoverNodeModuleSkills(cwd);
+  let discoveredSkills = await discoverNodeModuleSkills(cwd, {
+    source: options.source,
+    recursive: options.recursive,
+  });
 
   if (discoveredSkills.length === 0) {
     spinner.stop(pc.yellow('No skills found'));
@@ -147,11 +234,26 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     return;
   }
 
-  spinner.stop(
-    `Found ${pc.green(String(discoveredSkills.length))} skill${discoveredSkills.length > 1 ? 's' : ''} in node_modules`
+  // 2. Apply include/exclude filters
+  const { skills: filteredSkills, excludedCount } = filterNpmSkills(
+    discoveredSkills,
+    options.include,
+    options.exclude
   );
 
-  // Show discovered skills
+  if (filteredSkills.length === 0) {
+    spinner.stop(pc.yellow(`No skills found (${excludedCount} filtered)`));
+    p.outro(pc.dim('All discovered skills were filtered out.'));
+    return;
+  }
+
+  discoveredSkills = filteredSkills;
+
+  const filterMsg = excludedCount > 0 ? ` (${excludedCount} filtered)` : '';
+  spinner.stop(
+    `Found ${pc.green(String(discoveredSkills.length))} skill${discoveredSkills.length > 1 ? 's' : ''} in node_modules${filterMsg}`
+  );
+
   for (const skill of discoveredSkills) {
     p.log.info(`${pc.cyan(skill.name)} ${pc.dim(`from ${skill.packageName}`)}`);
     if (skill.description) {
@@ -159,9 +261,9 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     }
   }
 
-  // 2. Check which skills are already up-to-date via local lock
+  // 3. Check which skills are already up-to-date via local lock
   const localLock = await readLocalLock(cwd);
-  const toInstall: Array<Skill & { packageName: string }> = [];
+  const toInstall: NpmSkill[] = [];
   const upToDate: string[] = [];
 
   if (options.force) {
@@ -169,10 +271,9 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     p.log.info(pc.dim('Force mode: reinstalling all skills'));
   } else {
     for (const skill of discoveredSkills) {
-      const existingEntry = localLock.skills[skill.name];
+      const existingEntry = localLock.skills[skill.targetName];
       if (existingEntry) {
-        // Compute current hash and compare
-        const currentHash = await computeSkillFolderHash(skill.path);
+        const currentHash = await computeSkillFolderHash(skill.skillPath);
         if (currentHash === existingEntry.computedHash) {
           upToDate.push(skill.name);
           continue;
@@ -186,17 +287,26 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
         pc.dim(`${upToDate.length} skill${upToDate.length !== 1 ? 's' : ''} already up to date`)
       );
     }
+  }
 
-    if (toInstall.length === 0) {
-      console.log();
-      p.outro(pc.green('All skills are up to date.'));
-      return;
+  const hasWorkToDo = toInstall.length > 0;
+
+  if (!hasWorkToDo) {
+    // Even if nothing to install, still run cleanup if enabled
+    if (options.cleanup !== false) {
+      await runCleanup(cwd, discoveredSkills, options);
     }
+    if (options.gitignore !== false) {
+      await runGitignoreUpdate(cwd, options);
+    }
+    console.log();
+    p.outro(pc.green('All skills are up to date.'));
+    return;
   }
 
   p.log.info(`${toInstall.length} skill${toInstall.length !== 1 ? 's' : ''} to install/update`);
 
-  // 3. Select agents
+  // 4. Select agents
   let targetAgents: AgentType[];
   const validAgents = Object.keys(agents);
   const universalAgents = getUniversalAgents();
@@ -218,6 +328,14 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     const totalAgents = Object.keys(agents).length;
     spinner.stop(`${totalAgents} agents`);
 
+    // Load last selected agents for initial selection
+    let lastSelected: string[] | undefined;
+    try {
+      lastSelected = await getLastSelectedAgents();
+    } catch {
+      // Silently ignore errors
+    }
+
     if (installedAgents.length === 0) {
       if (options.yes) {
         targetAgents = universalAgents;
@@ -231,10 +349,17 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
           hint: agents[a].skillsDir,
         }));
 
+        const initialSelected = lastSelected
+          ? (lastSelected.filter(
+              (a) =>
+                otherAgents.includes(a as AgentType) && !universalAgents.includes(a as AgentType)
+            ) as AgentType[])
+          : [];
+
         const selected = await searchMultiselect({
           message: 'Which agents do you want to install to?',
           items: otherChoices,
-          initialSelected: [],
+          initialSelected,
           lockedSection: {
             title: 'Universal (.agents/skills)',
             items: universalAgents.map((a) => ({
@@ -250,9 +375,15 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
         }
 
         targetAgents = selected as AgentType[];
+
+        // Save selection for next time
+        try {
+          await saveSelectedAgents(targetAgents as string[]);
+        } catch {
+          // Silently ignore errors
+        }
       }
     } else if (installedAgents.length === 1 || options.yes) {
-      // Ensure universal agents are included
       targetAgents = [...installedAgents];
       for (const ua of universalAgents) {
         if (!targetAgents.includes(ua)) {
@@ -268,10 +399,17 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
         hint: agents[a].skillsDir,
       }));
 
+      // Use last saved selection if available, otherwise fall back to all installed
+      const initialSelected = lastSelected
+        ? (lastSelected.filter(
+            (a) => otherAgents.includes(a as AgentType) && !universalAgents.includes(a as AgentType)
+          ) as AgentType[])
+        : (installedAgents.filter((a) => !universalAgents.includes(a)) as AgentType[]);
+
       const selected = await searchMultiselect({
         message: 'Which agents do you want to install to?',
         items: otherChoices,
-        initialSelected: installedAgents.filter((a) => !universalAgents.includes(a)),
+        initialSelected,
         lockedSection: {
           title: 'Universal (.agents/skills)',
           items: universalAgents.map((a) => ({
@@ -287,22 +425,31 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
       }
 
       targetAgents = selected as AgentType[];
+
+      // Save selection for next time
+      try {
+        await saveSelectedAgents(targetAgents as string[]);
+      } catch {
+        // Silently ignore errors
+      }
     }
   }
 
-  // 4. Build summary
+  // 5. Build summary
   const summaryLines: string[] = [];
   for (const skill of toInstall) {
-    const canonicalPath = getCanonicalPath(skill.name, { global: false });
-    const shortCanonical = shortenPath(canonicalPath, cwd);
     summaryLines.push(`${pc.cyan(skill.name)} ${pc.dim(`← ${skill.packageName}`)}`);
-    summaryLines.push(`  ${pc.dim(shortCanonical)}`);
+    summaryLines.push(`  ${pc.dim(skill.targetName)}`);
   }
 
   console.log();
   p.note(summaryLines.join('\n'), 'Sync Summary');
 
-  if (!options.yes) {
+  if (options.dryRun) {
+    p.log.info(pc.yellow('Dry run mode: no changes will be made'));
+  }
+
+  if (!options.yes && !options.dryRun) {
     const confirmed = await p.confirm({ message: 'Proceed with sync?' });
 
     if (p.isCancel(confirmed) || !confirmed) {
@@ -311,90 +458,113 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     }
   }
 
-  // 5. Install skills (always project-scoped, always symlink)
+  // 6. Create symlinks
+  // Deduplicate agent skillsDirs to avoid redundant symlinks
+  const uniqueSkillsDirs = [...new Set(targetAgents.map((a) => agents[a].skillsDir))];
+
   spinner.start('Syncing skills...');
 
   const results: Array<{
     skill: string;
+    targetName: string;
     packageName: string;
-    agent: string;
+    skillsDir: string;
     success: boolean;
-    path: string;
-    canonicalPath?: string;
     error?: string;
   }> = [];
 
   for (const skill of toInstall) {
-    for (const agent of targetAgents) {
-      const result = await installSkillForAgent(skill, agent, {
-        global: false,
-        cwd,
-        mode: 'symlink',
-      });
+    for (const skillsDir of uniqueSkillsDirs) {
+      const linkPath = join(cwd, skillsDir, skill.targetName);
+
+      if (options.dryRun) {
+        results.push({
+          skill: skill.name,
+          targetName: skill.targetName,
+          packageName: skill.packageName,
+          skillsDir,
+          success: true,
+        });
+        continue;
+      }
+
+      const success = await createSkillSymlink(skill.skillPath, linkPath);
       results.push({
         skill: skill.name,
+        targetName: skill.targetName,
         packageName: skill.packageName,
-        agent: agents[agent].displayName,
-        success: result.success,
-        path: result.path,
-        canonicalPath: result.canonicalPath,
-        error: result.error,
+        skillsDir,
+        success,
+        error: success ? undefined : 'Failed to create symlink',
       });
     }
   }
 
   spinner.stop('Sync complete');
 
-  // 6. Update local lock file
-  const successful = results.filter((r) => r.success);
-  const failed = results.filter((r) => !r.success);
-  const successfulSkillNames = new Set(successful.map((r) => r.skill));
+  // 7. Cleanup stale npm-* entries
+  if (options.cleanup !== false) {
+    await runCleanup(cwd, discoveredSkills, options, uniqueSkillsDirs);
+  }
 
-  for (const skill of toInstall) {
-    if (successfulSkillNames.has(skill.name)) {
-      try {
-        const computedHash = await computeSkillFolderHash(skill.path);
-        await addSkillToLocalLock(
-          skill.name,
-          {
-            source: skill.packageName,
-            sourceType: 'node_modules',
-            computedHash,
-          },
-          cwd
-        );
-      } catch {
-        // Don't fail sync if lock file update fails
+  // 8. Update .gitignore
+  if (options.gitignore !== false) {
+    await runGitignoreUpdate(cwd, options);
+  }
+
+  // 9. Update local lock file
+  if (!options.dryRun) {
+    const successfulTargetNames = new Set(
+      results.filter((r) => r.success).map((r) => r.targetName)
+    );
+
+    for (const skill of toInstall) {
+      if (successfulTargetNames.has(skill.targetName)) {
+        try {
+          const computedHash = await computeSkillFolderHash(skill.skillPath);
+          await addSkillToLocalLock(
+            skill.targetName,
+            {
+              source: skill.packageName,
+              sourceType: 'node_modules',
+              computedHash,
+            },
+            cwd
+          );
+        } catch {
+          // Don't fail sync if lock file update fails
+        }
       }
     }
   }
 
-  // 7. Display results
+  // 10. Display results
   console.log();
 
+  const successful = results.filter((r) => r.success);
+  const failed = results.filter((r) => !r.success);
+
   if (successful.length > 0) {
-    const bySkill = new Map<string, typeof results>();
+    const bySkill = new Map<string, (typeof results)[number][]>();
     for (const r of successful) {
-      const skillResults = bySkill.get(r.skill) || [];
+      const skillResults = bySkill.get(r.targetName) || [];
       skillResults.push(r);
-      bySkill.set(r.skill, skillResults);
+      bySkill.set(r.targetName, skillResults);
     }
 
     const resultLines: string[] = [];
-    for (const [skillName, skillResults] of bySkill) {
+    for (const [, skillResults] of bySkill) {
       const firstResult = skillResults[0]!;
-      const pkg = toInstall.find((s) => s.name === skillName)?.packageName;
-      if (firstResult.canonicalPath) {
-        const shortPath = shortenPath(firstResult.canonicalPath, cwd);
-        resultLines.push(`${pc.green('✓')} ${skillName} ${pc.dim(`← ${pkg}`)}`);
-        resultLines.push(`  ${pc.dim(shortPath)}`);
-      } else {
-        resultLines.push(`${pc.green('✓')} ${skillName} ${pc.dim(`← ${pkg}`)}`);
-      }
+      const shortPath = shortenPath(join(cwd, firstResult.skillsDir, firstResult.targetName), cwd);
+      resultLines.push(
+        `${pc.green('✓')} ${firstResult.skill} ${pc.dim(`← ${firstResult.packageName}`)}`
+      );
+      resultLines.push(`  ${pc.dim(shortPath)}`);
     }
 
+    const action = options.dryRun ? 'Would sync' : 'Synced';
     const skillCount = bySkill.size;
-    const title = pc.green(`Synced ${skillCount} skill${skillCount !== 1 ? 's' : ''}`);
+    const title = pc.green(`${action} ${skillCount} skill${skillCount !== 1 ? 's' : ''}`);
     p.note(resultLines.join('\n'), title);
   }
 
@@ -402,7 +572,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     console.log();
     p.log.error(pc.red(`Failed to install ${failed.length}`));
     for (const r of failed) {
-      p.log.message(`  ${pc.red('✗')} ${r.skill} → ${r.agent}: ${pc.dim(r.error)}`);
+      p.log.message(`  ${pc.red('✗')} ${r.skill} → ${r.skillsDir}: ${pc.dim(r.error)}`);
     }
   }
 
@@ -410,7 +580,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   track({
     event: 'experimental_sync',
     skillCount: String(toInstall.length),
-    successCount: String(successfulSkillNames.size),
+    successCount: String(new Set(successful.map((r) => r.targetName)).size),
     agents: targetAgents.join(','),
   });
 
@@ -420,8 +590,55 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   );
 }
 
+async function runCleanup(
+  cwd: string,
+  allSkills: NpmSkill[],
+  options: SyncOptions,
+  skillsDirs?: string[]
+): Promise<void> {
+  const validTargetNames = new Set(allSkills.map((s) => s.targetName));
+  const dirs = skillsDirs || [...new Set(Object.values(agents).map((a) => a.skillsDir))];
+
+  let totalCleaned = 0;
+  for (const skillsDir of dirs) {
+    const results = await cleanupStaleNpmSkills(
+      join(cwd, skillsDir),
+      validTargetNames,
+      options.dryRun
+    );
+    const cleaned = results.filter((r) => r.success);
+    totalCleaned += cleaned.length;
+
+    if (cleaned.length > 0) {
+      const action = options.dryRun ? 'Would remove' : 'Removed';
+      for (const r of cleaned) {
+        p.log.info(
+          `${action} stale ${pc.dim(r.targetName)} from ${pc.dim(shortenPath(r.path, cwd))}`
+        );
+      }
+    }
+  }
+
+  if (totalCleaned > 0) {
+    const action = options.dryRun ? 'Would clean up' : 'Cleaned up';
+    p.log.success(`${action} ${totalCleaned} stale skill${totalCleaned !== 1 ? 's' : ''}`);
+  }
+}
+
+async function runGitignoreUpdate(cwd: string, options: SyncOptions): Promise<void> {
+  const { updated, created } = await updateGitignore(cwd, options.dryRun);
+  if (updated) {
+    const prefix = options.dryRun ? 'Would update' : 'Updated';
+    const msg = created ? `${prefix} .gitignore (created)` : `${prefix} .gitignore`;
+    p.log.success(msg);
+  }
+}
+
 export function parseSyncOptions(args: string[]): { options: SyncOptions } {
-  const options: SyncOptions = {};
+  const options: SyncOptions = {
+    cleanup: true,
+    gitignore: true,
+  };
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -430,12 +647,46 @@ export function parseSyncOptions(args: string[]): { options: SyncOptions } {
       options.yes = true;
     } else if (arg === '-f' || arg === '--force') {
       options.force = true;
+    } else if (arg === '-r' || arg === '--recursive') {
+      options.recursive = true;
+    } else if (arg === '--dry-run') {
+      options.dryRun = true;
+    } else if (arg === '--no-cleanup') {
+      options.cleanup = false;
+    } else if (arg === '--no-gitignore') {
+      options.gitignore = false;
+    } else if (arg === '-s' || arg === '--source') {
+      i++;
+      const val = args[i];
+      if (val === 'node_modules' || val === 'package.json') {
+        options.source = val;
+      }
     } else if (arg === '-a' || arg === '--agent') {
       options.agent = options.agent || [];
       i++;
       let nextArg = args[i];
       while (i < args.length && nextArg && !nextArg.startsWith('-')) {
         options.agent.push(nextArg);
+        i++;
+        nextArg = args[i];
+      }
+      i--;
+    } else if (arg === '--include') {
+      options.include = options.include || [];
+      i++;
+      let nextArg = args[i];
+      while (i < args.length && nextArg && !nextArg.startsWith('-')) {
+        options.include.push(nextArg);
+        i++;
+        nextArg = args[i];
+      }
+      i--;
+    } else if (arg === '--exclude') {
+      options.exclude = options.exclude || [];
+      i++;
+      let nextArg = args[i];
+      while (i < args.length && nextArg && !nextArg.startsWith('-')) {
+        options.exclude.push(nextArg);
         i++;
         nextArg = args[i];
       }

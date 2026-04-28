@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "npm-next-next-compile": {
+      "source": "next",
+      "sourceType": "node_modules",
+      "computedHash": "281a6bf7bfa8a5ad7c88e340fdbfc5ae7e240b370be83a61dad0afdbaccda88f"
+    }
+  }
+}
