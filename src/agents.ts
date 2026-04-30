@@ -11,6 +11,7 @@ const codexHome = process.env.CODEX_HOME?.trim() || join(home, '.codex');
 const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude');
 const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
 const piHome = process.env.PI_CODING_AGENT_DIR?.trim() || join(home, '.pi/agent');
+const kimiShareDir = process.env.KIMI_SHARE_DIR?.trim() || join(home, '.kimi');
 
 export function getOpenClawGlobalSkillsDir(
   homeDir = home,
@@ -309,7 +310,7 @@ export const agents: Record<AgentType, AgentConfig> = {
     skillsDir: '.agents/skills',
     globalSkillsDir: join(home, '.config/agents/skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.kimi'));
+      return existsSync(kimiShareDir);
     },
   },
   'kiro-cli': {
