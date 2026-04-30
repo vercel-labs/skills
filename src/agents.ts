@@ -347,6 +347,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(vibeHome);
     },
   },
+  moxby: {
+    name: 'moxby',
+    displayName: 'Moxby',
+    skillsDir: '.moxby/skills',
+    globalSkillsDir: join(home, '.moxby/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.moxby'));
+    },
+  },
   mux: {
     name: 'mux',
     displayName: 'Mux',

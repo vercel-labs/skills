@@ -34,6 +34,7 @@ export type AgentType =
   | 'kode'
   | 'mcpjam'
   | 'mistral-vibe'
+  | 'moxby'
   | 'mux'
   | 'neovate'
   | 'opencode'

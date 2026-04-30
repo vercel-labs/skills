@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [50 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [51 more](#supported-agents).
 <!-- agent-list:end -->
 
 ## Install a Skill
@@ -258,6 +258,7 @@ Skills can be installed to any of these agents:
 | Kode | `kode` | `.kode/skills/` | `~/.kode/skills/` |
 | MCPJam | `mcpjam` | `.mcpjam/skills/` | `~/.mcpjam/skills/` |
 | Mistral Vibe | `mistral-vibe` | `.vibe/skills/` | `~/.vibe/skills/` |
+| Moxby | `moxby` | `.moxby/skills/` | `~/.moxby/skills/` |
 | Mux | `mux` | `.mux/skills/` | `~/.mux/skills/` |
 | OpenCode | `opencode` | `.agents/skills/` | `~/.config/opencode/skills/` |
 | OpenHands | `openhands` | `.openhands/skills/` | `~/.openhands/skills/` |
@@ -367,6 +368,7 @@ The CLI searches for skills in these locations within a repository:
 - `.kode/skills/`
 - `.mcpjam/skills/`
 - `.vibe/skills/`
+- `.moxby/skills/`
 - `.mux/skills/`
 - `.openhands/skills/`
 - `.pi/skills/`
