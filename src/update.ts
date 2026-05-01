@@ -8,6 +8,7 @@ import pc from 'picocolors';
 import {
   readSkillLock,
   fetchSkillFolderHash,
+  fetchGitSkillFolderHash,
   getGitHubToken,
   type SkillLockEntry,
 } from './skill-lock.ts';
@@ -172,9 +173,6 @@ export function getSkipReason(entry: SkillLockEntry): string {
   if (entry.sourceType === 'local') {
     return 'Local path';
   }
-  if (entry.sourceType === 'git') {
-    return 'Git URL';
-  }
   if (entry.sourceType === 'well-known') {
     return 'Well-known skill';
   }
@@ -312,6 +310,17 @@ export async function updateGlobalSkills(
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
+    if (entry.sourceType === 'local' || entry.sourceType === 'well-known') {
+      skipped.push({
+        name: skillName,
+        reason: getSkipReason(entry),
+        sourceUrl: entry.sourceUrl,
+        sourceType: entry.sourceType,
+        ref: entry.ref,
+      });
+      continue;
+    }
+
     if (!entry.skillFolderHash || !entry.skillPath) {
       skipped.push({
         name: skillName,
@@ -340,32 +349,45 @@ export async function updateGlobalSkills(
     process.stdout.write(`\r${DIM}Checking skills from source: ${source}${RESET}\x1b[K\n`);
 
     try {
-      const tree = await fetchRepoTree(source, firstEntry.ref, getGitHubToken);
+      if (firstEntry.sourceType === 'github') {
+        const tree = await fetchRepoTree(source, firstEntry.ref, getGitHubToken);
 
-      if (tree) {
-        const discoveredPaths = findSkillMdPaths(tree);
+        if (tree) {
+          const discoveredPaths = findSkillMdPaths(tree);
 
-        const allLockedForSource = Object.entries(lock.skills)
-          .filter(([_, entry]) => entry.source === source)
-          .map(([name, _]) => name);
+          const allLockedForSource = Object.entries(lock.skills)
+            .filter(([_, entry]) => entry.source === source)
+            .map(([name, _]) => name);
 
-        const deletedSkills = await checkAndPromptForDeletions(
-          source,
-          allLockedForSource,
-          lock.skills,
-          true,
-          options,
-          discoveredPaths
-        );
+          const deletedSkills = await checkAndPromptForDeletions(
+            source,
+            allLockedForSource,
+            lock.skills,
+            true,
+            options,
+            discoveredPaths
+          );
 
+          for (const { name: skillName, entry } of itemsForSource) {
+            const latestHash = getSkillFolderHashFromTree(tree, entry.skillPath!);
+            if (latestHash && latestHash !== entry.skillFolderHash) {
+              updates.push({ name: skillName, source, entry });
+            }
+          }
+        } else {
+          console.log(`  ${DIM}✗ Failed to fetch tree for ${source}${RESET}`);
+        }
+      } else {
         for (const { name: skillName, entry } of itemsForSource) {
-          const latestHash = getSkillFolderHashFromTree(tree, entry.skillPath!);
+          const latestHash = await fetchGitSkillFolderHash(
+            entry.sourceUrl,
+            entry.skillPath!,
+            entry.ref
+          );
           if (latestHash && latestHash !== entry.skillFolderHash) {
             updates.push({ name: skillName, source, entry });
           }
         }
-      } else {
-        console.log(`  ${DIM}✗ Failed to fetch tree for ${source}${RESET}`);
       }
     } catch (error) {
       console.log(`  ${DIM}✗ Error checking skills from ${source}${RESET}`);

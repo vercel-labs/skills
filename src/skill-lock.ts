@@ -202,6 +202,41 @@ export async function fetchSkillFolderHash(
 }
 
 /**
+ * Fetch the skill folder hash for a non-GitHub git source (Bitbucket, GitLab,
+ * Azure DevOps, self-hosted, etc.) by performing a shallow clone and computing
+ * a SHA-256 hash of the skill folder contents.
+ *
+ * Uses the same hashing algorithm as the install path in add.ts so stored and
+ * fetched hashes are directly comparable.
+ *
+ * @param sourceUrl - Git clone URL (e.g., "git@bitbucket.org:owner/repo.git")
+ * @param skillPath - Path to skill folder or SKILL.md within the repo
+ * @param ref - Optional branch/tag ref
+ * @returns SHA-256 hash of the skill folder contents, or null on failure
+ */
+export async function fetchGitSkillFolderHash(
+  sourceUrl: string,
+  skillPath: string,
+  ref?: string
+): Promise<string | null> {
+  const { cloneRepo, cleanupTempDir } = await import('./git.ts');
+  const { computeSkillFolderHash } = await import('./local-lock.ts');
+
+  let tempDir: string | null = null;
+  try {
+    tempDir = await cloneRepo(sourceUrl, ref);
+    const skillDir = join(tempDir, dirname(skillPath));
+    return await computeSkillFolderHash(skillDir);
+  } catch {
+    return null;
+  } finally {
+    if (tempDir) {
+      await cleanupTempDir(tempDir).catch(() => {});
+    }
+  }
+}
+
+/**
  * Add or update a skill entry in the lock file.
  */
 export async function addSkillToLock(
