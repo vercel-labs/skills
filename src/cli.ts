@@ -145,6 +145,7 @@ ${BOLD}Add Options:${RESET}
 ${BOLD}Remove Options:${RESET}
   -g, --global           Remove from global scope
   -a, --agent <agents>   Remove from specific agents (use '*' for all agents)
+  --source <sources>     Remove skills installed from specific sources
   -s, --skill <skills>   Specify skills to remove (use '*' for all skills)
   -y, --yes              Skip confirmation prompts
   --all                  Shorthand for --skill '*' --agent '*' -y
@@ -202,6 +203,7 @@ ${BOLD}Arguments:${RESET}
 ${BOLD}Options:${RESET}
   -g, --global       Remove from global scope (~/) instead of project scope
   -a, --agent        Remove from specific agents (use '*' for all agents)
+  --source           Remove skills from specific sources
   -s, --skill        Specify skills to remove (use '*' for all skills)
   -y, --yes          Skip confirmation prompts
   --all              Shorthand for --skill '*' --agent '*' -y
@@ -212,6 +214,7 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills remove skill1 skill2 -y           ${DIM}# remove multiple skills${RESET}
   ${DIM}$${RESET} skills remove --global my-skill          ${DIM}# remove from global scope${RESET}
   ${DIM}$${RESET} skills rm --agent claude-code my-skill   ${DIM}# remove from specific agent${RESET}
+  ${DIM}$${RESET} skills remove --source owner/repo --all  ${DIM}# remove all skills from a source${RESET}
   ${DIM}$${RESET} skills remove --all                      ${DIM}# remove all skills${RESET}
   ${DIM}$${RESET} skills remove --skill '*' -a cursor      ${DIM}# remove all skills from cursor${RESET}
 
