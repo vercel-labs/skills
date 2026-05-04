@@ -1,8 +1,9 @@
 import { homedir } from 'os';
-import { join } from 'path';
+import { join, normalize, resolve } from 'path';
 import { existsSync } from 'fs';
 import { xdgConfig } from 'xdg-basedir';
 import type { AgentConfig, AgentType } from './types.ts';
+import { UNIVERSAL_SKILLS_DIR } from './constants.ts';
 
 const home = homedir();
 // Use xdg-basedir (not env-paths) to match OpenCode/Amp/Goose behavior on all platforms.
@@ -10,6 +11,12 @@ const configHome = xdgConfig ?? join(home, '.config');
 const codexHome = process.env.CODEX_HOME?.trim() || join(home, '.codex');
 const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude');
 const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
+
+const globalUniversalSkillsDir = join(home, UNIVERSAL_SKILLS_DIR);
+
+function isSamePath(a: string, b: string): boolean {
+  return normalize(resolve(a)) === normalize(resolve(b));
+}
 
 export function getOpenClawGlobalSkillsDir(
   homeDir = home,
@@ -535,31 +542,42 @@ export function getAgentConfig(type: AgentType): AgentConfig {
 }
 
 /**
- * Returns agents that use the universal .agents/skills directory.
+ * Returns agents that use the universal .agents/skills directory for a scope.
  * These agents share a common skill location and don't need symlinks.
  * Agents with showInUniversalList: false are excluded.
  */
-export function getUniversalAgents(): AgentType[] {
+export function getUniversalAgents(options: { global?: boolean } = {}): AgentType[] {
   return (Object.entries(agents) as [AgentType, AgentConfig][])
-    .filter(
-      ([_, config]) => config.skillsDir === '.agents/skills' && config.showInUniversalList !== false
-    )
+    .filter(([type, config]) => {
+      return isUniversalAgent(type, options) && config.showInUniversalList !== false;
+    })
     .map(([type]) => type);
 }
 
 /**
- * Returns agents that use agent-specific skill directories (not universal).
+ * Returns agents that use agent-specific skill directories for a scope (not universal).
  * These agents need symlinks from the canonical .agents/skills location.
  */
-export function getNonUniversalAgents(): AgentType[] {
+export function getNonUniversalAgents(options: { global?: boolean } = {}): AgentType[] {
   return (Object.entries(agents) as [AgentType, AgentConfig][])
-    .filter(([_, config]) => config.skillsDir !== '.agents/skills')
+    .filter(([type, config]) => {
+      return !isUniversalAgent(type, options) && config.showInUniversalList !== false;
+    })
     .map(([type]) => type);
 }
 
 /**
- * Check if an agent uses the universal .agents/skills directory.
+ * Check if an agent uses the universal .agents/skills directory for a scope.
  */
-export function isUniversalAgent(type: AgentType): boolean {
-  return agents[type].skillsDir === '.agents/skills';
+export function isUniversalAgent(type: AgentType, options: { global?: boolean } = {}): boolean {
+  const agent = agents[type];
+
+  if (options.global) {
+    return (
+      agent.globalSkillsDir !== undefined &&
+      isSamePath(agent.globalSkillsDir, globalUniversalSkillsDir)
+    );
+  }
+
+  return agent.skillsDir === UNIVERSAL_SKILLS_DIR;
 }

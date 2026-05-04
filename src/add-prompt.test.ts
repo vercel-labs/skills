@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { promptForAgents } from './add.js';
+import { promptForAgents, selectAgentsInteractive } from './add.js';
+import { agents } from './agents.js';
 import * as skillLock from './skill-lock.js';
 import * as searchMultiselectModule from './prompts/search-multiselect.js';
 
@@ -99,5 +100,33 @@ describe('promptForAgents', () => {
     await promptForAgents('Select agents', choices);
 
     expect(skillLock.saveSelectedAgents).not.toHaveBeenCalled();
+  });
+});
+
+describe('selectAgentsInteractive', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('uses global universal grouping when selecting agents for global installs', async () => {
+    vi.mocked(skillLock.getLastSelectedAgents).mockResolvedValue(['amp']);
+    vi.mocked(searchMultiselectModule.searchMultiselect).mockResolvedValue(['amp']);
+
+    await selectAgentsInteractive({ global: true });
+
+    expect(searchMultiselectModule.searchMultiselect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lockedSection: expect.objectContaining({
+          items: expect.not.arrayContaining([expect.objectContaining({ value: 'amp' })]),
+        }),
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            value: 'amp',
+            hint: agents.amp.globalSkillsDir,
+          }),
+        ]),
+        initialSelected: ['amp'],
+      })
+    );
   });
 });
