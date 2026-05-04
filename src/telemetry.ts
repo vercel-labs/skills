@@ -1,5 +1,28 @@
-const TELEMETRY_URL = 'https://add-skill.vercel.sh/t';
+const DEFAULT_TELEMETRY_URL = 'https://add-skill.vercel.sh/t';
 const AUDIT_URL = 'https://add-skill.vercel.sh/audit';
+
+// npm/npx auto-inject `skills_telemetry_url` from .npmrc as
+// `npm_config_skills_telemetry_url` — supports centrally deployed config.
+function getTelemetryUrl(): string {
+  return (
+    process.env.SKILLS_TELEMETRY_URL ||
+    process.env.npm_config_skills_telemetry_url ||
+    DEFAULT_TELEMETRY_URL
+  );
+}
+
+function hasCustomTelemetryEndpoint(): boolean {
+  return getTelemetryUrl() !== DEFAULT_TELEMETRY_URL;
+}
+
+// Centralized gating for install telemetry across every install path.
+// Private/unknown sources never reach the default endpoint; they're only sent
+// when the operator has set a custom endpoint AND opted in explicitly via
+// SKILLS_TELEMETRY_ALLOW_PRIVATE=1. Opt-out vars are still enforced in track().
+export function shouldSendInstallTelemetry(isPrivate: boolean | null): boolean {
+  if (isPrivate === false) return true;
+  return hasCustomTelemetryEndpoint() && process.env.SKILLS_TELEMETRY_ALLOW_PRIVATE === '1';
+}
 
 interface InstallTelemetryData {
   event: 'install';
@@ -151,7 +174,7 @@ export function track(data: TelemetryData): void {
 
     // Fire and forget during the workflow, but track the promise so
     // flushTelemetry() can await it before the process exits.
-    const p = fetch(`${TELEMETRY_URL}?${params.toString()}`)
+    const p = fetch(`${getTelemetryUrl()}?${params.toString()}`)
       .catch(() => {})
       .then(() => {});
     pendingTelemetry.push(p);

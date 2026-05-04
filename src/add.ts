@@ -41,6 +41,7 @@ import {
 } from './agents.ts';
 import {
   track,
+  shouldSendInstallTelemetry,
   setVersion,
   fetchAuditData,
   type AuditResponse,
@@ -768,7 +769,7 @@ async function handleWellKnownSkills(
 
   // Privacy promise was started before installation — should be resolved by now
   const isPrivate = await wellKnownPrivacyPromise;
-  if (isPrivate !== true) {
+  if (shouldSendInstallTelemetry(isPrivate)) {
     track({
       event: 'install',
       source: sourceIdentifier,
@@ -1557,27 +1558,15 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     const isSSH = parsed.url.startsWith('git@');
     const lockSource = isSSH ? parsed.url : normalizedSource;
 
-    // Only track if we have a valid remote source and it's not a private repo.
-    // repoPrivacyPromise was started early (right after parsing) so it has
-    // already been running in parallel with the entire install — no stall here.
+    // Only track if we have a valid remote source. repoPrivacyPromise was
+    // started early (right after parsing) so it has already been running in
+    // parallel with the entire install — no stall here. Privacy gating is
+    // centralized in shouldSendInstallTelemetry(); for non-owner/repo sources
+    // we don't have a privacy signal, so we treat them as unknown (null).
     if (normalizedSource) {
       const ownerRepo = parseOwnerRepo(normalizedSource);
-      if (ownerRepo) {
-        const isPrivate = await repoPrivacyPromise;
-        // Only send telemetry if repo is public (isPrivate === false)
-        // If we can't determine (null), err on the side of caution and skip telemetry
-        if (isPrivate === false) {
-          track({
-            event: 'install',
-            source: normalizedSource,
-            skills: selectedSkills.map((s) => s.name).join(','),
-            agents: targetAgents.join(','),
-            ...(installGlobally && { global: '1' }),
-            skillFiles: JSON.stringify(skillFiles),
-          });
-        }
-      } else {
-        // If we can't parse owner/repo, still send telemetry (for non-GitHub sources)
+      const isPrivate = ownerRepo ? await repoPrivacyPromise : null;
+      if (shouldSendInstallTelemetry(isPrivate)) {
         track({
           event: 'install',
           source: normalizedSource,
