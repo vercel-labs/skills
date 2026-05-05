@@ -314,6 +314,7 @@ export async function tryBlobInstall(
     ref?: string;
     token?: string | null;
     includeInternal?: boolean;
+    onInvalid?: (details: { path: string; message: string }) => void;
   } = {}
 ): Promise<BlobInstallResult | null> {
   // 1. Fetch the full repo tree
@@ -357,13 +358,39 @@ export async function tryBlobInstall(
     slug: string;
     metadata?: Record<string, unknown>;
   }> = [];
+  let fetchedSkillMdCount = 0;
 
   for (const { mdPath, content } of mdFetches) {
     if (!content) continue;
+    fetchedSkillMdCount += 1;
 
-    const { data } = parseFrontmatter(content);
-    if (!data.name || !data.description) continue;
-    if (typeof data.name !== 'string' || typeof data.description !== 'string') continue;
+    let data: Record<string, unknown>;
+    try {
+      ({ data } = parseFrontmatter(content));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      options.onInvalid?.({
+        path: mdPath,
+        message: `YAML parse error: ${message}`,
+      });
+      continue;
+    }
+
+    if (!data.name || !data.description) {
+      options.onInvalid?.({
+        path: mdPath,
+        message: 'Missing frontmatter `name` or `description`.',
+      });
+      continue;
+    }
+
+    if (typeof data.name !== 'string' || typeof data.description !== 'string') {
+      options.onInvalid?.({
+        path: mdPath,
+        message: 'Frontmatter `name` and `description` must both be strings.',
+      });
+      continue;
+    }
 
     // Skip internal skills unless explicitly requested
     const isInternal = (data.metadata as Record<string, unknown>)?.internal === true;
@@ -382,7 +409,9 @@ export async function tryBlobInstall(
     });
   }
 
-  if (parsedSkills.length === 0) return null;
+  if (parsedSkills.length === 0) {
+    return fetchedSkillMdCount > 0 ? { skills: [], tree } : null;
+  }
 
   // Apply skill filter by name if not already filtered by folder name
   let filteredSkills = parsedSkills;

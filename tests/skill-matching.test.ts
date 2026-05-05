@@ -189,4 +189,29 @@ description: A valid skill
     expect(result).not.toBeNull();
     expect(result!.name).toBe('valid-skill');
   });
+
+  it('reports YAML parse errors through onInvalid', async () => {
+    const skillPath = join(testDir, 'SKILL.md');
+    writeFileSync(
+      skillPath,
+      `---
+name: broken-skill
+description: Configure the harness: Hooks, MCP Servers, Skills
+---
+
+# Broken Skill
+`
+    );
+
+    const invalid: Array<{ path: string; message: string }> = [];
+    const result = await parseSkillMd(skillPath, {
+      onInvalid: (details) => invalid.push(details),
+    });
+
+    expect(result).toBeNull();
+    expect(invalid).toHaveLength(1);
+    expect(invalid[0]?.path).toBe(skillPath);
+    expect(invalid[0]?.message).toContain('YAML parse error:');
+    expect(invalid[0]?.message).toContain('Nested mappings are not allowed in compact mappings');
+  });
 });

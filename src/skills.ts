@@ -28,25 +28,36 @@ async function hasSkillMd(dir: string): Promise<boolean> {
 
 export async function parseSkillMd(
   skillMdPath: string,
-  options?: { includeInternal?: boolean }
+  options?: {
+    includeInternal?: boolean;
+    onInvalid?: (details: { path: string; message: string }) => void;
+  }
 ): Promise<Skill | null> {
   try {
     const content = await readFile(skillMdPath, 'utf-8');
     const { data } = parseFrontmatter(content);
 
     if (!data.name || !data.description) {
+      options?.onInvalid?.({
+        path: skillMdPath,
+        message: 'Missing frontmatter `name` or `description`.',
+      });
       return null;
     }
 
     // Ensure name and description are strings (YAML can parse numbers, booleans, etc.)
     if (typeof data.name !== 'string' || typeof data.description !== 'string') {
+      options?.onInvalid?.({
+        path: skillMdPath,
+        message: 'Frontmatter `name` and `description` must both be strings.',
+      });
       return null;
     }
 
     // Skip internal skills unless:
     // 1. INSTALL_INTERNAL_SKILLS=1 is set, OR
     // 2. includeInternal option is true (e.g., when user explicitly requests a skill)
-    const isInternal = data.metadata?.internal === true;
+    const isInternal = (data.metadata as Record<string, unknown> | undefined)?.internal === true;
     if (isInternal && !shouldInstallInternalSkills() && !options?.includeInternal) {
       return null;
     }
@@ -56,9 +67,14 @@ export async function parseSkillMd(
       description: sanitizeMetadata(data.description),
       path: dirname(skillMdPath),
       rawContent: content,
-      metadata: data.metadata,
+      metadata: data.metadata as Record<string, unknown> | undefined,
     };
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    options?.onInvalid?.({
+      path: skillMdPath,
+      message: `YAML parse error: ${message}`,
+    });
     return null;
   }
 }
@@ -92,6 +108,8 @@ export interface DiscoverSkillsOptions {
   includeInternal?: boolean;
   /** Search all subdirectories even when a root SKILL.md exists */
   fullDepth?: boolean;
+  /** Report invalid skill metadata discovered during scanning */
+  onInvalid?: (details: { path: string; message: string }) => void;
 }
 
 /**

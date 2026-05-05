@@ -2,7 +2,7 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
-import { sep, join, dirname } from 'path';
+import { sep, join, dirname, relative } from 'path';
 import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
 import { stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
@@ -68,6 +68,11 @@ import {
 import packageJson from '../package.json' with { type: 'json' };
 export function initTelemetry(version: string): void {
   setVersion(version);
+}
+
+function warnInvalidSkill(skillPath: string, message: string, basePath?: string | null): void {
+  const displayPath = basePath ? relative(basePath, skillPath) || skillPath : skillPath;
+  p.log.warn(`Skipped ${pc.cyan(displayPath)} - ${message}`);
 }
 
 // ─── Security Advisory ───
@@ -1010,6 +1015,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       skills = await discoverSkills(parsed.localPath!, parsed.subpath, {
         includeInternal,
         fullDepth: options.fullDepth,
+        onInvalid: ({ path, message }) => warnInvalidSkill(path, message, parsed.localPath!),
       });
     } else if (parsed.type === 'github' && !options.fullDepth) {
       // Try blob-based fast install for GitHub sources
@@ -1026,6 +1032,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           ref: parsed.ref,
           token,
           includeInternal,
+          onInvalid: ({ path, message }) => warnInvalidSkill(path, message),
         });
         if (!blobResult) {
           spinner.stop(pc.dim('Falling back to clone...'));
@@ -1045,6 +1052,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         skills = await discoverSkills(tempDir, parsed.subpath, {
           includeInternal,
           fullDepth: options.fullDepth,
+          onInvalid: ({ path, message }) => warnInvalidSkill(path, message, tempDir),
         });
       }
     } else {
@@ -1057,6 +1065,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       skills = await discoverSkills(tempDir, parsed.subpath, {
         includeInternal,
         fullDepth: options.fullDepth,
+        onInvalid: ({ path, message }) => warnInvalidSkill(path, message, tempDir),
       });
     }
 
