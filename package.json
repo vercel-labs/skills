@@ -7,6 +7,12 @@
     "skills": "./bin/cli.mjs",
     "add-skill": "./bin/cli.mjs"
   },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
   "files": [
     "dist",
     "bin",

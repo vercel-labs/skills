@@ -1,4 +1,5 @@
 import { isAbsolute, resolve } from 'path';
+import { findProvider } from './providers/index.ts';
 import type { ParsedSource } from './types.ts';
 
 /**
@@ -226,6 +227,21 @@ export function parseSource(input: string): ParsedSource {
       type: 'local',
       url: resolvedPath, // Store resolved path in url for consistency
       localPath: resolvedPath,
+    };
+  }
+
+  // Third-party provider hook: consult registered HostProviders *before*
+  // any of the built-in GitHub/GitLab/well-known matchers. This lets
+  // external packages claim identifiers like `@owner/name` or
+  // `my-registry://…` without forking the CLI.
+  const providerMatch = findProvider(input);
+  if (providerMatch) {
+    const match = providerMatch.match(input);
+    return {
+      type: 'provider',
+      url: input,
+      providerId: providerMatch.id,
+      ...(match.sourceIdentifier ? { sourceIdentifier: match.sourceIdentifier } : {}),
     };
   }
 
