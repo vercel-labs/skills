@@ -4,7 +4,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from './test-utils.ts';
 import { shouldInstallInternalSkills } from './skills.ts';
-import { parseAddOptions } from './add.ts';
+import { parseAddOptions, getLockSource } from './add.ts';
 
 describe('add command', () => {
   let testDir: string;
@@ -293,6 +293,24 @@ metadata:
       const result = runCli(['add', testDir, '--list'], testDir);
       expect(result.stdout).toContain('not-internal-skill');
     });
+  });
+});
+
+describe('getLockSource', () => {
+  it('preserves git@ SSH URLs for lock files', () => {
+    expect(getLockSource('git@github.com:owner/repo.git', 'owner/repo')).toBe(
+      'git@github.com:owner/repo.git'
+    );
+  });
+
+  it('preserves ssh:// SSH URLs for lock files', () => {
+    expect(getLockSource('ssh://git@stash.myrepo.com:7999/my/skills.git', 'my/skills')).toBe(
+      'ssh://git@stash.myrepo.com:7999/my/skills.git'
+    );
+  });
+
+  it('keeps normalized owner/repo for non-SSH remotes', () => {
+    expect(getLockSource('https://github.com/owner/repo.git', 'owner/repo')).toBe('owner/repo');
   });
 });
 
