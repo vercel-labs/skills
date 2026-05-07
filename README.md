@@ -4,7 +4,7 @@ The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
 
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [51 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [52 more](#supported-agents).
 
 <!-- agent-list:end -->
 
@@ -232,6 +232,7 @@ Skills can be installed to any of these agents:
 | ------------------------------------- | ---------------------------------------- | ------------------------ | ------------------------------- |
 | AiderDesk                             | `aider-desk`                             | `.aider-desk/skills/`    | `~/.aider-desk/skills/`         |
 | Amp, Kimi Code CLI, Replit, Universal | `amp`, `kimi-cli`, `replit`, `universal` | `.agents/skills/`        | `~/.config/agents/skills/`      |
+| Android Studio                        | `android-studio`                         | `.android-studio/skills/` | `~/.android-studio/skills/`    |
 | Antigravity                           | `antigravity`                            | `.agents/skills/`        | `~/.gemini/antigravity/skills/` |
 | Augment                               | `augment`                                | `.augment/skills/`       | `~/.augment/skills/`            |
 | IBM Bob                               | `bob`                                    | `.bob/skills/`           | `~/.bob/skills/`                |
@@ -353,6 +354,7 @@ The CLI searches for skills in these locations within a repository:
 - `skills/.system/`
 - `.aider-desk/skills/`
 - `.agents/skills/`
+- `.android-studio/skills/`
 - `.augment/skills/`
 - `.bob/skills/`
 - `.claude/skills/`

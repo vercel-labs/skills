@@ -1,6 +1,7 @@
 export type AgentType =
   | 'aider-desk'
   | 'amp'
+  | 'android-studio'
   | 'antigravity'
   | 'augment'
   | 'bob'

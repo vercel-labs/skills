@@ -46,6 +46,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(configHome, 'amp'));
     },
   },
+  'android-studio': {
+    name: 'android-studio',
+    displayName: 'Android Studio',
+    skillsDir: '.android-studio/skills',
+    globalSkillsDir: join(home, '.android-studio/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.android-studio'));
+    },
+  },
   antigravity: {
     name: 'antigravity',
     displayName: 'Antigravity',
