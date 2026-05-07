@@ -35,7 +35,32 @@ function deriveSkillFolder(skillPath: string): string {
   return folder;
 }
 
+/**
+ * Whether a skill folder can be safely appended to the given source as a
+ * subpath. Only true for sources the source-parser can resolve as a
+ * GitHub/GitLab tree URL — owner/repo shorthand or an HTTPS URL on those
+ * hosts. Full SSH URLs (`git@host:owner/repo.git`) and generic Git URLs
+ * (anything ending in `.git`, or hosts other than github.com/gitlab.com)
+ * cannot have a subpath appended without producing an unclonable URL.
+ */
+function supportsAppendedSubpath(source: string): boolean {
+  if (source.startsWith('git@')) return false;
+  if (source.endsWith('.git')) return false;
+  if (source.startsWith('http://') || source.startsWith('https://')) {
+    try {
+      const host = new URL(source).hostname;
+      return host === 'github.com' || host === 'gitlab.com';
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
 function appendFolderAndRef(source: string, skillPath: string, ref?: string): string {
+  if (!supportsAppendedSubpath(source)) {
+    return formatSourceInput(source, ref);
+  }
   const folder = deriveSkillFolder(skillPath);
   const withFolder = folder ? `${source}/${folder}` : source;
   return ref ? `${withFolder}#${ref}` : withFolder;
