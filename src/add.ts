@@ -60,6 +60,7 @@ import { addSkillToLocalLock, computeSkillFolderHash } from './local-lock.ts';
 import type { Skill, AgentType } from './types.ts';
 import {
   tryBlobInstall,
+  getCanonicalSkillPathFromTree,
   getSkillFolderHashFromTree,
   fetchRepoTree,
   type BlobSkill,
@@ -1592,29 +1593,29 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     // Add to skill lock file for update tracking (only for global installs)
+    let remoteTree: Awaited<ReturnType<typeof fetchRepoTree>> | undefined = blobResult?.tree;
+    if (successful.length > 0 && !remoteTree && parsed.type === 'github' && normalizedSource) {
+      const token = getGitHubToken();
+      remoteTree = await fetchRepoTree(normalizedSource, parsed.ref, token);
+    }
+
+    const canonicalizeSkillPath = (skillPath: string | undefined): string | undefined => {
+      if (!skillPath || !remoteTree) return skillPath;
+      return getCanonicalSkillPathFromTree(remoteTree, skillPath) ?? skillPath;
+    };
+
     if (successful.length > 0 && installGlobally && normalizedSource) {
       const successfulSkillNames = new Set(successful.map((r) => r.skill));
-
-      // For GitHub clone installs, fetch the repo tree once and reuse it
-      // for all skills — avoids N sequential API calls that take ~400ms each.
-      let cachedTree: Awaited<ReturnType<typeof fetchRepoTree>> | undefined;
-      if (parsed.type === 'github' && !blobResult) {
-        const token = getGitHubToken();
-        cachedTree = await fetchRepoTree(normalizedSource, parsed.ref, token);
-      }
 
       for (const skill of selectedSkills) {
         const skillDisplayName = getSkillDisplayName(skill);
         if (successfulSkillNames.has(skillDisplayName)) {
           try {
             let skillFolderHash = '';
-            const skillPathValue = skillFiles[skill.name];
+            const skillPathValue = canonicalizeSkillPath(skillFiles[skill.name]);
 
-            if (blobResult && skillPathValue) {
-              const hash = getSkillFolderHashFromTree(blobResult.tree, skillPathValue);
-              if (hash) skillFolderHash = hash;
-            } else if (parsed.type === 'github' && skillPathValue && cachedTree) {
-              const hash = getSkillFolderHashFromTree(cachedTree, skillPathValue);
+            if (remoteTree && skillPathValue) {
+              const hash = getSkillFolderHashFromTree(remoteTree, skillPathValue);
               if (hash) skillFolderHash = hash;
             } else if (skillPathValue && tempDir) {
               const skillDir = join(tempDir, dirname(skillPathValue));
@@ -1650,7 +1651,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               blobResult && 'snapshotHash' in skill
                 ? (skill as BlobSkill).snapshotHash
                 : await computeSkillFolderHash(skill.path);
-            const skillPathValue = skillFiles[skill.name];
+            const skillPathValue = canonicalizeSkillPath(skillFiles[skill.name]);
             await addSkillToLocalLock(
               skill.name,
               {

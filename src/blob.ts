@@ -76,6 +76,39 @@ export interface RepoTree {
   tree: TreeEntry[];
 }
 
+function normalizeRepoPath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/^\/+/, '');
+}
+
+function skillPathToFolderPath(skillPath: string): string {
+  let folderPath = normalizeRepoPath(skillPath);
+
+  if (folderPath.endsWith('/SKILL.md')) {
+    folderPath = folderPath.slice(0, -9);
+  } else if (folderPath.endsWith('SKILL.md')) {
+    folderPath = folderPath.slice(0, -8);
+  }
+
+  if (folderPath.endsWith('/')) {
+    folderPath = folderPath.slice(0, -1);
+  }
+
+  return folderPath;
+}
+
+function findTreeEntry(
+  tree: RepoTree,
+  type: TreeEntry['type'],
+  path: string
+): TreeEntry | undefined {
+  const exact = tree.tree.find((e) => e.type === type && e.path === path);
+  if (exact) return exact;
+
+  const lowerPath = path.toLowerCase();
+  const matches = tree.tree.filter((e) => e.type === type && e.path.toLowerCase() === lowerPath);
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
 /**
  * Fetch the full recursive tree for a GitHub repo.
  * Returns the tree data including all entries, or null on failure.
@@ -125,25 +158,41 @@ export async function fetchRepoTree(
  * This replaces the per-skill GitHub API call previously done in fetchSkillFolderHash().
  */
 export function getSkillFolderHashFromTree(tree: RepoTree, skillPath: string): string | null {
-  let folderPath = skillPath.replace(/\\/g, '/');
-
-  // Remove SKILL.md suffix to get folder path
-  if (folderPath.endsWith('/SKILL.md')) {
-    folderPath = folderPath.slice(0, -9);
-  } else if (folderPath.endsWith('SKILL.md')) {
-    folderPath = folderPath.slice(0, -8);
-  }
-  if (folderPath.endsWith('/')) {
-    folderPath = folderPath.slice(0, -1);
-  }
+  const folderPath = skillPathToFolderPath(skillPath);
 
   // Root-level skill
   if (!folderPath) {
     return tree.sha;
   }
 
-  const entry = tree.tree.find((e) => e.type === 'tree' && e.path === folderPath);
+  const entry = findTreeEntry(tree, 'tree', folderPath);
   return entry?.sha ?? null;
+}
+
+/**
+ * Return the repo-canonical SKILL.md path for a lockfile entry.
+ *
+ * Local clones on case-insensitive filesystems can discover a skill through a
+ * differently-cased search path (for example, "skills/..." for upstream
+ * "Skills/..."). GitHub tree paths are case-sensitive, so lock files must keep
+ * the exact upstream casing for future update checks and reinstalls.
+ */
+export function getCanonicalSkillPathFromTree(tree: RepoTree, skillPath: string): string | null {
+  const normalizedPath = normalizeRepoPath(skillPath);
+  if (normalizedPath === 'SKILL.md') {
+    return normalizedPath;
+  }
+
+  const folderPath = skillPathToFolderPath(normalizedPath);
+  const skillMdPath =
+    normalizedPath.endsWith('/SKILL.md') || normalizedPath === 'SKILL.md'
+      ? normalizedPath
+      : folderPath
+        ? `${folderPath}/SKILL.md`
+        : 'SKILL.md';
+
+  const entry = findTreeEntry(tree, 'blob', skillMdPath);
+  return entry?.path ?? null;
 }
 
 // ─── Skill discovery from tree ───
