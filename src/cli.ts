@@ -117,6 +117,9 @@ ${BOLD}Manage Skills:${RESET}
   add <package>        Add a skill package (alias: a)
                        e.g. vercel-labs/agent-skills
                             https://github.com/vercel-labs/agent-skills
+                            npm:my-skills-package
+                            npm:my-skills-package@1.2.3
+                            npm:@scope/skills@^1.0.0
   remove [skills]      Remove installed skills
   list, ls             List installed skills
   find [query]         Search for skills interactively
@@ -169,6 +172,9 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills add vercel-labs/agent-skills -g
   ${DIM}$${RESET} skills add vercel-labs/agent-skills --agent claude-code cursor
   ${DIM}$${RESET} skills add vercel-labs/agent-skills --skill pr-review commit
+  ${DIM}$${RESET} skills add npm:my-skills-package         ${DIM}# install latest from npm${RESET}
+  ${DIM}$${RESET} skills add npm:my-skills-package@1.2.3   ${DIM}# specific npm version${RESET}
+  ${DIM}$${RESET} skills add npm:@scope/skills@^1.0.0      ${DIM}# scoped npm package${RESET}
   ${DIM}$${RESET} skills remove                        ${DIM}# interactive remove${RESET}
   ${DIM}$${RESET} skills remove web-design             ${DIM}# remove by name${RESET}
   ${DIM}$${RESET} skills rm --global frontend-design
