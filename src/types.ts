@@ -46,6 +46,7 @@ export type AgentType =
   | 'roo'
   | 'rovodev'
   | 'tabnine-cli'
+  | 'tinycloud'
   | 'trae'
   | 'trae-cn'
   | 'warp'

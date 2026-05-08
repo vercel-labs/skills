@@ -447,6 +447,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.tabnine'));
     },
   },
+  tinycloud: {
+    name: 'tinycloud',
+    displayName: 'Tinycloud',
+    skillsDir: '.tinycloud/skills',
+    globalSkillsDir: join(home, '.tinycloud/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.tinycloud'));
+    },
+  },
   trae: {
     name: 'trae',
     displayName: 'Trae',

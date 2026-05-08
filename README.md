@@ -4,7 +4,7 @@ The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
 
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [51 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [52 more](#supported-agents).
 
 <!-- agent-list:end -->
 
@@ -273,6 +273,7 @@ Skills can be installed to any of these agents:
 | Rovo Dev                              | `rovodev`                                | `.rovodev/skills/`       | `~/.rovodev/skills/`            |
 | Roo Code                              | `roo`                                    | `.roo/skills/`           | `~/.roo/skills/`                |
 | Tabnine CLI                           | `tabnine-cli`                            | `.tabnine/agent/skills/` | `~/.tabnine/agent/skills/`      |
+| Tinycloud                             | `tinycloud`                              | `.tinycloud/skills/`     | `~/.tinycloud/skills/`          |
 | Trae                                  | `trae`                                   | `.trae/skills/`          | `~/.trae/skills/`               |
 | Trae CN                               | `trae-cn`                                | `.trae/skills/`          | `~/.trae-cn/skills/`            |
 | Windsurf                              | `windsurf`                               | `.windsurf/skills/`      | `~/.codeium/windsurf/skills/`   |
@@ -384,6 +385,7 @@ The CLI searches for skills in these locations within a repository:
 - `.rovodev/skills/`
 - `.roo/skills/`
 - `.tabnine/agent/skills/`
+- `.tinycloud/skills/`
 - `.trae/skills/`
 - `.windsurf/skills/`
 - `.zencoder/skills/`
