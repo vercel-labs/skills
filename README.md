@@ -4,7 +4,7 @@ The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
 
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [51 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [52 more](#supported-agents).
 
 <!-- agent-list:end -->
 
@@ -269,6 +269,7 @@ Skills can be installed to any of these agents:
 | OpenHands                             | `openhands`                              | `.openhands/skills/`     | `~/.openhands/skills/`          |
 | Pi                                    | `pi`                                     | `.pi/skills/`            | `~/.pi/agent/skills/`           |
 | Qoder                                 | `qoder`                                  | `.qoder/skills/`         | `~/.qoder/skills/`              |
+| QoderWork                             | `qoderwork`                              | `.qoderwork/skills/`     | `~/.qoderwork/skills/`          |
 | Qwen Code                             | `qwen-code`                              | `.qwen/skills/`          | `~/.qwen/skills/`               |
 | Rovo Dev                              | `rovodev`                                | `.rovodev/skills/`       | `~/.rovodev/skills/`            |
 | Roo Code                              | `roo`                                    | `.roo/skills/`           | `~/.roo/skills/`                |
@@ -380,6 +381,7 @@ The CLI searches for skills in these locations within a repository:
 - `.openhands/skills/`
 - `.pi/skills/`
 - `.qoder/skills/`
+- `.qoderwork/skills/`
 - `.qwen/skills/`
 - `.rovodev/skills/`
 - `.roo/skills/`
@@ -488,6 +490,7 @@ Telemetry is automatically disabled in CI environments.
 - [OpenHands Skills Documentation](https://docs.openhands.ai/modules/usage/how-to/using-skills)
 - [Pi Skills Documentation](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/skills.md)
 - [Qoder Skills Documentation](https://docs.qoder.com/cli/Skills)
+- [QoderWork](https://qoder.com/qoderwork)
 - [Replit Skills Documentation](https://docs.replit.com/replitai/skills)
 - [Roo Code Skills Documentation](https://docs.roocode.com/features/skills)
 - [Trae Skills Documentation](https://docs.trae.ai/ide/skills)
