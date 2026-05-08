@@ -217,6 +217,30 @@ function appendFragmentRef(input: string, ref?: string, skillFilter?: string): s
   return `${input}#${ref}${skillFilter ? `@${skillFilter}` : ''}`;
 }
 
+/**
+ * Split an npm package spec into its name and (optional) version.
+ *
+ * Examples:
+ *   "foo"              -> { packageName: "foo" }
+ *   "foo@1.0.0"        -> { packageName: "foo", version: "1.0.0" }
+ *   "@scope/foo"       -> { packageName: "@scope/foo" }
+ *   "@scope/foo@^1.2"  -> { packageName: "@scope/foo", version: "^1.2" }
+ */
+export function parseNpmSpec(spec: string): { packageName: string; version?: string } {
+  if (spec.startsWith('@')) {
+    const match = spec.match(/^(@[^/]+\/[^@]+)(?:@(.+))?$/);
+    if (match) {
+      return { packageName: match[1]!, ...(match[2] ? { version: match[2] } : {}) };
+    }
+    return { packageName: '' };
+  }
+  const match = spec.match(/^([^@/][^@]*)(?:@(.+))?$/);
+  if (match) {
+    return { packageName: match[1]!, ...(match[2] ? { version: match[2] } : {}) };
+  }
+  return { packageName: '' };
+}
+
 export function parseSource(input: string): ParsedSource {
   // Local path: absolute, relative, or current directory
   if (isLocalPath(input)) {
@@ -240,6 +264,29 @@ export function parseSource(input: string): ParsedSource {
   const alias = SOURCE_ALIASES[input];
   if (alias) {
     input = alias;
+  }
+
+  // Prefix shorthand: npm:<pkg>[@version]
+  // Supports unscoped and scoped packages with optional version/range:
+  //   npm:foo, npm:foo@1.0.0, npm:foo@^1.2, npm:@scope/foo, npm:@scope/foo@1.0.0
+  const npmPrefixMatch = input.match(/^npm:(.+)$/);
+  if (npmPrefixMatch) {
+    const spec = npmPrefixMatch[1]!;
+    const { packageName } = parseNpmSpec(spec);
+    if (!packageName) {
+      throw new Error(`Invalid npm spec: "${spec}"`);
+    }
+    // Note: the version (if any) stays embedded in `packageSpec` and `url`.
+    // We deliberately do NOT set `ref` for npm sources — the version is
+    // already part of the spec, so setting ref would duplicate it in
+    // display and lockfile output.
+    return {
+      type: 'npm',
+      url: `npm:${spec}`,
+      packageSpec: spec,
+      packageName,
+      ...(fragmentSkillFilter ? { skillFilter: fragmentSkillFilter } : {}),
+    };
   }
 
   // Prefix shorthand: github:owner/repo -> owner/repo (handled by existing shorthand logic)

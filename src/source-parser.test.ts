@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseSource } from './source-parser.js';
+import { parseSource, parseNpmSpec } from './source-parser.js';
 
 describe('source-parser', () => {
   describe('GitLab Custom Domains & Subgroups', () => {
@@ -125,6 +125,107 @@ describe('source-parser', () => {
         type: 'git',
         url: 'git@github.com:owner/repo.git',
         ref: 'feature/install',
+      });
+    });
+  });
+
+  describe('npm sources', () => {
+    it('parses npm:<pkg> with no version', () => {
+      const result = parseSource('npm:my-skills');
+      expect(result).toEqual({
+        type: 'npm',
+        url: 'npm:my-skills',
+        packageSpec: 'my-skills',
+        packageName: 'my-skills',
+      });
+    });
+
+    it('parses npm:<pkg>@<version>', () => {
+      const result = parseSource('npm:my-skills@1.2.3');
+      expect(result).toEqual({
+        type: 'npm',
+        url: 'npm:my-skills@1.2.3',
+        packageSpec: 'my-skills@1.2.3',
+        packageName: 'my-skills',
+      });
+    });
+
+    it('parses npm:<pkg>@<range>', () => {
+      const result = parseSource('npm:my-skills@^1.0.0');
+      expect(result).toEqual({
+        type: 'npm',
+        url: 'npm:my-skills@^1.0.0',
+        packageSpec: 'my-skills@^1.0.0',
+        packageName: 'my-skills',
+      });
+    });
+
+    it('parses npm:@scope/<pkg>', () => {
+      const result = parseSource('npm:@scope/skills');
+      expect(result).toEqual({
+        type: 'npm',
+        url: 'npm:@scope/skills',
+        packageSpec: '@scope/skills',
+        packageName: '@scope/skills',
+      });
+    });
+
+    it('parses npm:@scope/<pkg>@<version>', () => {
+      const result = parseSource('npm:@scope/skills@1.0.0');
+      expect(result).toEqual({
+        type: 'npm',
+        url: 'npm:@scope/skills@1.0.0',
+        packageSpec: '@scope/skills@1.0.0',
+        packageName: '@scope/skills',
+      });
+    });
+
+    it('parses npm:@scope/<pkg>@<range>', () => {
+      const result = parseSource('npm:@scope/skills@^1.2');
+      expect(result).toEqual({
+        type: 'npm',
+        url: 'npm:@scope/skills@^1.2',
+        packageSpec: '@scope/skills@^1.2',
+        packageName: '@scope/skills',
+      });
+    });
+
+    it('does not set ref for npm sources', () => {
+      const result = parseSource('npm:my-skills@1.2.3');
+      expect(result.ref).toBeUndefined();
+    });
+
+    it('throws when scoped package is missing the package name', () => {
+      // "@bad" is not a valid scoped name (needs a slash: @scope/name)
+      expect(() => parseSource('npm:@bad')).toThrow(/Invalid npm spec/);
+    });
+  });
+
+  describe('parseNpmSpec', () => {
+    it('handles unscoped package without version', () => {
+      expect(parseNpmSpec('foo')).toEqual({ packageName: 'foo' });
+    });
+
+    it('handles unscoped package with version', () => {
+      expect(parseNpmSpec('foo@1.0.0')).toEqual({ packageName: 'foo', version: '1.0.0' });
+    });
+
+    it('handles scoped package without version', () => {
+      expect(parseNpmSpec('@scope/foo')).toEqual({ packageName: '@scope/foo' });
+    });
+
+    it('handles scoped package with version', () => {
+      expect(parseNpmSpec('@scope/foo@1.0.0')).toEqual({
+        packageName: '@scope/foo',
+        version: '1.0.0',
+      });
+    });
+
+    it('handles version ranges', () => {
+      expect(parseNpmSpec('foo@^1.2.3')).toEqual({ packageName: 'foo', version: '^1.2.3' });
+      expect(parseNpmSpec('@scope/foo@~2.0')).toEqual({
+        packageName: '@scope/foo',
+        version: '~2.0',
       });
     });
   });

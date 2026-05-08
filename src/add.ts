@@ -23,6 +23,7 @@ async function isSourcePrivate(source: string): Promise<boolean | null> {
   return isRepoPrivate(ownerRepo.owner, ownerRepo.repo);
 }
 import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
+import { npmPackAndExtract, cleanupNpmTempDir, NpmPackError } from './npm.ts';
 import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
 import {
   installSkillForAgent,
@@ -998,7 +999,19 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     let skills: Skill[];
     let blobResult: BlobInstallResult | null = null;
 
-    if (parsed.type === 'local') {
+    if (parsed.type === 'npm') {
+      // Download the package via `npm pack` (no install scripts, no deps).
+      // Extracts into <tmp>/skills-npm-XXXX/package/.
+      spinner.start(`Downloading npm package ${pc.cyan(parsed.packageSpec!)}...`);
+      tempDir = await npmPackAndExtract(parsed.packageSpec!);
+      spinner.stop('Package downloaded');
+
+      spinner.start('Discovering skills...');
+      skills = await discoverSkills(tempDir, parsed.subpath, {
+        includeInternal,
+        fullDepth: options.fullDepth,
+      });
+    } else if (parsed.type === 'local') {
       // Use local path directly, no cloning needed
       spinner.start('Validating local path...');
       if (!existsSync(parsed.localPath!)) {
@@ -1556,8 +1569,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Preserve SSH URLs in lock files instead of normalizing to owner/repo shorthand.
     // When normalizedSource is used, parseSource() later resolves it to HTTPS,
     // breaking restore for private repos that require SSH authentication.
+    // For npm sources, fall back to parsed.url ("npm:<spec>") since there is
+    // no owner/repo shorthand to derive.
     const isSSH = parsed.url.startsWith('git@');
-    const lockSource = isSSH ? parsed.url : normalizedSource;
+    const lockSource = isSSH
+      ? parsed.url
+      : (normalizedSource ?? (parsed.type === 'npm' ? parsed.url : null));
 
     // Only track if we have a valid remote source and it's not a private repo.
     // repoPrivacyPromise was started early (right after parsing) so it has
@@ -1592,13 +1609,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     // Add to skill lock file for update tracking (only for global installs)
-    if (successful.length > 0 && installGlobally && normalizedSource) {
+    if (successful.length > 0 && installGlobally && lockSource) {
       const successfulSkillNames = new Set(successful.map((r) => r.skill));
 
       // For GitHub clone installs, fetch the repo tree once and reuse it
       // for all skills — avoids N sequential API calls that take ~400ms each.
       let cachedTree: Awaited<ReturnType<typeof fetchRepoTree>> | undefined;
-      if (parsed.type === 'github' && !blobResult) {
+      if (parsed.type === 'github' && !blobResult && normalizedSource) {
         const token = getGitHubToken();
         cachedTree = await fetchRepoTree(normalizedSource, parsed.ref, token);
       }
@@ -1623,7 +1640,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             }
 
             await addSkillToLock(skill.name, {
-              source: lockSource || normalizedSource,
+              source: lockSource,
               sourceType: parsed.type,
               sourceUrl: parsed.url,
               ref: parsed.ref,
@@ -1783,6 +1800,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       for (const line of error.message.split('\n')) {
         p.log.message(pc.dim(line));
       }
+    } else if (error instanceof NpmPackError) {
+      p.log.error(pc.red(`Failed to download npm package ${error.spec}`));
+      for (const line of error.message.split('\n')) {
+        p.log.message(pc.dim(line));
+      }
     } else {
       p.log.error(error instanceof Error ? error.message : 'Unknown error occurred');
     }
@@ -1796,12 +1818,20 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
 // Cleanup helper
 async function cleanup(tempDir: string | null) {
-  if (tempDir) {
-    try {
-      await cleanupTempDir(tempDir);
-    } catch {
-      // Ignore cleanup errors
+  if (!tempDir) return;
+  try {
+    // npm packs land in <tmp>/skills-npm-XXXX/package — delete the whole
+    // skills-npm- root so the tarball and extracted folder go together.
+    const parts = tempDir.split(sep);
+    const last = parts[parts.length - 1];
+    const parent = parts[parts.length - 2];
+    if (last === 'package' && parent && parent.startsWith('skills-npm-')) {
+      await cleanupNpmTempDir(tempDir);
+      return;
     }
+    await cleanupTempDir(tempDir);
+  } catch {
+    // Ignore cleanup errors
   }
 }
 
