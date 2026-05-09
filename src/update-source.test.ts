@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildLocalUpdateSource,
   buildUpdateInstallSource,
+  buildLocalUpdateSource,
   formatSourceInput,
 } from './update-source.ts';
 
@@ -24,6 +24,7 @@ describe('update-source', () => {
     it('builds root-level install source without trailing slash', () => {
       const result = buildUpdateInstallSource({
         source: 'owner/repo',
+        sourceType: 'github',
         sourceUrl: 'https://github.com/owner/repo.git',
         ref: 'feature/install',
         skillPath: 'SKILL.md',
@@ -34,6 +35,7 @@ describe('update-source', () => {
     it('builds nested skill install source with ref', () => {
       const result = buildUpdateInstallSource({
         source: 'owner/repo',
+        sourceType: 'github',
         sourceUrl: 'https://github.com/owner/repo.git',
         ref: 'feature/install',
         skillPath: 'skills/my-skill/SKILL.md',
@@ -44,45 +46,71 @@ describe('update-source', () => {
     it('falls back to sourceUrl when skillPath is missing', () => {
       const result = buildUpdateInstallSource({
         source: 'owner/repo',
+        sourceType: 'github',
         sourceUrl: 'https://github.com/owner/repo.git',
         ref: 'feature/install',
       });
       expect(result).toBe('https://github.com/owner/repo.git#feature/install');
     });
+
+    it('uses full sourceUrl for gitlab sources regardless of skillPath', () => {
+      const result = buildUpdateInstallSource({
+        source: 'group/repo',
+        sourceType: 'gitlab',
+        sourceUrl: 'https://gitlab.company.com/group/repo.git',
+        ref: 'main',
+        skillPath: 'skills/my-skill/SKILL.md',
+      });
+      expect(result).toBe('https://gitlab.company.com/group/repo.git#main');
+    });
+
+    it('uses full sourceUrl for generic git sources regardless of skillPath', () => {
+      const result = buildUpdateInstallSource({
+        source: 'group/repo',
+        sourceType: 'git',
+        sourceUrl: 'https://git.example.com/group/repo.git',
+        skillPath: 'skills/my-skill/SKILL.md',
+      });
+      expect(result).toBe('https://git.example.com/group/repo.git');
+    });
   });
 
   describe('buildLocalUpdateSource', () => {
-    it('appends skill folder from skillPath with ref', () => {
-      const result = buildLocalUpdateSource({
-        source: 'owner/repo',
-        ref: 'main',
-        skillPath: 'skills/my-skill/SKILL.md',
-      });
-      expect(result).toBe('owner/repo/skills/my-skill#main');
+    it('returns source with ref when no skillPath', () => {
+      expect(buildLocalUpdateSource({ source: 'owner/repo', ref: 'main' })).toBe('owner/repo#main');
     });
 
-    it('appends skill folder from skillPath without ref', () => {
-      const result = buildLocalUpdateSource({
-        source: 'owner/repo',
-        skillPath: 'skills/my-skill/SKILL.md',
-      });
-      expect(result).toBe('owner/repo/skills/my-skill');
+    it('appends skillPath to github shorthand', () => {
+      expect(
+        buildLocalUpdateSource({
+          source: 'owner/repo',
+          ref: 'main',
+          skillPath: 'skills/my-skill',
+          sourceType: 'github',
+        })
+      ).toBe('owner/repo/skills/my-skill#main');
     });
 
-    it('keeps root-level skillPath from collapsing to trailing slash', () => {
-      const result = buildLocalUpdateSource({
-        source: 'owner/repo',
-        skillPath: 'SKILL.md',
-      });
-      expect(result).toBe('owner/repo');
+    it('builds /-/tree/ URL for gitlab with skillPath and ref', () => {
+      expect(
+        buildLocalUpdateSource({
+          source: 'https://gitlab.company.com/group/repo.git',
+          ref: 'master',
+          skillPath: '.agents/skills/my-skill',
+          sourceType: 'gitlab',
+        })
+      ).toBe('https://gitlab.company.com/group/repo/-/tree/master/.agents/skills/my-skill');
     });
 
-    it('falls back to bare source when skillPath is missing', () => {
-      const result = buildLocalUpdateSource({
-        source: 'owner/repo',
-        ref: 'main',
-      });
-      expect(result).toBe('owner/repo#main');
+    it('falls back to repo root for gitlab with skillPath but no ref', () => {
+      expect(
+        buildLocalUpdateSource({
+          source: 'https://gitlab.company.com/group/repo.git',
+          skillPath: '.agents/skills/my-skill',
+          sourceType: 'gitlab',
+        })
+      ).toBe('https://gitlab.company.com/group/repo.git');
     });
   });
+
 });

@@ -2,7 +2,7 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
-import { sep, join, dirname } from 'path';
+import { sep, join, dirname, relative } from 'path';
 import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
 import { stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
@@ -22,7 +22,13 @@ async function isSourcePrivate(source: string): Promise<boolean | null> {
   }
   return isRepoPrivate(ownerRepo.owner, ownerRepo.repo);
 }
-import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
+import {
+  cloneRepo,
+  cleanupTempDir,
+  getLocalCommitSha,
+  getLocalBranch,
+  GitCloneError,
+} from './git.ts';
 import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
 import {
   installSkillForAgent,
@@ -1642,6 +1648,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               const skillDir = join(tempDir, dirname(skillPathValue));
               const hash = await computeSkillFolderHash(skillDir);
               if (hash) skillFolderHash = hash;
+            } else if ((parsed.type === 'gitlab' || parsed.type === 'git') && tempDir) {
+              // GitLab / generic git: store HEAD commit SHA as the version hash
+              const sha = await getLocalCommitSha(tempDir);
+              if (sha) skillFolderHash = sha;
             }
 
             await addSkillToLock(skill.name, {
@@ -1672,14 +1682,36 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               blobResult && 'snapshotHash' in skill
                 ? (skill as BlobSkill).snapshotHash
                 : await computeSkillFolderHash(skill.path);
-            const skillPathValue = skillFiles[skill.name];
+            // For GitLab/git, use the full URL so the hostname is preserved for
+            // self-hosted instances. The shorthand loses the host, breaking updates.
+            const localLockSource =
+              parsed.type === 'gitlab' || parsed.type === 'git'
+                ? parsed.url
+                : lockSource || parsed.url;
+            // If the URL had no subpath but the skill lives in a subfolder of the
+            // repo, record that subfolder so updates can target just this skill
+            // instead of re-installing all skills from the repo root.
+            let skillSubpath = parsed.subpath;
+            if (!skillSubpath && tempDir) {
+              const rel = relative(tempDir, skill.path).replace(/\\/g, '/');
+              // Only use if the skill is actually inside the clone (no .. components)
+              if (rel && rel !== '.' && !rel.startsWith('..')) skillSubpath = rel;
+            }
+            // When no ref was specified in the URL, detect the actual branch from
+            // the clone so that buildLocalUpdateSource can embed it in the
+            // /-/tree/ref/subpath URL (required for GitLab/git subpath updates).
+            const lockRef =
+              parsed.ref ??
+              (tempDir && (parsed.type === 'gitlab' || parsed.type === 'git')
+                ? ((await getLocalBranch(tempDir)) ?? undefined)
+                : undefined);
             await addSkillToLocalLock(
               skill.name,
               {
-                source: lockSource || parsed.url,
-                ref: parsed.ref,
+                source: localLockSource,
+                ref: lockRef,
                 sourceType: parsed.type,
-                ...(skillPathValue && { skillPath: skillPathValue }),
+                skillPath: skillSubpath,
                 computedHash,
               },
               cwd

@@ -49,11 +49,28 @@ describe('source-parser', () => {
   });
 
   describe('Simplified Git Strategy', () => {
-    it('treats custom domains with .git as generic git', () => {
+    it('treats non-gitlab custom domains with .git as generic git', () => {
       const result = parseSource('https://git.mycompany.com/my-group/my-repo.git');
       expect(result).toEqual({
         type: 'git',
         url: 'https://git.mycompany.com/my-group/my-repo.git',
+      });
+    });
+
+    it('recognizes self-hosted GitLab .git URLs by hostname', () => {
+      const result = parseSource('https://gitlab.company.com/org/my-repo.git');
+      expect(result).toEqual({
+        type: 'gitlab',
+        url: 'https://gitlab.company.com/org/my-repo.git',
+      });
+    });
+
+    it('recognizes self-hosted GitLab .git URLs with fragment ref', () => {
+      const result = parseSource('https://gitlab.company.com/org/my-repo.git#master');
+      expect(result).toEqual({
+        type: 'gitlab',
+        url: 'https://gitlab.company.com/org/my-repo.git',
+        ref: 'master',
       });
     });
 

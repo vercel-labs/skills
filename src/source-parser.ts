@@ -343,6 +343,24 @@ export function parseSource(input: string): ParsedSource {
     }
   }
 
+  // Self-hosted GitLab: any HTTP(S) URL where the hostname contains "gitlab".
+  // Catches normalized .git URLs stored in lock files for self-hosted instances
+  // (e.g., https://gitlab.company.com/owner/repo.git) so re-parsing preserves
+  // sourceType: "gitlab" rather than falling through to the generic git fallback.
+  const selfHostedGitlabMatch = input.match(
+    /^(https?):\/\/([^/]*gitlab[^/]*)\/(.+?)(?:\.git)?\/?$/
+  );
+  if (selfHostedGitlabMatch) {
+    const [, protocol, hostname, repoPath] = selfHostedGitlabMatch;
+    if (repoPath && repoPath.includes('/')) {
+      return {
+        type: 'gitlab',
+        url: `${protocol}://${hostname}/${repoPath}.git`,
+        ...(fragmentRef ? { ref: fragmentRef } : {}),
+      };
+    }
+  }
+
   // GitHub shorthand: owner/repo, owner/repo/path/to/skill, or owner/repo@skill-name
   // Exclude paths that start with . or / to avoid matching local paths
   // First check for @skill syntax: owner/repo@skill-name

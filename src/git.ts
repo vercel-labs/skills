@@ -104,6 +104,55 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
   }
 }
 
+/**
+ * Get the HEAD commit SHA from an already-cloned local repository.
+ */
+export async function getLocalCommitSha(repoDir: string): Promise<string | null> {
+  try {
+    const git = simpleGit(repoDir);
+    const sha = await git.revparse(['HEAD']);
+    return sha.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get the current branch name from an already-cloned local repository.
+ * Returns null if the repo is in detached-HEAD state or the branch cannot be determined.
+ */
+export async function getLocalBranch(repoDir: string): Promise<string | null> {
+  try {
+    const git = simpleGit(repoDir);
+    const branch = await git.revparse(['--abbrev-ref', 'HEAD']);
+    const trimmed = branch.trim();
+    return trimmed && trimmed !== 'HEAD' ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get the HEAD commit SHA from a remote git repository using ls-remote.
+ * Does not require a full clone — fetches only ref metadata.
+ */
+export async function getRemoteCommitSha(url: string, ref?: string): Promise<string | null> {
+  try {
+    const git = simpleGit({
+      timeout: { block: 15000 },
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    });
+    const refs = ref ? [`refs/heads/${ref}`, `refs/tags/${ref}`] : ['HEAD'];
+    const output = await git.listRemote([url, ...refs]);
+    const firstLine = output.split('\n').find((l) => l.trim());
+    if (!firstLine) return null;
+    const sha = firstLine.split('\t')[0]!.trim();
+    return sha || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function cleanupTempDir(dir: string): Promise<void> {
   // Validate that the directory path is within tmpdir to prevent deletion of arbitrary paths
   const normalizedDir = normalize(resolve(dir));
