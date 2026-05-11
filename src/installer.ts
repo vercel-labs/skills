@@ -363,10 +363,39 @@ const isExcluded = (name: string, isDirectory: boolean = false): boolean => {
   return false;
 };
 
-async function copyDirectory(src: string, dest: string): Promise<void> {
+async function copySafeSymlink(
+  srcPath: string,
+  destPath: string,
+  sourceRoot: string
+): Promise<void> {
+  let realTarget: string;
+
+  try {
+    realTarget = await realpath(srcPath);
+  } catch {
+    console.warn(`Skipping broken symlink: ${srcPath}`);
+    return;
+  }
+
+  if (!isPathSafe(sourceRoot, realTarget)) {
+    console.warn(`Skipping symlink outside skill directory: ${srcPath}`);
+    return;
+  }
+
+  const targetStats = await stat(srcPath);
+  if (!targetStats.isFile()) {
+    console.warn(`Skipping non-file symlink: ${srcPath}`);
+    return;
+  }
+
+  await cp(realTarget, destPath);
+}
+
+async function copyDirectory(src: string, dest: string, sourceRoot = src): Promise<void> {
   await mkdir(dest, { recursive: true });
 
   const entries = await readdir(src, { withFileTypes: true });
+  const resolvedSourceRoot = await realpath(sourceRoot).catch(() => resolve(sourceRoot));
 
   // Copy files and directories in parallel
   await Promise.all(
@@ -377,31 +406,11 @@ async function copyDirectory(src: string, dest: string): Promise<void> {
         const destPath = join(dest, entry.name);
 
         if (entry.isDirectory()) {
-          await copyDirectory(srcPath, destPath);
+          await copyDirectory(srcPath, destPath, sourceRoot);
+        } else if (entry.isSymbolicLink()) {
+          await copySafeSymlink(srcPath, destPath, resolvedSourceRoot);
         } else {
-          try {
-            await cp(srcPath, destPath, {
-              // If the file is a symlink to elsewhere in a remote skill, it may not
-              // resolve correctly once it has been copied to the local location.
-              // `dereference: true` tells Node to copy the file instead of copying
-              // the symlink. `recursive: true` handles symlinks pointing to directories.
-              dereference: true,
-              recursive: true,
-            });
-          } catch (err: unknown) {
-            // Skip broken symlinks (e.g., pointing to absolute paths on another machine)
-            // instead of aborting the entire install.
-            if (
-              err instanceof Error &&
-              'code' in err &&
-              (err as NodeJS.ErrnoException).code === 'ENOENT' &&
-              entry.isSymbolicLink()
-            ) {
-              console.warn(`Skipping broken symlink: ${srcPath}`);
-            } else {
-              throw err;
-            }
-          }
+          await cp(srcPath, destPath);
         }
       })
   );
