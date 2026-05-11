@@ -58,7 +58,7 @@ import {
   saveSelectedAgents,
 } from './skill-lock.ts';
 import { addSkillToLocalLock, computeSkillFolderHash } from './local-lock.ts';
-import type { Skill, AgentType } from './types.ts';
+import type { Skill, AgentType, ParsedSource } from './types.ts';
 import {
   tryBlobInstall,
   getSkillFolderHashFromTree,
@@ -69,6 +69,21 @@ import {
 import packageJson from '../package.json' with { type: 'json' };
 export function initTelemetry(version: string): void {
   setVersion(version);
+}
+
+const BLOB_ALLOWED_OWNERS = ['vercel', 'vercel-labs', 'heygen-com'];
+
+export function shouldUseBlobInstall(
+  parsed: ParsedSource,
+  options: { fullDepth?: boolean }
+): boolean {
+  if (parsed.type !== 'github' || options.fullDepth || parsed.ref) {
+    return false;
+  }
+
+  const ownerRepo = getOwnerRepo(parsed);
+  const owner = ownerRepo?.split('/')[0]?.toLowerCase();
+  return !!owner && BLOB_ALLOWED_OWNERS.includes(owner);
 }
 
 // ─── Security Advisory ───
@@ -1037,11 +1052,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       });
     } else if (parsed.type === 'github' && !options.fullDepth) {
       // Try blob-based fast install for GitHub sources
-      // Only enabled for allowlisted orgs; skip for --full-depth
-      const BLOB_ALLOWED_OWNERS = ['vercel', 'vercel-labs', 'heygen-com'];
+      // Only enabled for allowlisted orgs; skip for --full-depth and pinned refs
       const ownerRepo = getOwnerRepo(parsed);
-      const owner = ownerRepo?.split('/')[0]?.toLowerCase();
-      if (ownerRepo && owner && BLOB_ALLOWED_OWNERS.includes(owner)) {
+      if (ownerRepo && shouldUseBlobInstall(parsed, options)) {
         spinner.start('Fetching skills...');
         const token = getGitHubToken();
         blobResult = await tryBlobInstall(ownerRepo, {
