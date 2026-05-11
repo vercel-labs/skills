@@ -391,8 +391,11 @@ export class WellKnownProvider implements HostProvider {
   getSourceIdentifier(url: string): string {
     try {
       const parsed = new URL(url);
-      // Use full hostname, only strip www. prefix
-      return parsed.hostname.replace(/^www\./, '');
+      // Preserve the scheme so experimental_install can re-use the source as a valid URL.
+      // Only strip www. prefix and trailing slash for cleanliness.
+      const host = parsed.hostname.replace(/^www\./, '');
+      const pathname = parsed.pathname.replace(/\/+$/, '');
+      return `${parsed.protocol}//${host}${pathname}`;
     } catch {
       return 'unknown';
     }

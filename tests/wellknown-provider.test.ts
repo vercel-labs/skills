@@ -36,30 +36,30 @@ describe('WellKnownProvider', () => {
   });
 
   describe('getSourceIdentifier', () => {
-    it('should return full hostname', () => {
-      expect(provider.getSourceIdentifier('https://example.com')).toBe('example.com');
-      expect(provider.getSourceIdentifier('https://mintlify.com')).toBe('mintlify.com');
-      expect(provider.getSourceIdentifier('https://lovable.dev')).toBe('lovable.dev');
+    it('should return full URL with scheme', () => {
+      expect(provider.getSourceIdentifier('https://example.com')).toBe('https://example.com');
+      expect(provider.getSourceIdentifier('https://mintlify.com')).toBe('https://mintlify.com');
+      expect(provider.getSourceIdentifier('https://lovable.dev')).toBe('https://lovable.dev');
     });
 
-    it('should return same identifier regardless of path', () => {
-      expect(provider.getSourceIdentifier('https://example.com/docs')).toBe('example.com');
-      expect(provider.getSourceIdentifier('https://example.com/api/v1')).toBe('example.com');
+    it('should preserve path in identifier', () => {
+      expect(provider.getSourceIdentifier('https://example.com/docs')).toBe('https://example.com/docs');
+      expect(provider.getSourceIdentifier('https://example.com/api/v1')).toBe('https://example.com/api/v1');
     });
 
     it('should preserve subdomains', () => {
-      expect(provider.getSourceIdentifier('https://docs.example.com')).toBe('docs.example.com');
+      expect(provider.getSourceIdentifier('https://docs.example.com')).toBe('https://docs.example.com');
       expect(provider.getSourceIdentifier('https://api.mintlify.com/docs')).toBe(
-        'api.mintlify.com'
+        'https://api.mintlify.com/docs'
       );
       expect(provider.getSourceIdentifier('https://mppx-discovery-skills.vercel.app')).toBe(
-        'mppx-discovery-skills.vercel.app'
+        'https://mppx-discovery-skills.vercel.app'
       );
     });
 
     it('should strip www. prefix', () => {
-      expect(provider.getSourceIdentifier('https://www.example.com')).toBe('example.com');
-      expect(provider.getSourceIdentifier('https://www.mintlify.com/docs')).toBe('mintlify.com');
+      expect(provider.getSourceIdentifier('https://www.example.com')).toBe('https://example.com');
+      expect(provider.getSourceIdentifier('https://www.mintlify.com/docs')).toBe('https://mintlify.com/docs');
     });
 
     it('should return unknown for invalid URLs', () => {
