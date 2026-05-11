@@ -1,5 +1,10 @@
-import { describe, it, expect } from 'vitest';
-import { parseSource } from './source-parser.js';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { parseSource, isRepoPrivate } from './source-parser.js';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe('source-parser', () => {
   describe('GitLab Custom Domains & Subgroups', () => {
@@ -127,5 +132,47 @@ describe('source-parser', () => {
         ref: 'feature/install',
       });
     });
+  });
+});
+
+describe('isRepoPrivate', () => {
+  it('returns false when GitHub reports a public repo', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ private: false }),
+      })
+    );
+
+    await expect(isRepoPrivate('vercel', 'next.js')).resolves.toBe(false);
+  });
+
+  it('returns true when GitHub reports a private repo', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ private: true }),
+      })
+    );
+
+    await expect(isRepoPrivate('acme', 'internal')).resolves.toBe(true);
+  });
+
+  it('returns true when privacy cannot be determined (non-OK response)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+      })
+    );
+
+    await expect(isRepoPrivate('acme', 'unknown')).resolves.toBe(true);
+  });
+
+  it('returns true on network errors', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network failure')));
+    await expect(isRepoPrivate('acme', 'unknown')).resolves.toBe(true);
   });
 });

@@ -79,7 +79,7 @@ function isCI(): boolean {
   );
 }
 
-function isEnabled(): boolean {
+export function isTelemetryEnabled(): boolean {
   return !process.env.DISABLE_TELEMETRY && !process.env.DO_NOT_TRACK;
 }
 
@@ -108,6 +108,7 @@ export async function fetchAuditData(
   skillSlugs: string[],
   timeoutMs = 3000
 ): Promise<AuditResponse | null> {
+  if (!isTelemetryEnabled()) return null;
   if (skillSlugs.length === 0) return null;
 
   try {
@@ -136,7 +137,7 @@ export async function fetchAuditData(
 const pendingTelemetry: Promise<void>[] = [];
 
 export function track(data: TelemetryData): void {
-  if (!isEnabled()) return;
+  if (!isTelemetryEnabled()) return;
 
   try {
     const params = new URLSearchParams();

@@ -6,6 +6,7 @@ import { agents, detectInstalledAgents } from './agents.ts';
 import { track } from './telemetry.ts';
 import { detectAgent } from './detect-agent.ts';
 import { removeSkillFromLock, getSkillFromLock } from './skill-lock.ts';
+import { parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
 import type { AgentType } from './types.ts';
 import {
   getInstallPath,
@@ -19,6 +20,15 @@ export interface RemoveOptions {
   agent?: string[];
   yes?: boolean;
   all?: boolean;
+}
+
+async function isSourcePrivate(source: string): Promise<boolean> {
+  const ownerRepo = parseOwnerRepo(source);
+  if (!ownerRepo) {
+    // Unknown/non-GitHub sources default to private to avoid metadata leaks.
+    return true;
+  }
+  return isRepoPrivate(ownerRepo.owner, ownerRepo.repo).catch(() => true);
 }
 
 export async function removeCommand(skillNames: string[], options: RemoveOptions) {
@@ -261,14 +271,17 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     }
 
     for (const [source, data] of bySource) {
-      track({
-        event: 'remove',
-        source,
-        skills: data.skills.join(','),
-        agents: targetAgents.join(','),
-        ...(isGlobal && { global: '1' }),
-        sourceType: data.sourceType,
-      });
+      const isPrivate = await isSourcePrivate(source);
+      if (!isPrivate) {
+        track({
+          event: 'remove',
+          source,
+          skills: data.skills.join(','),
+          agents: targetAgents.join(','),
+          ...(isGlobal && { global: '1' }),
+          sourceType: data.sourceType,
+        });
+      }
     }
   }
 

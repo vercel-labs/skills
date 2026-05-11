@@ -12,13 +12,13 @@ const isCancelled = (value: unknown): value is symbol => typeof value === 'symbo
 
 /**
  * Check if a source identifier (owner/repo format) represents a private GitHub repo.
- * Returns true if private, false if public, null if unable to determine or not a GitHub repo.
+ * Returns true if private or unknown, false if public.
  */
-async function isSourcePrivate(source: string): Promise<boolean | null> {
+async function isSourcePrivate(source: string): Promise<boolean> {
   const ownerRepo = parseOwnerRepo(source);
   if (!ownerRepo) {
-    // Not in owner/repo format, assume not private (could be other providers)
-    return false;
+    // Unknown/non-GitHub sources default to private to avoid metadata leaks.
+    return true;
   }
   return isRepoPrivate(ownerRepo.owner, ownerRepo.repo);
 }
@@ -728,7 +728,7 @@ async function handleWellKnownSkills(
 
   // Kick off privacy check early so it runs in parallel with installation
   const sourceIdentifier = wellKnownProvider.getSourceIdentifier(url);
-  const wellKnownPrivacyPromise = isSourcePrivate(sourceIdentifier).catch(() => null);
+  const wellKnownPrivacyPromise = isSourcePrivate(sourceIdentifier).catch(() => true);
 
   spinner.start('Installing skills...');
 
@@ -771,7 +771,7 @@ async function handleWellKnownSkills(
 
   // Privacy promise was started before installation — should be resolved by now
   const isPrivate = await wellKnownPrivacyPromise;
-  if (isPrivate !== true) {
+  if (!isPrivate) {
     track({
       event: 'install',
       source: sourceIdentifier,
@@ -972,11 +972,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // cloning/discovering/installing. The result is only needed later for
     // telemetry gating — it should never block user-visible output.
     const ownerRepoRaw = getOwnerRepo(parsed);
-    const repoPrivacyPromise: Promise<boolean | null> = (() => {
-      if (!ownerRepoRaw) return Promise.resolve(null);
+    const repoPrivacyPromise: Promise<boolean> = (() => {
+      if (!ownerRepoRaw) return Promise.resolve(true);
       const ownerRepo = parseOwnerRepo(ownerRepoRaw);
-      if (!ownerRepo) return Promise.resolve(null);
-      return isRepoPrivate(ownerRepo.owner, ownerRepo.repo).catch(() => null);
+      if (!ownerRepo) return Promise.resolve(true);
+      return isRepoPrivate(ownerRepo.owner, ownerRepo.repo).catch(() => true);
     })();
 
     // Block openclaw sources unless explicitly opted in
@@ -1244,9 +1244,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // in parallel with agent selection, scope, and mode prompts.
     const ownerRepoForAudit = getOwnerRepo(parsed);
     const auditPromise = ownerRepoForAudit
-      ? fetchAuditData(
-          ownerRepoForAudit,
-          selectedSkills.map((s) => getSkillDisplayName(s))
+      ? repoPrivacyPromise.then((isPrivate) =>
+          isPrivate
+            ? null
+            : fetchAuditData(
+                ownerRepoForAudit,
+                selectedSkills.map((s) => getSkillDisplayName(s))
+              )
         )
       : Promise.resolve(null);
 
@@ -1581,27 +1585,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     const isSSH = parsed.url.startsWith('git@');
     const lockSource = isSSH ? parsed.url : normalizedSource;
 
-    // Only track if we have a valid remote source and it's not a private repo.
+    // Only track if we have a valid remote source and it is confirmed public.
     // repoPrivacyPromise was started early (right after parsing) so it has
     // already been running in parallel with the entire install — no stall here.
     if (normalizedSource) {
-      const ownerRepo = parseOwnerRepo(normalizedSource);
-      if (ownerRepo) {
-        const isPrivate = await repoPrivacyPromise;
-        // Only send telemetry if repo is public (isPrivate === false)
-        // If we can't determine (null), err on the side of caution and skip telemetry
-        if (isPrivate === false) {
-          track({
-            event: 'install',
-            source: normalizedSource,
-            skills: selectedSkills.map((s) => s.name).join(','),
-            agents: targetAgents.join(','),
-            ...(installGlobally && { global: '1' }),
-            skillFiles: JSON.stringify(skillFiles),
-          });
-        }
-      } else {
-        // If we can't parse owner/repo, still send telemetry (for non-GitHub sources)
+      const isPrivate = await repoPrivacyPromise;
+      if (!isPrivate) {
         track({
           event: 'install',
           source: normalizedSource,
