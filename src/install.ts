@@ -1,12 +1,12 @@
 import * as p from '@clack/prompts';
-import pc from 'picocolors';
+import pc from './colors.ts';
 import { readLocalLock } from './local-lock.ts';
 import { runAdd } from './add.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { getUniversalAgents } from './agents.ts';
 
 /**
- * Install all skills from the local skills-lock.json.
+ * Install all skills from the local agentart-lock.json.
  * Groups skills by source and calls `runAdd` for each group.
  *
  * Only installs to .agents/skills/ (universal agents) -- the canonical
@@ -20,9 +20,9 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
   const skillEntries = Object.entries(lock.skills);
 
   if (skillEntries.length === 0) {
-    p.log.warn('No project skills found in skills-lock.json');
+    p.log.warn('No project skills found in agentart-lock.json');
     p.log.info(
-      `Add project-level skills with ${pc.cyan('npx skills add <package>')} (without ${pc.cyan('-g')})`
+      `Add project-level skills with ${pc.cyan('agentart add <package>')} (without ${pc.cyan('-g')})`
     );
     return;
   }
@@ -55,7 +55,7 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
   const remoteCount = skillEntries.length - nodeModuleSkills.length;
   if (remoteCount > 0) {
     p.log.info(
-      `Restoring ${pc.cyan(String(remoteCount))} skill${remoteCount !== 1 ? 's' : ''} from skills-lock.json into ${pc.dim('.agents/skills/')}`
+      `Restoring ${pc.cyan(String(remoteCount))} skill${remoteCount !== 1 ? 's' : ''} from agentart-lock.json into ${pc.dim('.agents/skills/')}`
     );
   }
 

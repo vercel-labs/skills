@@ -10,7 +10,7 @@ describe('add command', () => {
   let testDir: string;
 
   beforeEach(() => {
-    testDir = join(tmpdir(), `skills-add-test-${Date.now()}`);
+    testDir = join(tmpdir(), `agentart-add-test-${Date.now()}`);
     mkdirSync(testDir, { recursive: true });
   });
 
@@ -155,7 +155,7 @@ description: Test
 
   it('should restore from lock file with experimental_install', () => {
     const result = runCli(['experimental_install'], testDir);
-    expect(result.stdout).toContain('No project skills found in skills-lock.json');
+    expect(result.stdout).toContain('No project skills found in agentart-lock.json');
   });
 
   describe('internal skills', () => {
@@ -395,7 +395,7 @@ describe('openclaw source blocking', () => {
   let testDir: string;
 
   beforeEach(() => {
-    testDir = join(tmpdir(), `skills-openclaw-test-${Date.now()}`);
+    testDir = join(tmpdir(), `agentart-openclaw-test-${Date.now()}`);
     mkdirSync(testDir, { recursive: true });
   });
 
@@ -450,7 +450,7 @@ describe('find-skills prompt with -y flag', () => {
   let testDir: string;
 
   beforeEach(() => {
-    testDir = join(tmpdir(), `skills-yes-flag-test-${Date.now()}`);
+    testDir = join(tmpdir(), `agentart-yes-flag-test-${Date.now()}`);
     mkdirSync(testDir, { recursive: true });
   });
 

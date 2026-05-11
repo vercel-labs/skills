@@ -42,7 +42,7 @@ function appendFolderAndRef(source: string, skillPath: string, ref?: string): st
 }
 
 /**
- * Build the source argument for `skills add` during update.
+ * Build the source argument for `agentart add` during update.
  * Uses shorthand form for path-targeted updates to avoid branch/path ambiguity.
  */
 export function buildUpdateInstallSource(entry: UpdateSourceEntry): string {
@@ -53,7 +53,7 @@ export function buildUpdateInstallSource(entry: UpdateSourceEntry): string {
 }
 
 /**
- * Build the source argument for `skills add` during project-level update.
+ * Build the source argument for `agentart add` during project-level update.
  * Local lock entries don't carry `sourceUrl`, so we fall back to the bare
  * `source` identifier when no `skillPath` is available.
  */

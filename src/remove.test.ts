@@ -9,7 +9,7 @@ describe('remove command', { timeout: 30000 }, () => {
   let skillsDir: string;
 
   beforeEach(() => {
-    testDir = join(tmpdir(), `skills-remove-test-${Date.now()}`);
+    testDir = join(tmpdir(), `agentart-remove-test-${Date.now()}`);
     mkdirSync(testDir, { recursive: true });
 
     // Create .agents/skills directory (canonical location)

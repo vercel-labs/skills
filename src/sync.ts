@@ -1,5 +1,5 @@
 import * as p from '@clack/prompts';
-import pc from 'picocolors';
+import pc from './colors.ts';
 import { readdir, stat } from 'fs/promises';
 import { join, sep } from 'path';
 import { homedir } from 'os';
@@ -14,7 +14,6 @@ import {
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 import { addSkillToLocalLock, computeSkillFolderHash, readLocalLock } from './local-lock.ts';
 import type { Skill, AgentType } from './types.ts';
-import { track } from './telemetry.ts';
 import { detectAgent, getAgentType } from './detect-agent.ts';
 
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
@@ -151,7 +150,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
 
   console.log();
   if (!agentResult.isAgent) {
-    p.intro(pc.bgCyan(pc.black(' skills experimental_sync ')));
+    p.intro(pc.bgCyan(pc.black(' agentart experimental_sync ')));
   }
 
   if (agentResult.isAgent) {
@@ -432,14 +431,6 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
       p.log.message(`  ${pc.red('✗')} ${r.skill} → ${r.agent}: ${pc.dim(r.error)}`);
     }
   }
-
-  // Track telemetry
-  track({
-    event: 'experimental_sync',
-    skillCount: String(toInstall.length),
-    successCount: String(successfulSkillNames.size),
-    agents: targetAgents.join(','),
-  });
 
   console.log();
   p.outro(

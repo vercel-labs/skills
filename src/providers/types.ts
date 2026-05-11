@@ -23,7 +23,7 @@ export interface RemoteSkill {
 export interface ProviderMatch {
   /** Whether the URL matches this provider */
   matches: boolean;
-  /** The source identifier for telemetry/storage (e.g., "mintlify/bun.com", "huggingface/hf-skills/hf-jobs") */
+  /** The source identifier for storage (e.g., "mintlify/bun.com", "huggingface/hf-skills/hf-jobs") */
   sourceIdentifier?: string;
 }
 
@@ -33,7 +33,7 @@ export interface ProviderMatch {
  * - Detect if a URL belongs to it
  * - Fetch and parse SKILL.md files
  * - Convert URLs to raw content URLs
- * - Provide source identifiers for telemetry
+ * - Provide source identifiers
  */
 export interface HostProvider {
   /** Unique identifier for this provider (e.g., "mintlify", "huggingface", "github") */
@@ -65,7 +65,7 @@ export interface HostProvider {
   toRawUrl(url: string): string;
 
   /**
-   * Get the source identifier for telemetry/storage.
+   * Get the source identifier for storage.
    * This should be a stable identifier that can be used to group
    * skills from the same source.
    * @param url - The original URL

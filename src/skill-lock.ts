@@ -25,7 +25,7 @@ export interface SkillLockEntry {
   /**
    * GitHub tree SHA for the entire skill folder.
    * This hash changes when ANY file in the skill folder changes.
-   * Fetched via GitHub Trees API by the telemetry server.
+   * Fetched directly from GitHub Trees API.
    */
   skillFolderHash: string;
   /** ISO timestamp when the skill was first installed */
@@ -60,13 +60,13 @@ export interface SkillLockFile {
 
 /**
  * Get the path to the global skill lock file.
- * Use $XDG_STATE_HOME/skills/.skill-lock.json if set.
+ * Use $XDG_STATE_HOME/agentart/.skill-lock.json if set.
  * otherwise fall back to ~/.agents/.skill-lock.json
  */
 export function getSkillLockPath(): string {
   const xdgStateHome = process.env.XDG_STATE_HOME;
   if (xdgStateHome) {
-    return join(xdgStateHome, 'skills', LOCK_FILE);
+    return join(xdgStateHome, 'agentart', LOCK_FILE);
   }
   return join(homedir(), AGENTS_DIR, LOCK_FILE);
 }

@@ -41,7 +41,7 @@ describe('sanitizeSubpath', () => {
 
 describe('isSubpathSafe', () => {
   it('returns true for subpaths within basePath', () => {
-    expect(isSubpathSafe('/tmp/repo', 'skills')).toBe(true);
+    expect(isSubpathSafe('/tmp/repo', 'agentart')).toBe(true);
     expect(isSubpathSafe('/tmp/repo', 'skills/my-skill')).toBe(true);
     expect(isSubpathSafe('/tmp/repo', 'a/b/c')).toBe(true);
   });

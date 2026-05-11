@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from 'fs/promises';
 import { join, basename, dirname, resolve, normalize, sep } from 'path';
-import { parseFrontmatter } from './frontmatter.ts';
+import { isRecord, parseFrontmatter } from './frontmatter.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import type { Skill } from './types.ts';
 import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
@@ -46,7 +46,8 @@ export async function parseSkillMd(
     // Skip internal skills unless:
     // 1. INSTALL_INTERNAL_SKILLS=1 is set, OR
     // 2. includeInternal option is true (e.g., when user explicitly requests a skill)
-    const isInternal = data.metadata?.internal === true;
+    const metadata = isRecord(data.metadata) ? data.metadata : undefined;
+    const isInternal = metadata?.internal === true;
     if (isInternal && !shouldInstallInternalSkills() && !options?.includeInternal) {
       return null;
     }
@@ -56,7 +57,7 @@ export async function parseSkillMd(
       description: sanitizeMetadata(data.description),
       path: dirname(skillMdPath),
       rawContent: content,
-      metadata: data.metadata,
+      metadata,
     };
   } catch {
     return null;

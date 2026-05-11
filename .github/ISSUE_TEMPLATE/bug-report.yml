@@ -1,7 +1,7 @@
 name: Bug Report
 description: Report a bug or issue
-title: "[Bug]: "
-labels: ["bug"]
+title: '[Bug]: '
+labels: ['bug']
 body:
   - type: markdown
     attributes:
@@ -23,7 +23,7 @@ body:
       label: Steps to Reproduce
       description: How can we reproduce this issue?
       placeholder: |
-        1. Run `npx add-skill ...`
+        1. Run `skills ...`
         2. Select ...
         3. See error
     validations:
@@ -49,17 +49,17 @@ body:
     id: version
     attributes:
       label: Version
-      description: What version of add-skill are you using?
-      placeholder: e.g., 1.0.8
+      description: What version of skills are you using?
+      placeholder: e.g., 1.5.6
     validations:
       required: false
 
   - type: input
-    id: node-version
+    id: bun-version
     attributes:
-      label: Node.js Version
-      description: What version of Node.js are you using?
-      placeholder: e.g., 20.10.0
+      label: Bun Version
+      description: What version of Bun was used to build or run this CLI?
+      placeholder: e.g., 1.3.13
     validations:
       required: false
 

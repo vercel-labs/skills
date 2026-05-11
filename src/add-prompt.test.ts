@@ -6,10 +6,6 @@ import * as searchMultiselectModule from './prompts/search-multiselect.js';
 // Mock dependencies
 vi.mock('./skill-lock.js');
 vi.mock('./prompts/search-multiselect.js');
-vi.mock('./telemetry.js', () => ({
-  setVersion: vi.fn(),
-  track: vi.fn(),
-}));
 vi.mock('../package.json', () => ({
   default: { version: '1.0.0' },
 }));

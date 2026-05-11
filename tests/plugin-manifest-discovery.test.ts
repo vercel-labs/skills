@@ -11,7 +11,7 @@ describe('discoverSkills with plugin manifests', () => {
   let testDir: string;
 
   beforeEach(() => {
-    testDir = join(tmpdir(), `skills-manifest-test-${Date.now()}`);
+    testDir = join(tmpdir(), `agentart-manifest-test-${Date.now()}`);
     mkdirSync(testDir, { recursive: true });
   });
 

@@ -1,9 +1,38 @@
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { join } from 'path';
 import { stripTerminalEscapes } from './sanitize.ts';
 
 // const PROJECT_ROOT = join(import.meta.dirname, '..');
 const CLI_PATH = join(import.meta.dirname, 'cli.ts');
+
+const AGENT_ENV_KEYS = [
+  'AI_AGENT',
+  'ANTIGRAVITY_AGENT',
+  'AUGMENT_AGENT',
+  'CLAUDE_CODE',
+  'CLAUDE_CODE_IS_COWORK',
+  'CLAUDECODE',
+  'CODEX_CI',
+  'CODEX_SANDBOX',
+  'CODEX_THREAD_ID',
+  'COPILOT_ALLOW_ALL',
+  'COPILOT_GITHUB_TOKEN',
+  'COPILOT_MODEL',
+  'CURSOR_AGENT',
+  'CURSOR_EXTENSION_HOST_ROLE',
+  'CURSOR_TRACE_ID',
+  'GEMINI_CLI',
+  'OPENCODE_CLIENT',
+  'REPL_ID',
+];
+
+function getCliEnv(env?: Record<string, string>): NodeJS.ProcessEnv {
+  const nextEnv = { ...process.env };
+  for (const key of AGENT_ENV_KEYS) {
+    delete nextEnv[key];
+  }
+  return env ? { ...nextEnv, ...env } : nextEnv;
+}
 
 export function stripAnsi(str: string): string {
   return stripTerminalEscapes(str);
@@ -28,11 +57,11 @@ export function runCli(
   timeout?: number
 ): { stdout: string; stderr: string; exitCode: number } {
   try {
-    const output = execSync(`node "${CLI_PATH}" ${args.join(' ')}`, {
+    const output = execFileSync('bun', [CLI_PATH, ...args], {
       encoding: 'utf-8',
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: env ? { ...process.env, ...env } : undefined,
+      env: getCliEnv(env),
       timeout: timeout ?? 30000,
     });
     return { stdout: stripAnsi(output), stderr: '', exitCode: 0 };
@@ -56,11 +85,12 @@ export function runCliWithInput(
   cwd?: string
 ): { stdout: string; stderr: string; exitCode: number } {
   try {
-    const output = execSync(`node "${CLI_PATH}" ${args.join(' ')}`, {
+    const output = execFileSync('bun', [CLI_PATH, ...args], {
       encoding: 'utf-8',
       cwd,
       input: input + '\n',
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: getCliEnv(),
     });
     return { stdout: stripAnsi(output), stderr: '', exitCode: 0 };
   } catch (error: any) {

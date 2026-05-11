@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
 import { homedir } from 'os';
 import { agents } from '../src/agents.ts';

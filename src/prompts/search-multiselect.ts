@@ -1,7 +1,7 @@
 import * as readline from 'readline';
 import { stripVTControlCharacters } from 'node:util';
 import { Writable } from 'stream';
-import pc from 'picocolors';
+import pc from '../colors.ts';
 
 // Silent writable stream to prevent readline from echoing input
 const silentOutput = new Writable({

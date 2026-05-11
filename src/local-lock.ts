@@ -2,7 +2,7 @@ import { readFile, writeFile, readdir, stat } from 'fs/promises';
 import { join, relative } from 'path';
 import { createHash } from 'crypto';
 
-const LOCAL_LOCK_FILE = 'skills-lock.json';
+const LOCAL_LOCK_FILE = 'agentart-lock.json';
 const CURRENT_VERSION = 1;
 
 /**
@@ -13,7 +13,7 @@ const CURRENT_VERSION = 1;
  * that git can auto-merge cleanly.
  */
 export interface LocalSkillLockEntry {
-  /** Where the skill came from: npm package name, owner/repo, local path, etc. */
+  /** Where the skill came from: package name, owner/repo, local path, etc. */
   source: string;
   /** Branch or tag ref used for installation */
   ref?: string;

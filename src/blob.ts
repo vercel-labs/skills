@@ -10,7 +10,7 @@
  *   3. skills.sh/api/download → fetch full file contents from cached blob
  */
 
-import { parseFrontmatter } from './frontmatter.ts';
+import { isRecord, parseFrontmatter } from './frontmatter.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import type { Skill } from './types.ts';
 
@@ -41,7 +41,7 @@ export interface BlobSkill extends Skill {
 
 // ─── Constants ───
 
-const DOWNLOAD_BASE_URL = process.env.SKILLS_DOWNLOAD_URL || 'https://skills.sh';
+const DOWNLOAD_BASE_URL = process.env.AGENTART_DOWNLOAD_URL || 'https://skills.sh';
 
 /** Timeout for individual HTTP fetches (ms) */
 const FETCH_TIMEOUT = 10_000;
@@ -93,7 +93,7 @@ export async function fetchRepoTree(
       const url = `https://api.github.com/repos/${ownerRepo}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
       const headers: Record<string, string> = {
         Accept: 'application/vnd.github.v3+json',
-        'User-Agent': 'skills-cli',
+        'User-Agent': 'agentart-cli',
       };
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
@@ -366,7 +366,8 @@ export async function tryBlobInstall(
     if (typeof data.name !== 'string' || typeof data.description !== 'string') continue;
 
     // Skip internal skills unless explicitly requested
-    const isInternal = (data.metadata as Record<string, unknown>)?.internal === true;
+    const metadata = isRecord(data.metadata) ? data.metadata : undefined;
+    const isInternal = metadata?.internal === true;
     if (isInternal && !options.includeInternal) continue;
 
     const safeName = sanitizeMetadata(data.name);
@@ -378,7 +379,7 @@ export async function tryBlobInstall(
       description: safeDescription,
       content,
       slug: toSkillSlug(safeName),
-      metadata: data.metadata as Record<string, unknown> | undefined,
+      metadata,
     });
   }
 

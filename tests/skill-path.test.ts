@@ -1,7 +1,7 @@
 /**
- * Unit tests for skill path calculation in telemetry.
+ * Unit tests for skill path calculation in lock metadata.
  *
- * These tests verify that the relativePath calculation for skillFiles
+ * These tests verify that the relativePath calculation for skill metadata
  * correctly produces paths relative to the repo root, not the search path.
  * Tests cover both Unix and Windows path styles.
  */
@@ -22,7 +22,7 @@ function calculateRelativePath(
     return 'SKILL.md';
   } else if (tempDir && skillPath.startsWith(tempDir + pathSep)) {
     // Compute path relative to repo root (tempDir)
-    // Use forward slashes for telemetry (URL-style paths)
+    // Use forward slashes (URL-style paths)
     return (
       skillPath
         .slice(tempDir.length + 1)
@@ -30,7 +30,7 @@ function calculateRelativePath(
         .join('/') + '/SKILL.md'
     );
   } else {
-    // Local path - skip telemetry
+    // Local path - no repo-relative path
     return null;
   }
 }

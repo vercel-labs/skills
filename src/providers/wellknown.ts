@@ -1,4 +1,4 @@
-import { parseFrontmatter } from '../frontmatter.ts';
+import { isRecord, parseFrontmatter } from '../frontmatter.ts';
 import { sanitizeMetadata } from '../sanitize.ts';
 import type { HostProvider, ProviderMatch, RemoteSkill } from './types.ts';
 
@@ -309,13 +309,15 @@ export class WellKnownProvider implements HostProvider {
         }
       }
 
+      const metadata = isRecord(data.metadata) ? data.metadata : undefined;
+
       return {
         name: sanitizeMetadata(data.name as string),
         description: sanitizeMetadata(data.description as string),
         content,
         installName: entry.name,
         sourceUrl: skillMdUrl,
-        metadata: data.metadata,
+        metadata,
         files,
         indexEntry: entry,
       };
@@ -381,7 +383,7 @@ export class WellKnownProvider implements HostProvider {
   }
 
   /**
-   * Get the source identifier for telemetry/storage.
+   * Get the source identifier for storage.
    * Returns the full hostname with www. stripped.
    * e.g., "https://mintlify.com/docs" → "mintlify.com"
    *       "https://mppx-discovery-skills.vercel.app" → "mppx-discovery-skills.vercel.app"

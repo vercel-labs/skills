@@ -3,11 +3,11 @@ name: Agents CI
 on:
   pull_request:
     paths:
-      - "src/agents.ts"
+      - 'src/agents.ts'
   push:
     branches: [main]
     paths:
-      - "src/agents.ts"
+      - 'src/agents.ts'
 
 concurrency:
   group: agents-${{ github.ref }}
@@ -20,23 +20,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: lts/*
-          cache: pnpm
+          bun-version: 1.3.13
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: bun install --frozen-lockfile
 
       - name: Validate agents
-        run: node scripts/validate-agents.ts
+        run: bun run validate:agents
 
   sync-agents:
     needs: validate-agents
@@ -46,20 +39,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: lts/*
-          cache: pnpm
+          bun-version: 1.3.13
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: bun install --frozen-lockfile
 
       - name: Sync agents
-        run: pnpm exec node scripts/sync-agents.ts
+        run: bun run sync:agents
 
       - name: Commit changes
         run: |

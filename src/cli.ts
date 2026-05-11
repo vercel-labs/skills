@@ -2,18 +2,16 @@
 
 import { spawnSync } from 'child_process';
 import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync } from 'fs';
-import { basename, join, dirname } from 'path';
+import { basename, join } from 'path';
 import { homedir } from 'os';
-import { fileURLToPath } from 'url';
 import * as p from '@clack/prompts';
-import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
+import { runAdd, parseAddOptions } from './add.ts';
 import { runFind } from './find.ts';
 import { runInstallFromLock } from './install.ts';
 import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
-import { track, flushTelemetry } from './telemetry.ts';
 import { isRunningInAgent } from './detect-agent.ts';
 import { agents, isUniversalAgent } from './agents.ts';
 import type { AgentType } from './types.ts';
@@ -24,21 +22,10 @@ import {
   buildLocalUpdateSource,
   formatSourceInput,
 } from './update-source.ts';
+import packageJson from '../package.json' with { type: 'json' };
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-function getVersion(): string {
-  try {
-    const pkgPath = join(__dirname, '..', 'package.json');
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-    return pkg.version;
-  } catch {
-    return '0.0.0';
-  }
-}
-
-const VERSION = getVersion();
-initTelemetry(VERSION);
+const VERSION = packageJson.version;
+const CLI_COMMAND = 'agentart';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -47,12 +34,12 @@ const DIM = '\x1b[38;5;102m'; // darker gray for secondary text
 const TEXT = '\x1b[38;5;145m'; // lighter gray for primary text
 
 const LOGO_LINES = [
-  '███████╗██╗  ██╗██╗██╗     ██╗     ███████╗',
-  '██╔════╝██║ ██╔╝██║██║     ██║     ██╔════╝',
-  '███████╗█████╔╝ ██║██║     ██║     ███████╗',
-  '╚════██║██╔═██╗ ██║██║     ██║     ╚════██║',
-  '███████║██║  ██╗██║███████╗███████╗███████║',
-  '╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝╚══════╝',
+  ' █████╗  ██████╗ ███████╗███╗   ██╗████████╗ █████╗ ██████╗ ████████╗',
+  '██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝██╔══██╗██╔══██╗╚══██╔══╝',
+  '███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║   ███████║██████╔╝   ██║',
+  '██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║   ██╔══██║██╔══██╗   ██║',
+  '██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║   ██║  ██║██║  ██║   ██║',
+  '╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝',
 ];
 
 // 256-color middle grays - visible on both light and dark backgrounds
@@ -75,36 +62,36 @@ function showLogo(): void {
 function showBanner(): void {
   showLogo();
   console.log();
-  console.log(`${DIM}The open agent skills ecosystem${RESET}`);
+  console.log(`${DIM}Agentart: the open agent skills ecosystem${RESET}`);
   console.log();
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills add ${DIM}<package>${RESET}        ${DIM}Add a new skill${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}${CLI_COMMAND} add ${DIM}<package>${RESET}        ${DIM}Add a new skill${RESET}`
   );
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills remove${RESET}               ${DIM}Remove installed skills${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}${CLI_COMMAND} remove${RESET}               ${DIM}Remove installed skills${RESET}`
   );
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills list${RESET}                 ${DIM}List installed skills${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}${CLI_COMMAND} list${RESET}                 ${DIM}List installed skills${RESET}`
   );
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills find ${DIM}[query]${RESET}         ${DIM}Search for skills${RESET}`
-  );
-  console.log();
-  console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills update${RESET}               ${DIM}Update installed skills${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}${CLI_COMMAND} find ${DIM}[query]${RESET}         ${DIM}Search for skills${RESET}`
   );
   console.log();
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills experimental_install${RESET} ${DIM}Restore from skills-lock.json${RESET}`
-  );
-  console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills init ${DIM}[name]${RESET}          ${DIM}Create a new skill${RESET}`
-  );
-  console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills experimental_sync${RESET}    ${DIM}Sync skills from node_modules${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}${CLI_COMMAND} update${RESET}               ${DIM}Update installed skills${RESET}`
   );
   console.log();
-  console.log(`${DIM}try:${RESET} npx skills add vercel-labs/agent-skills`);
+  console.log(
+    `  ${DIM}$${RESET} ${TEXT}${CLI_COMMAND} experimental_install${RESET} ${DIM}Restore from agentart-lock.json${RESET}`
+  );
+  console.log(
+    `  ${DIM}$${RESET} ${TEXT}${CLI_COMMAND} init ${DIM}[name]${RESET}          ${DIM}Create a new skill${RESET}`
+  );
+  console.log(
+    `  ${DIM}$${RESET} ${TEXT}${CLI_COMMAND} experimental_sync${RESET}    ${DIM}Sync skills from node_modules${RESET}`
+  );
+  console.log();
+  console.log(`${DIM}try:${RESET} ${CLI_COMMAND} add vercel-labs/agent-skills`);
   console.log();
   console.log(`Discover more skills at ${TEXT}https://skills.sh/${RESET}`);
   console.log();
@@ -112,7 +99,7 @@ function showBanner(): void {
 
 function showHelp(): void {
   console.log(`
-${BOLD}Usage:${RESET} skills <command> [options]
+${BOLD}Usage:${RESET} agentart <command> [options]
 
 ${BOLD}Manage Skills:${RESET}
   add <package>        Add a skill package (alias: a)
@@ -131,7 +118,7 @@ ${BOLD}Update Options:${RESET}
   -y, --yes              Skip scope prompt (auto-detect: project if in a project, else global)
 
 ${BOLD}Project:${RESET}
-  experimental_install Restore skills from skills-lock.json
+  experimental_install Restore skills from agentart-lock.json
   init [name]          Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)
   experimental_sync    Sync skills from node_modules into agent directories
 
@@ -166,26 +153,26 @@ ${BOLD}Options:${RESET}
   --version, -v     Show version number
 
 ${BOLD}Examples:${RESET}
-  ${DIM}$${RESET} skills add vercel-labs/agent-skills
-  ${DIM}$${RESET} skills add vercel-labs/agent-skills -g
-  ${DIM}$${RESET} skills add vercel-labs/agent-skills --agent claude-code cursor
-  ${DIM}$${RESET} skills add vercel-labs/agent-skills --skill pr-review commit
-  ${DIM}$${RESET} skills remove                        ${DIM}# interactive remove${RESET}
-  ${DIM}$${RESET} skills remove web-design             ${DIM}# remove by name${RESET}
-  ${DIM}$${RESET} skills rm --global frontend-design
-  ${DIM}$${RESET} skills list                          ${DIM}# list project skills${RESET}
-  ${DIM}$${RESET} skills ls -g                         ${DIM}# list global skills${RESET}
-  ${DIM}$${RESET} skills ls -a claude-code             ${DIM}# filter by agent${RESET}
-  ${DIM}$${RESET} skills ls --json                      ${DIM}# JSON output${RESET}
-  ${DIM}$${RESET} skills find                          ${DIM}# interactive search${RESET}
-  ${DIM}$${RESET} skills find typescript               ${DIM}# search by keyword${RESET}
-  ${DIM}$${RESET} skills update
-  ${DIM}$${RESET} skills update my-skill             ${DIM}# update a single skill${RESET}
-  ${DIM}$${RESET} skills update -g                    ${DIM}# update global skills only${RESET}
-  ${DIM}$${RESET} skills experimental_install            ${DIM}# restore from skills-lock.json${RESET}
-  ${DIM}$${RESET} skills init my-skill
-  ${DIM}$${RESET} skills experimental_sync              ${DIM}# sync from node_modules${RESET}
-  ${DIM}$${RESET} skills experimental_sync -y           ${DIM}# sync without prompts${RESET}
+  ${DIM}$${RESET} agentart add vercel-labs/agent-skills
+  ${DIM}$${RESET} agentart add vercel-labs/agent-skills -g
+  ${DIM}$${RESET} agentart add vercel-labs/agent-skills --agent claude-code cursor
+  ${DIM}$${RESET} agentart add vercel-labs/agent-skills --skill pr-review commit
+  ${DIM}$${RESET} agentart remove                        ${DIM}# interactive remove${RESET}
+  ${DIM}$${RESET} agentart remove web-design             ${DIM}# remove by name${RESET}
+  ${DIM}$${RESET} agentart rm --global frontend-design
+  ${DIM}$${RESET} agentart list                          ${DIM}# list project skills${RESET}
+  ${DIM}$${RESET} agentart ls -g                         ${DIM}# list global skills${RESET}
+  ${DIM}$${RESET} agentart ls -a claude-code             ${DIM}# filter by agent${RESET}
+  ${DIM}$${RESET} agentart ls --json                      ${DIM}# JSON output${RESET}
+  ${DIM}$${RESET} agentart find                          ${DIM}# interactive search${RESET}
+  ${DIM}$${RESET} agentart find typescript               ${DIM}# search by keyword${RESET}
+  ${DIM}$${RESET} agentart update
+  ${DIM}$${RESET} agentart update my-skill             ${DIM}# update a single skill${RESET}
+  ${DIM}$${RESET} agentart update -g                    ${DIM}# update global skills only${RESET}
+  ${DIM}$${RESET} agentart experimental_install            ${DIM}# restore from agentart-lock.json${RESET}
+  ${DIM}$${RESET} agentart init my-skill
+  ${DIM}$${RESET} agentart experimental_sync              ${DIM}# sync from node_modules${RESET}
+  ${DIM}$${RESET} agentart experimental_sync -y           ${DIM}# sync without prompts${RESET}
 
 Discover more skills at ${TEXT}https://skills.sh/${RESET}
 `);
@@ -193,7 +180,7 @@ Discover more skills at ${TEXT}https://skills.sh/${RESET}
 
 function showRemoveHelp(): void {
   console.log(`
-${BOLD}Usage:${RESET} skills remove [skills...] [options]
+${BOLD}Usage:${RESET} agentart remove [skills...] [options]
 
 ${BOLD}Description:${RESET}
   Remove installed skills from agents. If no skill names are provided,
@@ -210,13 +197,13 @@ ${BOLD}Options:${RESET}
   --all              Shorthand for --skill '*' --agent '*' -y
 
 ${BOLD}Examples:${RESET}
-  ${DIM}$${RESET} skills remove                           ${DIM}# interactive selection${RESET}
-  ${DIM}$${RESET} skills remove my-skill                   ${DIM}# remove specific skill${RESET}
-  ${DIM}$${RESET} skills remove skill1 skill2 -y           ${DIM}# remove multiple skills${RESET}
-  ${DIM}$${RESET} skills remove --global my-skill          ${DIM}# remove from global scope${RESET}
-  ${DIM}$${RESET} skills rm --agent claude-code my-skill   ${DIM}# remove from specific agent${RESET}
-  ${DIM}$${RESET} skills remove --all                      ${DIM}# remove all skills${RESET}
-  ${DIM}$${RESET} skills remove --skill '*' -a cursor      ${DIM}# remove all skills from cursor${RESET}
+  ${DIM}$${RESET} agentart remove                           ${DIM}# interactive selection${RESET}
+  ${DIM}$${RESET} agentart remove my-skill                   ${DIM}# remove specific skill${RESET}
+  ${DIM}$${RESET} agentart remove skill1 skill2 -y           ${DIM}# remove multiple skills${RESET}
+  ${DIM}$${RESET} agentart remove --global my-skill          ${DIM}# remove from global scope${RESET}
+  ${DIM}$${RESET} agentart rm --agent claude-code my-skill   ${DIM}# remove from specific agent${RESET}
+  ${DIM}$${RESET} agentart remove --all                      ${DIM}# remove all skills${RESET}
+  ${DIM}$${RESET} agentart remove --skill '*' -a cursor      ${DIM}# remove all skills from cursor${RESET}
 
 Discover more skills at ${TEXT}https://skills.sh/${RESET}
 `);
@@ -275,10 +262,10 @@ Describe when this skill should be used.
   console.log();
   console.log(`${DIM}Publishing:${RESET}`);
   console.log(
-    `  ${DIM}GitHub:${RESET}  Push to a repo, then ${TEXT}npx skills add <owner>/<repo>${RESET}`
+    `  ${DIM}GitHub:${RESET}  Push to a repo, then ${TEXT}${CLI_COMMAND} add <owner>/<repo>${RESET}`
   );
   console.log(
-    `  ${DIM}URL:${RESET}     Host the file, then ${TEXT}npx skills add https://example.com/${displayPath}${RESET}`
+    `  ${DIM}URL:${RESET}     Host the file, then ${TEXT}${CLI_COMMAND} add https://example.com/${displayPath}${RESET}`
   );
   console.log();
   console.log(`Browse existing skills for inspiration at ${TEXT}https://skills.sh/${RESET}`);
@@ -313,7 +300,7 @@ interface SkillLockFile {
 function getSkillLockPath(): string {
   const xdgStateHome = process.env.XDG_STATE_HOME;
   if (xdgStateHome) {
-    return join(xdgStateHome, 'skills', LOCK_FILE);
+    return join(xdgStateHome, 'agentart', LOCK_FILE);
   }
   return join(homedir(), AGENTS_DIR, LOCK_FILE);
 }
@@ -374,14 +361,14 @@ function parseUpdateOptions(args: string[]): UpdateCheckOptions {
 /**
  * Check whether the current working directory has project-level skills.
  * Returns true if either:
- * - skills-lock.json exists in cwd, OR
+ * - agentart-lock.json exists in cwd, OR
  * - .agents/skills/ contains at least one subdirectory with a SKILL.md
  */
 function hasProjectSkills(cwd?: string): boolean {
   const dir = cwd || process.cwd();
 
-  // Check 1: skills-lock.json exists
-  const lockPath = join(dir, 'skills-lock.json');
+  // Check 1: agentart-lock.json exists
+  const lockPath = join(dir, 'agentart-lock.json');
   if (existsSync(lockPath)) {
     return true;
   }
@@ -562,7 +549,7 @@ function printSkippedSkills(skipped: SkippedSkill[]): void {
       const names = skills.map((s) => sanitizeMetadata(s.name)).join(', ');
       console.log(`  ${TEXT}•${RESET} ${names} ${DIM}(${reason})${RESET}`);
     }
-    console.log(`    ${DIM}To update: ${TEXT}npx skills add ${source} -g -y${RESET}`);
+    console.log(`    ${DIM}To update: ${TEXT}${CLI_COMMAND} add ${source} -g -y${RESET}`);
   }
 }
 
@@ -588,6 +575,19 @@ async function getProjectSkillsForUpdate(
   return skills;
 }
 
+function runCurrentCli(args: string[]): ReturnType<typeof spawnSync> {
+  const bundledScriptPath = process.argv[1];
+  const isCompiledBunExecutable = bundledScriptPath?.startsWith('/$bunfs/');
+  const invocationArgs =
+    bundledScriptPath && !isCompiledBunExecutable ? [bundledScriptPath, ...args] : args;
+
+  return spawnSync(process.execPath, invocationArgs, {
+    stdio: ['inherit', 'pipe', 'pipe'],
+    encoding: 'utf-8',
+    shell: process.platform === 'win32',
+  });
+}
+
 // ============================================
 // Update: Global Skills
 // ============================================
@@ -603,7 +603,9 @@ async function updateGlobalSkills(
   if (skillNames.length === 0) {
     if (!skillFilter) {
       console.log(`${DIM}No global skills tracked in lock file.${RESET}`);
-      console.log(`${DIM}Install skills with${RESET} ${TEXT}npx skills add <package> -g${RESET}`);
+      console.log(
+        `${DIM}Install skills with${RESET} ${TEXT}${CLI_COMMAND} add <package> -g${RESET}`
+      );
     }
     return { successCount, failCount, checkedCount: 0 };
   }
@@ -685,19 +687,7 @@ async function updateGlobalSkills(
     console.log(`${TEXT}Updating ${safeName}...${RESET}`);
     const installUrl = buildUpdateInstallSource(update.entry);
 
-    const cliEntry = join(__dirname, '..', 'bin', 'cli.mjs');
-    if (!existsSync(cliEntry)) {
-      failCount++;
-      console.log(
-        `  ${DIM}✗ Failed to update ${safeName}: CLI entrypoint not found at ${cliEntry}${RESET}`
-      );
-      continue;
-    }
-    const result = spawnSync(process.execPath, [cliEntry, 'add', installUrl, '-g', '-y'], {
-      stdio: ['inherit', 'pipe', 'pipe'],
-      encoding: 'utf-8',
-      shell: process.platform === 'win32',
-    });
+    const result = runCurrentCli(['add', installUrl, '-g', '-y']);
 
     if (result.status === 0) {
       successCount++;
@@ -727,7 +717,7 @@ async function updateProjectSkills(
     if (!skillFilter) {
       console.log(`${DIM}No project skills to update.${RESET}`);
       console.log(
-        `${DIM}Install project skills with${RESET} ${TEXT}npx skills add <package>${RESET}`
+        `${DIM}Install project skills with${RESET} ${TEXT}${CLI_COMMAND} add <package>${RESET}`
       );
     }
     return { successCount, failCount, foundCount: 0 };
@@ -780,26 +770,9 @@ async function updateProjectSkills(
     console.log(`${TEXT}Updating ${safeName}...${RESET}`);
     const installUrl = buildLocalUpdateSource(skill.entry);
 
-    const cliEntry = join(__dirname, '..', 'bin', 'cli.mjs');
-    if (!existsSync(cliEntry)) {
-      failCount++;
-      console.log(
-        `  ${DIM}✗ Failed to update ${safeName}: CLI entrypoint not found at ${cliEntry}${RESET}`
-      );
-      continue;
-    }
-
     // Re-clone without -g to install at project scope
     // Pass --skill to scope the install to just the requested skill (not the whole source repo)
-    const result = spawnSync(
-      process.execPath,
-      [cliEntry, 'add', installUrl, '--skill', skill.name, '-y'],
-      {
-        stdio: ['inherit', 'pipe', 'pipe'],
-        encoding: 'utf-8',
-        shell: process.platform === 'win32',
-      }
-    );
+    const result = runCurrentCli(['add', installUrl, '--skill', skill.name, '-y']);
 
     if (result.status === 0) {
       successCount++;
@@ -830,7 +803,7 @@ function printLegacyProjectSkills(
   for (const skill of legacy) {
     const reinstall = formatSourceInput(skill.entry.source, skill.entry.ref);
     console.log(`  ${TEXT}•${RESET} ${sanitizeMetadata(skill.name)}`);
-    console.log(`    ${DIM}To refresh: ${TEXT}npx skills add ${reinstall} -y${RESET}`);
+    console.log(`    ${DIM}To refresh: ${TEXT}${CLI_COMMAND} add ${reinstall} -y${RESET}`);
   }
 }
 
@@ -893,15 +866,6 @@ async function runUpdate(args: string[] = []): Promise<void> {
   if (totalSuccess === 0 && totalFail === 0) {
     // No updates found/attempted - the sub-functions already printed their messages
   }
-
-  // Track telemetry
-  track({
-    event: 'update',
-    scope,
-    skillCount: String(totalSuccess + totalFail),
-    successCount: String(totalSuccess),
-    failCount: String(totalFail),
-  });
 
   console.log();
 }
@@ -989,8 +953,8 @@ async function main(): Promise<void> {
 
     default:
       console.log(`Unknown command: ${command}`);
-      console.log(`Run ${BOLD}skills --help${RESET} for usage.`);
+      console.log(`Run ${BOLD}agentart --help${RESET} for usage.`);
   }
 }
 
-main().finally(() => flushTelemetry().then(() => process.exit(0)));
+main().finally(() => process.exit(0));

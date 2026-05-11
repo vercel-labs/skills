@@ -99,7 +99,7 @@ describe('parseSkillMd with non-string frontmatter values', () => {
   let testDir: string;
 
   beforeEach(() => {
-    testDir = join(tmpdir(), `skills-nonstring-test-${Date.now()}`);
+    testDir = join(tmpdir(), `agentart-nonstring-test-${Date.now()}`);
     mkdirSync(testDir, { recursive: true });
   });
 

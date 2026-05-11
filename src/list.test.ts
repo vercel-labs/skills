@@ -9,7 +9,7 @@ describe('list command', () => {
   let testDir: string;
 
   beforeEach(() => {
-    testDir = join(tmpdir(), `skills-list-test-${Date.now()}`);
+    testDir = join(tmpdir(), `agentart-list-test-${Date.now()}`);
     mkdirSync(testDir, { recursive: true });
   });
 
@@ -343,16 +343,16 @@ description: A test skill
 
     it('should include list examples in help', () => {
       const result = runCli(['--help']);
-      expect(result.stdout).toContain('skills list');
-      expect(result.stdout).toContain('skills ls -g');
-      expect(result.stdout).toContain('skills ls -a claude-code');
+      expect(result.stdout).toContain('agentart list');
+      expect(result.stdout).toContain('agentart ls -g');
+      expect(result.stdout).toContain('agentart ls -a claude-code');
     });
   });
 
   describe('banner', () => {
     it('should include list command in banner', () => {
       const result = runCli([]);
-      expect(result.stdout).toContain('npx skills list');
+      expect(result.stdout).toContain('agentart list');
       expect(result.stdout).toContain('List installed skills');
     });
   });

@@ -1,27 +1,14 @@
 import * as p from '@clack/prompts';
-import pc from 'picocolors';
+import pc from './colors.ts';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { sep, join, dirname } from 'path';
-import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
-import { stripTerminalEscapes } from './sanitize.ts';
+import { parseSource, getOwnerRepo } from './source-parser.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 
 // Helper to check if a value is a cancel symbol (works with both clack and our custom prompts)
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
 
-/**
- * Check if a source identifier (owner/repo format) represents a private GitHub repo.
- * Returns true if private, false if public, null if unable to determine or not a GitHub repo.
- */
-async function isSourcePrivate(source: string): Promise<boolean | null> {
-  const ownerRepo = parseOwnerRepo(source);
-  if (!ownerRepo) {
-    // Not in owner/repo format, assume not private (could be other providers)
-    return false;
-  }
-  return isRepoPrivate(ownerRepo.owner, ownerRepo.repo);
-}
 import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
 import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
 import {
@@ -39,13 +26,6 @@ import {
   getNonUniversalAgents,
   isUniversalAgent,
 } from './agents.ts';
-import {
-  track,
-  setVersion,
-  fetchAuditData,
-  type AuditResponse,
-  type PartnerAudit,
-} from './telemetry.ts';
 import { detectAgent, getAgentType } from './detect-agent.ts';
 import { wellKnownProvider, type WellKnownSkill } from './providers/index.ts';
 import {
@@ -66,95 +46,6 @@ import {
   type BlobSkill,
   type BlobInstallResult,
 } from './blob.ts';
-import packageJson from '../package.json' with { type: 'json' };
-export function initTelemetry(version: string): void {
-  setVersion(version);
-}
-
-// ─── Security Advisory ───
-
-function riskLabel(risk: string): string {
-  switch (risk) {
-    case 'critical':
-      return pc.red(pc.bold('Critical Risk'));
-    case 'high':
-      return pc.red('High Risk');
-    case 'medium':
-      return pc.yellow('Med Risk');
-    case 'low':
-      return pc.green('Low Risk');
-    case 'safe':
-      return pc.green('Safe');
-    default:
-      return pc.dim('--');
-  }
-}
-
-function socketLabel(audit: PartnerAudit | undefined): string {
-  if (!audit) return pc.dim('--');
-  const count = audit.alerts ?? 0;
-  return count > 0 ? pc.red(`${count} alert${count !== 1 ? 's' : ''}`) : pc.green('0 alerts');
-}
-
-/** Pad a string to a given visible width (ignoring ANSI escape codes). */
-function padEnd(str: string, width: number): string {
-  // Strip ANSI codes to measure visible length
-  const visible = stripTerminalEscapes(str);
-  const pad = Math.max(0, width - visible.length);
-  return str + ' '.repeat(pad);
-}
-
-/**
- * Render a compact security table showing partner audit results.
- * Returns the lines to display, or empty array if no data.
- */
-function buildSecurityLines(
-  auditData: AuditResponse | null,
-  skills: Array<{ slug: string; displayName: string }>,
-  source: string
-): string[] {
-  if (!auditData) return [];
-
-  // Check if we have any audit data at all
-  const hasAny = skills.some((s) => {
-    const data = auditData[s.slug];
-    return data && Object.keys(data).length > 0;
-  });
-  if (!hasAny) return [];
-
-  // Compute column width for skill names
-  const nameWidth = Math.min(Math.max(...skills.map((s) => s.displayName.length)), 36);
-
-  // Header
-  const lines: string[] = [];
-  const header =
-    padEnd('', nameWidth + 2) +
-    padEnd(pc.dim('Gen'), 18) +
-    padEnd(pc.dim('Socket'), 18) +
-    pc.dim('Snyk');
-  lines.push(header);
-
-  // Rows
-  for (const skill of skills) {
-    const data = auditData[skill.slug];
-    const name =
-      skill.displayName.length > nameWidth
-        ? skill.displayName.slice(0, nameWidth - 1) + '\u2026'
-        : skill.displayName;
-
-    const ath = data?.ath ? riskLabel(data.ath.risk) : pc.dim('--');
-    const socket = data?.socket ? socketLabel(data.socket) : pc.dim('--');
-    const snyk = data?.snyk ? riskLabel(data.snyk.risk) : pc.dim('--');
-
-    lines.push(padEnd(pc.cyan(name), nameWidth + 2) + padEnd(ath, 18) + padEnd(socket, 18) + snyk);
-  }
-
-  // Footer link
-  lines.push('');
-  lines.push(`${pc.dim('Details:')} ${pc.dim(`https://skills.sh/${source}`)}`);
-
-  return lines;
-}
 
 /**
  * Shortens a path for display: replaces homedir with ~ and cwd with .
@@ -415,9 +306,6 @@ async function selectAgentsInteractive(options: {
 
   return selected as AgentType[] | symbol;
 }
-
-const version = packageJson.version;
-setVersion(version);
 
 export interface AddOptions {
   global?: boolean;
@@ -726,9 +614,7 @@ async function handleWellKnownSkills(
     }
   }
 
-  // Kick off privacy check early so it runs in parallel with installation
   const sourceIdentifier = wellKnownProvider.getSourceIdentifier(url);
-  const wellKnownPrivacyPromise = isSourcePrivate(sourceIdentifier).catch(() => null);
 
   spinner.start('Installing skills...');
 
@@ -762,26 +648,6 @@ async function handleWellKnownSkills(
   console.log();
   const successful = results.filter((r) => r.success);
   const failed = results.filter((r) => !r.success);
-
-  // Build skillFiles map: { skillName: sourceUrl }
-  const skillFiles: Record<string, string> = {};
-  for (const skill of selectedSkills) {
-    skillFiles[skill.installName] = skill.sourceUrl;
-  }
-
-  // Privacy promise was started before installation — should be resolved by now
-  const isPrivate = await wellKnownPrivacyPromise;
-  if (isPrivate !== true) {
-    track({
-      event: 'install',
-      source: sourceIdentifier,
-      skills: selectedSkills.map((s) => s.installName).join(','),
-      agents: targetAgents.join(','),
-      ...(installGlobally && { global: '1' }),
-      skillFiles: JSON.stringify(skillFiles),
-      sourceType: 'well-known',
-    });
-  }
 
   // Add to skill lock file for update tracking (only for global installs)
   if (successful.length > 0 && installGlobally) {
@@ -914,10 +780,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     );
     console.log();
     console.log(pc.dim('  Usage:'));
-    console.log(`    ${pc.cyan('npx skills add')} ${pc.yellow('<source>')} ${pc.dim('[options]')}`);
+    console.log(`    ${pc.cyan('agentart add')} ${pc.yellow('<source>')} ${pc.dim('[options]')}`);
     console.log();
     console.log(pc.dim('  Example:'));
-    console.log(`    ${pc.cyan('npx skills add')} ${pc.yellow('vercel-labs/agent-skills')}`);
+    console.log(`    ${pc.cyan('agentart add')} ${pc.yellow('vercel-labs/agent-skills')}`);
     console.log();
     process.exit(1);
   }
@@ -944,7 +810,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
   console.log();
   if (!agentResult.isAgent) {
-    p.intro(pc.bgCyan(pc.black(' skills ')));
+    p.intro(pc.bgCyan(pc.black(' agentart ')));
   }
 
   if (agentResult.isAgent) {
@@ -968,16 +834,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
     );
 
-    // Kick off the repo privacy check early so it runs in parallel with
-    // cloning/discovering/installing. The result is only needed later for
-    // telemetry gating — it should never block user-visible output.
     const ownerRepoRaw = getOwnerRepo(parsed);
-    const repoPrivacyPromise: Promise<boolean | null> = (() => {
-      if (!ownerRepoRaw) return Promise.resolve(null);
-      const ownerRepo = parseOwnerRepo(ownerRepoRaw);
-      if (!ownerRepo) return Promise.resolve(null);
-      return isRepoPrivate(ownerRepo.owner, ownerRepo.repo).catch(() => null);
-    })();
 
     // Block openclaw sources unless explicitly opted in
     const sourceOwner = ownerRepoRaw?.split('/')[0]?.toLowerCase();
@@ -992,7 +849,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       p.log.message(pc.yellow('Skills run with full agent permissions and could be malicious.'));
       console.log();
       p.log.message(
-        `If you understand the risks, re-run with:\n\n  ${pc.cyan(`npx skills add ${source} --dangerously-accept-openclaw-risks`)}\n`
+        `If you understand the risks, re-run with:\n\n  ${pc.cyan(`agentart add ${source} --dangerously-accept-openclaw-risks`)}\n`
       );
       p.outro(pc.red('Installation blocked'));
       process.exit(1);
@@ -1240,16 +1097,6 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       selectedSkills = selected as Skill[];
     }
 
-    // Kick off security audit fetch early (non-blocking) so it runs
-    // in parallel with agent selection, scope, and mode prompts.
-    const ownerRepoForAudit = getOwnerRepo(parsed);
-    const auditPromise = ownerRepoForAudit
-      ? fetchAuditData(
-          ownerRepoForAudit,
-          selectedSkills.map((s) => getSkillDisplayName(s))
-        )
-      : Promise.resolve(null);
-
     let targetAgents: AgentType[];
     const validAgents = Object.keys(agents);
 
@@ -1471,27 +1318,6 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     console.log();
     p.note(summaryLines.join('\n'), 'Installation Summary');
 
-    // Await and display security audit results (started earlier in parallel)
-    // Wrapped in try/catch so a failed audit fetch never blocks installation.
-    try {
-      const auditData = await auditPromise;
-      if (auditData && ownerRepoForAudit) {
-        const securityLines = buildSecurityLines(
-          auditData,
-          selectedSkills.map((s) => ({
-            slug: getSkillDisplayName(s),
-            displayName: getSkillDisplayName(s),
-          })),
-          ownerRepoForAudit
-        );
-        if (securityLines.length > 0) {
-          p.note(securityLines.join('\n'), 'Security Risk Assessments');
-        }
-      }
-    } catch {
-      // Silently skip — security info is advisory only
-    }
-
     if (!options.yes) {
       const confirmed = await p.confirm({ message: 'Proceed with installation?' });
 
@@ -1560,19 +1386,19 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         skillFiles[skill.name] = 'SKILL.md';
       } else if (tempDir && skill.path.startsWith(tempDir + sep)) {
         // Compute path relative to repo root (tempDir), not search path
-        // Use forward slashes for telemetry (URL-style paths)
+        // Use forward slashes (URL-style paths)
         skillFiles[skill.name] =
           skill.path
             .slice(tempDir.length + 1)
             .split(sep)
             .join('/') + '/SKILL.md';
       } else {
-        // Local path - skip telemetry for local installs
+        // Local path - skip the event hook for local installs
         continue;
       }
     }
 
-    // Normalize source to owner/repo format for telemetry
+    // Normalize source to owner/repo format
     const normalizedSource = getOwnerRepo(parsed);
 
     // Preserve SSH URLs in lock files instead of normalizing to owner/repo shorthand.
@@ -1580,38 +1406,6 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // breaking restore for private repos that require SSH authentication.
     const isSSH = parsed.url.startsWith('git@');
     const lockSource = isSSH ? parsed.url : normalizedSource;
-
-    // Only track if we have a valid remote source and it's not a private repo.
-    // repoPrivacyPromise was started early (right after parsing) so it has
-    // already been running in parallel with the entire install — no stall here.
-    if (normalizedSource) {
-      const ownerRepo = parseOwnerRepo(normalizedSource);
-      if (ownerRepo) {
-        const isPrivate = await repoPrivacyPromise;
-        // Only send telemetry if repo is public (isPrivate === false)
-        // If we can't determine (null), err on the side of caution and skip telemetry
-        if (isPrivate === false) {
-          track({
-            event: 'install',
-            source: normalizedSource,
-            skills: selectedSkills.map((s) => s.name).join(','),
-            agents: targetAgents.join(','),
-            ...(installGlobally && { global: '1' }),
-            skillFiles: JSON.stringify(skillFiles),
-          });
-        }
-      } else {
-        // If we can't parse owner/repo, still send telemetry (for non-GitHub sources)
-        track({
-          event: 'install',
-          source: normalizedSource,
-          skills: selectedSkills.map((s) => s.name).join(','),
-          agents: targetAgents.join(','),
-          ...(installGlobally && { global: '1' }),
-          skillFiles: JSON.stringify(skillFiles),
-        });
-      }
-    }
 
     // Add to skill lock file for update tracking (only for global installs)
     if (successful.length > 0 && installGlobally && normalizedSource) {
@@ -1880,7 +1674,7 @@ async function promptForFindSkills(
 
       try {
         // Call runAdd directly
-        await runAdd(['vercel-labs/skills'], {
+        await runAdd(['vercel-labs/agentart'], {
           skill: ['find-skills'],
           global: true,
           yes: true,
@@ -1888,13 +1682,13 @@ async function promptForFindSkills(
         });
       } catch {
         p.log.warn('Failed to install find-skills. You can try again with:');
-        p.log.message(pc.dim('  npx skills add vercel-labs/skills@find-skills -g -y --all'));
+        p.log.message(pc.dim('  agentart add vercel-labs/agentart@find-skills -g -y --all'));
       }
     } else {
       // User declined - dismiss the prompt
       await dismissPrompt('findSkillsPrompt');
       p.log.message(
-        pc.dim('You can install it later with: npx skills add vercel-labs/skills@find-skills')
+        pc.dim('You can install it later with: agentart add vercel-labs/agentart@find-skills')
       );
     }
   } catch {

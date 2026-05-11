@@ -1,7 +1,6 @@
 import * as readline from 'readline';
 import { runAdd, parseAddOptions } from './add.ts';
 import { sanitizeMetadata } from './sanitize.ts';
-import { track } from './telemetry.ts';
 import { isRepoPrivate } from './source-parser.ts';
 import { isRunningInAgent } from './detect-agent.ts';
 
@@ -14,7 +13,7 @@ const MAGENTA = '\x1b[35m';
 const YELLOW = '\x1b[33m';
 
 // API endpoint for skills search
-const SEARCH_API_BASE = process.env.SKILLS_API_URL || 'https://skills.sh';
+const SEARCH_API_BASE = process.env.AGENTART_API_URL || 'https://skills.sh';
 
 function formatInstalls(count: number): string {
   if (!count || count <= 0) return '';
@@ -272,26 +271,19 @@ export async function runFind(args: string[]): Promise<void> {
   const query = args.join(' ');
   const isNonInteractive = !process.stdin.isTTY;
   const agentTip = `${DIM}Tip: if running in a coding agent, follow these steps:${RESET}
-${DIM}  1) npx skills find [query]${RESET}
-${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
+${DIM}  1) agentart find [query]${RESET}
+${DIM}  2) agentart add <owner/repo@skill>${RESET}`;
 
   // Non-interactive mode: just print results and exit
   if (query) {
     const results = await searchSkillsAPI(query);
-
-    // Track telemetry for non-interactive search
-    track({
-      event: 'find',
-      query,
-      resultCount: String(results.length),
-    });
 
     if (results.length === 0) {
       console.log(`${DIM}No skills found for "${query}"${RESET}`);
       return;
     }
 
-    console.log(`${DIM}Install with${RESET} npx skills add <owner/repo@skill>`);
+    console.log(`${DIM}Install with${RESET} agentart add <owner/repo@skill>`);
     console.log();
 
     for (const skill of results.slice(0, 6)) {
@@ -310,19 +302,11 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
   if (isNonInteractive || (await isRunningInAgent())) {
     console.log(agentTip);
     console.log();
-    console.log(`${DIM}Usage: npx skills find <query>${RESET}`);
+    console.log(`${DIM}Usage: agentart find <query>${RESET}`);
     return;
   }
 
   const selected = await runSearchPrompt();
-
-  // Track telemetry for interactive search
-  track({
-    event: 'find',
-    query: '',
-    resultCount: selected ? '1' : '0',
-    interactive: '1',
-  });
 
   if (!selected) {
     console.log(`${DIM}Search cancelled${RESET}`);

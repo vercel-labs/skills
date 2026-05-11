@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
 import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
@@ -78,7 +78,7 @@ function generateSkillDiscoveryPaths(): string {
 }
 
 function generateKeywords(): string[] {
-  const baseKeywords = ['cli', 'agent-skills', 'skills', 'ai-agents'];
+  const baseKeywords = ['cli', 'agent-skills', 'agentart', 'ai-agents'];
   const agentKeywords = Object.keys(agents);
   return [...baseKeywords, ...agentKeywords];
 }

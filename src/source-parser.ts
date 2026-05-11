@@ -3,7 +3,7 @@ import type { ParsedSource } from './types.ts';
 
 /**
  * Extract owner/repo (or group/subgroup/repo for GitLab) from a parsed source
- * for lockfile tracking and telemetry.
+ * for lockfile tracking.
  * Returns null for local paths or unparseable sources.
  * Supports any Git host with an owner/repo URL structure, including GitLab subgroups.
  */

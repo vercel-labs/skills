@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import pc from 'picocolors';
+import pc from '../src/colors.ts';
 import {
   approxStringWidth,
   countVisualRowsForLines,

@@ -1,7 +1,7 @@
 name: Agent Request
 description: Request support for a new coding agent
-title: "[Agent]: "
-labels: ["enhancement"]
+title: '[Agent]: '
+labels: ['enhancement']
 body:
   - type: markdown
     attributes:

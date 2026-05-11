@@ -15,7 +15,7 @@ describe('discoverSkills with fullDepth option', () => {
   let testDir: string;
 
   beforeEach(() => {
-    testDir = join(tmpdir(), `skills-full-depth-test-${Date.now()}`);
+    testDir = join(tmpdir(), `agentart-full-depth-test-${Date.now()}`);
     mkdirSync(testDir, { recursive: true });
   });
 

@@ -19,7 +19,7 @@ describe('removeCommand canonical protection', () => {
   let oldCwd: string;
 
   beforeEach(async () => {
-    tempDir = await resolve(join(tmpdir(), 'skills-remove-test-' + Date.now()));
+    tempDir = await resolve(join(tmpdir(), 'agentart-remove-test-' + Date.now()));
     await mkdir(tempDir, { recursive: true });
     oldCwd = process.cwd();
     process.chdir(tempDir);

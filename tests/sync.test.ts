@@ -8,7 +8,7 @@ describe('experimental_sync command', () => {
   let testDir: string;
 
   beforeEach(() => {
-    testDir = join(tmpdir(), `skills-sync-test-${Date.now()}`);
+    testDir = join(tmpdir(), `agentart-sync-test-${Date.now()}`);
     mkdirSync(testDir, { recursive: true });
   });
 
@@ -93,8 +93,8 @@ Instructions.
     });
   });
 
-  describe('skills-lock.json', () => {
-    it('should write skills-lock.json after sync', () => {
+  describe('agentart-lock.json', () => {
+    it('should write agentart-lock.json after sync', () => {
       const pkgDir = join(testDir, 'node_modules', 'my-pkg');
       mkdirSync(pkgDir, { recursive: true });
       writeFileSync(
@@ -111,7 +111,7 @@ Instructions.
 
       runCli(['experimental_sync', '-y', '-a', 'claude-code'], testDir);
 
-      const lockPath = join(testDir, 'skills-lock.json');
+      const lockPath = join(testDir, 'agentart-lock.json');
       expect(existsSync(lockPath)).toBe(true);
 
       const lock = JSON.parse(readFileSync(lockPath, 'utf-8'));
@@ -138,7 +138,7 @@ description: No timestamps
 
       runCli(['experimental_sync', '-y', '-a', 'claude-code'], testDir);
 
-      const lock = JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8'));
+      const lock = JSON.parse(readFileSync(join(testDir, 'agentart-lock.json'), 'utf-8'));
       const entry = lock.skills['no-timestamp-skill'];
       expect(entry.installedAt).toBeUndefined();
       expect(entry.updatedAt).toBeUndefined();
@@ -163,7 +163,7 @@ description: ${name} description
 
       runCli(['experimental_sync', '-y', '-a', 'claude-code'], testDir);
 
-      const raw = readFileSync(join(testDir, 'skills-lock.json'), 'utf-8');
+      const raw = readFileSync(join(testDir, 'agentart-lock.json'), 'utf-8');
       const keys = Object.keys(JSON.parse(raw).skills);
       expect(keys).toEqual(['alpha-skill', 'mid-skill', 'zebra-skill']);
     });

@@ -3,11 +3,11 @@ name: CI
 on:
   pull_request:
     paths-ignore:
-      - "**/*.md"
+      - '**/*.md'
   push:
     branches: [main]
     paths-ignore:
-      - "**/*.md"
+      - '**/*.md'
 
 jobs:
   checks:
@@ -20,24 +20,23 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v6
 
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: lts/*
-          cache: pnpm
+          bun-version: 1.3.13
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: bun install --frozen-lockfile
 
       - name: Type check
-        run: pnpm build
+        run: bun run type-check
+
+      - name: Build
+        run: bun run build
 
       - name: Prettier
         if: matrix.os == 'ubuntu-latest'
-        run: pnpm format:check
+        run: bun run format:check
 
       - name: Tests
-        run: pnpm test
+        run: bun run test

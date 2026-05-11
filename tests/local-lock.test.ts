@@ -13,14 +13,14 @@ import {
 
 describe('local-lock', () => {
   describe('getLocalLockPath', () => {
-    it('returns skills-lock.json in given directory', () => {
+    it('returns agentart-lock.json in given directory', () => {
       const result = getLocalLockPath('/some/project');
-      expect(result).toBe(join('/some/project', 'skills-lock.json'));
+      expect(result).toBe(join('/some/project', 'agentart-lock.json'));
     });
 
     it('uses cwd when no directory given', () => {
       const result = getLocalLockPath();
-      expect(result).toBe(join(process.cwd(), 'skills-lock.json'));
+      expect(result).toBe(join(process.cwd(), 'agentart-lock.json'));
     });
   });
 
@@ -42,18 +42,18 @@ describe('local-lock', () => {
           version: 1,
           skills: {
             'my-skill': {
-              source: 'vercel-labs/skills',
+              source: 'vercel-labs/agentart',
               sourceType: 'github',
               computedHash: 'abc123',
             },
           },
         };
-        await writeFile(join(dir, 'skills-lock.json'), JSON.stringify(content), 'utf-8');
+        await writeFile(join(dir, 'agentart-lock.json'), JSON.stringify(content), 'utf-8');
 
         const lock = await readLocalLock(dir);
         expect(lock.version).toBe(1);
         expect(lock.skills['my-skill']).toEqual({
-          source: 'vercel-labs/skills',
+          source: 'vercel-labs/agentart',
           sourceType: 'github',
           computedHash: 'abc123',
         });
@@ -75,7 +75,7 @@ describe('local-lock', () => {
 >>>>>>> feature-branch
   }
 }`;
-        await writeFile(join(dir, 'skills-lock.json'), conflicted, 'utf-8');
+        await writeFile(join(dir, 'agentart-lock.json'), conflicted, 'utf-8');
 
         const lock = await readLocalLock(dir);
         expect(lock).toEqual({ version: 1, skills: {} });
@@ -87,7 +87,7 @@ describe('local-lock', () => {
     it('returns empty lock for invalid structure (missing skills key)', async () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
-        await writeFile(join(dir, 'skills-lock.json'), '{"version": 1}', 'utf-8');
+        await writeFile(join(dir, 'agentart-lock.json'), '{"version": 1}', 'utf-8');
         const lock = await readLocalLock(dir);
         expect(lock).toEqual({ version: 1, skills: {} });
       } finally {
@@ -124,7 +124,7 @@ describe('local-lock', () => {
           dir
         );
 
-        const raw = await readFile(join(dir, 'skills-lock.json'), 'utf-8');
+        const raw = await readFile(join(dir, 'agentart-lock.json'), 'utf-8');
         expect(raw.endsWith('\n')).toBe(true);
 
         const parsed = JSON.parse(raw);
@@ -388,10 +388,10 @@ describe('local-lock', () => {
           { source: 'org/a', sourceType: 'github', computedHash: 'aaa' },
           dir
         );
-        const branchA = await readFile(join(dir, 'skills-lock.json'), 'utf-8');
+        const branchA = await readFile(join(dir, 'agentart-lock.json'), 'utf-8');
 
         // Reset to empty
-        await writeFile(join(dir, 'skills-lock.json'), '{"version":1,"skills":{}}', 'utf-8');
+        await writeFile(join(dir, 'agentart-lock.json'), '{"version":1,"skills":{}}', 'utf-8');
 
         // Simulate branch B adding skill-b
         await addSkillToLocalLock(
@@ -399,7 +399,7 @@ describe('local-lock', () => {
           { source: 'org/b', sourceType: 'github', computedHash: 'bbb' },
           dir
         );
-        const branchB = await readFile(join(dir, 'skills-lock.json'), 'utf-8');
+        const branchB = await readFile(join(dir, 'agentart-lock.json'), 'utf-8');
 
         // Both branches produce valid JSON with no timestamps to conflict on
         const parsedA = JSON.parse(branchA);
