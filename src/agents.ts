@@ -305,10 +305,10 @@ export const agents: Record<AgentType, AgentConfig> = {
   kilo: {
     name: 'kilo',
     displayName: 'Kilo Code',
-    skillsDir: '.kilocode/skills',
-    globalSkillsDir: join(home, '.kilocode/skills'),
+    skillsDir: '.kilo/skills',
+    globalSkillsDir: join(home, '.kilo/skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.kilocode'));
+      return existsSync(join(home, '.kilo'));
     },
   },
   'kimi-cli': {
