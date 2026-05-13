@@ -315,7 +315,7 @@ export class WellKnownProvider implements HostProvider {
         content,
         installName: entry.name,
         sourceUrl: skillMdUrl,
-        metadata: data.metadata,
+        metadata: data.metadata as Record<string, unknown> | undefined,
         files,
         indexEntry: entry,
       };

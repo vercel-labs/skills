@@ -75,6 +75,8 @@ export interface AgentConfig {
   detectInstalled: () => Promise<boolean>;
   /** Whether to show this agent in the universal agents list. Defaults to true. */
   showInUniversalList?: boolean;
+  /** Whether this universal agent requires a global symlink. Defaults to false. */
+  requiresGlobalSymlink?: boolean;
 }
 
 export interface ParsedSource {
