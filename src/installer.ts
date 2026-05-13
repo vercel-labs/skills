@@ -224,6 +224,36 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
   }
 }
 
+/**
+ * Creates a symlink for Antigravity global workflows
+ */
+async function createAntigravityGlobalSymlink(skillDir: string, skillName: string): Promise<void> {
+  try {
+    const skillMdPath = join(skillDir, 'SKILL.md');
+    const parsedSkill = await parseSkillMd(skillMdPath);
+    if (!parsedSkill) return;
+
+    const isUserInvocable = parsedSkill.metadata?.['user-invocable'] === true;
+    if (!isUserInvocable) return;
+
+    const antigravityWorkflowsDir = join(homedir(), '.gemini', 'antigravity', 'global_workflows');
+    await mkdir(antigravityWorkflowsDir, { recursive: true });
+
+    const symlinkPath = join(antigravityWorkflowsDir, `${skillName}.md`);
+
+    try {
+      const stats = await lstat(symlinkPath);
+      if (stats.isSymbolicLink() || stats.isFile()) {
+        await rm(symlinkPath, { force: true });
+      }
+    } catch {}
+
+    await symlink(skillMdPath, symlinkPath);
+  } catch (error) {
+    console.debug('Failed to create Antigravity global workflow symlink:', error);
+  }
+}
+
 export async function installSkillForAgent(
   skill: Skill,
   agentType: AgentType,
@@ -282,6 +312,10 @@ export async function installSkillForAgent(
       await cleanAndCreateDirectory(agentDir);
       await copyDirectory(skill.path, agentDir);
 
+      if (isGlobal && agentType === 'antigravity') {
+        await createAntigravityGlobalSymlink(agentDir, skillName);
+      }
+
       return {
         success: true,
         path: agentDir,
@@ -292,6 +326,10 @@ export async function installSkillForAgent(
     // Symlink mode: copy to canonical location and symlink to agent location
     await cleanAndCreateDirectory(canonicalDir);
     await copyDirectory(skill.path, canonicalDir);
+
+    if (isGlobal && agentType === 'antigravity') {
+      await createAntigravityGlobalSymlink(canonicalDir, skillName);
+    }
 
     // For universal agents with global install, the skill is already in the canonical
     // ~/.agents/skills directory. Skip creating a symlink to the agent-specific global dir
@@ -538,6 +576,10 @@ export async function installRemoteSkillForAgent(
       const skillMdPath = join(agentDir, 'SKILL.md');
       await writeFile(skillMdPath, skill.content, 'utf-8');
 
+      if (isGlobal && agentType === 'antigravity') {
+        await createAntigravityGlobalSymlink(agentDir, skillName);
+      }
+
       return {
         success: true,
         path: agentDir,
@@ -549,6 +591,10 @@ export async function installRemoteSkillForAgent(
     await cleanAndCreateDirectory(canonicalDir);
     const skillMdPath = join(canonicalDir, 'SKILL.md');
     await writeFile(skillMdPath, skill.content, 'utf-8');
+
+    if (isGlobal && agentType === 'antigravity') {
+      await createAntigravityGlobalSymlink(canonicalDir, skillName);
+    }
 
     // For universal agents with global install, skip creating agent-specific symlink
     if (isGlobal && isUniversalAgent(agentType) && !agents[agentType].requiresGlobalSymlink) {
@@ -677,6 +723,10 @@ export async function installWellKnownSkillForAgent(
       await cleanAndCreateDirectory(agentDir);
       await writeSkillFiles(agentDir);
 
+      if (isGlobal && agentType === 'antigravity') {
+        await createAntigravityGlobalSymlink(agentDir, skillName);
+      }
+
       return {
         success: true,
         path: agentDir,
@@ -687,6 +737,10 @@ export async function installWellKnownSkillForAgent(
     // Symlink mode: write to canonical location and symlink to agent location
     await cleanAndCreateDirectory(canonicalDir);
     await writeSkillFiles(canonicalDir);
+
+    if (isGlobal && agentType === 'antigravity') {
+      await createAntigravityGlobalSymlink(canonicalDir, skillName);
+    }
 
     // For universal agents with global install, skip creating agent-specific symlink
     if (isGlobal && isUniversalAgent(agentType) && !agents[agentType].requiresGlobalSymlink) {
@@ -796,12 +850,21 @@ export async function installBlobSkillForAgent(
     if (installMode === 'copy') {
       await cleanAndCreateDirectory(agentDir);
       await writeSkillFiles(agentDir);
+
+      if (isGlobal && agentType === 'antigravity') {
+        await createAntigravityGlobalSymlink(agentDir, skillName);
+      }
+
       return { success: true, path: agentDir, mode: 'copy' };
     }
 
     // Symlink mode
     await cleanAndCreateDirectory(canonicalDir);
     await writeSkillFiles(canonicalDir);
+
+    if (isGlobal && agentType === 'antigravity') {
+      await createAntigravityGlobalSymlink(canonicalDir, skillName);
+    }
 
     if (isGlobal && isUniversalAgent(agentType) && !agents[agentType].requiresGlobalSymlink) {
       return {

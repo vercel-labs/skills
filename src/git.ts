@@ -42,6 +42,10 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
     // (skills are plain text — HTML/MD/JSON — never LFS-tracked).
     //
     // Reported downstream: heygen-com/hyperframes#407.
+    unsafe: {
+      allowUnsafeFilter: true,
+      allowUnsafePager: true,
+    },
     config: [
       'filter.lfs.required=false',
       'filter.lfs.smudge=',
