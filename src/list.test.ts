@@ -72,6 +72,21 @@ describe('list command', () => {
       expect(options.agent).toEqual(['claude-code']);
       expect(options.global).toBe(true);
     });
+
+    it('should parse -c flag with category', () => {
+      const options = parseListOptions(['-c', 'testing']);
+      expect(options.category).toBe('testing');
+    });
+
+    it('should parse --category flag with space-separated value', () => {
+      const options = parseListOptions(['--category', 'pm']);
+      expect(options.category).toBe('pm');
+    });
+
+    it('should parse --category=value form', () => {
+      const options = parseListOptions(['--category=code']);
+      expect(options.category).toBe('code');
+    });
   });
 
   describe('CLI integration', () => {
@@ -327,6 +342,113 @@ description: A test skill
     });
   });
 
+  describe('category filter', () => {
+    function writeSkill(dir: string, name: string, category?: string): void {
+      const skillDir = join(dir, '.agents', 'skills', name);
+      mkdirSync(skillDir, { recursive: true });
+      const metadata = category ? `metadata:\n  category: ${category}\n` : '';
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---\nname: ${name}\ndescription: ${name} description\n${metadata}---\n# ${name}\n`
+      );
+    }
+
+    it('groups output by category when categories are present', () => {
+      writeSkill(testDir, 'alpha-skill', 'testing');
+      writeSkill(testDir, 'beta-skill', 'code');
+      writeSkill(testDir, 'gamma-skill', 'testing');
+
+      const result = runCli(['list'], testDir);
+      expect(result.exitCode).toBe(0);
+      // Both category headers should appear
+      expect(result.stdout).toContain('testing');
+      expect(result.stdout).toContain('code');
+      // Skills should appear under their category headers (code sorts before testing)
+      const codeIdx = result.stdout.indexOf('code');
+      const testingIdx = result.stdout.indexOf('testing');
+      expect(codeIdx).toBeGreaterThan(-1);
+      expect(testingIdx).toBeGreaterThan(codeIdx);
+    });
+
+    it('puts skills without a category under Uncategorized', () => {
+      writeSkill(testDir, 'tagged', 'testing');
+      writeSkill(testDir, 'untagged');
+
+      const result = runCli(['list'], testDir);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Uncategorized');
+      // Uncategorized should appear after categorized header
+      const testingIdx = result.stdout.indexOf('testing');
+      const uncatIdx = result.stdout.indexOf('Uncategorized');
+      expect(testingIdx).toBeGreaterThan(-1);
+      expect(uncatIdx).toBeGreaterThan(testingIdx);
+    });
+
+    it('filters by --category (only matching skills shown)', () => {
+      writeSkill(testDir, 'alpha-skill', 'testing');
+      writeSkill(testDir, 'beta-skill', 'code');
+
+      const result = runCli(['list', '--category', 'testing'], testDir);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('alpha-skill');
+      expect(result.stdout).not.toContain('beta-skill');
+    });
+
+    it('filters by -c alias', () => {
+      writeSkill(testDir, 'alpha-skill', 'testing');
+      writeSkill(testDir, 'beta-skill', 'code');
+
+      const result = runCli(['list', '-c', 'code'], testDir);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('beta-skill');
+      expect(result.stdout).not.toContain('alpha-skill');
+    });
+
+    it('category match is case-insensitive', () => {
+      writeSkill(testDir, 'alpha-skill', 'testing');
+      const result = runCli(['list', '--category', 'TESTING'], testDir);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('alpha-skill');
+    });
+
+    it('reports available categories when filter has no match', () => {
+      writeSkill(testDir, 'alpha-skill', 'testing');
+      writeSkill(testDir, 'beta-skill', 'code');
+
+      const result = runCli(['list', '--category', 'docs'], testDir);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('No project skills found in category "docs"');
+      expect(result.stdout).toContain('Available categories:');
+      expect(result.stdout).toContain('code');
+      expect(result.stdout).toContain('testing');
+    });
+
+    it('includes category in --json output', () => {
+      writeSkill(testDir, 'alpha-skill', 'testing');
+      writeSkill(testDir, 'untagged');
+
+      const result = runCli(['list', '--json'], testDir);
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      const alpha = parsed.find((s: any) => s.name === 'alpha-skill');
+      const untagged = parsed.find((s: any) => s.name === 'untagged');
+      expect(alpha.category).toBe('testing');
+      expect(untagged.category).toBeNull();
+    });
+
+    it('--json + --category filters and includes category', () => {
+      writeSkill(testDir, 'alpha-skill', 'testing');
+      writeSkill(testDir, 'beta-skill', 'code');
+
+      const result = runCli(['list', '--json', '--category', 'testing'], testDir);
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed.length).toBe(1);
+      expect(parsed[0].name).toBe('alpha-skill');
+      expect(parsed[0].category).toBe('testing');
+    });
+  });
+
   describe('help output', () => {
     it('should include list command in help', () => {
       const result = runCli(['--help']);
@@ -339,6 +461,7 @@ description: A test skill
       expect(result.stdout).toContain('List Options:');
       expect(result.stdout).toContain('-g, --global');
       expect(result.stdout).toContain('-a, --agent');
+      expect(result.stdout).toContain('-c, --category');
     });
 
     it('should include list examples in help', () => {
