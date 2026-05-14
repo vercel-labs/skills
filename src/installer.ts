@@ -9,6 +9,7 @@ import {
   readlink,
   writeFile,
   stat,
+  chmod,
   realpath,
 } from 'fs/promises';
 import { existsSync } from 'fs';
@@ -388,6 +389,8 @@ async function copyDirectory(src: string, dest: string): Promise<void> {
               dereference: true,
               recursive: true,
             });
+            const sourceStats = await stat(srcPath);
+            await chmod(destPath, sourceStats.mode & 0o777);
           } catch (err: unknown) {
             // Skip broken symlinks (e.g., pointing to absolute paths on another machine)
             // instead of aborting the entire install.
