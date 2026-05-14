@@ -115,11 +115,11 @@ Instructions.
       expect(existsSync(lockPath)).toBe(true);
 
       const lock = JSON.parse(readFileSync(lockPath, 'utf-8'));
-      expect(lock.version).toBe(1);
-      expect(lock.skills['lock-test-skill']).toBeDefined();
-      expect(lock.skills['lock-test-skill'].source).toBe('my-pkg');
-      expect(lock.skills['lock-test-skill'].sourceType).toBe('node_modules');
-      expect(lock.skills['lock-test-skill'].computedHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(lock.version).toBe(2);
+      expect(lock.skills['my-pkg::lock-test-skill']).toBeDefined();
+      expect(lock.skills['my-pkg::lock-test-skill'].source).toBe('my-pkg');
+      expect(lock.skills['my-pkg::lock-test-skill'].sourceType).toBe('node_modules');
+      expect(lock.skills['my-pkg::lock-test-skill'].computedHash).toMatch(/^[a-f0-9]{64}$/);
     });
 
     it('should not have timestamps in lock entries', () => {
@@ -139,7 +139,7 @@ description: No timestamps
       runCli(['experimental_sync', '-y', '-a', 'claude-code'], testDir);
 
       const lock = JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8'));
-      const entry = lock.skills['no-timestamp-skill'];
+      const entry = lock.skills['my-pkg::no-timestamp-skill'];
       expect(entry.installedAt).toBeUndefined();
       expect(entry.updatedAt).toBeUndefined();
     });
@@ -165,7 +165,11 @@ description: ${name} description
 
       const raw = readFileSync(join(testDir, 'skills-lock.json'), 'utf-8');
       const keys = Object.keys(JSON.parse(raw).skills);
-      expect(keys).toEqual(['alpha-skill', 'mid-skill', 'zebra-skill']);
+      expect(keys).toEqual([
+        'alpha-skill::alpha-skill',
+        'mid-skill::mid-skill',
+        'zebra-skill::zebra-skill',
+      ]);
     });
 
     it('should skip unchanged skills on second sync', () => {

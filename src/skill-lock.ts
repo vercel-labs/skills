@@ -6,7 +6,33 @@ import { execSync } from 'child_process';
 
 const AGENTS_DIR = '.agents';
 const LOCK_FILE = '.skill-lock.json';
-const CURRENT_VERSION = 3; // Bumped from 2 to 3 for folder hash support (GitHub tree SHA)
+const CURRENT_VERSION = 4; // Bumped from 3 to 4 for source-aware lock keys
+
+const LOCK_KEY_SEPARATOR = '::';
+
+export function makeLockKey(source: string, skillName: string): string {
+  return `${source}${LOCK_KEY_SEPARATOR}${skillName}`;
+}
+
+export function parseLockKey(key: string): { source: string; skillName: string } {
+  const sepIndex = key.lastIndexOf(LOCK_KEY_SEPARATOR);
+  if (sepIndex === -1) {
+    return { source: '', skillName: key };
+  }
+  return {
+    source: key.substring(0, sepIndex),
+    skillName: key.substring(sepIndex + LOCK_KEY_SEPARATOR.length),
+  };
+}
+
+export function findEntriesBySkillName(
+  lock: SkillLockFile,
+  skillName: string
+): Array<{ key: string; entry: SkillLockEntry }> {
+  return Object.entries(lock.skills)
+    .filter(([key]) => parseLockKey(key).skillName === skillName)
+    .map(([key, entry]) => ({ key, entry }));
+}
 
 /**
  * Represents a single installed skill entry in the lock file.
@@ -209,39 +235,53 @@ export async function addSkillToLock(
 ): Promise<void> {
   const lock = await readSkillLock();
   const now = new Date().toISOString();
-
-  const existingEntry = lock.skills[skillName];
-
-  lock.skills[skillName] = {
+  const key = makeLockKey(entry.source, skillName);
+  const existingEntry = lock.skills[key];
+  lock.skills[key] = {
     ...entry,
     installedAt: existingEntry?.installedAt ?? now,
     updatedAt: now,
   };
-
   await writeSkillLock(lock);
 }
 
 /**
- * Remove a skill from the lock file.
+ * Remove all lock entries matching a skill name (regardless of source).
  */
-export async function removeSkillFromLock(skillName: string): Promise<boolean> {
+export async function removeSkillFromLockByName(skillName: string): Promise<boolean> {
   const lock = await readSkillLock();
-
-  if (!(skillName in lock.skills)) {
-    return false;
+  const matches = findEntriesBySkillName(lock, skillName);
+  if (matches.length === 0) return false;
+  for (const { key } of matches) {
+    delete lock.skills[key];
   }
-
-  delete lock.skills[skillName];
   await writeSkillLock(lock);
   return true;
 }
 
 /**
+ * Get the first lock entry matching a skill name (regardless of source).
+ */
+export async function getSkillFromLockByName(skillName: string): Promise<SkillLockEntry | null> {
+  const lock = await readSkillLock();
+  const matches = findEntriesBySkillName(lock, skillName);
+  return matches.length > 0 ? matches[0]!.entry : null;
+}
+
+/**
+ * Remove a skill from the lock file.
+ * Delegates to removeSkillFromLockByName for backward compatibility.
+ */
+export async function removeSkillFromLock(skillName: string): Promise<boolean> {
+  return removeSkillFromLockByName(skillName);
+}
+
+/**
  * Get a skill entry from the lock file.
+ * Delegates to getSkillFromLockByName for backward compatibility.
  */
 export async function getSkillFromLock(skillName: string): Promise<SkillLockEntry | null> {
-  const lock = await readSkillLock();
-  return lock.skills[skillName] ?? null;
+  return getSkillFromLockByName(skillName);
 }
 
 /**
@@ -261,7 +301,8 @@ export async function getSkillsBySource(): Promise<
   const lock = await readSkillLock();
   const bySource = new Map<string, { skills: string[]; entry: SkillLockEntry }>();
 
-  for (const [skillName, entry] of Object.entries(lock.skills)) {
+  for (const [key, entry] of Object.entries(lock.skills)) {
+    const { skillName } = parseLockKey(key);
     const existing = bySource.get(entry.source);
     if (existing) {
       existing.skills.push(skillName);

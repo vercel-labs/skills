@@ -291,7 +291,7 @@ Describe when this skill should be used.
 
 const AGENTS_DIR = '.agents';
 const LOCK_FILE = '.skill-lock.json';
-const CURRENT_LOCK_VERSION = 3; // Bumped from 2 to 3 for folder hash support
+const CURRENT_LOCK_VERSION = 4; // Bumped from 3 to 4 for source-aware lock keys
 
 interface SkillLockEntry {
   source: string;

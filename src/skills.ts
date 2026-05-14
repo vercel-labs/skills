@@ -4,6 +4,7 @@ import { parseFrontmatter } from './frontmatter.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import type { Skill } from './types.ts';
 import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
+import { sanitizeName } from './installer.ts';
 
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
 
@@ -28,7 +29,7 @@ async function hasSkillMd(dir: string): Promise<boolean> {
 
 export async function parseSkillMd(
   skillMdPath: string,
-  options?: { includeInternal?: boolean }
+  options?: { includeInternal?: boolean; validateNameMatchesDir?: boolean }
 ): Promise<Skill | null> {
   try {
     const content = await readFile(skillMdPath, 'utf-8');
@@ -41,6 +42,15 @@ export async function parseSkillMd(
     // Ensure name and description are strings (YAML can parse numbers, booleans, etc.)
     if (typeof data.name !== 'string' || typeof data.description !== 'string') {
       return null;
+    }
+
+    // Validate that the skill name matches the containing directory name.
+    // This prevents namespace squatting where e.g. bird-co/SKILL.md claims name: bird.
+    if (options?.validateNameMatchesDir) {
+      const dirName = basename(dirname(skillMdPath));
+      if (sanitizeName(data.name) !== sanitizeName(dirName)) {
+        return null;
+      }
     }
 
     // Skip internal skills unless:
@@ -136,7 +146,9 @@ export async function discoverSkills(
     return skill;
   };
 
-  // If pointing directly at a skill, add it (and return early unless fullDepth is set)
+  // If pointing directly at a skill, add it (and return early unless fullDepth is set).
+  // Root-level SKILL.md is intentionally exempt from name-directory validation because
+  // the directory name is the repo/clone name, not the skill name.
   if (await hasSkillMd(searchPath)) {
     let skill = await parseSkillMd(join(searchPath, 'SKILL.md'), options);
     if (skill) {
@@ -194,7 +206,10 @@ export async function discoverSkills(
         if (entry.isDirectory()) {
           const skillDir = join(dir, entry.name);
           if (await hasSkillMd(skillDir)) {
-            let skill = await parseSkillMd(join(skillDir, 'SKILL.md'), options);
+            let skill = await parseSkillMd(join(skillDir, 'SKILL.md'), {
+              ...options,
+              validateNameMatchesDir: true,
+            });
             if (skill && !seenNames.has(skill.name)) {
               skill = enhanceSkill(skill);
               skills.push(skill);
@@ -213,7 +228,10 @@ export async function discoverSkills(
     const allSkillDirs = await findSkillDirs(searchPath);
 
     for (const skillDir of allSkillDirs) {
-      let skill = await parseSkillMd(join(skillDir, 'SKILL.md'), options);
+      let skill = await parseSkillMd(join(skillDir, 'SKILL.md'), {
+        ...options,
+        validateNameMatchesDir: true,
+      });
       if (skill && !seenNames.has(skill.name)) {
         skill = enhanceSkill(skill);
         skills.push(skill);

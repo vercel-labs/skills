@@ -56,6 +56,9 @@ import {
   dismissPrompt,
   getLastSelectedAgents,
   saveSelectedAgents,
+  findEntriesBySkillName,
+  readSkillLock as readSkillLockAsync,
+  writeSkillLock,
 } from './skill-lock.ts';
 import { addSkillToLocalLock, computeSkillFolderHash } from './local-lock.ts';
 import type { Skill, AgentType } from './types.ts';
@@ -1501,6 +1504,72 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
+    // Check for name collisions with skills from different sources (global installs only)
+    // Use the same source normalization as lock writes: SSH URLs are stored raw,
+    // HTTPS sources are normalized to owner/repo. This prevents false collisions
+    // when reinstalling the same repo via SSH.
+    const isSSH = parsed.url.startsWith('git@');
+    const normalizedSource = getOwnerRepo(parsed);
+    const currentSource = isSSH ? parsed.url : normalizedSource || parsed.url;
+    const skillsToSkip = new Set<string>();
+
+    if (installGlobally) {
+      const lock = await readSkillLockAsync();
+
+      for (const skill of selectedSkills) {
+        const skillName = getSkillDisplayName(skill);
+        const matches = findEntriesBySkillName(lock, skillName);
+        const conflicting = matches.filter((m) => m.entry.source !== currentSource);
+
+        if (conflicting.length > 0) {
+          const existingSource = conflicting[0]!.entry.source;
+
+          if (options.yes) {
+            p.log.warn(
+              `Skill "${skillName}" already installed from ${existingSource}. Skipping (use interactive mode to overwrite).`
+            );
+            skillsToSkip.add(skill.name);
+            continue;
+          }
+
+          const action = await p.select({
+            message: `Skill "${skillName}" is already installed from ${existingSource}. What would you like to do?`,
+            options: [
+              { value: 'skip', label: 'Skip this skill' },
+              { value: 'overwrite', label: `Overwrite with version from ${currentSource}` },
+              { value: 'cancel', label: 'Cancel entire installation' },
+            ],
+          });
+
+          if (p.isCancel(action) || action === 'cancel') {
+            p.cancel('Installation cancelled');
+            process.exit(0);
+          }
+
+          if (action === 'skip') {
+            skillsToSkip.add(skill.name);
+            continue;
+          }
+
+          // action === 'overwrite': remove old lock entries
+          for (const match of conflicting) {
+            delete lock.skills[match.key];
+          }
+          await writeSkillLock(lock);
+        }
+      }
+    }
+
+    // Filter out skipped skills
+    if (skillsToSkip.size > 0) {
+      selectedSkills = selectedSkills.filter((s) => !skillsToSkip.has(s.name));
+      if (selectedSkills.length === 0) {
+        p.log.info('No skills to install');
+        await cleanup(tempDir);
+        return;
+      }
+    }
+
     spinner.start('Installing skills...');
 
     const results: {
@@ -1571,13 +1640,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
-    // Normalize source to owner/repo format for telemetry
-    const normalizedSource = getOwnerRepo(parsed);
-
     // Preserve SSH URLs in lock files instead of normalizing to owner/repo shorthand.
     // When normalizedSource is used, parseSource() later resolves it to HTTPS,
     // breaking restore for private repos that require SSH authentication.
-    const isSSH = parsed.url.startsWith('git@');
     const lockSource = isSSH ? parsed.url : normalizedSource;
 
     // Only track if we have a valid remote source and it's not a private repo.
