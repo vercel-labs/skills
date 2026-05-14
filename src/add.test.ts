@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { existsSync, rmSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from './test-utils.ts';
@@ -88,6 +88,51 @@ Instructions here.
     expect(result.stdout).toContain('my-skill');
     expect(result.stdout).toContain('Done!');
     expect(result.exitCode).toBe(0);
+  });
+
+  it('should include peer skills in the project lock file', () => {
+    const routerDir = join(testDir, 'skills', 'router');
+    const authDir = join(testDir, 'skills', 'auth');
+    mkdirSync(routerDir, { recursive: true });
+    mkdirSync(authDir, { recursive: true });
+
+    writeFileSync(
+      join(routerDir, 'SKILL.md'),
+      `---
+name: router
+description: Routes to peer skills
+---
+# Router
+`
+    );
+    writeFileSync(
+      join(routerDir, 'peers.yaml'),
+      `peers:
+  - name: auth
+`
+    );
+    writeFileSync(
+      join(authDir, 'SKILL.md'),
+      `---
+name: auth
+description: Auth peer
+---
+# Auth
+`
+    );
+
+    const targetDir = join(testDir, 'project');
+    mkdirSync(targetDir, { recursive: true });
+
+    const result = runCli(
+      ['add', testDir, '--skill', 'router', '-y', '--agent', 'cline'],
+      targetDir
+    );
+    const lock = JSON.parse(readFileSync(join(targetDir, 'skills-lock.json'), 'utf-8'));
+
+    expect(result.stdout).toContain('Including 1 peer skill(s)');
+    expect(result.exitCode).toBe(0);
+    expect(Object.keys(lock.skills).sort()).toEqual(['auth', 'router']);
   });
 
   it('should filter skills by name with --skill flag', () => {

@@ -23,7 +23,12 @@ async function isSourcePrivate(source: string): Promise<boolean | null> {
   return isRepoPrivate(ownerRepo.owner, ownerRepo.repo);
 }
 import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
-import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
+import {
+  discoverSkills,
+  getSkillDisplayName,
+  filterSkills,
+  expandSkillsWithPeers,
+} from './skills.ts';
 import {
   installSkillForAgent,
   installBlobSkillForAgent,
@@ -1237,6 +1242,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
 
       selectedSkills = selected as Skill[];
+    }
+
+    const selectedSkillCount = selectedSkills.length;
+    selectedSkills = expandSkillsWithPeers(selectedSkills, skills);
+    if (selectedSkills.length > selectedSkillCount) {
+      p.log.info(`Including ${selectedSkills.length - selectedSkillCount} peer skill(s)`);
     }
 
     // Kick off security audit fetch early (non-blocking) so it runs

@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { discoverSkills } from '../src/skills.ts';
+import { discoverSkills, expandSkillsWithPeers } from '../src/skills.ts';
 
 describe('discoverSkills with fullDepth option', () => {
   let testDir: string;
@@ -200,5 +200,56 @@ description: Nested skill with same name
     // Should only have one skill (deduplication by name)
     expect(skills).toHaveLength(1);
     expect(skills[0].name).toBe('my-skill');
+  });
+
+  it('should parse peer manifests and expand selected peer skills', async () => {
+    mkdirSync(join(testDir, 'skills', 'router'), { recursive: true });
+    writeFileSync(
+      join(testDir, 'skills', 'router', 'SKILL.md'),
+      `---
+name: router
+description: Routes to peer skills
+---
+# Router
+`
+    );
+    writeFileSync(
+      join(testDir, 'skills', 'router', 'peers.yaml'),
+      `peers:
+  - name: auth
+  - name: send-message
+  - name: missing-peer
+`
+    );
+
+    mkdirSync(join(testDir, 'skills', 'auth'), { recursive: true });
+    writeFileSync(
+      join(testDir, 'skills', 'auth', 'SKILL.md'),
+      `---
+name: auth
+description: Auth peer
+---
+`
+    );
+
+    mkdirSync(join(testDir, 'skills', 'send-message'), { recursive: true });
+    writeFileSync(
+      join(testDir, 'skills', 'send-message', 'SKILL.md'),
+      `---
+name: send-message
+description: Send peer
+---
+`
+    );
+
+    const skills = await discoverSkills(testDir);
+    const router = skills.find((skill) => skill.name === 'router');
+
+    expect(router?.peerNames).toEqual(['auth', 'send-message', 'missing-peer']);
+    expect(expandSkillsWithPeers([router!], skills).map((skill) => skill.name)).toEqual([
+      'router',
+      'auth',
+      'send-message',
+    ]);
   });
 });

@@ -1,5 +1,6 @@
 import { readdir, readFile, stat } from 'fs/promises';
 import { join, basename, dirname, resolve, normalize, sep } from 'path';
+import { parse } from 'yaml';
 import { parseFrontmatter } from './frontmatter.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import type { Skill } from './types.ts';
@@ -26,6 +27,21 @@ async function hasSkillMd(dir: string): Promise<boolean> {
   }
 }
 
+async function readPeerNames(skillDir: string): Promise<string[]> {
+  try {
+    const content = await readFile(join(skillDir, 'peers.yaml'), 'utf-8');
+    const parsed = parse(content) as { peers?: Array<{ name?: unknown }> } | null;
+    const peerNames = parsed?.peers
+      ?.map((peer) => peer.name)
+      .filter((name): name is string => typeof name === 'string' && name.trim().length > 0)
+      .map((name) => sanitizeMetadata(name));
+
+    return [...new Set(peerNames ?? [])];
+  } catch {
+    return [];
+  }
+}
+
 export async function parseSkillMd(
   skillMdPath: string,
   options?: { includeInternal?: boolean }
@@ -46,7 +62,11 @@ export async function parseSkillMd(
     // Skip internal skills unless:
     // 1. INSTALL_INTERNAL_SKILLS=1 is set, OR
     // 2. includeInternal option is true (e.g., when user explicitly requests a skill)
-    const isInternal = data.metadata?.internal === true;
+    const metadata =
+      data.metadata && typeof data.metadata === 'object'
+        ? (data.metadata as Record<string, unknown>)
+        : undefined;
+    const isInternal = metadata?.internal === true;
     if (isInternal && !shouldInstallInternalSkills() && !options?.includeInternal) {
       return null;
     }
@@ -56,7 +76,8 @@ export async function parseSkillMd(
       description: sanitizeMetadata(data.description),
       path: dirname(skillMdPath),
       rawContent: content,
-      metadata: data.metadata,
+      peerNames: await readPeerNames(dirname(skillMdPath)),
+      metadata,
     };
   } catch {
     return null;
@@ -242,4 +263,35 @@ export function filterSkills(skills: Skill[], inputNames: string[]): Skill[] {
 
     return normalizedInputs.some((input) => input === name || input === displayName);
   });
+}
+
+/**
+ * Include any local peer skills declared in peers.yaml for selected skills.
+ * Peers are only expanded when the named peer exists in the discovered source.
+ */
+export function expandSkillsWithPeers(selectedSkills: Skill[], allSkills: Skill[]): Skill[] {
+  const skillsByName = new Map(allSkills.map((skill) => [skill.name.toLowerCase(), skill]));
+  const expanded: Skill[] = [];
+  const seenNames = new Set<string>();
+
+  const addSkill = (skill: Skill) => {
+    const normalizedName = skill.name.toLowerCase();
+    if (seenNames.has(normalizedName)) return;
+
+    seenNames.add(normalizedName);
+    expanded.push(skill);
+
+    for (const peerName of skill.peerNames ?? []) {
+      const peer = skillsByName.get(peerName.toLowerCase());
+      if (peer) {
+        addSkill(peer);
+      }
+    }
+  };
+
+  for (const skill of selectedSkills) {
+    addSkill(skill);
+  }
+
+  return expanded;
 }
