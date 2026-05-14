@@ -12,6 +12,35 @@ async function makeSkillSource(root: string, name: string): Promise<string> {
 }
 
 describe('installer copy mode', () => {
+  it('does not delete a local skill already at the universal agent path', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-copy-'));
+    const projectDir = join(root, 'project');
+    const skillName = 'canonical-copy-skill';
+    const skillDir = join(projectDir, '.agents/skills', skillName);
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(
+      join(skillDir, 'SKILL.md'),
+      `---\nname: ${skillName}\ndescription: test\n---\n`
+    );
+    await writeFile(join(skillDir, 'README.md'), '# keep me\n');
+
+    try {
+      const result = await installSkillForAgent(
+        { name: skillName, description: 'test', path: skillDir },
+        'cursor',
+        { cwd: projectDir, mode: 'copy', global: false }
+      );
+
+      expect(result.success).toBe(true);
+      await expect(readFile(join(skillDir, 'SKILL.md'), 'utf-8')).resolves.toContain(
+        `name: ${skillName}`
+      );
+      await expect(readFile(join(skillDir, 'README.md'), 'utf-8')).resolves.toBe('# keep me\n');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('preserves dotfiles while keeping explicit exclusions', async () => {
     const root = await mkdtemp(join(tmpdir(), 'add-skill-copy-'));
     const projectDir = join(root, 'project');

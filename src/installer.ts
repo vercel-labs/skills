@@ -153,6 +153,40 @@ async function resolveParentSymlinks(path: string): Promise<string> {
   }
 }
 
+async function isSameResolvedPath(a: string, b: string): Promise<boolean> {
+  const resolvedA = resolve(a);
+  const resolvedB = resolve(b);
+
+  if (resolvedA === resolvedB) {
+    return true;
+  }
+
+  const [realA, realB] = await Promise.all([
+    realpath(resolvedA).catch(() => resolvedA),
+    realpath(resolvedB).catch(() => resolvedB),
+  ]);
+
+  if (realA === realB) {
+    return true;
+  }
+
+  const [parentResolvedA, parentResolvedB] = await Promise.all([
+    resolveParentSymlinks(resolvedA),
+    resolveParentSymlinks(resolvedB),
+  ]);
+
+  return parentResolvedA === parentResolvedB;
+}
+
+async function copyLocalSkillDirectory(src: string, dest: string): Promise<void> {
+  if (await isSameResolvedPath(src, dest)) {
+    return;
+  }
+
+  await cleanAndCreateDirectory(dest);
+  await copyDirectory(src, dest);
+}
+
 /**
  * Creates a symlink, handling cross-platform differences
  * Returns true if symlink was created, false if fallback to copy is needed
@@ -279,8 +313,7 @@ export async function installSkillForAgent(
   try {
     // For copy mode, skip canonical directory and copy directly to agent location
     if (installMode === 'copy') {
-      await cleanAndCreateDirectory(agentDir);
-      await copyDirectory(skill.path, agentDir);
+      await copyLocalSkillDirectory(skill.path, agentDir);
 
       return {
         success: true,
@@ -290,8 +323,7 @@ export async function installSkillForAgent(
     }
 
     // Symlink mode: copy to canonical location and symlink to agent location
-    await cleanAndCreateDirectory(canonicalDir);
-    await copyDirectory(skill.path, canonicalDir);
+    await copyLocalSkillDirectory(skill.path, canonicalDir);
 
     // For universal agents with global install, the skill is already in the canonical
     // ~/.agents/skills directory. Skip creating a symlink to the agent-specific global dir
@@ -326,8 +358,7 @@ export async function installSkillForAgent(
 
     if (!symlinkCreated) {
       // Symlink failed, fall back to copy
-      await cleanAndCreateDirectory(agentDir);
-      await copyDirectory(skill.path, agentDir);
+      await copyLocalSkillDirectory(skill.path, agentDir);
 
       return {
         success: true,
