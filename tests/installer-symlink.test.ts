@@ -147,6 +147,38 @@ describe('installer symlink regression', () => {
     }
   });
 
+  it('creates project-local Claude Code symlinks when .claude does not exist', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
+    const projectDir = join(root, 'project');
+    await mkdir(projectDir, { recursive: true });
+
+    const skillName = 'fresh-claude-project-skill';
+    const skillDir = await makeSkillSource(root, skillName);
+
+    try {
+      const result = await installSkillForAgent(
+        { name: skillName, description: 'test', path: skillDir },
+        'claude-code',
+        { cwd: projectDir, mode: 'symlink', global: false }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.skipped).toBeUndefined();
+      expect(result.symlinkFailed).toBeUndefined();
+
+      const canonicalSkillDir = join(projectDir, '.agents/skills', skillName);
+      const claudeSkillDir = join(projectDir, '.claude/skills', skillName);
+
+      expect((await lstat(canonicalSkillDir)).isDirectory()).toBe(true);
+      expect((await lstat(claudeSkillDir)).isSymbolicLink()).toBe(true);
+
+      const contents = await readFile(join(claudeSkillDir, 'SKILL.md'), 'utf-8');
+      expect(contents).toContain(`name: ${skillName}`);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   // Regression test for #294: universal-only global install should not create agent-specific symlinks
   it('does not create agent-specific symlinks for universal agents on global install', async () => {
     const root = await mkdtemp(join(tmpdir(), 'add-skill-'));

@@ -311,7 +311,7 @@ export async function installSkillForAgent(
     // actually used in this project. The skill is already available in .agents/skills/.
     if (!isGlobal && !isUniversalAgent(agentType)) {
       const agentRootDir = join(cwd, agents[agentType].skillsDir.split('/')[0]!);
-      if (!existsSync(agentRootDir)) {
+      if (!existsSync(agentRootDir) && agentType !== 'claude-code') {
         return {
           success: true,
           path: canonicalDir,
