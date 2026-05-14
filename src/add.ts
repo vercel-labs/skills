@@ -442,16 +442,31 @@ async function handleWellKnownSkills(
   options: AddOptions,
   spinner: ReturnType<typeof p.spinner>
 ): Promise<void> {
-  spinner.start('Discovering skills from well-known endpoint...');
+  // When specific skills are requested (not wildcard, not --list),
+  // use selective fetch to only download the requested skills.
+  // This avoids unnecessary network requests for all other skills.
+  const useSelectiveFetch =
+    options.skill && options.skill.length > 0 && !options.skill.includes('*') && !options.list;
 
-  // Fetch all skills from the well-known endpoint
-  const skills = await wellKnownProvider.fetchAllSkills(url);
+  let skills: WellKnownSkill[];
+
+  if (useSelectiveFetch) {
+    spinner.start(
+      `Fetching ${options.skill!.length} skill${options.skill!.length > 1 ? 's' : ''} from well-known endpoint...`
+    );
+    skills = await wellKnownProvider.fetchSkillsByNames(url, options.skill!);
+  } else {
+    spinner.start('Discovering skills from well-known endpoint...');
+    skills = await wellKnownProvider.fetchAllSkills(url);
+  }
 
   if (skills.length === 0) {
     spinner.stop(pc.red('No skills found'));
     p.outro(
       pc.red(
-        'No skills found at this URL. Make sure the server has a /.well-known/agent-skills/index.json or /.well-known/skills/index.json file.'
+        useSelectiveFetch
+          ? `No matching skills found for: ${options.skill!.join(', ')}. Verify the skill names exist in the source index.`
+          : 'No skills found at this URL. Make sure the server has a /.well-known/agent-skills/index.json or /.well-known/skills/index.json file.'
       )
     );
     process.exit(1);
@@ -483,10 +498,16 @@ async function handleWellKnownSkills(
     process.exit(0);
   }
 
-  // Filter skills if --skill option is provided
+  // Filter/select skills based on --skill option
   let selectedSkills: WellKnownSkill[];
 
-  if (options.skill?.includes('*')) {
+  if (useSelectiveFetch) {
+    // Skills were already selectively fetched — use them directly
+    selectedSkills = skills;
+    p.log.info(
+      `Selected ${skills.length} skill${skills.length !== 1 ? 's' : ''}: ${skills.map((s) => pc.cyan(s.installName)).join(', ')}`
+    );
+  } else if (options.skill?.includes('*')) {
     // --skill '*' selects all skills
     selectedSkills = skills;
     p.log.info(`Installing all ${skills.length} skills`);
