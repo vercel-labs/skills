@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { runCliOutput, stripLogo, hasLogo } from './test-utils.ts';
+import { runCli, runCliOutput, stripLogo, hasLogo } from './test-utils.ts';
 
 describe('skills CLI', () => {
   describe('--help', () => {
@@ -81,6 +81,14 @@ describe('skills CLI', () => {
       // Note: update command makes GitHub API calls, so we just verify initial output
       const output = runCliOutput(['update']);
       expect(hasLogo(output)).toBe(false);
+    }, 60000);
+  });
+
+  describe('update', () => {
+    it('should not emit DEP0190 deprecation warning', () => {
+      const result = runCli(['update']);
+      expect(result.stderr).not.toContain('DEP0190');
+      expect(result.stderr).not.toContain('DeprecationWarning');
     }, 60000);
   });
 });

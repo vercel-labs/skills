@@ -692,10 +692,10 @@ async function updateGlobalSkills(
       );
       continue;
     }
-    const result = spawnSync(process.execPath, [cliEntry, 'add', installUrl, '-g', '-y'], {
+    const spawnArgs = [cliEntry, 'add', installUrl, '-y', '-g'];
+    const result = spawnSync(process.execPath, spawnArgs, {
       stdio: ['inherit', 'pipe', 'pipe'],
       encoding: 'utf-8',
-      shell: process.platform === 'win32',
     });
 
     if (result.status === 0) {

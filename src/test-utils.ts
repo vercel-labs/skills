@@ -1,4 +1,4 @@
-import { execSync } from 'child_process';
+import { execSync, spawnSync } from 'child_process';
 import { join } from 'path';
 import { stripTerminalEscapes } from './sanitize.ts';
 
@@ -27,22 +27,18 @@ export function runCli(
   env?: Record<string, string>,
   timeout?: number
 ): { stdout: string; stderr: string; exitCode: number } {
-  try {
-    const output = execSync(`node "${CLI_PATH}" ${args.join(' ')}`, {
-      encoding: 'utf-8',
-      cwd,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: env ? { ...process.env, ...env } : undefined,
-      timeout: timeout ?? 30000,
-    });
-    return { stdout: stripAnsi(output), stderr: '', exitCode: 0 };
-  } catch (error: any) {
-    return {
-      stdout: stripAnsi(error.stdout || ''),
-      stderr: stripAnsi(error.stderr || ''),
-      exitCode: error.status || 1,
-    };
-  }
+  const result = spawnSync('node', [CLI_PATH, ...args], {
+    encoding: 'utf-8',
+    cwd,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: env ? { ...process.env, ...env } : undefined,
+    timeout: timeout ?? 30000,
+  });
+  return {
+    stdout: stripAnsi(result.stdout || ''),
+    stderr: stripAnsi(result.stderr || ''),
+    exitCode: result.status ?? 1,
+  };
 }
 
 export function runCliOutput(args: string[], cwd?: string): string {
