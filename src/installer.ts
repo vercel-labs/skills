@@ -227,7 +227,12 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
 export async function installSkillForAgent(
   skill: Skill,
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
+  options: {
+    global?: boolean;
+    cwd?: string;
+    mode?: InstallMode;
+    createMissingAgentDirs?: boolean;
+  } = {}
 ): Promise<InstallResult> {
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
@@ -309,7 +314,7 @@ export async function installSkillForAgent(
     // whose config directory doesn't already exist in the project. This prevents
     // creating directories like .windsurf/, .kiro/, etc. when those agents aren't
     // actually used in this project. The skill is already available in .agents/skills/.
-    if (!isGlobal && !isUniversalAgent(agentType)) {
+    if (!isGlobal && !isUniversalAgent(agentType) && !options.createMissingAgentDirs) {
       const agentRootDir = join(cwd, agents[agentType].skillsDir.split('/')[0]!);
       if (!existsSync(agentRootDir)) {
         return {
@@ -738,7 +743,12 @@ export async function installWellKnownSkillForAgent(
 export async function installBlobSkillForAgent(
   skill: { installName: string; files: Array<{ path: string; contents: string }> },
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
+  options: {
+    global?: boolean;
+    cwd?: string;
+    mode?: InstallMode;
+    createMissingAgentDirs?: boolean;
+  } = {}
 ): Promise<InstallResult> {
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
@@ -814,7 +824,7 @@ export async function installBlobSkillForAgent(
 
     // For project-level installs, skip creating symlinks for non-universal agents
     // whose config directory doesn't already exist in the project.
-    if (!isGlobal && !isUniversalAgent(agentType)) {
+    if (!isGlobal && !isUniversalAgent(agentType) && !options.createMissingAgentDirs) {
       const agentRootDir = join(cwd, agents[agentType].skillsDir.split('/')[0]!);
       if (!existsSync(agentRootDir)) {
         return {

@@ -1503,6 +1503,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     spinner.start('Installing skills...');
 
+    const createMissingAgentDirs = Boolean(options.agent?.length) || !options.yes;
+
     const results: {
       skill: string;
       agent: string;
@@ -1524,13 +1526,14 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           result = await installBlobSkillForAgent(
             { installName: blobSkill.name, files: blobSkill.files },
             agent,
-            { global: installGlobally, mode: installMode }
+            { global: installGlobally, mode: installMode, createMissingAgentDirs }
           );
         } else {
           // Disk-based install: copy from cloned/local directory
           result = await installSkillForAgent(skill, agent, {
             global: installGlobally,
             mode: installMode,
+            createMissingAgentDirs,
           });
         }
         results.push({

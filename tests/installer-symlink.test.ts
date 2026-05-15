@@ -16,7 +16,7 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { installSkillForAgent } from '../src/installer.ts';
+import { installBlobSkillForAgent, installSkillForAgent } from '../src/installer.ts';
 
 async function makeSkillSource(root: string, name: string): Promise<string> {
   const dir = join(root, 'source-skill');
@@ -142,6 +142,102 @@ describe('installer symlink regression', () => {
           expect(entryStats.isDirectory()).toBe(true);
         }
       }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('skips missing project agent dirs unless explicitly requested', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
+    const projectDir = join(root, 'project');
+    await mkdir(projectDir, { recursive: true });
+
+    const skillName = 'junie-skip-skill';
+    const skillDir = await makeSkillSource(root, skillName);
+
+    try {
+      const result = await installSkillForAgent(
+        { name: skillName, description: 'test', path: skillDir },
+        'junie',
+        { cwd: projectDir, mode: 'symlink', global: false }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.skipped).toBe(true);
+
+      await expect(lstat(join(projectDir, '.junie'))).rejects.toThrow();
+      await expect(lstat(join(projectDir, '.agents/skills', skillName))).resolves.toBeDefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('creates a missing project agent dir when the agent was explicitly selected', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
+    const projectDir = join(root, 'project');
+    await mkdir(projectDir, { recursive: true });
+
+    const skillName = 'junie-explicit-skill';
+    const skillDir = await makeSkillSource(root, skillName);
+
+    try {
+      const result = await installSkillForAgent(
+        { name: skillName, description: 'test', path: skillDir },
+        'junie',
+        {
+          cwd: projectDir,
+          mode: 'symlink',
+          global: false,
+          createMissingAgentDirs: true,
+        }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.skipped).toBeUndefined();
+
+      const junieSkillDir = join(projectDir, '.junie/skills', skillName);
+      const stats = await lstat(junieSkillDir);
+      expect(stats.isSymbolicLink()).toBe(true);
+      await expect(readFile(join(junieSkillDir, 'SKILL.md'), 'utf-8')).resolves.toContain(
+        `name: ${skillName}`
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('creates missing project agent dirs for explicitly selected blob installs', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
+    const projectDir = join(root, 'project');
+    await mkdir(projectDir, { recursive: true });
+
+    const skillName = 'junie-blob-skill';
+
+    try {
+      const result = await installBlobSkillForAgent(
+        {
+          installName: skillName,
+          files: [
+            {
+              path: 'SKILL.md',
+              contents: `---\nname: ${skillName}\ndescription: test\n---\n`,
+            },
+          ],
+        },
+        'junie',
+        {
+          cwd: projectDir,
+          mode: 'symlink',
+          global: false,
+          createMissingAgentDirs: true,
+        }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.skipped).toBeUndefined();
+      await expect(
+        readFile(join(projectDir, '.junie/skills', skillName, 'SKILL.md'), 'utf-8')
+      ).resolves.toContain(`name: ${skillName}`);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
