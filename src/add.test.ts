@@ -122,6 +122,54 @@ description: Second skill
     expect(result.stdout).toContain('skill-one');
   });
 
+  it('should discover deeper nested skills when --skill names one explicitly', () => {
+    const shallowSkillDir = join(testDir, 'skills', 'top-level-skill');
+    const deepSkillDir = join(
+      testDir,
+      'skills',
+      'specialized-skills',
+      'migration-and-modernization-skills',
+      'aws-transform'
+    );
+    mkdirSync(shallowSkillDir, { recursive: true });
+    mkdirSync(deepSkillDir, { recursive: true });
+
+    writeFileSync(
+      join(shallowSkillDir, 'SKILL.md'),
+      `---
+name: top-level-skill
+description: Top level skill
+---
+# Top Level Skill
+`
+    );
+
+    writeFileSync(
+      join(deepSkillDir, 'SKILL.md'),
+      `---
+name: aws-transform
+description: AWS Transform skill
+---
+# AWS Transform
+`
+    );
+
+    const targetDir = join(testDir, 'project');
+    mkdirSync(targetDir, { recursive: true });
+
+    const result = runCli(
+      ['add', testDir, '--skill', 'aws-transform', '-y', '--agent', 'claude-code'],
+      targetDir
+    );
+
+    expect(result.stdout).toContain('Selected 1 skill: aws-transform');
+    expect(result.stdout).toContain('Done!');
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(join(targetDir, '.claude', 'skills', 'aws-transform', 'SKILL.md'))).toBe(
+      true
+    );
+  });
+
   it('should show error for invalid agent name', () => {
     // Create a test skill
     const skillDir = join(testDir, 'test-skill');

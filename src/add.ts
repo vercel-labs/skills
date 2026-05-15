@@ -1016,6 +1016,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Include internal skills when a specific skill is explicitly requested
     // (via --skill or @skill syntax)
     const includeInternal = !!(options.skill && options.skill.length > 0);
+    const hasSpecificSkillFilter = !!options.skill?.some((skill) => skill !== '*');
+    const discoveryFullDepth = options.fullDepth || hasSpecificSkillFilter;
 
     let skills: Skill[];
     let blobResult: BlobInstallResult | null = null;
@@ -1033,9 +1035,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       spinner.start('Discovering skills...');
       skills = await discoverSkills(parsed.localPath!, parsed.subpath, {
         includeInternal,
-        fullDepth: options.fullDepth,
+        fullDepth: discoveryFullDepth,
       });
-    } else if (parsed.type === 'github' && !options.fullDepth) {
+    } else if (parsed.type === 'github' && !discoveryFullDepth) {
       // Try blob-based fast install for GitHub sources
       // Only enabled for allowlisted orgs; skip for --full-depth
       const BLOB_ALLOWED_OWNERS = ['vercel', 'vercel-labs', 'heygen-com'];
@@ -1067,7 +1069,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         spinner.start('Discovering skills...');
         skills = await discoverSkills(tempDir, parsed.subpath, {
           includeInternal,
-          fullDepth: options.fullDepth,
+          fullDepth: discoveryFullDepth,
         });
       }
     } else {
@@ -1079,7 +1081,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       spinner.start('Discovering skills...');
       skills = await discoverSkills(tempDir, parsed.subpath, {
         includeInternal,
-        fullDepth: options.fullDepth,
+        fullDepth: discoveryFullDepth,
       });
     }
 
