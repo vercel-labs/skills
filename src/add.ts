@@ -246,6 +246,16 @@ function ensureUniversalAgents(targetAgents: AgentType[]): AgentType[] {
   return result;
 }
 
+export function formatDetectedAgentsMessage(installedAgents: AgentType[]): string | undefined {
+  if (installedAgents.length <= 1) {
+    return undefined;
+  }
+
+  const totalAgents = Object.keys(agents).length;
+  const detectedNames = installedAgents.map((agent) => agents[agent].displayName).join(', ');
+  return `Detected ${installedAgents.length} of ${totalAgents} supported platforms: ${detectedNames}`;
+}
+
 /**
  * Builds result lines from installation results, splitting by universal vs symlinked
  */
@@ -557,8 +567,7 @@ async function handleWellKnownSkills(
   } else {
     spinner.start('Loading agents...');
     const installedAgents = await detectInstalledAgents();
-    const totalAgents = Object.keys(agents).length;
-    spinner.stop(`${totalAgents} agents`);
+    spinner.stop(formatDetectedAgentsMessage(installedAgents));
 
     if (installedAgents.length === 0) {
       if (options.yes) {
@@ -1270,8 +1279,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     } else {
       spinner.start('Loading agents...');
       const installedAgents = await detectInstalledAgents();
-      const totalAgents = Object.keys(agents).length;
-      spinner.stop(`${totalAgents} agents`);
+      spinner.stop(formatDetectedAgentsMessage(installedAgents));
 
       if (installedAgents.length === 0) {
         if (options.yes) {

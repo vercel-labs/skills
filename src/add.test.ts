@@ -4,7 +4,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from './test-utils.ts';
 import { shouldInstallInternalSkills } from './skills.ts';
-import { parseAddOptions } from './add.ts';
+import { formatDetectedAgentsMessage, parseAddOptions } from './add.ts';
 
 describe('add command', () => {
   let testDir: string;
@@ -388,6 +388,26 @@ describe('parseAddOptions', () => {
     expect(result.options.fullDepth).toBe(true);
     expect(result.options.list).toBe(true);
     expect(result.options.global).toBe(true);
+  });
+});
+
+describe('formatDetectedAgentsMessage', () => {
+  it('hides the platform count when no agents are detected', () => {
+    expect(formatDetectedAgentsMessage([])).toBeUndefined();
+  });
+
+  it('hides the platform count when a single agent is detected', () => {
+    expect(formatDetectedAgentsMessage(['claude-code'])).toBeUndefined();
+  });
+
+  it('shows detected platform names for multiple detected agents', () => {
+    const message = formatDetectedAgentsMessage(['claude-code', 'github-copilot']);
+
+    expect(message).toContain('Detected 2 of');
+    expect(message).toContain('supported platforms');
+    expect(message).toContain('Claude Code');
+    expect(message).toContain('GitHub Copilot');
+    expect(message).not.toMatch(/^\d+ agents$/);
   });
 });
 
