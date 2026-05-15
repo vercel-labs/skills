@@ -4,6 +4,7 @@ import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
 import { isRepoPrivate } from './source-parser.ts';
 import { isRunningInAgent } from './detect-agent.ts';
+import { envConfig, installCmd, findCmd } from './env-config.ts';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -12,9 +13,6 @@ const TEXT = '\x1b[38;5;145m';
 const CYAN = '\x1b[36m';
 const MAGENTA = '\x1b[35m';
 const YELLOW = '\x1b[33m';
-
-// API endpoint for skills search
-const SEARCH_API_BASE = process.env.SKILLS_API_URL || 'https://skills.sh';
 
 function formatInstalls(count: number): string {
   if (!count || count <= 0) return '';
@@ -33,7 +31,7 @@ export interface SearchSkill {
 // Search via API
 export async function searchSkillsAPI(query: string): Promise<SearchSkill[]> {
   try {
-    const url = `${SEARCH_API_BASE}/api/search?q=${encodeURIComponent(query)}&limit=10`;
+    const url = `${envConfig.apiBase}/api/search?q=${encodeURIComponent(query)}&limit=10`;
     const res = await fetch(url);
 
     if (!res.ok) return [];
@@ -271,9 +269,11 @@ async function isRepoPublic(owner: string, repo: string): Promise<boolean> {
 export async function runFind(args: string[]): Promise<void> {
   const query = args.join(' ');
   const isNonInteractive = !process.stdin.isTTY;
+  const cmd = installCmd();
+  const find = findCmd();
   const agentTip = `${DIM}Tip: if running in a coding agent, follow these steps:${RESET}
-${DIM}  1) npx skills find [query]${RESET}
-${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
+${DIM}  1) ${find} [query]${RESET}
+${DIM}  2) ${cmd} <owner/repo@skill>${RESET}`;
 
   // Non-interactive mode: just print results and exit
   if (query) {
@@ -291,7 +291,7 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
       return;
     }
 
-    console.log(`${DIM}Install with${RESET} npx skills add <owner/repo@skill>`);
+    console.log(`${DIM}Install with${RESET} ${cmd} <owner/repo@skill>`);
     console.log();
 
     for (const skill of results.slice(0, 6)) {
@@ -300,7 +300,7 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
       console.log(
         `${TEXT}${pkg}@${skill.name}${RESET}${installs ? ` ${CYAN}${installs}${RESET}` : ''}`
       );
-      console.log(`${DIM}└ https://skills.sh/${skill.slug}${RESET}`);
+      console.log(`${DIM}└ ${envConfig.apiBase}/${skill.slug}${RESET}`);
       console.log();
     }
     return;
@@ -310,7 +310,7 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
   if (isNonInteractive || (await isRunningInAgent())) {
     console.log(agentTip);
     console.log();
-    console.log(`${DIM}Usage: npx skills find <query>${RESET}`);
+    console.log(`${DIM}Usage: ${find} <query>${RESET}`);
     return;
   }
 
@@ -347,10 +347,10 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
   const info = getOwnerRepoFromString(pkg);
   if (info && (await isRepoPublic(info.owner, info.repo))) {
     console.log(
-      `${DIM}View the skill at${RESET} ${TEXT}https://skills.sh/${selected.slug}${RESET}`
+      `${DIM}View the skill at${RESET} ${TEXT}${envConfig.apiBase}/${selected.slug}${RESET}`
     );
   } else {
-    console.log(`${DIM}Discover more skills at${RESET} ${TEXT}https://skills.sh${RESET}`);
+    console.log(`${DIM}Discover more skills at${RESET} ${TEXT}${envConfig.apiBase}${RESET}`);
   }
 
   console.log();

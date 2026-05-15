@@ -15,6 +15,7 @@ import { sanitizeMetadata } from './sanitize.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { track, flushTelemetry } from './telemetry.ts';
 import { isRunningInAgent } from './detect-agent.ts';
+import { envConfig, installCmd, findCmd } from './env-config.ts';
 import { agents, isUniversalAgent } from './agents.ts';
 import type { AgentType } from './types.ts';
 import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
@@ -66,47 +67,58 @@ const GRAYS = [
 ];
 
 function showLogo(): void {
+  const customLines = envConfig.logoLines;
   console.log();
-  LOGO_LINES.forEach((line, i) => {
-    console.log(`${GRAYS[i]}${line}${RESET}`);
-  });
+  if (customLines) {
+    // Custom lines may contain pre-colored ANSI codes — print as-is
+    customLines.forEach((line) => console.log(line));
+  } else {
+    LOGO_LINES.forEach((line, i) => {
+      const color = GRAYS[i % GRAYS.length] ?? GRAYS[GRAYS.length - 1]!;
+      console.log(`${color}${line}${RESET}`);
+    });
+  }
 }
 
 function showBanner(): void {
+  const cli = envConfig.cliName;
+  const cmd = installCmd();
+  const find = findCmd();
+  const url = envConfig.apiBase;
   showLogo();
   console.log();
   console.log(`${DIM}The open agent skills ecosystem${RESET}`);
   console.log();
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills add ${DIM}<package>${RESET}        ${DIM}Add a new skill${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}${cmd} ${DIM}<package>${RESET}        ${DIM}Add a new skill${RESET}`
   );
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills remove${RESET}               ${DIM}Remove installed skills${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}${cli} remove${RESET}               ${DIM}Remove installed skills${RESET}`
   );
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills list${RESET}                 ${DIM}List installed skills${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}${cli} list${RESET}                 ${DIM}List installed skills${RESET}`
   );
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills find ${DIM}[query]${RESET}         ${DIM}Search for skills${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}${find} ${DIM}[query]${RESET}         ${DIM}Search for skills${RESET}`
   );
   console.log();
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills update${RESET}               ${DIM}Update installed skills${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}${cli} update${RESET}               ${DIM}Update installed skills${RESET}`
   );
   console.log();
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills experimental_install${RESET} ${DIM}Restore from skills-lock.json${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}${cli} experimental_install${RESET} ${DIM}Restore from skills-lock.json${RESET}`
   );
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills init ${DIM}[name]${RESET}          ${DIM}Create a new skill${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}${cli} init ${DIM}[name]${RESET}          ${DIM}Create a new skill${RESET}`
   );
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills experimental_sync${RESET}    ${DIM}Sync skills from node_modules${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}${cli} experimental_sync${RESET}    ${DIM}Sync skills from node_modules${RESET}`
   );
   console.log();
-  console.log(`${DIM}try:${RESET} npx skills add vercel-labs/agent-skills`);
+  console.log(`${DIM}try:${RESET} ${cmd} vercel-labs/agent-skills`);
   console.log();
-  console.log(`Discover more skills at ${TEXT}https://skills.sh/${RESET}`);
+  console.log(`Discover more skills at ${TEXT}${url}/${RESET}`);
   console.log();
 }
 
