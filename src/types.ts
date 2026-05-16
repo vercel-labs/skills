@@ -2,6 +2,7 @@ export type AgentType =
   | 'aider-desk'
   | 'amp'
   | 'antigravity'
+  | 'autohand-code'
   | 'augment'
   | 'bob'
   | 'claude-code'

@@ -10,6 +10,7 @@ const configHome = xdgConfig ?? join(home, '.config');
 const codexHome = process.env.CODEX_HOME?.trim() || join(home, '.codex');
 const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude');
 const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
+const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
 
 export function getOpenClawGlobalSkillsDir(
   homeDir = home,
@@ -53,6 +54,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.gemini/antigravity/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.gemini/antigravity'));
+    },
+  },
+  'autohand-code': {
+    name: 'autohand-code',
+    displayName: 'Autohand Code CLI',
+    skillsDir: '.autohand/skills',
+    globalSkillsDir: join(autohandHome, 'skills'),
+    detectInstalled: async () => {
+      return existsSync(autohandHome);
     },
   },
   augment: {

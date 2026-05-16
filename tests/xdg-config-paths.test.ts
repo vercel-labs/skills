@@ -80,6 +80,11 @@ describe('XDG config paths', () => {
   });
 
   describe('non-XDG agents', () => {
+    it('autohand code uses ~/.autohand/skills (home-based, not XDG)', () => {
+      const expected = join(home, '.autohand', 'skills');
+      expect(agents['autohand-code'].globalSkillsDir).toBe(expected);
+    });
+
     it('cursor uses ~/.cursor/skills (home-based, not XDG)', () => {
       const expected = join(home, '.cursor', 'skills');
       expect(agents.cursor.globalSkillsDir).toBe(expected);
