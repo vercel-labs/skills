@@ -1,6 +1,20 @@
 ---
 name: x-social-manager
 description: Personal X/Twitter social media manager. Use when the user asks to craft, write, review, or optimize X/Twitter posts, threads, replies, or DMs. Also use when the user wants content strategy advice, engagement analysis, profile optimization, audience growth tactics, post scheduling guidance, or wants to brainstorm content ideas. Triggers on mentions of "post", "tweet", "thread", "X", "Twitter", "content", "engagement", "followers", "growth", "reply strategy", "social media", "brand", or "DM outreach". Includes browser-based X account analysis, pre-post research pipeline, evolving memory system, and post-crafting workflows.
+version: 1.0.0
+authors:
+  - rabden
+repository: https://github.com/rabden/X-twitter-social-manager-skill
+metadata:
+  openclaw:
+    requires:
+      env:
+        - TWITTER_AUTH_TOKEN
+        - TWITTER_CT0
+      bins:
+        - twitter
+        - uv
+    primaryEnv: TWITTER_AUTH_TOKEN
 ---
 
 # X Social Media Manager
