@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdir, writeFile, rm } from 'fs/promises';
+import { mkdir, writeFile, rm, symlink } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { listInstalledSkills } from '../src/installer.ts';
@@ -159,6 +159,51 @@ ${skillData.description}
     expect(skills[0]!.agents).not.toContain('kimi-cli');
 
     vi.restoreAllMocks();
+  });
+
+  // Directory symlinks pointing at a real skill dir should be discovered.
+  it('should find skill when the skill directory is a symlink', async () => {
+    const realSkillDir = join(testDir, 'shared', 'linked-skill');
+    await mkdir(realSkillDir, { recursive: true });
+    await writeFile(
+      join(realSkillDir, 'SKILL.md'),
+      `---
+name: linked-skill
+description: Skill reached through a directory symlink
+---
+
+# linked-skill
+`
+    );
+
+    const agentSkillsDir = join(testDir, '.agents', 'skills');
+    await mkdir(agentSkillsDir, { recursive: true });
+    await symlink(realSkillDir, join(agentSkillsDir, 'linked-skill'), 'dir');
+
+    const skills = await listInstalledSkills({ global: false, cwd: testDir });
+    expect(skills).toHaveLength(1);
+    expect(skills[0]!.name).toBe('linked-skill');
+  });
+
+  it('should ignore dangling symlinks without a reachable SKILL.md', async () => {
+    const agentSkillsDir = join(testDir, '.agents', 'skills');
+    await mkdir(agentSkillsDir, { recursive: true });
+    await symlink(join(testDir, 'does-not-exist'), join(agentSkillsDir, 'broken'), 'dir');
+
+    const skills = await listInstalledSkills({ global: false, cwd: testDir });
+    expect(skills).toEqual([]);
+  });
+
+  it('should ignore symlinks that point to a regular file', async () => {
+    const filePath = join(testDir, 'not-a-skill.md');
+    await writeFile(filePath, '# not a skill');
+
+    const agentSkillsDir = join(testDir, '.agents', 'skills');
+    await mkdir(agentSkillsDir, { recursive: true });
+    await symlink(filePath, join(agentSkillsDir, 'file-link'));
+
+    const skills = await listInstalledSkills({ global: false, cwd: testDir });
+    expect(skills).toEqual([]);
   });
 
   // Issue #225 part 2: Skills in agent-specific directories should be found

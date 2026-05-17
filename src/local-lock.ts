@@ -15,8 +15,18 @@ const CURRENT_VERSION = 1;
 export interface LocalSkillLockEntry {
   /** Where the skill came from: npm package name, owner/repo, local path, etc. */
   source: string;
+  /** Branch or tag ref used for installation */
+  ref?: string;
   /** The provider/source type (e.g., "github", "node_modules", "local") */
   sourceType: string;
+  /**
+   * Path to the skill's SKILL.md within the source repo (e.g., "skills/pdf/SKILL.md").
+   * Required to re-install only this skill on update — without it, an update would
+   * refetch every skill in the source repo. Optional for backward compatibility with
+   * lock files written before this field existed, and omitted for non-repo sources
+   * (node_modules, local paths) where there is no subfolder to target.
+   */
+  skillPath?: string;
   /**
    * SHA-256 hash computed from all files in the skill folder.
    * Unlike the global lock which uses GitHub tree SHA, the local lock

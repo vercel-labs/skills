@@ -2,8 +2,9 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
-import { sep } from 'path';
+import { sep, join, dirname } from 'path';
 import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
+import { stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 
 // Helper to check if a value is a cancel symbol (works with both clack and our custom prompts)
@@ -25,6 +26,7 @@ import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
 import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
 import {
   installSkillForAgent,
+  installBlobSkillForAgent,
   isSkillInstalled,
   getCanonicalPath,
   installWellKnownSkillForAgent,
@@ -44,6 +46,7 @@ import {
   type AuditResponse,
   type PartnerAudit,
 } from './telemetry.ts';
+import { detectAgent, getAgentType } from './detect-agent.ts';
 import { wellKnownProvider, type WellKnownSkill } from './providers/index.ts';
 import {
   addSkillToLock,
@@ -56,6 +59,13 @@ import {
 } from './skill-lock.ts';
 import { addSkillToLocalLock, computeSkillFolderHash } from './local-lock.ts';
 import type { Skill, AgentType } from './types.ts';
+import {
+  tryBlobInstall,
+  getSkillFolderHashFromTree,
+  fetchRepoTree,
+  type BlobSkill,
+  type BlobInstallResult,
+} from './blob.ts';
 import packageJson from '../package.json' with { type: 'json' };
 export function initTelemetry(version: string): void {
   setVersion(version);
@@ -89,7 +99,7 @@ function socketLabel(audit: PartnerAudit | undefined): string {
 /** Pad a string to a given visible width (ignoring ANSI escape codes). */
 function padEnd(str: string, width: number): string {
   // Strip ANSI codes to measure visible length
-  const visible = str.replace(/\x1b\[[0-9;]*m/g, '');
+  const visible = stripTerminalEscapes(str);
   const pad = Math.max(0, width - visible.length);
   return str + ' '.repeat(pad);
 }
@@ -243,6 +253,7 @@ function buildResultLines(
   results: Array<{
     agent: string;
     symlinkFailed?: boolean;
+    skipped?: boolean;
   }>,
   targetAgents: AgentType[]
 ): string[] {
@@ -252,10 +263,11 @@ function buildResultLines(
   const { universal, symlinked: symlinkAgents } = splitAgentsByType(targetAgents);
 
   // For symlink results, also track which ones actually succeeded vs failed
+  // Exclude skipped agents (those whose config dir doesn't exist in the project)
   const successfulSymlinks = results
-    .filter((r) => !r.symlinkFailed && !universal.includes(r.agent))
+    .filter((r) => !r.symlinkFailed && !r.skipped && !universal.includes(r.agent))
     .map((r) => r.agent);
-  const failedSymlinks = results.filter((r) => r.symlinkFailed).map((r) => r.agent);
+  const failedSymlinks = results.filter((r) => r.symlinkFailed && !r.skipped).map((r) => r.agent);
 
   if (universal.length > 0) {
     lines.push(`  ${pc.green('universal:')} ${formatList(universal)}`);
@@ -416,6 +428,7 @@ export interface AddOptions {
   all?: boolean;
   fullDepth?: boolean;
   copy?: boolean;
+  dangerouslyAcceptOpenclawRisks?: boolean;
 }
 
 /**
@@ -713,6 +726,10 @@ async function handleWellKnownSkills(
     }
   }
 
+  // Kick off privacy check early so it runs in parallel with installation
+  const sourceIdentifier = wellKnownProvider.getSourceIdentifier(url);
+  const wellKnownPrivacyPromise = isSourcePrivate(sourceIdentifier).catch(() => null);
+
   spinner.start('Installing skills...');
 
   const results: {
@@ -746,19 +763,15 @@ async function handleWellKnownSkills(
   const successful = results.filter((r) => r.success);
   const failed = results.filter((r) => !r.success);
 
-  // Track installation
-  const sourceIdentifier = wellKnownProvider.getSourceIdentifier(url);
-
   // Build skillFiles map: { skillName: sourceUrl }
   const skillFiles: Record<string, string> = {};
   for (const skill of selectedSkills) {
     skillFiles[skill.installName] = skill.sourceUrl;
   }
 
-  // Skip telemetry for private GitHub repos
-  const isPrivate = await isSourcePrivate(sourceIdentifier);
+  // Privacy promise was started before installation — should be resolved by now
+  const isPrivate = await wellKnownPrivacyPromise;
   if (isPrivate !== true) {
-    // Only send telemetry if repo is public (isPrivate === false) or we can't determine (null for non-GitHub sources)
     track({
       event: 'install',
       source: sourceIdentifier,
@@ -916,10 +929,31 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     options.yes = true;
   }
 
-  console.log();
-  p.intro(pc.bgCyan(pc.black(' skills ')));
+  // Auto-enable non-interactive mode when running inside an AI agent
+  const agentResult = await detectAgent();
+  if (agentResult.isAgent) {
+    options.yes = true;
+    // Auto-select the detected agent + universal agents (unless user explicitly specified agents)
+    if (!options.agent || options.agent.length === 0) {
+      const mappedAgent = getAgentType(agentResult.agent.name);
+      if (mappedAgent) {
+        options.agent = ensureUniversalAgents([mappedAgent]);
+      }
+    }
+  }
 
-  if (!process.stdin.isTTY) {
+  console.log();
+  if (!agentResult.isAgent) {
+    p.intro(pc.bgCyan(pc.black(' skills ')));
+  }
+
+  if (agentResult.isAgent) {
+    p.log.info(
+      pc.bgCyan(pc.black(pc.bold(` ${agentResult.agent.name} `))) +
+        ' ' +
+        'Agent detected — installing non-interactively'
+    );
+  } else if (!process.stdin.isTTY) {
     showInstallTip();
   }
 
@@ -934,30 +968,40 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
     );
 
+    // Kick off the repo privacy check early so it runs in parallel with
+    // cloning/discovering/installing. The result is only needed later for
+    // telemetry gating — it should never block user-visible output.
+    const ownerRepoRaw = getOwnerRepo(parsed);
+    const repoPrivacyPromise: Promise<boolean | null> = (() => {
+      if (!ownerRepoRaw) return Promise.resolve(null);
+      const ownerRepo = parseOwnerRepo(ownerRepoRaw);
+      if (!ownerRepo) return Promise.resolve(null);
+      return isRepoPrivate(ownerRepo.owner, ownerRepo.repo).catch(() => null);
+    })();
+
+    // Block openclaw sources unless explicitly opted in
+    const sourceOwner = ownerRepoRaw?.split('/')[0]?.toLowerCase();
+    if (sourceOwner === 'openclaw' && !options.dangerouslyAcceptOpenclawRisks) {
+      console.log();
+      p.log.warn(pc.yellow(pc.bold('⚠ OpenClaw skills are unverified community submissions.')));
+      p.log.message(
+        pc.yellow(
+          'This source contains user-submitted skills that have not been reviewed for safety or quality.'
+        )
+      );
+      p.log.message(pc.yellow('Skills run with full agent permissions and could be malicious.'));
+      console.log();
+      p.log.message(
+        `If you understand the risks, re-run with:\n\n  ${pc.cyan(`npx skills add ${source} --dangerously-accept-openclaw-risks`)}\n`
+      );
+      p.outro(pc.red('Installation blocked'));
+      process.exit(1);
+    }
+
     // Handle well-known skills from arbitrary URLs
     if (parsed.type === 'well-known') {
       await handleWellKnownSkills(source, parsed.url, options, spinner);
       return;
-    }
-
-    let skillsDir: string;
-
-    if (parsed.type === 'local') {
-      // Use local path directly, no cloning needed
-      spinner.start('Validating local path...');
-      if (!existsSync(parsed.localPath!)) {
-        spinner.stop(pc.red('Path not found'));
-        p.outro(pc.red(`Local path does not exist: ${parsed.localPath}`));
-        process.exit(1);
-      }
-      skillsDir = parsed.localPath!;
-      spinner.stop('Local path validated');
-    } else {
-      // Clone repository for remote sources
-      spinner.start('Cloning repository...');
-      tempDir = await cloneRepo(parsed.url, parsed.ref);
-      skillsDir = tempDir;
-      spinner.stop('Repository cloned');
     }
 
     // If skillFilter is present from @skill syntax (e.g., owner/repo@skill-name),
@@ -973,11 +1017,71 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // (via --skill or @skill syntax)
     const includeInternal = !!(options.skill && options.skill.length > 0);
 
-    spinner.start('Discovering skills...');
-    const skills = await discoverSkills(skillsDir, parsed.subpath, {
-      includeInternal,
-      fullDepth: options.fullDepth,
-    });
+    let skills: Skill[];
+    let blobResult: BlobInstallResult | null = null;
+
+    if (parsed.type === 'local') {
+      // Use local path directly, no cloning needed
+      spinner.start('Validating local path...');
+      if (!existsSync(parsed.localPath!)) {
+        spinner.stop(pc.red('Path not found'));
+        p.outro(pc.red(`Local path does not exist: ${parsed.localPath}`));
+        process.exit(1);
+      }
+      spinner.stop('Local path validated');
+
+      spinner.start('Discovering skills...');
+      skills = await discoverSkills(parsed.localPath!, parsed.subpath, {
+        includeInternal,
+        fullDepth: options.fullDepth,
+      });
+    } else if (parsed.type === 'github' && !options.fullDepth) {
+      // Try blob-based fast install for GitHub sources
+      // Only enabled for allowlisted orgs; skip for --full-depth
+      const BLOB_ALLOWED_OWNERS = ['vercel', 'vercel-labs', 'heygen-com'];
+      const ownerRepo = getOwnerRepo(parsed);
+      const owner = ownerRepo?.split('/')[0]?.toLowerCase();
+      if (ownerRepo && owner && BLOB_ALLOWED_OWNERS.includes(owner)) {
+        spinner.start('Fetching skills...');
+        blobResult = await tryBlobInstall(ownerRepo, {
+          subpath: parsed.subpath,
+          skillFilter: parsed.skillFilter,
+          ref: parsed.ref,
+          getToken: getGitHubToken,
+          includeInternal,
+        });
+        if (!blobResult) {
+          spinner.stop(pc.dim('Falling back to clone...'));
+        }
+      }
+
+      if (blobResult) {
+        skills = blobResult.skills;
+        spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
+      } else {
+        // Blob failed — fall back to git clone
+        spinner.start('Cloning repository...');
+        tempDir = await cloneRepo(parsed.url, parsed.ref);
+        spinner.stop('Repository cloned');
+
+        spinner.start('Discovering skills...');
+        skills = await discoverSkills(tempDir, parsed.subpath, {
+          includeInternal,
+          fullDepth: options.fullDepth,
+        });
+      }
+    } else {
+      // GitLab, git URL, or --full-depth: always clone
+      spinner.start('Cloning repository...');
+      tempDir = await cloneRepo(parsed.url, parsed.ref);
+      spinner.stop('Repository cloned');
+
+      spinner.start('Discovering skills...');
+      skills = await discoverSkills(tempDir, parsed.subpath, {
+        includeInternal,
+        fullDepth: options.fullDepth,
+      });
+    }
 
     if (skills.length === 0) {
       spinner.stop(pc.red('No skills found'));
@@ -988,7 +1092,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       process.exit(1);
     }
 
-    spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
+    if (!blobResult) {
+      spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
+    }
 
     if (options.list) {
       console.log();
@@ -1411,10 +1517,22 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     for (const skill of selectedSkills) {
       for (const agent of targetAgents) {
-        const result = await installSkillForAgent(skill, agent, {
-          global: installGlobally,
-          mode: installMode,
-        });
+        let result;
+        if (blobResult && 'files' in skill) {
+          // Blob-based install: write files from snapshot
+          const blobSkill = skill as BlobSkill;
+          result = await installBlobSkillForAgent(
+            { installName: blobSkill.name, files: blobSkill.files },
+            agent,
+            { global: installGlobally, mode: installMode }
+          );
+        } else {
+          // Disk-based install: copy from cloned/local directory
+          result = await installSkillForAgent(skill, agent, {
+            global: installGlobally,
+            mode: installMode,
+          });
+        }
         results.push({
           skill: getSkillDisplayName(skill),
           agent: agents[agent].displayName,
@@ -1429,20 +1547,20 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     console.log();
     const successful = results.filter((r) => r.success);
     const failed = results.filter((r) => !r.success);
-
     // Track installation result
     // Build skillFiles map: { skillName: relative path to SKILL.md from repo root }
     const skillFiles: Record<string, string> = {};
     for (const skill of selectedSkills) {
-      // skill.path is absolute, compute relative from tempDir (repo root)
-      let relativePath: string;
-      if (tempDir && skill.path === tempDir) {
+      if (blobResult && 'repoPath' in skill) {
+        // Blob-based: repoPath is already the repo-relative path (e.g., "skills/react/SKILL.md")
+        skillFiles[skill.name] = (skill as BlobSkill).repoPath;
+      } else if (tempDir && skill.path === tempDir) {
         // Skill is at root level of repo
-        relativePath = 'SKILL.md';
+        skillFiles[skill.name] = 'SKILL.md';
       } else if (tempDir && skill.path.startsWith(tempDir + sep)) {
         // Compute path relative to repo root (tempDir), not search path
         // Use forward slashes for telemetry (URL-style paths)
-        relativePath =
+        skillFiles[skill.name] =
           skill.path
             .slice(tempDir.length + 1)
             .split(sep)
@@ -1451,7 +1569,6 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         // Local path - skip telemetry for local installs
         continue;
       }
-      skillFiles[skill.name] = relativePath;
     }
 
     // Normalize source to owner/repo format for telemetry
@@ -1463,12 +1580,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     const isSSH = parsed.url.startsWith('git@');
     const lockSource = isSSH ? parsed.url : normalizedSource;
 
-    // Only track if we have a valid remote source and it's not a private repo
+    // Only track if we have a valid remote source and it's not a private repo.
+    // repoPrivacyPromise was started early (right after parsing) so it has
+    // already been running in parallel with the entire install — no stall here.
     if (normalizedSource) {
       const ownerRepo = parseOwnerRepo(normalizedSource);
       if (ownerRepo) {
-        // Check if repo is private - skip telemetry for private repos
-        const isPrivate = await isRepoPrivate(ownerRepo.owner, ownerRepo.repo);
+        const isPrivate = await repoPrivacyPromise;
         // Only send telemetry if repo is public (isPrivate === false)
         // If we can't determine (null), err on the side of caution and skip telemetry
         if (isPrivate === false) {
@@ -1497,16 +1615,30 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Add to skill lock file for update tracking (only for global installs)
     if (successful.length > 0 && installGlobally && normalizedSource) {
       const successfulSkillNames = new Set(successful.map((r) => r.skill));
+
+      // For GitHub clone installs, fetch the repo tree once and reuse it
+      // for all skills — avoids N sequential API calls that take ~400ms each.
+      let cachedTree: Awaited<ReturnType<typeof fetchRepoTree>> | undefined;
+      if (parsed.type === 'github' && !blobResult) {
+        cachedTree = await fetchRepoTree(normalizedSource, parsed.ref, getGitHubToken);
+      }
+
       for (const skill of selectedSkills) {
         const skillDisplayName = getSkillDisplayName(skill);
         if (successfulSkillNames.has(skillDisplayName)) {
           try {
-            // Fetch the folder hash from GitHub Trees API
             let skillFolderHash = '';
             const skillPathValue = skillFiles[skill.name];
-            if (parsed.type === 'github' && skillPathValue) {
-              const token = getGitHubToken();
-              const hash = await fetchSkillFolderHash(normalizedSource, skillPathValue, token);
+
+            if (blobResult && skillPathValue) {
+              const hash = getSkillFolderHashFromTree(blobResult.tree, skillPathValue);
+              if (hash) skillFolderHash = hash;
+            } else if (parsed.type === 'github' && skillPathValue && cachedTree) {
+              const hash = getSkillFolderHashFromTree(cachedTree, skillPathValue);
+              if (hash) skillFolderHash = hash;
+            } else if (skillPathValue && tempDir) {
+              const skillDir = join(tempDir, dirname(skillPathValue));
+              const hash = await computeSkillFolderHash(skillDir);
               if (hash) skillFolderHash = hash;
             }
 
@@ -1514,6 +1646,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               source: lockSource || normalizedSource,
               sourceType: parsed.type,
               sourceUrl: parsed.url,
+              ref: parsed.ref,
               skillPath: skillPathValue,
               skillFolderHash,
               pluginName: skill.pluginName,
@@ -1532,12 +1665,19 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         const skillDisplayName = getSkillDisplayName(skill);
         if (successfulSkillNames.has(skillDisplayName)) {
           try {
-            const computedHash = await computeSkillFolderHash(skill.path);
+            // For blob skills, use the snapshot hash; for disk skills, compute from files
+            const computedHash =
+              blobResult && 'snapshotHash' in skill
+                ? (skill as BlobSkill).snapshotHash
+                : await computeSkillFolderHash(skill.path);
+            const skillPathValue = skillFiles[skill.name];
             await addSkillToLocalLock(
               skill.name,
               {
                 source: lockSource || parsed.url,
+                ref: parsed.ref,
                 sourceType: parsed.type,
+                ...(skillPathValue && { skillPath: skillPathValue }),
                 computedHash,
               },
               cwd
@@ -1800,6 +1940,8 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       options.fullDepth = true;
     } else if (arg === '--copy') {
       options.copy = true;
+    } else if (arg === '--dangerously-accept-openclaw-risks') {
+      options.dangerouslyAcceptOpenclawRisks = true;
     } else if (arg && !arg.startsWith('-')) {
       source.push(arg);
     }

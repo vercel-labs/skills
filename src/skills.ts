@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from 'fs/promises';
 import { join, basename, dirname, resolve, normalize, sep } from 'path';
-import matter from 'gray-matter';
+import { parseFrontmatter } from './frontmatter.ts';
+import { sanitizeMetadata } from './sanitize.ts';
 import type { Skill } from './types.ts';
 import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
 
@@ -31,7 +32,7 @@ export async function parseSkillMd(
 ): Promise<Skill | null> {
   try {
     const content = await readFile(skillMdPath, 'utf-8');
-    const { data } = matter(content);
+    const { data } = parseFrontmatter(content);
 
     if (!data.name || !data.description) {
       return null;
@@ -51,8 +52,8 @@ export async function parseSkillMd(
     }
 
     return {
-      name: data.name,
-      description: data.description,
+      name: sanitizeMetadata(data.name),
+      description: sanitizeMetadata(data.description),
       path: dirname(skillMdPath),
       rawContent: content,
       metadata: data.metadata,

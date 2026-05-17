@@ -40,11 +40,12 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
       continue;
     }
 
-    const existing = bySource.get(entry.source);
+    const installSource = entry.ref ? `${entry.source}#${entry.ref}` : entry.source;
+    const existing = bySource.get(installSource);
     if (existing) {
       existing.skills.push(skillName);
     } else {
-      bySource.set(entry.source, {
+      bySource.set(installSource, {
         sourceType: entry.sourceType,
         skills: [skillName],
       });

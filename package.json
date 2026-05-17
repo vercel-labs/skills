@@ -1,6 +1,6 @@
 {
   "name": "skills",
-  "version": "1.4.6",
+  "version": "1.5.7",
   "description": "The open agent skills ecosystem",
   "type": "module",
   "bin": {
@@ -36,13 +36,18 @@
     "agent-skills",
     "skills",
     "ai-agents",
+    "aider-desk",
     "amp",
     "antigravity",
     "augment",
+    "bob",
     "claude-code",
     "openclaw",
     "cline",
+    "codearts-agent",
     "codebuddy",
+    "codemaker",
+    "codestudio",
     "codex",
     "command-code",
     "continue",
@@ -50,10 +55,15 @@
     "crush",
     "cursor",
     "deepagents",
+    "devin",
+    "dexto",
     "droid",
+    "firebender",
+    "forgecode",
     "gemini-cli",
     "github-copilot",
     "goose",
+    "hermes-agent",
     "junie",
     "iflow-cli",
     "kilo",
@@ -69,7 +79,9 @@
     "qoder",
     "qwen-code",
     "replit",
+    "rovodev",
     "roo",
+    "tabnine-cli",
     "trae",
     "trae-cn",
     "warp",
@@ -94,7 +106,7 @@
     "@clack/prompts": "^0.11.0",
     "@types/bun": "latest",
     "@types/node": "^22.10.0",
-    "gray-matter": "^4.0.3",
+    "@vercel/detect-agent": "^1.2.1",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
     "obuild": "^0.4.22",
@@ -108,5 +120,8 @@
   "engines": {
     "node": ">=18"
   },
-  "packageManager": "pnpm@10.17.1"
+  "packageManager": "pnpm@10.17.1",
+  "dependencies": {
+    "yaml": "^2.8.3"
+  }
 }

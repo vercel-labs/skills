@@ -1,7 +1,9 @@
 import * as readline from 'readline';
 import { runAdd, parseAddOptions } from './add.ts';
+import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
 import { isRepoPrivate } from './source-parser.ts';
+import { isRunningInAgent } from './detect-agent.ts';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -47,9 +49,9 @@ export async function searchSkillsAPI(query: string): Promise<SearchSkill[]> {
 
     return data.skills
       .map((skill) => ({
-        name: skill.name,
-        slug: skill.id,
-        source: skill.source || '',
+        name: sanitizeMetadata(skill.name),
+        slug: sanitizeMetadata(skill.id),
+        source: sanitizeMetadata(skill.source || ''),
         installs: skill.installs,
       }))
       .sort((a, b) => (b.installs || 0) - (a.installs || 0));
@@ -304,11 +306,14 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
     return;
   }
 
-  // Interactive mode - show tip only if running non-interactively (likely in a coding agent)
-  if (isNonInteractive) {
+  // Skip interactive search when running inside an AI agent or non-TTY
+  if (isNonInteractive || (await isRunningInAgent())) {
     console.log(agentTip);
     console.log();
+    console.log(`${DIM}Usage: npx skills find <query>${RESET}`);
+    return;
   }
+
   const selected = await runSearchPrompt();
 
   // Track telemetry for interactive search

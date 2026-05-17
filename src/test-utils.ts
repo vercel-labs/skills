@@ -1,11 +1,12 @@
 import { execSync } from 'child_process';
 import { join } from 'path';
+import { stripTerminalEscapes } from './sanitize.ts';
 
 // const PROJECT_ROOT = join(import.meta.dirname, '..');
 const CLI_PATH = join(import.meta.dirname, 'cli.ts');
 
 export function stripAnsi(str: string): string {
-  return str.replace(/\x1b\[[0-9;]*m/g, '');
+  return stripTerminalEscapes(str);
 }
 
 export function stripLogo(str: string): string {

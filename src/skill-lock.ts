@@ -18,6 +18,8 @@ export interface SkillLockEntry {
   sourceType: string;
   /** The original URL used to install the skill (for re-fetching updates) */
   sourceUrl: string;
+  /** Branch or tag ref used for installation (for ref-aware updates) */
+  ref?: string;
   /** Subpath within the source repo, if applicable */
   skillPath?: string;
   /**
@@ -121,17 +123,29 @@ export function computeContentHash(content: string): string {
   return createHash('sha256').update(content, 'utf-8').digest('hex');
 }
 
+let _ghWarningShown = false;
+
+/** For tests only. Resets the one-shot warning flag. */
+export function resetGhAuthWarning(): void {
+  _ghWarningShown = false;
+}
+
 /**
  * Get GitHub token from user's environment.
  * Tries in order:
- * 1. GITHUB_TOKEN environment variable
- * 2. GH_TOKEN environment variable
- * 3. gh CLI auth token (if gh is installed)
+ * 1. GITHUB_TOKEN environment variable (silent)
+ * 2. GH_TOKEN environment variable (silent)
+ * 3. gh CLI auth token, if gh is installed. Prints a one-time warning to
+ *    stderr before invoking `gh auth token`, because that subprocess call
+ *    is flagged by some corporate endpoint security tooling (Defender, etc.)
+ *    as credential extraction. Callers should invoke this function lazily
+ *    (e.g. only after an unauthenticated request hits a rate limit) so the
+ *    fallback rarely runs in practice.
  *
  * @returns The token string or null if not available
  */
 export function getGitHubToken(): string | null {
-  // Check environment variables first
+  // Check environment variables first (silent: user has explicitly opted in)
   if (process.env.GITHUB_TOKEN) {
     return process.env.GITHUB_TOKEN;
   }
@@ -139,7 +153,14 @@ export function getGitHubToken(): string | null {
     return process.env.GH_TOKEN;
   }
 
-  // Try gh CLI
+  // Last resort: spawn gh CLI. Warn the user once per process before doing so.
+  if (!_ghWarningShown) {
+    process.stderr.write(
+      'warn: GitHub API rate limit reached; reading a token via `gh auth token`.\n' +
+        '      Set GITHUB_TOKEN in your environment to skip this fallback.\n'
+    );
+    _ghWarningShown = true;
+  }
   try {
     const token = execSync('gh auth token', {
       encoding: 'utf-8',
@@ -162,70 +183,21 @@ export function getGitHubToken(): string | null {
  *
  * @param ownerRepo - GitHub owner/repo (e.g., "vercel-labs/agent-skills")
  * @param skillPath - Path to skill folder or SKILL.md (e.g., "skills/react-best-practices/SKILL.md")
- * @param token - Optional GitHub token for authenticated requests (higher rate limits)
+ * @param getToken - Optional lazy token resolver. Invoked only if the
+ *                   unauthenticated request hits a rate limit.
+ * @param ref - Optional branch/tag ref. Defaults to trying main then master.
  * @returns The tree SHA for the skill folder, or null if not found
  */
 export async function fetchSkillFolderHash(
   ownerRepo: string,
   skillPath: string,
-  token?: string | null
+  getToken?: (() => string | null) | null,
+  ref?: string
 ): Promise<string | null> {
-  // Normalize to forward slashes first (for GitHub API compatibility)
-  let folderPath = skillPath.replace(/\\/g, '/');
-
-  // Remove SKILL.md suffix to get folder path
-  if (folderPath.endsWith('/SKILL.md')) {
-    folderPath = folderPath.slice(0, -9);
-  } else if (folderPath.endsWith('SKILL.md')) {
-    folderPath = folderPath.slice(0, -8);
-  }
-
-  // Remove trailing slash
-  if (folderPath.endsWith('/')) {
-    folderPath = folderPath.slice(0, -1);
-  }
-
-  const branches = ['main', 'master'];
-
-  for (const branch of branches) {
-    try {
-      const url = `https://api.github.com/repos/${ownerRepo}/git/trees/${branch}?recursive=1`;
-      const headers: Record<string, string> = {
-        Accept: 'application/vnd.github.v3+json',
-        'User-Agent': 'skills-cli',
-      };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(url, { headers });
-
-      if (!response.ok) continue;
-
-      const data = (await response.json()) as {
-        sha: string;
-        tree: Array<{ path: string; type: string; sha: string }>;
-      };
-
-      // If folderPath is empty, this is a root-level skill - use the root tree SHA
-      if (!folderPath) {
-        return data.sha;
-      }
-
-      // Find the tree entry for the skill folder
-      const folderEntry = data.tree.find(
-        (entry) => entry.type === 'tree' && entry.path === folderPath
-      );
-
-      if (folderEntry) {
-        return folderEntry.sha;
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  return null;
+  const { fetchRepoTree, getSkillFolderHashFromTree } = await import('./blob.ts');
+  const tree = await fetchRepoTree(ownerRepo, ref, getToken ?? undefined);
+  if (!tree) return null;
+  return getSkillFolderHashFromTree(tree, skillPath);
 }
 
 /**

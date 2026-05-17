@@ -2,6 +2,7 @@ import { homedir } from 'os';
 import type { AgentType } from './types.ts';
 import { agents } from './agents.ts';
 import { listInstalledSkills, type InstalledSkill } from './installer.ts';
+import { sanitizeMetadata } from './sanitize.ts';
 import { getAllLockedSkills } from './skill-lock.ts';
 
 const RESET = '\x1b[0m';
@@ -128,7 +129,9 @@ export async function runList(args: string[]): Promise<void> {
     const agentNames = skill.agents.map((a) => agents[a].displayName);
     const agentInfo =
       skill.agents.length > 0 ? formatList(agentNames) : `${YELLOW}not linked${RESET}`;
-    console.log(`${prefix}${CYAN}${skill.name}${RESET} ${DIM}${shortPath}${RESET}`);
+    console.log(
+      `${prefix}${CYAN}${sanitizeMetadata(skill.name)}${RESET} ${DIM}${shortPath}${RESET}`
+    );
     console.log(`${prefix}  ${DIM}Agents:${RESET} ${agentInfo}`);
   }
 
