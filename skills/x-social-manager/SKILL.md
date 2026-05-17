@@ -6,15 +6,7 @@ authors:
   - rabden
 repository: https://github.com/rabden/X-twitter-social-manager-skill
 metadata:
-  openclaw:
-    requires:
-      env:
-        - TWITTER_AUTH_TOKEN
-        - TWITTER_CT0
-      bins:
-        - twitter
-        - uv
-    primaryEnv: TWITTER_AUTH_TOKEN
+  openclaw: '{"requires":{"env":["TWITTER_AUTH_TOKEN","TWITTER_CT0"],"bins":["twitter","uv"]},"primaryEnv":"TWITTER_AUTH_TOKEN"}'
 ---
 
 # X Social Media Manager
