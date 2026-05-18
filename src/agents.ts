@@ -465,6 +465,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.trae-cn'));
     },
   },
+  tuskr: {
+    name: 'tuskr',
+    displayName: 'Tuskr',
+    skillsDir: '.tuskr/skills',
+    globalSkillsDir: join(configHome, 'tuskr/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(configHome, 'tuskr'));
+    },
+  },
   warp: {
     name: 'warp',
     displayName: 'Warp',

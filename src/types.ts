@@ -48,6 +48,7 @@ export type AgentType =
   | 'tabnine-cli'
   | 'trae'
   | 'trae-cn'
+  | 'tuskr'
   | 'warp'
   | 'windsurf'
   | 'zencoder'

@@ -275,6 +275,7 @@ Skills can be installed to any of these agents:
 | Tabnine CLI                           | `tabnine-cli`                            | `.tabnine/agent/skills/` | `~/.tabnine/agent/skills/`      |
 | Trae                                  | `trae`                                   | `.trae/skills/`          | `~/.trae/skills/`               |
 | Trae CN                               | `trae-cn`                                | `.trae/skills/`          | `~/.trae-cn/skills/`            |
+| Tuskr                                 | `tuskr`                                  | `.tuskr/skills/`         | `~/.config/tuskr/skills/`       |
 | Windsurf                              | `windsurf`                               | `.windsurf/skills/`      | `~/.codeium/windsurf/skills/`   |
 | Zencoder                              | `zencoder`                               | `.zencoder/skills/`      | `~/.zencoder/skills/`           |
 | Neovate                               | `neovate`                                | `.neovate/skills/`       | `~/.neovate/skills/`            |
@@ -385,6 +386,7 @@ The CLI searches for skills in these locations within a repository:
 - `.roo/skills/`
 - `.tabnine/agent/skills/`
 - `.trae/skills/`
+- `.tuskr/skills/`
 - `.windsurf/skills/`
 - `.zencoder/skills/`
 - `.neovate/skills/`
