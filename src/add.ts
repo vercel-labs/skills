@@ -268,6 +268,7 @@ function buildResultLines(
     .filter((r) => !r.symlinkFailed && !r.skipped && !universal.includes(r.agent))
     .map((r) => r.agent);
   const failedSymlinks = results.filter((r) => r.symlinkFailed && !r.skipped).map((r) => r.agent);
+  const skippedAgents = results.filter((r) => r.skipped).map((r) => r.agent);
 
   if (universal.length > 0) {
     lines.push(`  ${pc.green('universal:')} ${formatList(universal)}`);
@@ -277,6 +278,12 @@ function buildResultLines(
   }
   if (failedSymlinks.length > 0) {
     lines.push(`  ${pc.yellow('copied:')} ${formatList(failedSymlinks)}`);
+  }
+  if (skippedAgents.length > 0) {
+    lines.push(`  ${pc.yellow('skipped:')} ${formatList(skippedAgents)}`);
+    lines.push(
+      `  ${pc.dim('  (config dir not present in project; re-run with -a to install anyway)')}`
+    );
   }
 
   return lines;
@@ -538,6 +545,11 @@ async function handleWellKnownSkills(
 
   // Detect agents
   let targetAgents: AgentType[];
+  // True when the user explicitly chose agents via `-a / --agent`.
+  // This is forwarded to the installer so it skips its "don't auto-create
+  // unused agent directories" guard when the user clearly opted in.
+  const explicitlySelectedAgents =
+    !!options.agent && options.agent.length > 0 && !options.agent.includes('*');
   const validAgents = Object.keys(agents);
 
   if (options.agent?.includes('*')) {
@@ -1250,6 +1262,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       : Promise.resolve(null);
 
     let targetAgents: AgentType[];
+    // True when the user explicitly chose agents via `-a / --agent`.
+    // Forwarded to the installer so it skips its "don't auto-create
+    // unused agent directories" guard when the user clearly opted in.
+    const explicitlySelectedAgents =
+      !!options.agent && options.agent.length > 0 && !options.agent.includes('*');
     const validAgents = Object.keys(agents);
 
     if (options.agent?.includes('*')) {
@@ -1524,13 +1541,18 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           result = await installBlobSkillForAgent(
             { installName: blobSkill.name, files: blobSkill.files },
             agent,
-            { global: installGlobally, mode: installMode }
+            {
+              global: installGlobally,
+              mode: installMode,
+              explicitlySelected: explicitlySelectedAgents,
+            }
           );
         } else {
           // Disk-based install: copy from cloned/local directory
           result = await installSkillForAgent(skill, agent, {
             global: installGlobally,
             mode: installMode,
+            explicitlySelected: explicitlySelectedAgents,
           });
         }
         results.push({
