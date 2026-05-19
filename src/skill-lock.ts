@@ -56,6 +56,8 @@ export interface SkillLockFile {
   dismissed?: DismissedPrompts;
   /** Last selected agents for installation */
   lastSelectedAgents?: string[];
+  /** Preserve unknown top-level fields for forward compatibility */
+  [key: string]: unknown;
 }
 
 /**
@@ -74,7 +76,6 @@ export function getSkillLockPath(): string {
 /**
  * Read the skill lock file.
  * Returns an empty lock file structure if the file doesn't exist.
- * Wipes the lock file if it's an old format (version < CURRENT_VERSION).
  */
 export async function readSkillLock(): Promise<SkillLockFile> {
   const lockPath = getSkillLockPath();
@@ -83,18 +84,35 @@ export async function readSkillLock(): Promise<SkillLockFile> {
     const content = await readFile(lockPath, 'utf-8');
     const parsed = JSON.parse(content) as SkillLockFile;
 
-    // Validate version - wipe if old format
-    if (typeof parsed.version !== 'number' || !parsed.skills) {
+    // Validate minimum structure
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      !parsed.skills ||
+      typeof parsed.skills !== 'object'
+    ) {
       return createEmptyLockFile();
     }
 
-    // If old version, wipe and start fresh (backwards incompatible change)
-    // v3 adds skillFolderHash - we want fresh installs to populate it
+    // Migrate older lockfiles forward without discarding tracked skills.
+    // Missing v3 fields like skillFolderHash can remain empty until the next reinstall/update.
     if (parsed.version < CURRENT_VERSION) {
-      return createEmptyLockFile();
+      return {
+        ...parsed,
+        version: CURRENT_VERSION,
+        skills: parsed.skills,
+        dismissed: parsed.dismissed ?? {},
+        lastSelectedAgents: parsed.lastSelectedAgents,
+      };
     }
 
-    return parsed;
+    return {
+      ...parsed,
+      version: parsed.version,
+      skills: parsed.skills,
+      dismissed: parsed.dismissed ?? {},
+      lastSelectedAgents: parsed.lastSelectedAgents,
+    };
   } catch (error) {
     // File doesn't exist or is invalid - return empty
     return createEmptyLockFile();
@@ -114,6 +132,46 @@ export async function writeSkillLock(lock: SkillLockFile): Promise<void> {
   // Write with pretty formatting for human readability
   const content = JSON.stringify(lock, null, 2);
   await writeFile(lockPath, content, 'utf-8');
+}
+
+const SKILL_LOCK_KEY_SEPARATOR = '::';
+
+// Keep lock entries keyed by source+skill so identically named skills from different
+// providers (for example, an official source and a fork) do not overwrite each other.
+function makeSkillLockKey(source: string, skillName: string): string {
+  return `${source}${SKILL_LOCK_KEY_SEPARATOR}${skillName}`;
+}
+
+function getSkillNameFromLockKey(lockKey: string): string {
+  const separatorIndex = lockKey.indexOf(SKILL_LOCK_KEY_SEPARATOR);
+  if (separatorIndex === -1) {
+    return lockKey;
+  }
+  return lockKey.slice(separatorIndex + SKILL_LOCK_KEY_SEPARATOR.length);
+}
+
+function getLockEntriesForSkill(
+  lock: SkillLockFile,
+  skillName: string
+): Array<[string, SkillLockEntry]> {
+  if (skillName in lock.skills) {
+    return [[skillName, lock.skills[skillName]!]];
+  }
+
+  return Object.entries(lock.skills).filter(
+    ([lockKey]) => getSkillNameFromLockKey(lockKey) === skillName
+  );
+}
+
+function pickRepresentativeEntry(
+  entries: Array<[string, SkillLockEntry]>
+): SkillLockEntry | null {
+  if (entries.length === 0) {
+    return null;
+  }
+
+  const sorted = [...entries].sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
+  return sorted[0]![1];
 }
 
 /**
@@ -209,14 +267,23 @@ export async function addSkillToLock(
 ): Promise<void> {
   const lock = await readSkillLock();
   const now = new Date().toISOString();
+  const lockKey = makeSkillLockKey(entry.source, skillName);
+  const existingEntries = getLockEntriesForSkill(lock, skillName);
+  const existingEntry =
+    lock.skills[lockKey] ??
+    existingEntries.find(([, existing]) => existing.source === entry.source)?.[1];
 
-  const existingEntry = lock.skills[skillName];
-
-  lock.skills[skillName] = {
+  lock.skills[lockKey] = {
     ...entry,
     installedAt: existingEntry?.installedAt ?? now,
     updatedAt: now,
   };
+
+  for (const [existingKey, existing] of existingEntries) {
+    if (existingKey !== lockKey && existing.source === entry.source) {
+      delete lock.skills[existingKey];
+    }
+  }
 
   await writeSkillLock(lock);
 }
@@ -226,12 +293,14 @@ export async function addSkillToLock(
  */
 export async function removeSkillFromLock(skillName: string): Promise<boolean> {
   const lock = await readSkillLock();
-
-  if (!(skillName in lock.skills)) {
+  const entries = getLockEntriesForSkill(lock, skillName);
+  if (entries.length === 0) {
     return false;
   }
 
-  delete lock.skills[skillName];
+  for (const [lockKey] of entries) {
+    delete lock.skills[lockKey];
+  }
   await writeSkillLock(lock);
   return true;
 }
@@ -241,7 +310,7 @@ export async function removeSkillFromLock(skillName: string): Promise<boolean> {
  */
 export async function getSkillFromLock(skillName: string): Promise<SkillLockEntry | null> {
   const lock = await readSkillLock();
-  return lock.skills[skillName] ?? null;
+  return pickRepresentativeEntry(getLockEntriesForSkill(lock, skillName));
 }
 
 /**
@@ -249,7 +318,16 @@ export async function getSkillFromLock(skillName: string): Promise<SkillLockEntr
  */
 export async function getAllLockedSkills(): Promise<Record<string, SkillLockEntry>> {
   const lock = await readSkillLock();
-  return lock.skills;
+  const aggregated: Record<string, SkillLockEntry> = {};
+
+  for (const [lockKey, entry] of Object.entries(lock.skills)) {
+    const skillName = getSkillNameFromLockKey(lockKey);
+    if (!(skillName in aggregated)) {
+      aggregated[skillName] = entry;
+    }
+  }
+
+  return aggregated;
 }
 
 /**
@@ -261,7 +339,8 @@ export async function getSkillsBySource(): Promise<
   const lock = await readSkillLock();
   const bySource = new Map<string, { skills: string[]; entry: SkillLockEntry }>();
 
-  for (const [skillName, entry] of Object.entries(lock.skills)) {
+  for (const [lockKey, entry] of Object.entries(lock.skills)) {
+    const skillName = getSkillNameFromLockKey(lockKey);
     const existing = bySource.get(entry.source);
     if (existing) {
       existing.skills.push(skillName);

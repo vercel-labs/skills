@@ -323,13 +323,11 @@ function readSkillLock(): SkillLockFile {
   try {
     const content = readFileSync(lockPath, 'utf-8');
     const parsed = JSON.parse(content) as SkillLockFile;
-    if (typeof parsed.version !== 'number' || !parsed.skills) {
+    if (!parsed || typeof parsed !== 'object' || !parsed.skills || typeof parsed.skills !== 'object') {
       return { version: CURRENT_LOCK_VERSION, skills: {} };
     }
-    // If old version, wipe and start fresh (backwards incompatible change)
-    // v3 adds skillFolderHash - we want fresh installs to populate it
     if (parsed.version < CURRENT_LOCK_VERSION) {
-      return { version: CURRENT_LOCK_VERSION, skills: {} };
+      return { version: CURRENT_LOCK_VERSION, skills: parsed.skills };
     }
     return parsed;
   } catch {
