@@ -48,7 +48,7 @@ In `SKILL.md`, change links like `../../references/design-guidelines.md` to `./r
 
 ### Frontmatter (match upstream style)
 
-Align with existing skills in `agent-skills` (see [`composition-patterns/SKILL.md`](https://github.com/vercel-labs/agent-skills/blob/main/skills/composition-patterns/SKILL.md)): include `license: MIT` and `metadata: author:` / `version:`. Move long SkillCodex-only keys (`outcomes`, `stack`, …) into the body if reviewers want a minimal YAML block.
+Align with existing skills in `agent-skills` (see [`composition-patterns/SKILL.md`](https://github.com/vercel-labs/agent-skills/blob/main/skills/composition-patterns/SKILL.md)): include `license: MIT` and `metadata: author:` / `version:`. Move long SkillCodex-only keys (`outcomes`, `stack`, …) into the body if reviewers want a **compact upstream-style** YAML block.
 
 Put a **single, specific** `description:` line (triggers like “build doc UI”, “audit documentation UI”, “SkillCodex-style browser”).
 
