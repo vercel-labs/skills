@@ -1,29 +1,16 @@
 #!/usr/bin/env node
 
-import { spawnSync } from 'child_process';
-import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync } from 'fs';
-import { basename, join, dirname, relative, sep } from 'path';
-import { homedir } from 'os';
+import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
+import { basename, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import * as p from '@clack/prompts';
 import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
 import { runFind } from './find.ts';
 import { runInstallFromLock } from './install.ts';
 import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
-import { sanitizeMetadata } from './sanitize.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
-import { track, flushTelemetry } from './telemetry.ts';
+import { flushTelemetry } from './telemetry.ts';
 import { isRunningInAgent } from './detect-agent.ts';
-import { agents, isUniversalAgent } from './agents.ts';
-import type { AgentType } from './types.ts';
-import { fetchSkillFolderHash, getGitHubToken } from './skill-lock.ts';
-import { readLocalLock, type LocalSkillLockEntry } from './local-lock.ts';
-import {
-  buildUpdateInstallSource,
-  buildLocalUpdateSource,
-  formatSourceInput,
-} from './update-source.ts';
 import { runUpdate } from './update.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
