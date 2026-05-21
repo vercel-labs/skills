@@ -360,6 +360,4 @@ async function main(): Promise<void> {
   }
 }
 
-if (process.env.NODE_ENV !== 'test') {
-  main().finally(() => flushTelemetry().then(() => process.exit(0)));
-}
+main().finally(() => flushTelemetry().then(() => process.exit(0)));
