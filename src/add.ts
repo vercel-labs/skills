@@ -846,10 +846,12 @@ async function handleWellKnownSkills(
       const firstResult = skillResults[0]!;
 
       if (firstResult.mode === 'copy') {
-        // Copy mode: show skill name and list all agent paths
+        // Copy mode: show skill name and deduplicated destination paths
         resultLines.push(`${pc.green('✓')} ${skillName} ${pc.dim('(copied)')}`);
-        for (const r of skillResults) {
-          const shortPath = shortenPath(r.path, cwd);
+        const uniquePaths = [
+          ...new Set(skillResults.map((r) => shortenPath(r.path, cwd))),
+        ];
+        for (const shortPath of uniquePaths) {
           resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
         }
       } else {
@@ -1725,10 +1727,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           const firstResult = skillResults[0]!;
 
           if (firstResult.mode === 'copy') {
-            // Copy mode: show skill name and list all agent paths
+            // Copy mode: show skill name and deduplicated destination paths
             resultLines.push(`${pc.green('✓')} ${entry.skill} ${pc.dim('(copied)')}`);
-            for (const r of skillResults) {
-              const shortPath = shortenPath(r.path, cwd);
+            const uniquePaths = [
+              ...new Set(skillResults.map((r) => shortenPath(r.path, cwd))),
+            ];
+            for (const shortPath of uniquePaths) {
               resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
             }
           } else {
