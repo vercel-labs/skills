@@ -28,7 +28,7 @@ export function runCli(
   timeout?: number
 ): { stdout: string; stderr: string; exitCode: number } {
   try {
-    const output = execSync(`npx tsx "${CLI_PATH}" ${args.join(' ')}`, {
+    const output = execSync(`node "${CLI_PATH}" ${args.join(' ')}`, {
       encoding: 'utf-8',
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -56,7 +56,7 @@ export function runCliWithInput(
   cwd?: string
 ): { stdout: string; stderr: string; exitCode: number } {
   try {
-    const output = execSync(`npx tsx "${CLI_PATH}" ${args.join(' ')}`, {
+    const output = execSync(`node "${CLI_PATH}" ${args.join(' ')}`, {
       encoding: 'utf-8',
       cwd,
       input: input + '\n',

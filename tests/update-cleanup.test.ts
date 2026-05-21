@@ -143,7 +143,7 @@ describe('Update Cleanup Unit Tests', () => {
       ]);
 
       // Run update with yes: true (non-interactive)
-      await updateProjectSkills(undefined, { yes: true });
+      await updateProjectSkills({ yes: true });
 
       // Verify prompt was NOT shown
       expect(p.confirm).not.toHaveBeenCalled();

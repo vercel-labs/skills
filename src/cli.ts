@@ -592,11 +592,57 @@ async function getProjectSkillsForUpdate(
 }
 
 // ============================================
+// Update Cleanup Helper
+// ============================================
+
+async function checkAndPromptForDeletions(
+  source: string,
+  allLockedForSource: string[],
+  lockSkills: Record<string, { skillPath?: string }>,
+  isGlobal: boolean,
+  options: UpdateCheckOptions,
+  discoveredPaths: string[]
+): Promise<string[]> {
+  const deletedSkills = allLockedForSource.filter((name) => {
+    const entry = lockSkills[name];
+    if (!entry?.skillPath) return false;
+    return !discoveredPaths.includes(entry.skillPath);
+  });
+
+  if (deletedSkills.length > 0) {
+    console.log();
+    console.log(
+      `${DIM}Warning:${RESET} The following skills from ${DIM}${source}${RESET} appear to have been deleted upstream:`
+    );
+    for (const s of deletedSkills) {
+      console.log(`  ${DIM}•${RESET} ${s}`);
+    }
+
+    const isNonInteractive = options.yes || !process.stdin.isTTY;
+
+    if (isNonInteractive) {
+      console.log(`${DIM}Skipping deletion in non-interactive mode.${RESET}`);
+    } else {
+      const confirmed = await p.confirm({
+        message: `Would you like to remove the local copies of these deleted skills?`,
+      });
+
+      if (confirmed && !p.isCancel(confirmed)) {
+        for (const s of deletedSkills) {
+          console.log(`${DIM}Removing${RESET} ${s}...`);
+          await removeCommand([s], { yes: true, global: isGlobal });
+        }
+      }
+    }
+  }
+  return deletedSkills;
+}
+
+// ============================================
 // Update: Global Skills
 // ============================================
 
 export async function updateGlobalSkills(
-  skillFilter?: string[],
   options: UpdateCheckOptions = {}
 ): Promise<{ successCount: number; failCount: number; checkedCount: number }> {
   const lock = readSkillLock();
@@ -605,7 +651,7 @@ export async function updateGlobalSkills(
   let failCount = 0;
 
   if (skillNames.length === 0) {
-    if (!skillFilter) {
+    if (!options.skills) {
       console.log(`${DIM}No global skills tracked in lock file.${RESET}`);
       console.log(`${DIM}Install skills with${RESET} ${TEXT}npx skills add <package> -g${RESET}`);
     }
@@ -617,7 +663,7 @@ export async function updateGlobalSkills(
   const checkable: Array<{ name: string; entry: SkillLockEntry }> = [];
 
   for (const skillName of skillNames) {
-    if (!matchesSkillFilter(skillName, skillFilter)) continue;
+    if (!matchesSkillFilter(skillName, options.skills)) continue;
 
     const entry = lock.skills[skillName];
     if (!entry) continue;
@@ -656,43 +702,18 @@ export async function updateGlobalSkills(
       if (tree) {
         const discoveredPaths = findSkillMdPaths(tree);
 
-        // Find all skills in lock for this source
         const allLockedForSource = Object.entries(lock.skills)
           .filter(([_, entry]) => entry.source === source)
           .map(([name, _]) => name);
 
-        const deletedSkills = allLockedForSource.filter((name) => {
-          const entry = lock.skills[name];
-          if (!entry?.skillPath) return false;
-          return !discoveredPaths.includes(entry.skillPath);
-        });
-
-        if (deletedSkills.length > 0) {
-          console.log();
-          console.log(
-            `${DIM}Warning:${RESET} The following skills from ${DIM}${source}${RESET} appear to have been deleted upstream:`
-          );
-          for (const s of deletedSkills) {
-            console.log(`  ${DIM}•${RESET} ${s}`);
-          }
-
-          const isNonInteractive = options.yes || !process.stdin.isTTY;
-
-          if (isNonInteractive) {
-            console.log(`${DIM}Skipping deletion in non-interactive mode.${RESET}`);
-          } else {
-            const confirmed = await p.confirm({
-              message: `Would you like to remove the local copies of these deleted skills?`,
-            });
-
-            if (confirmed && !p.isCancel(confirmed)) {
-              for (const s of deletedSkills) {
-                console.log(`${DIM}Removing${RESET} ${s}...`);
-                await removeCommand([s], { yes: true, global: true });
-              }
-            }
-          }
-        }
+        const deletedSkills = await checkAndPromptForDeletions(
+          source,
+          allLockedForSource,
+          lock.skills,
+          true,
+          options,
+          discoveredPaths
+        );
 
         // Check for updates
         for (const { name: skillName, entry } of itemsForSource) {
@@ -772,15 +793,14 @@ export async function updateGlobalSkills(
 // ============================================
 
 export async function updateProjectSkills(
-  skillFilter?: string[],
   options: UpdateCheckOptions = {}
 ): Promise<{ successCount: number; failCount: number; foundCount: number }> {
-  const projectSkills = await getProjectSkillsForUpdate(skillFilter);
+  const projectSkills = await getProjectSkillsForUpdate(options.skills);
   let successCount = 0;
   let failCount = 0;
 
   if (projectSkills.length === 0) {
-    if (!skillFilter) {
+    if (!options.skills) {
       console.log(`${DIM}No project skills to update.${RESET}`);
       console.log(
         `${DIM}Install project skills with${RESET} ${TEXT}npx skills add <package>${RESET}`
@@ -870,38 +890,14 @@ export async function updateProjectSkills(
         return join(relPath, 'SKILL.md').split(sep).join('/');
       });
 
-      deletedSkills = allLockedForSource.filter((name) => {
-        const entry = localLock.skills[name];
-        if (!entry?.skillPath) return false;
-        return !discoveredPaths.includes(entry.skillPath);
-      });
-
-      if (deletedSkills.length > 0) {
-        console.log();
-        console.log(
-          `${DIM}Warning:${RESET} The following skills from ${DIM}${source}${RESET} appear to have been deleted upstream:`
-        );
-        for (const s of deletedSkills) {
-          console.log(`  ${DIM}•${RESET} ${s}`);
-        }
-
-        const isNonInteractive = options.yes || !process.stdin.isTTY;
-
-        if (isNonInteractive) {
-          console.log(`${DIM}Skipping deletion in non-interactive mode.${RESET}`);
-        } else {
-          const confirmed = await p.confirm({
-            message: `Would you like to remove the local copies of these deleted skills?`,
-          });
-
-          if (confirmed && !p.isCancel(confirmed)) {
-            for (const s of deletedSkills) {
-              console.log(`${DIM}Removing${RESET} ${s}...`);
-              await removeCommand([s], { yes: true, global: false });
-            }
-          }
-        }
-      }
+      deletedSkills = await checkAndPromptForDeletions(
+        source,
+        allLockedForSource,
+        localLock.skills,
+        false,
+        options,
+        discoveredPaths
+      );
     } catch (error) {
       console.log(`${DIM}✗ Failed to check for deleted skills from ${source}${RESET}`);
     } finally {
@@ -988,10 +984,7 @@ async function runUpdate(args: string[] = []): Promise<void> {
     if (scope === 'both' && !options.skills) {
       console.log(`${BOLD}Global Skills${RESET}`);
     }
-    const { successCount, failCount, checkedCount } = await updateGlobalSkills(
-      options.skills,
-      options
-    );
+    const { successCount, failCount, checkedCount } = await updateGlobalSkills(options);
     totalSuccess += successCount;
     totalFail += failCount;
     totalFound += checkedCount;
@@ -1005,10 +998,7 @@ async function runUpdate(args: string[] = []): Promise<void> {
     if (scope === 'both' && !options.skills) {
       console.log(`${BOLD}Project Skills${RESET}`);
     }
-    const { successCount, failCount, foundCount } = await updateProjectSkills(
-      options.skills,
-      options
-    );
+    const { successCount, failCount, foundCount } = await updateProjectSkills(options);
     totalSuccess += successCount;
     totalFail += failCount;
     totalFound += foundCount;
