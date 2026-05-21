@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { updateProjectSkills, updateGlobalSkills } from '../src/cli.ts';
+import { updateProjectSkills, updateGlobalSkills } from '../src/update.ts';
 import * as git from '../src/git.ts';
 import * as skills from '../src/skills.ts';
 import * as blob from '../src/blob.ts';
@@ -190,6 +190,29 @@ describe('Update Cleanup Unit Tests', () => {
 
   describe('updateGlobalSkills', () => {
     it('should prompt to remove deleted skill on global update', async () => {
+      // Mock readSkillLock
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            skillFolderHash: 'abc',
+            installedAt: '',
+            updatedAt: '',
+          },
+          'skill-b': {
+            source: 'owner/repo',
+            skillPath: 'skills/skill-b/SKILL.md',
+            sourceType: 'github',
+            skillFolderHash: 'def',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+
       // Mock fetchRepoTree
       vi.mocked(blob.fetchRepoTree).mockResolvedValue({
         sha: 'rootsha',
