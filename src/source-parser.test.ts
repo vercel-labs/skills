@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseSource } from './source-parser.js';
+import { parseSource, computeLockSource } from './source-parser.js';
 
 describe('source-parser', () => {
   describe('GitLab Custom Domains & Subgroups', () => {
@@ -126,6 +126,33 @@ describe('source-parser', () => {
         url: 'git@github.com:owner/repo.git',
         ref: 'feature/install',
       });
+    });
+  });
+
+  describe('computeLockSource', () => {
+    it('preserves the subpath for HTTPS shorthand (regression for #1005)', () => {
+      const parsed = parseSource('owner/repo/skills');
+      expect(computeLockSource(parsed)).toBe('owner/repo/skills');
+    });
+
+    it('preserves nested subpaths for HTTPS shorthand', () => {
+      const parsed = parseSource('owner/repo/path/to/skill');
+      expect(computeLockSource(parsed)).toBe('owner/repo/path/to/skill');
+    });
+
+    it('preserves the subpath for github.com tree URLs', () => {
+      const parsed = parseSource('https://github.com/owner/repo/tree/main/skills');
+      expect(computeLockSource(parsed)).toBe('owner/repo/skills');
+    });
+
+    it('returns owner/repo for HTTPS shorthand without subpath', () => {
+      const parsed = parseSource('owner/repo');
+      expect(computeLockSource(parsed)).toBe('owner/repo');
+    });
+
+    it('preserves SSH URLs verbatim (regression for #588)', () => {
+      const parsed = parseSource('git@github.com:owner/repo.git');
+      expect(computeLockSource(parsed)).toBe('git@github.com:owner/repo.git');
     });
   });
 });

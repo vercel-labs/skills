@@ -3,7 +3,13 @@ import pc from 'picocolors';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { sep, join, dirname } from 'path';
-import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
+import {
+  parseSource,
+  getOwnerRepo,
+  parseOwnerRepo,
+  isRepoPrivate,
+  computeLockSource,
+} from './source-parser.ts';
 import { stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 
@@ -1574,11 +1580,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Normalize source to owner/repo format for telemetry
     const normalizedSource = getOwnerRepo(parsed);
 
-    // Preserve SSH URLs in lock files instead of normalizing to owner/repo shorthand.
-    // When normalizedSource is used, parseSource() later resolves it to HTTPS,
-    // breaking restore for private repos that require SSH authentication.
-    const isSSH = parsed.url.startsWith('git@');
-    const lockSource = isSSH ? parsed.url : normalizedSource;
+    const lockSource = computeLockSource(parsed);
 
     // Only track if we have a valid remote source and it's not a private repo.
     // repoPrivacyPromise was started early (right after parsing) so it has
