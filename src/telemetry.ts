@@ -1,5 +1,35 @@
-const TELEMETRY_URL = 'https://add-skill.vercel.sh/t';
+import type { SourceVisibility } from './source-parser.ts';
+
+const DEFAULT_TELEMETRY_URL = 'https://add-skill.vercel.sh/t';
 const AUDIT_URL = 'https://add-skill.vercel.sh/audit';
+
+// npm/npx auto-inject `skills_telemetry_url` from .npmrc as
+// `npm_config_skills_telemetry_url` — supports centrally deployed config.
+function getTelemetryUrl(): string {
+  return (
+    process.env.SKILLS_TELEMETRY_URL ||
+    process.env.npm_config_skills_telemetry_url ||
+    DEFAULT_TELEMETRY_URL
+  );
+}
+
+function hasCustomTelemetryEndpoint(): boolean {
+  return getTelemetryUrl() !== DEFAULT_TELEMETRY_URL;
+}
+
+/**
+ * Decide whether to emit an install/remove telemetry event for a given source.
+ *
+ * Policy:
+ *  - 'public'           → always send (to default or custom endpoint)
+ *  - 'private'/'unknown → only send when operator has configured a custom
+ *                         endpoint AND explicitly set SKILLS_TELEMETRY_ALLOW_PRIVATE=1
+ *                         (private data never reaches the default Vercel endpoint)
+ */
+export function shouldSendTelemetry(visibility: SourceVisibility): boolean {
+  if (visibility === 'public') return true;
+  return hasCustomTelemetryEndpoint() && process.env.SKILLS_TELEMETRY_ALLOW_PRIVATE === '1';
+}
 
 interface InstallTelemetryData {
   event: 'install';
@@ -165,7 +195,7 @@ export function track(data: TelemetryData): void {
 
     // Fire and forget during the workflow, but track the promise so
     // flushTelemetry() can await it before the process exits.
-    const p = fetch(`${TELEMETRY_URL}?${params.toString()}`)
+    const p = fetch(`${getTelemetryUrl()}?${params.toString()}`)
       .catch(() => {})
       .then(() => {});
     pendingTelemetry.push(p);

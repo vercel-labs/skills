@@ -60,24 +60,30 @@ export function parseOwnerRepo(ownerRepo: string): { owner: string; repo: string
 }
 
 /**
- * Check if a GitHub repository is private.
- * Returns true if private, false if public, null if unable to determine.
+ * A skill source's visibility.
+ * 'public'  — confirmed public via GitHub API
+ * 'private' — confirmed private via GitHub API
+ * 'unknown' — couldn't determine (API error, non-GitHub host, non-owner/repo URL)
+ */
+export type SourceVisibility = 'public' | 'private' | 'unknown';
+
+/**
+ * Check the visibility of a GitHub repository.
+ * Returns 'public' or 'private' when confirmed, 'unknown' on any failure.
  * Only works for GitHub repositories (GitLab not supported).
  */
-export async function isRepoPrivate(owner: string, repo: string): Promise<boolean | null> {
+export async function getRepoVisibility(owner: string, repo: string): Promise<SourceVisibility> {
   try {
     const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
 
-    // If repo doesn't exist or we don't have access, assume private to be safe
     if (!res.ok) {
-      return null; // Unable to determine
+      return 'unknown';
     }
 
     const data = (await res.json()) as { private?: boolean };
-    return data.private === true;
+    return data.private === true ? 'private' : 'public';
   } catch {
-    // On error, return null to indicate we couldn't determine
-    return null;
+    return 'unknown';
   }
 }
 

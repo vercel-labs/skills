@@ -3,9 +3,10 @@ import pc from 'picocolors';
 import { readdir, rm, lstat } from 'fs/promises';
 import { join } from 'path';
 import { agents, detectInstalledAgents } from './agents.ts';
-import { track } from './telemetry.ts';
+import { track, shouldSendTelemetry } from './telemetry.ts';
 import { detectAgent } from './detect-agent.ts';
 import { removeSkillFromLock, getSkillFromLock } from './skill-lock.ts';
+import { parseOwnerRepo, getRepoVisibility } from './source-parser.ts';
 import type { AgentType } from './types.ts';
 import {
   getInstallPath,
@@ -261,14 +262,20 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     }
 
     for (const [source, data] of bySource) {
-      track({
-        event: 'remove',
-        source,
-        skills: data.skills.join(','),
-        agents: targetAgents.join(','),
-        ...(isGlobal && { global: '1' }),
-        sourceType: data.sourceType,
-      });
+      const ownerRepo = parseOwnerRepo(source);
+      const visibility = ownerRepo
+        ? await getRepoVisibility(ownerRepo.owner, ownerRepo.repo).catch(() => 'unknown' as const)
+        : 'unknown';
+      if (shouldSendTelemetry(visibility)) {
+        track({
+          event: 'remove',
+          source,
+          skills: data.skills.join(','),
+          agents: targetAgents.join(','),
+          ...(isGlobal && { global: '1' }),
+          sourceType: data.sourceType,
+        });
+      }
     }
   }
 

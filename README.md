@@ -446,9 +446,11 @@ Ensure you have write access to the target directory.
 
 | Variable                  | Description                                                                |
 | ------------------------- | -------------------------------------------------------------------------- |
-| `INSTALL_INTERNAL_SKILLS` | Set to `1` or `true` to show and install skills marked as `internal: true` |
-| `DISABLE_TELEMETRY`       | Set to disable anonymous usage telemetry                                   |
-| `DO_NOT_TRACK`            | Alternative way to disable telemetry                                       |
+| `INSTALL_INTERNAL_SKILLS`        | Set to `1` or `true` to show and install skills marked as `internal: true`                                        |
+| `DISABLE_TELEMETRY`              | Set to disable anonymous usage telemetry                                                                          |
+| `DO_NOT_TRACK`                   | Alternative way to disable telemetry                                                                              |
+| `SKILLS_TELEMETRY_URL`           | Override the telemetry endpoint (e.g. for self-hosted/internal install metrics)                                   |
+| `SKILLS_TELEMETRY_ALLOW_PRIVATE` | Set to `1` to allow install/remove events from private/internal sources (only honored with a custom endpoint)     |
 
 ```bash
 # Install internal skills

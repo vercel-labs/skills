@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { parseSource } from './source-parser.js';
+import { describe, it, expect, vi } from 'vitest';
+import { parseSource, getRepoVisibility } from './source-parser.js';
 
 describe('source-parser', () => {
   describe('GitLab Custom Domains & Subgroups', () => {
@@ -69,6 +69,44 @@ describe('source-parser', () => {
         type: 'gitlab',
         url: 'https://gitlab.com/owner/repo.git',
       });
+    });
+  });
+
+  describe('getRepoVisibility', () => {
+    it('returns "public" for a confirmed public repo', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve({ private: false }),
+        })
+      );
+      expect(await getRepoVisibility('vercel', 'next.js')).toBe('public');
+      vi.unstubAllGlobals();
+    });
+
+    it('returns "private" for a confirmed private repo', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve({ private: true }),
+        })
+      );
+      expect(await getRepoVisibility('owner', 'private-repo')).toBe('private');
+      vi.unstubAllGlobals();
+    });
+
+    it('returns "unknown" when API returns non-OK status', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404 }));
+      expect(await getRepoVisibility('owner', 'nonexistent')).toBe('unknown');
+      vi.unstubAllGlobals();
+    });
+
+    it('returns "unknown" when fetch throws', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network error')));
+      expect(await getRepoVisibility('owner', 'repo')).toBe('unknown');
+      vi.unstubAllGlobals();
     });
   });
 

@@ -93,7 +93,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 
 ================================================================================
-Package: yaml@2.8.3
+Package: yaml@2.8.4
 License: ISC
 Repository: https://github.com/eemeli/yaml
 --------------------------------------------------------------------------------
