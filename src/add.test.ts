@@ -4,7 +4,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from './test-utils.ts';
 import { shouldInstallInternalSkills } from './skills.ts';
-import { parseAddOptions } from './add.ts';
+import { parseAddOptions, shouldUseBlobInstall } from './add.ts';
 
 describe('add command', () => {
   let testDir: string;
@@ -388,6 +388,57 @@ describe('parseAddOptions', () => {
     expect(result.options.fullDepth).toBe(true);
     expect(result.options.list).toBe(true);
     expect(result.options.global).toBe(true);
+  });
+});
+
+describe('shouldUseBlobInstall', () => {
+  it('uses blob install for allowlisted unpinned GitHub sources', () => {
+    expect(
+      shouldUseBlobInstall(
+        {
+          type: 'github',
+          url: 'https://github.com/vercel-labs/skills.git',
+        },
+        {}
+      )
+    ).toBe(true);
+  });
+
+  it('skips blob install for pinned GitHub refs so checkout integrity is preserved', () => {
+    expect(
+      shouldUseBlobInstall(
+        {
+          type: 'github',
+          url: 'https://github.com/vercel-labs/skills.git',
+          ref: 'v1.4.2',
+        },
+        {}
+      )
+    ).toBe(false);
+  });
+
+  it('skips blob install when full-depth discovery is requested', () => {
+    expect(
+      shouldUseBlobInstall(
+        {
+          type: 'github',
+          url: 'https://github.com/vercel-labs/skills.git',
+        },
+        { fullDepth: true }
+      )
+    ).toBe(false);
+  });
+
+  it('skips blob install for non-allowlisted owners', () => {
+    expect(
+      shouldUseBlobInstall(
+        {
+          type: 'github',
+          url: 'https://github.com/example/skills.git',
+        },
+        {}
+      )
+    ).toBe(false);
   });
 });
 
