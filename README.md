@@ -40,15 +40,18 @@ npx skills add ./my-local-skills
 
 ### Options
 
-| Option                    | Description                                                                                                                                        |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `-g, --global`            | Install to user directory instead of project                                                                                                       |
-| `-a, --agent <agents...>` | <!-- agent-names:start -->Target specific agents (e.g., `claude-code`, `codex`). See [Supported Agents](#supported-agents)<!-- agent-names:end --> |
-| `-s, --skill <skills...>` | Install specific skills by name (use `'*'` for all skills)                                                                                         |
-| `-l, --list`              | List available skills without installing                                                                                                           |
-| `--copy`                  | Copy files instead of symlinking to agent directories                                                                                              |
-| `-y, --yes`               | Skip all confirmation prompts                                                                                                                      |
-| `--all`                   | Install all skills to all agents without prompts                                                                                                   |
+| Option                             | Description                                                                                                                                        |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-g, --global`                     | Install to user directory instead of project                                                                                                       |
+| `-a, --agent <agents...>`          | <!-- agent-names:start -->Target specific agents (e.g., `claude-code`, `codex`). See [Supported Agents](#supported-agents)<!-- agent-names:end --> |
+| `-s, --skill <skills...>`          | Install specific skills by name (use `'*'` for all skills)                                                                                         |
+| `-l, --list`                       | List available skills without installing                                                                                                           |
+| `--copy`                           | Copy files instead of symlinking to agent directories                                                                                              |
+| `-y, --yes`                        | Skip all confirmation prompts                                                                                                                      |
+| `--all`                            | Install all skills to all agents without prompts                                                                                                   |
+| `--anythingllm-project [project]`  | Select and record an AnythingLLM project by title, slug, or id when installing with `--agent anythingllm`                                          |
+| `--anythingllm-storage-dir <path>` | Override the AnythingLLM storage directory used for detection and installation                                                                     |
+| `--anythingllm-skip-project`       | Skip AnythingLLM project selection                                                                                                                 |
 
 ### Examples
 
@@ -76,6 +79,9 @@ npx skills add vercel-labs/agent-skills --skill '*' -a claude-code
 
 # Install specific skills to all agents
 npx skills add vercel-labs/agent-skills --agent '*' --skill frontend-design
+
+# Install to AnythingLLM and record the target project context
+npx skills add vercel-labs/agent-skills --agent anythingllm --skill frontend-design --anythingllm-project "My Workspace"
 ```
 
 ### Installation Scope
@@ -289,7 +295,10 @@ Skills can be installed to any of these agents:
 > `plugin.json` and `handler.js`. Installing with `--agent anythingllm` writes those wrapper files alongside
 > `SKILL.md` so the skill appears in AnythingLLM's Custom Skills UI. Set `STORAGE_DIR` to an AnythingLLM
 > storage directory to target `$STORAGE_DIR/plugins/agent-skills`; otherwise the CLI falls back to common
-> project storage layouts.
+> project storage layouts and desktop storage locations on macOS, Windows, and Linux. Use
+> `--anythingllm-project [project]` to select a workspace by title, slug, or id. AnythingLLM stores imported
+> skills at the instance level today, so the CLI records the selected project in generated wrapper metadata
+> instead of moving the skill into a project-specific directory.
 
 > [!NOTE]
 > **Kiro CLI users:** The default agent automatically loads skills from `.kiro/skills/` and `~/.kiro/skills/` — no

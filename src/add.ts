@@ -40,6 +40,12 @@ import {
   isUniversalAgent,
 } from './agents.ts';
 import {
+  listAnythingLLMProjects,
+  resolveAnythingLLMProject,
+  resolveAnythingLLMStorage,
+  type AnythingLLMProject,
+} from './agents/anythingllm.ts';
+import {
   track,
   setVersion,
   fetchAuditData,
@@ -429,6 +435,77 @@ export interface AddOptions {
   fullDepth?: boolean;
   copy?: boolean;
   dangerouslyAcceptOpenclawRisks?: boolean;
+  anythingllmProject?: string | true;
+  anythingllmStorageDir?: string;
+  anythingllmSkipProject?: boolean;
+}
+
+async function resolveAnythingLLMProjectSelection(
+  options: AddOptions,
+  targetAgents: AgentType[],
+  cwd: string
+): Promise<AnythingLLMProject | undefined> {
+  if (!targetAgents.includes('anythingllm')) return undefined;
+
+  if (options.anythingllmStorageDir) {
+    process.env.STORAGE_DIR = options.anythingllmStorageDir;
+  }
+
+  if (options.anythingllmSkipProject || options.anythingllmProject === undefined) {
+    return undefined;
+  }
+
+  const storage = resolveAnythingLLMStorage({
+    cwd,
+    explicitStorageDir: options.anythingllmStorageDir,
+  });
+  const projects = await listAnythingLLMProjects(storage);
+
+  if (typeof options.anythingllmProject === 'string') {
+    if (projects.length === 0) {
+      throw new Error(
+        `Could not discover AnythingLLM projects from ${storage.databasePath}. Install will not guess project state.`
+      );
+    }
+    return resolveAnythingLLMProject(projects, options.anythingllmProject);
+  }
+
+  if (options.yes) {
+    throw new Error(
+      '--anythingllm-project requires a project title, slug, or id in non-interactive mode.'
+    );
+  }
+
+  if (projects.length === 0) {
+    p.log.warn(
+      `No AnythingLLM projects found at ${storage.databasePath}. Installing at the instance level.`
+    );
+    return undefined;
+  }
+
+  const selected = await p.select({
+    message: 'Select AnythingLLM project',
+    options: [
+      ...projects.map((project) => ({
+        value: project.id,
+        label: project.title,
+        hint: project.slug ? `workspace: ${project.slug}` : `id: ${project.id}`,
+      })),
+      {
+        value: '__skip__',
+        label: 'Skip project selection',
+        hint: 'Install at the AnythingLLM instance level',
+      },
+    ],
+  });
+
+  if (p.isCancel(selected)) {
+    p.cancel('Installation cancelled');
+    process.exit(0);
+  }
+
+  if (selected === '__skip__') return undefined;
+  return projects.find((project) => project.id === selected);
 }
 
 /**
@@ -670,6 +747,7 @@ async function handleWellKnownSkills(
   }
 
   const cwd = process.cwd();
+  const anythingllmProject = await resolveAnythingLLMProjectSelection(options, targetAgents, cwd);
 
   // Build installation summary
   const summaryLines: string[] = [];
@@ -702,6 +780,11 @@ async function handleWellKnownSkills(
     summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
     if (skill.files.size > 1) {
       summaryLines.push(`  ${pc.dim('files:')} ${skill.files.size}`);
+    }
+    if (anythingllmProject && targetAgents.includes('anythingllm')) {
+      summaryLines.push(
+        `  ${pc.dim('AnythingLLM project:')} ${anythingllmProject.title}${anythingllmProject.slug ? pc.dim(` (${anythingllmProject.slug})`) : ''}`
+      );
     }
 
     const skillOverwrites = overwriteStatus.get(skill.installName);
@@ -748,6 +831,7 @@ async function handleWellKnownSkills(
       const result = await installWellKnownSkillForAgent(skill, agent, {
         global: installGlobally,
         mode: installMode,
+        anythingllmProject: agent === 'anythingllm' ? anythingllmProject : undefined,
       });
       results.push({
         skill: skill.installName,
@@ -1387,6 +1471,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     const cwd = process.cwd();
+    const anythingllmProject = await resolveAnythingLLMProjectSelection(options, targetAgents, cwd);
 
     // Build installation summary
     const summaryLines: string[] = [];
@@ -1433,6 +1518,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         const shortCanonical = shortenPath(canonicalPath, cwd);
         summaryLines.push(`${pc.cyan(shortCanonical)}`);
         summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
+        if (anythingllmProject && targetAgents.includes('anythingllm')) {
+          summaryLines.push(
+            `  ${pc.dim('AnythingLLM project:')} ${anythingllmProject.title}${anythingllmProject.slug ? pc.dim(` (${anythingllmProject.slug})`) : ''}`
+          );
+        }
 
         const skillOverwrites = overwriteStatus.get(skill.name);
         const overwriteAgents = targetAgents
@@ -1524,13 +1614,18 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           result = await installBlobSkillForAgent(
             { installName: blobSkill.name, files: blobSkill.files },
             agent,
-            { global: installGlobally, mode: installMode }
+            {
+              global: installGlobally,
+              mode: installMode,
+              anythingllmProject: agent === 'anythingllm' ? anythingllmProject : undefined,
+            }
           );
         } else {
           // Disk-based install: copy from cloned/local directory
           result = await installSkillForAgent(skill, agent, {
             global: installGlobally,
             mode: installMode,
+            anythingllmProject: agent === 'anythingllm' ? anythingllmProject : undefined,
           });
         }
         results.push({
@@ -1940,6 +2035,22 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       options.fullDepth = true;
     } else if (arg === '--copy') {
       options.copy = true;
+    } else if (arg === '--anythingllm-project') {
+      const nextArg = args[i + 1];
+      if (nextArg && !nextArg.startsWith('-')) {
+        options.anythingllmProject = nextArg;
+        i++;
+      } else {
+        options.anythingllmProject = true;
+      }
+    } else if (arg === '--anythingllm-storage-dir') {
+      const nextArg = args[i + 1];
+      if (nextArg && !nextArg.startsWith('-')) {
+        options.anythingllmStorageDir = nextArg;
+        i++;
+      }
+    } else if (arg === '--anythingllm-skip-project') {
+      options.anythingllmSkipProject = true;
     } else if (arg === '--dangerously-accept-openclaw-risks') {
       options.dangerouslyAcceptOpenclawRisks = true;
     } else if (arg && !arg.startsWith('-')) {

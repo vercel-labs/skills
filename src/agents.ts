@@ -1,8 +1,9 @@
 import { homedir } from 'os';
-import { join, resolve } from 'path';
+import { join } from 'path';
 import { existsSync } from 'fs';
 import { xdgConfig } from 'xdg-basedir';
 import type { AgentConfig, AgentType } from './types.ts';
+import { getAnythingLLMSkillsDir, isAnythingLLMInstalled } from './agents/anythingllm.ts';
 
 const home = homedir();
 // Use xdg-basedir (not env-paths) to match OpenCode/Amp/Goose behavior on all platforms.
@@ -10,46 +11,6 @@ const configHome = xdgConfig ?? join(home, '.config');
 const codexHome = process.env.CODEX_HOME?.trim() || join(home, '.codex');
 const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude');
 const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
-
-function nonEmptyEnv(value: string | undefined): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed || undefined;
-}
-
-function getAnythingLLMSkillsDirCandidates(
-  cwd = process.cwd(),
-  env: NodeJS.ProcessEnv = process.env
-): string[] {
-  const explicitSkillsDir = nonEmptyEnv(env.ANYTHINGLLM_SKILLS_DIR);
-  if (explicitSkillsDir) return [resolve(explicitSkillsDir)];
-
-  const storageDir = nonEmptyEnv(env.STORAGE_DIR);
-  const candidates = [
-    ...(storageDir ? [resolve(storageDir, 'plugins', 'agent-skills')] : []),
-    resolve(cwd, 'plugins', 'agent-skills'),
-    resolve(cwd, 'server', 'storage', 'plugins', 'agent-skills'),
-    resolve(cwd, 'storage', 'plugins', 'agent-skills'),
-  ];
-
-  return [...new Set(candidates)];
-}
-
-export function getAnythingLLMSkillsDir(
-  cwd = process.cwd(),
-  env: NodeJS.ProcessEnv = process.env,
-  pathExists: (path: string) => boolean = existsSync
-): string {
-  const candidates = getAnythingLLMSkillsDirCandidates(cwd, env);
-  return candidates.find(pathExists) ?? candidates[0]!;
-}
-
-export function isAnythingLLMInstalled(
-  cwd = process.cwd(),
-  env: NodeJS.ProcessEnv = process.env,
-  pathExists: (path: string) => boolean = existsSync
-): boolean {
-  return getAnythingLLMSkillsDirCandidates(cwd, env).some(pathExists);
-}
 
 export function getOpenClawGlobalSkillsDir(
   homeDir = home,

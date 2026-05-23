@@ -16,6 +16,7 @@ import { join, basename, normalize, resolve, sep, relative, dirname } from 'path
 import { homedir, platform } from 'os';
 import type { Skill, AgentType, RemoteSkill } from './types.ts';
 import type { WellKnownSkill } from './providers/wellknown.ts';
+import type { AnythingLLMProject } from './agents/anythingllm.ts';
 import { agents, detectInstalledAgents, getAgentSkillsDir, isUniversalAgent } from './agents.ts';
 import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
 import { parseSkillMd } from './skills.ts';
@@ -36,6 +37,7 @@ interface AnythingLLMPluginMetadata {
   hubId: string;
   name: string;
   description: string;
+  project?: AnythingLLMProject;
 }
 
 /**
@@ -186,6 +188,14 @@ async function writeAnythingLLMPluginFiles(
       },
     },
     imported: true,
+    ...(metadata.project
+      ? {
+          skillsCli: {
+            anythingllmProject: metadata.project,
+            note: 'AnythingLLM imported skills are installed at the instance level; project selection is recorded for user context.',
+          },
+        }
+      : {}),
   };
 
   await writeFile(pluginJsonPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf-8');
@@ -313,7 +323,12 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
 export async function installSkillForAgent(
   skill: Skill,
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
+  options: {
+    global?: boolean;
+    cwd?: string;
+    mode?: InstallMode;
+    anythingllmProject?: AnythingLLMProject;
+  } = {}
 ): Promise<InstallResult> {
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
@@ -371,6 +386,7 @@ export async function installSkillForAgent(
         hubId: skillName,
         name: skill.name || skillName,
         description: skill.description || `Imported skill: ${skill.name || skillName}`,
+        project: options.anythingllmProject,
       });
 
       return {
@@ -387,6 +403,7 @@ export async function installSkillForAgent(
       hubId: skillName,
       name: skill.name || skillName,
       description: skill.description || `Imported skill: ${skill.name || skillName}`,
+      project: options.anythingllmProject,
     });
 
     // For universal agents with global install, the skill is already in the canonical
@@ -428,6 +445,7 @@ export async function installSkillForAgent(
         hubId: skillName,
         name: skill.name || skillName,
         description: skill.description || `Imported skill: ${skill.name || skillName}`,
+        project: options.anythingllmProject,
       });
 
       return {
@@ -585,7 +603,12 @@ export function getCanonicalPath(
 export async function installRemoteSkillForAgent(
   skill: RemoteSkill,
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
+  options: {
+    global?: boolean;
+    cwd?: string;
+    mode?: InstallMode;
+    anythingllmProject?: AnythingLLMProject;
+  } = {}
 ): Promise<InstallResult> {
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
@@ -642,6 +665,7 @@ export async function installRemoteSkillForAgent(
         hubId: skillName,
         name: skill.name || skillName,
         description: skill.description || `Imported skill: ${skill.name || skillName}`,
+        project: options.anythingllmProject,
       });
 
       return {
@@ -659,6 +683,7 @@ export async function installRemoteSkillForAgent(
       hubId: skillName,
       name: skill.name || skillName,
       description: skill.description || `Imported skill: ${skill.name || skillName}`,
+      project: options.anythingllmProject,
     });
 
     // For universal agents with global install, skip creating agent-specific symlink
@@ -682,6 +707,7 @@ export async function installRemoteSkillForAgent(
         hubId: skillName,
         name: skill.name || skillName,
         description: skill.description || `Imported skill: ${skill.name || skillName}`,
+        project: options.anythingllmProject,
       });
 
       return {
@@ -719,7 +745,12 @@ export async function installRemoteSkillForAgent(
 export async function installWellKnownSkillForAgent(
   skill: WellKnownSkill,
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
+  options: {
+    global?: boolean;
+    cwd?: string;
+    mode?: InstallMode;
+    anythingllmProject?: AnythingLLMProject;
+  } = {}
 ): Promise<InstallResult> {
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
@@ -796,6 +827,7 @@ export async function installWellKnownSkillForAgent(
         hubId: skillName,
         name: skill.name || skillName,
         description: skill.description || `Imported skill: ${skill.name || skillName}`,
+        project: options.anythingllmProject,
       });
 
       return {
@@ -812,6 +844,7 @@ export async function installWellKnownSkillForAgent(
       hubId: skillName,
       name: skill.name || skillName,
       description: skill.description || `Imported skill: ${skill.name || skillName}`,
+      project: options.anythingllmProject,
     });
 
     // For universal agents with global install, skip creating agent-specific symlink
@@ -834,6 +867,7 @@ export async function installWellKnownSkillForAgent(
         hubId: skillName,
         name: skill.name || skillName,
         description: skill.description || `Imported skill: ${skill.name || skillName}`,
+        project: options.anythingllmProject,
       });
 
       return {
@@ -869,7 +903,12 @@ export async function installWellKnownSkillForAgent(
 export async function installBlobSkillForAgent(
   skill: { installName: string; files: Array<{ path: string; contents: string }> },
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
+  options: {
+    global?: boolean;
+    cwd?: string;
+    mode?: InstallMode;
+    anythingllmProject?: AnythingLLMProject;
+  } = {}
 ): Promise<InstallResult> {
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
@@ -931,6 +970,7 @@ export async function installBlobSkillForAgent(
         hubId: skillName,
         name: skill.installName,
         description: `Imported skill: ${skill.installName}`,
+        project: options.anythingllmProject,
       });
       return { success: true, path: agentDir, mode: 'copy' };
     }
@@ -942,6 +982,7 @@ export async function installBlobSkillForAgent(
       hubId: skillName,
       name: skill.installName,
       description: `Imported skill: ${skill.installName}`,
+      project: options.anythingllmProject,
     });
 
     if (isGlobal && isUniversalAgent(agentType)) {
@@ -977,6 +1018,7 @@ export async function installBlobSkillForAgent(
         hubId: skillName,
         name: skill.installName,
         description: `Imported skill: ${skill.installName}`,
+        project: options.anythingllmProject,
       });
       return {
         success: true,

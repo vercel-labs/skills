@@ -1,15 +1,19 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   agents,
   getAgentSkillsDir,
-  getAnythingLLMSkillsDir,
   getNonUniversalAgents,
   getUniversalAgents,
-  isAnythingLLMInstalled,
 } from '../src/agents.ts';
+import {
+  getAnythingLLMSkillsDir,
+  isAnythingLLMInstalled,
+  resolveAnythingLLMProject,
+  resolveAnythingLLMStorage,
+} from '../src/agents/anythingllm.ts';
 import {
   getAgentBaseDir,
   installRemoteSkillForAgent,
@@ -25,6 +29,13 @@ function readAnythingLLMManifest(skillDir: string) {
     description: string;
     entrypoint: { file: string; params: Record<string, unknown> };
     imported: boolean;
+    skillsCli?: {
+      anythingllmProject?: {
+        id: string;
+        title: string;
+        slug?: string;
+      };
+    };
   };
 }
 
@@ -50,9 +61,14 @@ describe('AnythingLLM agent support', () => {
   const originalCwd = process.cwd();
   const originalStorageDir = process.env.STORAGE_DIR;
   const originalAnythingLLMSkillsDir = process.env.ANYTHINGLLM_SKILLS_DIR;
+  const originalAppData = process.env.APPDATA;
+  const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
   let tempDir: string | undefined;
 
-  function restoreEnv(name: 'STORAGE_DIR' | 'ANYTHINGLLM_SKILLS_DIR', value: string | undefined) {
+  function restoreEnv(
+    name: 'STORAGE_DIR' | 'ANYTHINGLLM_SKILLS_DIR' | 'APPDATA' | 'XDG_CONFIG_HOME',
+    value: string | undefined
+  ) {
     if (value === undefined) {
       delete process.env[name];
       return;
@@ -60,10 +76,19 @@ describe('AnythingLLM agent support', () => {
     process.env[name] = value;
   }
 
+  beforeEach(() => {
+    delete process.env.STORAGE_DIR;
+    delete process.env.ANYTHINGLLM_SKILLS_DIR;
+    process.env.APPDATA = join(tmpdir(), 'skills-empty-appdata');
+    process.env.XDG_CONFIG_HOME = join(tmpdir(), 'skills-empty-xdg-config');
+  });
+
   afterEach(() => {
     process.chdir(originalCwd);
     restoreEnv('STORAGE_DIR', originalStorageDir);
     restoreEnv('ANYTHINGLLM_SKILLS_DIR', originalAnythingLLMSkillsDir);
+    restoreEnv('APPDATA', originalAppData);
+    restoreEnv('XDG_CONFIG_HOME', originalXdgConfigHome);
     if (tempDir) {
       rmSync(tempDir, { recursive: true, force: true });
       tempDir = undefined;
@@ -127,6 +152,64 @@ describe('AnythingLLM agent support', () => {
     );
   });
 
+  it('detects desktop AnythingLLM storage locations', () => {
+    const appData = join(tmpdir(), 'anythingllm-appdata');
+    const desktopSkillsDir = join(
+      appData,
+      'anythingllm-desktop',
+      'storage',
+      'plugins',
+      'agent-skills'
+    );
+
+    expect(
+      isAnythingLLMInstalled(
+        join(tmpdir(), 'anythingllm-cwd'),
+        { APPDATA: appData },
+        (path) => path === desktopSkillsDir
+      )
+    ).toBe(true);
+    expect(
+      getAnythingLLMSkillsDir(
+        join(tmpdir(), 'anythingllm-cwd'),
+        { APPDATA: appData },
+        (path) => path === desktopSkillsDir
+      )
+    ).toBe(desktopSkillsDir);
+  });
+
+  it('resolves storage from an explicit AnythingLLM skills directory', () => {
+    const storageDir = join(tmpdir(), 'anythingllm-explicit-storage');
+    const explicitSkillsDir = join(storageDir, 'plugins', 'agent-skills');
+
+    expect(
+      resolveAnythingLLMStorage({
+        cwd: join(tmpdir(), 'anythingllm-cwd'),
+        env: { ANYTHINGLLM_SKILLS_DIR: explicitSkillsDir },
+      })
+    ).toMatchObject({
+      storageDir,
+      skillsDir: explicitSkillsDir,
+      databasePath: join(storageDir, 'anythingllm.db'),
+    });
+  });
+
+  it('resolves AnythingLLM projects by id, title, or slug', () => {
+    const projects = [
+      { id: '1', title: 'Support Desk', slug: 'support-desk' },
+      { id: '2', title: 'Research', slug: 'research' },
+    ];
+
+    expect(resolveAnythingLLMProject(projects, '1')).toMatchObject({ title: 'Support Desk' });
+    expect(resolveAnythingLLMProject(projects, 'research')).toMatchObject({ id: '2' });
+    expect(resolveAnythingLLMProject(projects, 'Support Desk')).toMatchObject({
+      slug: 'support-desk',
+    });
+    expect(() => resolveAnythingLLMProject(projects, 'missing')).toThrow(
+      'No AnythingLLM project found'
+    );
+  });
+
   it('installs project skills into the resolved AnythingLLM storage directory', async () => {
     tempDir = mkdtempSync(join(tmpdir(), 'skills-anythingllm-install-'));
     const skillDir = join(tempDir, 'source-skill');
@@ -171,6 +254,49 @@ describe('AnythingLLM agent support', () => {
       'Example AnythingLLM Skill'
     );
     expect(getAgentSkillsDir('anythingllm', { cwd: tempDir })).toBe(anythingllmSkillsDir);
+  });
+
+  it('records selected AnythingLLM project metadata in generated wrappers', async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'skills-anythingllm-project-'));
+    const skillDir = join(tempDir, 'source-skill');
+    const storageDir = join(tempDir, 'anythingllm-storage');
+
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      ['---', 'name: Project AnythingLLM Skill', 'description: Project test skill', '---', ''].join(
+        '\n'
+      )
+    );
+    process.env.STORAGE_DIR = storageDir;
+
+    const result = await installSkillForAgent(
+      {
+        name: 'Project AnythingLLM Skill',
+        description: 'Project test skill',
+        path: skillDir,
+      },
+      'anythingllm',
+      {
+        cwd: tempDir,
+        mode: 'copy',
+        anythingllmProject: {
+          id: '42',
+          title: 'Customer Ops',
+          slug: 'customer-ops',
+        },
+      }
+    );
+
+    expect(readAnythingLLMManifest(result.path)).toMatchObject({
+      skillsCli: {
+        anythingllmProject: {
+          id: '42',
+          title: 'Customer Ops',
+          slug: 'customer-ops',
+        },
+      },
+    });
   });
 
   it('creates AnythingLLM wrappers in default symlink mode', async () => {

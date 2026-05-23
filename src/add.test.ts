@@ -389,6 +389,31 @@ describe('parseAddOptions', () => {
     expect(result.options.list).toBe(true);
     expect(result.options.global).toBe(true);
   });
+
+  it('should parse AnythingLLM project targeting options', () => {
+    const result = parseAddOptions([
+      'source',
+      '--agent',
+      'anythingllm',
+      '--anythingllm-project',
+      'Customer Ops',
+      '--anythingllm-storage-dir',
+      '/tmp/anythingllm-storage',
+    ]);
+
+    expect(result.source).toEqual(['source']);
+    expect(result.options.agent).toEqual(['anythingllm']);
+    expect(result.options.anythingllmProject).toBe('Customer Ops');
+    expect(result.options.anythingllmStorageDir).toBe('/tmp/anythingllm-storage');
+  });
+
+  it('should parse interactive and skip AnythingLLM project flags', () => {
+    const interactive = parseAddOptions(['source', '--anythingllm-project']);
+    const skipped = parseAddOptions(['source', '--anythingllm-skip-project']);
+
+    expect(interactive.options.anythingllmProject).toBe(true);
+    expect(skipped.options.anythingllmSkipProject).toBe(true);
+  });
 });
 
 describe('openclaw source blocking', () => {

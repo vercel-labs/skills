@@ -132,6 +132,12 @@ ${BOLD}Add Options:${RESET}
   --copy                 Copy files instead of symlinking to agent directories
   --all                  Shorthand for --skill '*' --agent '*' -y
   --full-depth           Search all subdirectories even when a root SKILL.md exists
+  --anythingllm-project [project]
+                         Select and record an AnythingLLM project by title, slug, or id
+  --anythingllm-storage-dir <path>
+                         Override the AnythingLLM storage directory
+  --anythingllm-skip-project
+                         Skip AnythingLLM project selection
 
 ${BOLD}Remove Options:${RESET}
   -g, --global           Remove from global scope
