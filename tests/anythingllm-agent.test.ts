@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -10,7 +10,41 @@ import {
   getUniversalAgents,
   isAnythingLLMInstalled,
 } from '../src/agents.ts';
-import { getAgentBaseDir, installSkillForAgent } from '../src/installer.ts';
+import {
+  getAgentBaseDir,
+  installRemoteSkillForAgent,
+  installSkillForAgent,
+} from '../src/installer.ts';
+
+function readAnythingLLMManifest(skillDir: string) {
+  return JSON.parse(readFileSync(join(skillDir, 'plugin.json'), 'utf-8')) as {
+    active: boolean;
+    hubId: string;
+    name: string;
+    schema: string;
+    description: string;
+    entrypoint: { file: string; params: Record<string, unknown> };
+    imported: boolean;
+  };
+}
+
+function expectAnythingLLMPlugin(skillDir: string, hubId: string, name: string) {
+  expect(existsSync(join(skillDir, 'SKILL.md'))).toBe(true);
+  expect(existsSync(join(skillDir, 'handler.js'))).toBe(true);
+
+  const manifest = readAnythingLLMManifest(skillDir);
+  expect(manifest).toMatchObject({
+    active: false,
+    hubId,
+    name,
+    schema: 'skill-1.0.0',
+    entrypoint: {
+      file: 'handler.js',
+    },
+    imported: true,
+  });
+  expect(manifest.entrypoint.params).toHaveProperty('request');
+}
 
 describe('AnythingLLM agent support', () => {
   const originalCwd = process.cwd();
@@ -131,6 +165,135 @@ describe('AnythingLLM agent support', () => {
       path: join(anythingllmSkillsDir, 'example-anythingllm-skill'),
       mode: 'copy',
     });
+    expectAnythingLLMPlugin(
+      join(anythingllmSkillsDir, 'example-anythingllm-skill'),
+      'example-anythingllm-skill',
+      'Example AnythingLLM Skill'
+    );
     expect(getAgentSkillsDir('anythingllm', { cwd: tempDir })).toBe(anythingllmSkillsDir);
+  });
+
+  it('creates AnythingLLM wrappers in default symlink mode', async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'skills-anythingllm-symlink-'));
+    const skillDir = join(tempDir, 'source-skill');
+    const storageDir = join(tempDir, 'anythingllm-storage');
+    const anythingllmSkillsDir = join(storageDir, 'plugins', 'agent-skills');
+
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: Linked AnythingLLM Skill',
+        'description: Linked test skill',
+        '---',
+        '',
+        '# Linked AnythingLLM Skill',
+        '',
+      ].join('\n')
+    );
+    process.env.STORAGE_DIR = storageDir;
+
+    const result = await installSkillForAgent(
+      {
+        name: 'Linked AnythingLLM Skill',
+        description: 'Linked test skill',
+        path: skillDir,
+      },
+      'anythingllm',
+      { cwd: tempDir }
+    );
+
+    expect(result).toMatchObject({
+      success: true,
+      path: join(anythingllmSkillsDir, 'linked-anythingllm-skill'),
+      canonicalPath: join(tempDir, '.agents', 'skills', 'linked-anythingllm-skill'),
+      mode: 'symlink',
+    });
+    expectAnythingLLMPlugin(
+      join(anythingllmSkillsDir, 'linked-anythingllm-skill'),
+      'linked-anythingllm-skill',
+      'Linked AnythingLLM Skill'
+    );
+  });
+
+  it('creates AnythingLLM imported plugin wrappers for remote skills', async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'skills-anythingllm-remote-'));
+    const storageDir = join(tempDir, 'anythingllm-storage');
+    process.env.STORAGE_DIR = storageDir;
+
+    const result = await installRemoteSkillForAgent(
+      {
+        name: 'Remote AnythingLLM Skill',
+        description: 'Remote test skill',
+        content: [
+          '---',
+          'name: Remote AnythingLLM Skill',
+          'description: Remote test skill',
+          '---',
+          '',
+          '# Remote AnythingLLM Skill',
+          '',
+        ].join('\n'),
+        installName: 'Remote AnythingLLM Skill',
+        sourceUrl: 'https://example.com/skill',
+        providerId: 'test',
+        sourceIdentifier: 'test/example',
+      },
+      'anythingllm',
+      { cwd: tempDir, mode: 'copy' }
+    );
+
+    const skillDir = join(storageDir, 'plugins', 'agent-skills', 'remote-anythingllm-skill');
+    expect(result).toMatchObject({
+      success: true,
+      path: skillDir,
+      mode: 'copy',
+    });
+    expectAnythingLLMPlugin(skillDir, 'remote-anythingllm-skill', 'Remote AnythingLLM Skill');
+  });
+
+  it('preserves native AnythingLLM plugin files when a skill already provides them', async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'skills-anythingllm-native-'));
+    const skillDir = join(tempDir, 'source-skill');
+    const storageDir = join(tempDir, 'anythingllm-storage');
+    const nativeManifest = {
+      active: true,
+      hubId: 'native-anythingllm-skill',
+      name: 'Native AnythingLLM Skill',
+      schema: 'skill-1.0.0',
+      version: '2.0.0',
+      description: 'Already packaged for AnythingLLM',
+      entrypoint: { file: 'handler.js', params: {} },
+      imported: true,
+    };
+
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      ['---', 'name: Native AnythingLLM Skill', 'description: Native test skill', '---', ''].join(
+        '\n'
+      )
+    );
+    writeFileSync(join(skillDir, 'plugin.json'), `${JSON.stringify(nativeManifest, null, 2)}\n`);
+    writeFileSync(
+      join(skillDir, 'handler.js'),
+      'module.exports.runtime = { handler: async () => "native" };\n'
+    );
+    process.env.STORAGE_DIR = storageDir;
+
+    const result = await installSkillForAgent(
+      {
+        name: 'Native AnythingLLM Skill',
+        description: 'Native test skill',
+        path: skillDir,
+      },
+      'anythingllm',
+      { cwd: tempDir, mode: 'copy' }
+    );
+
+    expect(result.success).toBe(true);
+    expect(readAnythingLLMManifest(result.path)).toMatchObject(nativeManifest);
+    expect(readFileSync(join(result.path, 'handler.js'), 'utf-8')).toContain('"native"');
   });
 });

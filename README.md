@@ -285,6 +285,13 @@ Skills can be installed to any of these agents:
 <!-- supported-agents:end -->
 
 > [!NOTE]
+> **AnythingLLM users:** AnythingLLM lists imported custom skills only when each skill folder includes
+> `plugin.json` and `handler.js`. Installing with `--agent anythingllm` writes those wrapper files alongside
+> `SKILL.md` so the skill appears in AnythingLLM's Custom Skills UI. Set `STORAGE_DIR` to an AnythingLLM
+> storage directory to target `$STORAGE_DIR/plugins/agent-skills`; otherwise the CLI falls back to common
+> project storage layouts.
+
+> [!NOTE]
 > **Kiro CLI users:** The default agent automatically loads skills from `.kiro/skills/` and `~/.kiro/skills/` — no
 > configuration needed. If you use a **custom agent**, add skills to its `resources` in `.kiro/agents/<agent>.json`:
 >

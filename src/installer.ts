@@ -32,6 +32,12 @@ interface InstallResult {
   error?: string;
 }
 
+interface AnythingLLMPluginMetadata {
+  hubId: string;
+  name: string;
+  description: string;
+}
+
 /**
  * Sanitizes a filename/directory name to prevent path traversal attacks
  * and ensures it follows kebab-case convention
@@ -118,6 +124,81 @@ function getAgentProjectRootDir(agentType: AgentType, cwd: string, agentBase: st
 
 function resolveSymlinkTarget(linkPath: string, linkTarget: string): string {
   return resolve(dirname(linkPath), linkTarget);
+}
+
+function anythingLLMHandlerSource(): string {
+  return `const fs = require('fs');
+const path = require('path');
+
+function readSkillMarkdown() {
+  return fs.readFileSync(path.resolve(__dirname, 'SKILL.md'), 'utf8');
+}
+
+module.exports.runtime = {
+  handler: async function ({ request } = {}) {
+    const markdown = readSkillMarkdown();
+    const prefix = request
+      ? \`Use the following imported skill instructions to help with this request: \${request}\\n\\n\`
+      : 'Use the following imported skill instructions when relevant.\\n\\n';
+    return \`\${prefix}\${markdown}\`;
+  },
+};
+`;
+}
+
+async function writeAnythingLLMPluginFiles(
+  targetDir: string,
+  metadata: AnythingLLMPluginMetadata
+): Promise<void> {
+  const pluginJsonPath = join(targetDir, 'plugin.json');
+  const handlerPath = join(targetDir, 'handler.js');
+
+  if (existsSync(pluginJsonPath) && existsSync(handlerPath)) return;
+
+  if (!isPathSafe(targetDir, pluginJsonPath) || !isPathSafe(targetDir, handlerPath)) {
+    throw new Error('Invalid AnythingLLM plugin path: potential path traversal detected');
+  }
+
+  const manifest = {
+    active: false,
+    hubId: metadata.hubId,
+    name: metadata.name,
+    schema: 'skill-1.0.0',
+    version: '1.0.0',
+    description: metadata.description,
+    author: 'skills CLI',
+    author_url: 'https://github.com/vercel-labs/skills',
+    license: 'UNLICENSED',
+    setup_args: {},
+    examples: [
+      {
+        prompt: `Use the ${metadata.name} skill`,
+        call: JSON.stringify({ request: 'Apply this skill to the current task.' }),
+      },
+    ],
+    entrypoint: {
+      file: 'handler.js',
+      params: {
+        request: {
+          type: 'string',
+          description: 'Optional task or context for applying this imported skill.',
+        },
+      },
+    },
+    imported: true,
+  };
+
+  await writeFile(pluginJsonPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf-8');
+  await writeFile(handlerPath, anythingLLMHandlerSource(), 'utf-8');
+}
+
+async function finalizeAgentSkillInstall(
+  agentType: AgentType,
+  targetDir: string,
+  metadata: AnythingLLMPluginMetadata
+): Promise<void> {
+  if (agentType !== 'anythingllm') return;
+  await writeAnythingLLMPluginFiles(targetDir, metadata);
 }
 
 /**
@@ -286,6 +367,11 @@ export async function installSkillForAgent(
     if (installMode === 'copy') {
       await cleanAndCreateDirectory(agentDir);
       await copyDirectory(skill.path, agentDir);
+      await finalizeAgentSkillInstall(agentType, agentDir, {
+        hubId: skillName,
+        name: skill.name || skillName,
+        description: skill.description || `Imported skill: ${skill.name || skillName}`,
+      });
 
       return {
         success: true,
@@ -297,6 +383,11 @@ export async function installSkillForAgent(
     // Symlink mode: copy to canonical location and symlink to agent location
     await cleanAndCreateDirectory(canonicalDir);
     await copyDirectory(skill.path, canonicalDir);
+    await finalizeAgentSkillInstall(agentType, canonicalDir, {
+      hubId: skillName,
+      name: skill.name || skillName,
+      description: skill.description || `Imported skill: ${skill.name || skillName}`,
+    });
 
     // For universal agents with global install, the skill is already in the canonical
     // ~/.agents/skills directory. Skip creating a symlink to the agent-specific global dir
@@ -314,7 +405,7 @@ export async function installSkillForAgent(
     // whose config directory doesn't already exist in the project. This prevents
     // creating directories like .windsurf/, .kiro/, etc. when those agents aren't
     // actually used in this project. The skill is already available in .agents/skills/.
-    if (!isGlobal && !isUniversalAgent(agentType)) {
+    if (!isGlobal && !isUniversalAgent(agentType) && agentType !== 'anythingllm') {
       const agentRootDir = getAgentProjectRootDir(agentType, cwd, agentBase);
       if (!existsSync(agentRootDir)) {
         return {
@@ -333,6 +424,11 @@ export async function installSkillForAgent(
       // Symlink failed, fall back to copy
       await cleanAndCreateDirectory(agentDir);
       await copyDirectory(skill.path, agentDir);
+      await finalizeAgentSkillInstall(agentType, agentDir, {
+        hubId: skillName,
+        name: skill.name || skillName,
+        description: skill.description || `Imported skill: ${skill.name || skillName}`,
+      });
 
       return {
         success: true,
@@ -542,6 +638,11 @@ export async function installRemoteSkillForAgent(
       await cleanAndCreateDirectory(agentDir);
       const skillMdPath = join(agentDir, 'SKILL.md');
       await writeFile(skillMdPath, skill.content, 'utf-8');
+      await finalizeAgentSkillInstall(agentType, agentDir, {
+        hubId: skillName,
+        name: skill.name || skillName,
+        description: skill.description || `Imported skill: ${skill.name || skillName}`,
+      });
 
       return {
         success: true,
@@ -554,6 +655,11 @@ export async function installRemoteSkillForAgent(
     await cleanAndCreateDirectory(canonicalDir);
     const skillMdPath = join(canonicalDir, 'SKILL.md');
     await writeFile(skillMdPath, skill.content, 'utf-8');
+    await finalizeAgentSkillInstall(agentType, canonicalDir, {
+      hubId: skillName,
+      name: skill.name || skillName,
+      description: skill.description || `Imported skill: ${skill.name || skillName}`,
+    });
 
     // For universal agents with global install, skip creating agent-specific symlink
     if (isGlobal && isUniversalAgent(agentType)) {
@@ -572,6 +678,11 @@ export async function installRemoteSkillForAgent(
       await cleanAndCreateDirectory(agentDir);
       const agentSkillMdPath = join(agentDir, 'SKILL.md');
       await writeFile(agentSkillMdPath, skill.content, 'utf-8');
+      await finalizeAgentSkillInstall(agentType, agentDir, {
+        hubId: skillName,
+        name: skill.name || skillName,
+        description: skill.description || `Imported skill: ${skill.name || skillName}`,
+      });
 
       return {
         success: true,
@@ -681,6 +792,11 @@ export async function installWellKnownSkillForAgent(
     if (installMode === 'copy') {
       await cleanAndCreateDirectory(agentDir);
       await writeSkillFiles(agentDir);
+      await finalizeAgentSkillInstall(agentType, agentDir, {
+        hubId: skillName,
+        name: skill.name || skillName,
+        description: skill.description || `Imported skill: ${skill.name || skillName}`,
+      });
 
       return {
         success: true,
@@ -692,6 +808,11 @@ export async function installWellKnownSkillForAgent(
     // Symlink mode: write to canonical location and symlink to agent location
     await cleanAndCreateDirectory(canonicalDir);
     await writeSkillFiles(canonicalDir);
+    await finalizeAgentSkillInstall(agentType, canonicalDir, {
+      hubId: skillName,
+      name: skill.name || skillName,
+      description: skill.description || `Imported skill: ${skill.name || skillName}`,
+    });
 
     // For universal agents with global install, skip creating agent-specific symlink
     if (isGlobal && isUniversalAgent(agentType)) {
@@ -709,6 +830,11 @@ export async function installWellKnownSkillForAgent(
       // Symlink failed, fall back to copy
       await cleanAndCreateDirectory(agentDir);
       await writeSkillFiles(agentDir);
+      await finalizeAgentSkillInstall(agentType, agentDir, {
+        hubId: skillName,
+        name: skill.name || skillName,
+        description: skill.description || `Imported skill: ${skill.name || skillName}`,
+      });
 
       return {
         success: true,
@@ -801,12 +927,22 @@ export async function installBlobSkillForAgent(
     if (installMode === 'copy') {
       await cleanAndCreateDirectory(agentDir);
       await writeSkillFiles(agentDir);
+      await finalizeAgentSkillInstall(agentType, agentDir, {
+        hubId: skillName,
+        name: skill.installName,
+        description: `Imported skill: ${skill.installName}`,
+      });
       return { success: true, path: agentDir, mode: 'copy' };
     }
 
     // Symlink mode
     await cleanAndCreateDirectory(canonicalDir);
     await writeSkillFiles(canonicalDir);
+    await finalizeAgentSkillInstall(agentType, canonicalDir, {
+      hubId: skillName,
+      name: skill.installName,
+      description: `Imported skill: ${skill.installName}`,
+    });
 
     if (isGlobal && isUniversalAgent(agentType)) {
       return {
@@ -819,7 +955,7 @@ export async function installBlobSkillForAgent(
 
     // For project-level installs, skip creating symlinks for non-universal agents
     // whose config directory doesn't already exist in the project.
-    if (!isGlobal && !isUniversalAgent(agentType)) {
+    if (!isGlobal && !isUniversalAgent(agentType) && agentType !== 'anythingllm') {
       const agentRootDir = getAgentProjectRootDir(agentType, cwd, agentBase);
       if (!existsSync(agentRootDir)) {
         return {
@@ -837,6 +973,11 @@ export async function installBlobSkillForAgent(
     if (!symlinkCreated) {
       await cleanAndCreateDirectory(agentDir);
       await writeSkillFiles(agentDir);
+      await finalizeAgentSkillInstall(agentType, agentDir, {
+        hubId: skillName,
+        name: skill.installName,
+        description: `Imported skill: ${skill.installName}`,
+      });
       return {
         success: true,
         path: agentDir,
