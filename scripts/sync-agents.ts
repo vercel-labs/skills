@@ -9,6 +9,10 @@ const ROOT = join(import.meta.dirname, '..');
 const README_PATH = join(ROOT, 'README.md');
 const PACKAGE_PATH = join(ROOT, 'package.json');
 
+function toMarkdownPath(path: string): string {
+  return path.replaceAll('\\', '/');
+}
+
 function generateAgentList(): string {
   const agentList = Object.values(agents);
   const count = agentList.length;
@@ -48,7 +52,7 @@ function generateAvailableAgentsTable(): string {
 
   const rows = Array.from(pathGroups.values()).map((group) => {
     const globalPath = group.globalSkillsDir
-      ? `\`${group.globalSkillsDir.replace(homedir(), '~')}/\``
+      ? `\`${toMarkdownPath(group.globalSkillsDir.replace(homedir(), '~'))}/\``
       : 'N/A (project-only)';
     const names = group.displayNames.join(', ');
     const keys = group.keys.map((k) => `\`${k}\``).join(', ');

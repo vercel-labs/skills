@@ -2,6 +2,7 @@ export type AgentType =
   | 'aider-desk'
   | 'amp'
   | 'antigravity'
+  | 'anythingllm'
   | 'augment'
   | 'bob'
   | 'claude-code'
@@ -72,6 +73,8 @@ export interface AgentConfig {
   skillsDir: string;
   /** Global skills directory. Set to undefined if the agent doesn't support global installation. */
   globalSkillsDir: string | undefined;
+  /** Optional project-scope resolver for agents whose skills directory can vary by environment. */
+  resolveSkillsDir?: (options: { cwd: string }) => string;
   detectInstalled: () => Promise<boolean>;
   /** Whether to show this agent in the universal agents list. Defaults to true. */
   showInUniversalList?: boolean;

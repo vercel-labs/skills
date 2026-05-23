@@ -23,7 +23,7 @@ import { fetchRepoTree, findSkillMdPaths, getSkillFolderHashFromTree } from './b
 import { removeCommand } from './remove.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
-import { agents, isUniversalAgent } from './agents.ts';
+import { agents, getAgentSkillsDir, isUniversalAgent } from './agents.ts';
 import type { AgentType } from './types.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -466,8 +466,8 @@ export async function updateProjectSkills(
         hasUniversal = true;
       }
     } else {
-      const agentRoot = config.skillsDir.split('/')[0]!;
-      if (existsSync(join(cwd, agentRoot))) {
+      const agentSkillsDir = getAgentSkillsDir(type as AgentType, { cwd });
+      if (agentSkillsDir && existsSync(agentSkillsDir)) {
         targetAgentNames.push(config.displayName);
       }
     }

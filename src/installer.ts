@@ -16,7 +16,7 @@ import { join, basename, normalize, resolve, sep, relative, dirname } from 'path
 import { homedir, platform } from 'os';
 import type { Skill, AgentType, RemoteSkill } from './types.ts';
 import type { WellKnownSkill } from './providers/wellknown.ts';
-import { agents, detectInstalledAgents, isUniversalAgent } from './agents.ts';
+import { agents, detectInstalledAgents, getAgentSkillsDir, isUniversalAgent } from './agents.ts';
 import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
 import { parseSkillMd } from './skills.ts';
 
@@ -108,7 +108,12 @@ export function getAgentBaseDir(agentType: AgentType, global: boolean, cwd?: str
     return agent.globalSkillsDir;
   }
 
-  return join(baseDir, agent.skillsDir);
+  return getAgentSkillsDir(agentType, { cwd: baseDir })!;
+}
+
+function getAgentProjectRootDir(agentType: AgentType, cwd: string, agentBase: string): string {
+  const agent = agents[agentType];
+  return agent.resolveSkillsDir ? agentBase : join(cwd, agent.skillsDir.split('/')[0]!);
 }
 
 function resolveSymlinkTarget(linkPath: string, linkTarget: string): string {
@@ -310,7 +315,7 @@ export async function installSkillForAgent(
     // creating directories like .windsurf/, .kiro/, etc. when those agents aren't
     // actually used in this project. The skill is already available in .agents/skills/.
     if (!isGlobal && !isUniversalAgent(agentType)) {
-      const agentRootDir = join(cwd, agents[agentType].skillsDir.split('/')[0]!);
+      const agentRootDir = getAgentProjectRootDir(agentType, cwd, agentBase);
       if (!existsSync(agentRootDir)) {
         return {
           success: true,
@@ -422,7 +427,7 @@ export async function isSkillInstalled(
 
   const targetBase = options.global
     ? agent.globalSkillsDir!
-    : join(options.cwd || process.cwd(), agent.skillsDir);
+    : getAgentSkillsDir(agentType, { cwd: options.cwd || process.cwd() })!;
 
   const skillDir = join(targetBase, sanitized);
 
@@ -815,7 +820,7 @@ export async function installBlobSkillForAgent(
     // For project-level installs, skip creating symlinks for non-universal agents
     // whose config directory doesn't already exist in the project.
     if (!isGlobal && !isUniversalAgent(agentType)) {
-      const agentRootDir = join(cwd, agents[agentType].skillsDir.split('/')[0]!);
+      const agentRootDir = getAgentProjectRootDir(agentType, cwd, agentBase);
       if (!existsSync(agentRootDir)) {
         return {
           success: true,
@@ -927,7 +932,8 @@ export async function listInstalledSkills(
       if (isGlobal && agent.globalSkillsDir === undefined) {
         continue;
       }
-      const agentDir = isGlobal ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
+      const agentDir = getAgentSkillsDir(agentType, { global: isGlobal, cwd });
+      if (!agentDir) continue;
       // Avoid duplicate paths
       if (!scopes.some((s) => s.path === agentDir && s.global === isGlobal)) {
         scopes.push({ global: isGlobal, path: agentDir, agentType });
@@ -943,7 +949,8 @@ export async function listInstalledSkills(
       if (agentsToCheck.includes(agentType)) continue;
       const agent = agents[agentType];
       if (isGlobal && agent.globalSkillsDir === undefined) continue;
-      const agentDir = isGlobal ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
+      const agentDir = getAgentSkillsDir(agentType, { global: isGlobal, cwd });
+      if (!agentDir) continue;
       if (scopes.some((s) => s.path === agentDir && s.global === isGlobal)) continue;
       if (existsSync(agentDir)) {
         scopes.push({ global: isGlobal, path: agentDir, agentType });
@@ -1009,7 +1016,8 @@ export async function listInstalledSkills(
             continue;
           }
 
-          const agentBase = scope.global ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
+          const agentBase = getAgentSkillsDir(agentType, { global: scope.global, cwd });
+          if (!agentBase) continue;
           let found = false;
 
           // Try exact directory name matches

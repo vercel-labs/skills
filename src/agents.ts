@@ -1,5 +1,5 @@
 import { homedir } from 'os';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { existsSync } from 'fs';
 import { xdgConfig } from 'xdg-basedir';
 import type { AgentConfig, AgentType } from './types.ts';
@@ -10,6 +10,46 @@ const configHome = xdgConfig ?? join(home, '.config');
 const codexHome = process.env.CODEX_HOME?.trim() || join(home, '.codex');
 const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude');
 const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
+
+function nonEmptyEnv(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed || undefined;
+}
+
+function getAnythingLLMSkillsDirCandidates(
+  cwd = process.cwd(),
+  env: NodeJS.ProcessEnv = process.env
+): string[] {
+  const explicitSkillsDir = nonEmptyEnv(env.ANYTHINGLLM_SKILLS_DIR);
+  if (explicitSkillsDir) return [resolve(explicitSkillsDir)];
+
+  const storageDir = nonEmptyEnv(env.STORAGE_DIR);
+  const candidates = [
+    ...(storageDir ? [resolve(storageDir, 'plugins', 'agent-skills')] : []),
+    resolve(cwd, 'plugins', 'agent-skills'),
+    resolve(cwd, 'server', 'storage', 'plugins', 'agent-skills'),
+    resolve(cwd, 'storage', 'plugins', 'agent-skills'),
+  ];
+
+  return [...new Set(candidates)];
+}
+
+export function getAnythingLLMSkillsDir(
+  cwd = process.cwd(),
+  env: NodeJS.ProcessEnv = process.env,
+  pathExists: (path: string) => boolean = existsSync
+): string {
+  const candidates = getAnythingLLMSkillsDirCandidates(cwd, env);
+  return candidates.find(pathExists) ?? candidates[0]!;
+}
+
+export function isAnythingLLMInstalled(
+  cwd = process.cwd(),
+  env: NodeJS.ProcessEnv = process.env,
+  pathExists: (path: string) => boolean = existsSync
+): boolean {
+  return getAnythingLLMSkillsDirCandidates(cwd, env).some(pathExists);
+}
 
 export function getOpenClawGlobalSkillsDir(
   homeDir = home,
@@ -53,6 +93,16 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.gemini/antigravity/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.gemini/antigravity'));
+    },
+  },
+  anythingllm: {
+    name: 'anythingllm',
+    displayName: 'AnythingLLM',
+    skillsDir: 'plugins/agent-skills',
+    globalSkillsDir: undefined,
+    resolveSkillsDir: ({ cwd }) => getAnythingLLMSkillsDir(cwd),
+    detectInstalled: async () => {
+      return isAnythingLLMInstalled();
     },
   },
   augment: {
@@ -541,6 +591,16 @@ export async function detectInstalledAgents(): Promise<AgentType[]> {
 
 export function getAgentConfig(type: AgentType): AgentConfig {
   return agents[type];
+}
+
+export function getAgentSkillsDir(
+  type: AgentType,
+  options: { global?: boolean; cwd?: string } = {}
+): string | undefined {
+  const agent = agents[type];
+  if (options.global) return agent.globalSkillsDir;
+  const cwd = options.cwd || process.cwd();
+  return agent.resolveSkillsDir?.({ cwd }) ?? join(cwd, agent.skillsDir);
 }
 
 /**

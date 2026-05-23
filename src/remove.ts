@@ -2,7 +2,7 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { readdir, rm, lstat } from 'fs/promises';
 import { join } from 'path';
-import { agents, detectInstalledAgents } from './agents.ts';
+import { agents, detectInstalledAgents, getAgentSkillsDir } from './agents.ts';
 import { track } from './telemetry.ts';
 import { detectAgent } from './detect-agent.ts';
 import { removeSkillFromLock, getSkillFromLock } from './skill-lock.ts';
@@ -65,8 +65,9 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     }
   } else {
     await scanDir(getCanonicalSkillsDir(false, cwd));
-    for (const agent of Object.values(agents)) {
-      await scanDir(join(cwd, agent.skillsDir));
+    for (const agentKey of Object.keys(agents) as AgentType[]) {
+      const agentSkillsDir = getAgentSkillsDir(agentKey, { cwd });
+      if (agentSkillsDir) await scanDir(agentSkillsDir);
     }
   }
 
@@ -177,7 +178,8 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
         if (isGlobal && agent.globalSkillsDir) {
           pathsToCleanup.add(join(agent.globalSkillsDir, sanitizedName));
         } else {
-          pathsToCleanup.add(join(cwd, agent.skillsDir, sanitizedName));
+          const agentSkillsDir = getAgentSkillsDir(agentKey, { cwd });
+          if (agentSkillsDir) pathsToCleanup.add(join(agentSkillsDir, sanitizedName));
         }
 
         for (const pathToCleanup of pathsToCleanup) {
