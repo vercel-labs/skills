@@ -521,7 +521,7 @@ To install from a well-known endpoint:
 npx skills add skills.acme.corp --allow-well-known
 
 # Per-user (creates ~/.agents/skills-policy.json):
-# { "version": 1, "providers": { "well_known": "allow" } }
+# { "version": 1, "providers": { ".well-known": "allow" } }
 ```
 
 ### Policy file (admin-managed)
@@ -539,7 +539,7 @@ Schema:
   "version": 1,
   "default": "allow",               // applies to every provider unless overridden
   "providers": {                    // per-provider overrides
-    "well_known": "deny",           //   any of: "allow" | "deny" | "proxy_only"*
+    ".well-known": "deny",          //   any of: "allow" | "deny" | "proxy_only"*
     "github":     "allow",
     "gitlab":     "allow",
     "git":        "deny",
@@ -560,7 +560,7 @@ Evaluation precedence (first match wins):
 2. `allow_sources` match → allow
 3. `providers[<id>]`      → cascade winner
 4. `default`              → cascade winner
-5. built-in default       → allow, except `well_known` which is default-deny
+5. built-in default       → allow, except `.well-known` which is default-deny
 
 Glob syntax: `*` matches any run of non-slash characters, `**` matches
 anything. Source identifier format is `<host>/<owner>/<repo>` for hosted
@@ -581,7 +581,7 @@ Path shape is `${mirror.url}/${originalHost}/${originalPath}` — the Go
 GOPROXY model. Configure your Artifactory / Nexus / JFrog remote-VCS or
 generic-remote repository to match.
 
-`well_known` cannot be `proxy_only`: it is the catch-all "any HTTPS host"
+`.well-known` cannot be `proxy_only`: it is the catch-all "any HTTPS host"
 fallback and has no upstream identity to mirror. Policy load fails loudly
 if you try.
 

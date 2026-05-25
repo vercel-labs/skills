@@ -34,12 +34,12 @@ describe('loadPolicy schema validation', () => {
     expect(sourcePath).toBeNull();
   });
 
-  it('rejects well_known: proxy_only at load time', async () => {
+  it('rejects .well-known: proxy_only at load time', async () => {
     await writeFile(
       join(cwd, '.skills-policy.json'),
-      JSON.stringify({ version: 1, providers: { well_known: 'proxy_only' } })
+      JSON.stringify({ version: 1, providers: { '.well-known': 'proxy_only' } })
     );
-    expect(() => loadPolicy(cwd)).toThrow(/well_known cannot be "proxy_only"/);
+    expect(() => loadPolicy(cwd)).toThrow(/cannot be "proxy_only"/);
   });
 
   it('rejects mirror with empty providers list', async () => {
@@ -53,15 +53,15 @@ describe('loadPolicy schema validation', () => {
     expect(() => loadPolicy(cwd)).toThrow(/mirror.providers must be a non-empty array/);
   });
 
-  it('rejects mirror.providers containing well_known', async () => {
+  it('rejects mirror.providers containing .well-known', async () => {
     await writeFile(
       join(cwd, '.skills-policy.json'),
       JSON.stringify({
         version: 1,
-        mirror: { url: 'https://mirror.corp', providers: ['well_known'] },
+        mirror: { url: 'https://mirror.corp', providers: ['.well-known'] },
       })
     );
-    expect(() => loadPolicy(cwd)).toThrow(/mirror.providers cannot include "well_known"/);
+    expect(() => loadPolicy(cwd)).toThrow(/mirror.providers cannot include ".well-known"/);
   });
 
   it('accepts a valid mirror configuration', async () => {

@@ -33,7 +33,7 @@ export interface InventoryEntry {
   project_path?: string;
   /** ISO-8601 install timestamp. */
   installed_at: string;
-  /** Which provider class installed this (github / gitlab / well_known / etc.) */
+  /** Which provider class installed this (github / gitlab / .well-known / etc.) */
   provider_id?: string;
 }
 

@@ -13,26 +13,26 @@ import type { ParsedSource } from './types.ts';
  *   3. ~/.agents/skills-policy.json
  *
  * If no policy file is found, defaults are: allow everything EXCEPT
- * well-known resolution, which is opt-in regardless of whether a policy
- * file is present (see DEFAULT_WELL_KNOWN_DENY).
+ * `.well-known` resolution, which is opt-in regardless of whether a
+ * policy file is present (see DEFAULT_WELL_KNOWN_DENY).
  *
- * Per-provider values cascade over a top-level `default`. The schema
- * intentionally ships only "allow" | "deny" in v1. "proxy_only" is
- * reserved in the schema for a follow-up PR that lands actual proxy
- * URL rewriting; it is currently parsed and treated as "deny" with a
- * helpful error.
+ * Per-provider values cascade over a top-level `default`. Rule values:
+ * "allow" | "deny" | "proxy_only". `proxy_only` rewrites the source URL
+ * through `mirror.url` (GOPROXY shape: `${mirror}/${host}/${path}`)
+ * provided the provider is listed in `mirror.providers`. `.well-known`
+ * cannot be `proxy_only` — it has no upstream identity to mirror.
  */
 
 export type PolicyRule = 'allow' | 'deny' | 'proxy_only';
 
-export type ProviderId = 'github' | 'gitlab' | 'git' | 'well_known' | 'local';
+export type ProviderId = 'github' | 'gitlab' | 'git' | '.well-known' | 'local';
 
 /**
- * Provider classes that can route through the mirror. `well_known` is
+ * Provider classes that can route through the mirror. `.well-known` is
  * intentionally excluded: it's the catch-all "any HTTPS host" fallback
  * and has no stable upstream identity to mirror.
  */
-export type MirrorableProviderId = Exclude<ProviderId, 'well_known' | 'local'>;
+export type MirrorableProviderId = Exclude<ProviderId, '.well-known' | 'local'>;
 
 export interface MirrorConfig {
   /**
@@ -69,7 +69,7 @@ export interface PolicyDecision {
     | 'provider'
     | 'allow_sources'
     | 'deny_sources'
-    | 'well_known_default'
+    | 'well-known-default'
     | 'cli_flag'
     | 'mirror_rewrite';
   /**
@@ -102,12 +102,12 @@ function validatePolicy(raw: unknown, sourcePath: string): Policy {
       `Invalid policy file at ${sourcePath}: unsupported version ${String(r.version)} (expected 1)`
     );
   }
-  // well_known cannot be proxy_only: there's no upstream identity to mirror.
+  // .well-known cannot be proxy_only: there's no upstream identity to mirror.
   // Fail loud at load time rather than at fetch time.
   const providers = r.providers as Record<string, unknown> | undefined;
-  if (providers && providers.well_known === 'proxy_only') {
+  if (providers && providers['.well-known'] === 'proxy_only') {
     throw new Error(
-      `Invalid policy file at ${sourcePath}: providers.well_known cannot be "proxy_only" — well-known is the any-host fallback and has no upstream to mirror. Use "allow" or "deny".`
+      `Invalid policy file at ${sourcePath}: providers[".well-known"] cannot be "proxy_only" — the .well-known fallback is the any-host catch-all and has no upstream to mirror. Use "allow" or "deny".`
     );
   }
   // Mirror must have a non-empty providers list — empty list is almost
@@ -125,7 +125,7 @@ function validatePolicy(raw: unknown, sourcePath: string): Policy {
       );
     }
     for (const p of mirror.providers) {
-      if (p === 'well_known' || p === 'local') {
+      if (p === '.well-known' || p === 'local') {
         throw new Error(
           `Invalid policy file at ${sourcePath}: mirror.providers cannot include "${p}"`
         );
@@ -172,7 +172,7 @@ export function classifyProvider(parsed: ParsedSource): ProviderId {
     case 'git':
       return 'git';
     case 'well-known':
-      return 'well_known';
+      return '.well-known';
     case 'local':
       return 'local';
   }
@@ -208,7 +208,7 @@ function computeMirrorRewrite(
   providerId: ProviderId
 ): string | null {
   if (!policy?.mirror) return null;
-  if (providerId === 'well_known' || providerId === 'local') return null;
+  if (providerId === '.well-known' || providerId === 'local') return null;
   if (!policy.mirror.providers.includes(providerId as MirrorableProviderId)) return null;
 
   let host: string;
@@ -304,8 +304,8 @@ export function evaluatePolicy(input: EvaluateInput): PolicyDecision {
     return {
       allowed: false,
       reason:
-        providerId === 'well_known'
-          ? `well_known cannot be "proxy_only" — it is the any-host fallback and has no upstream identity to mirror`
+        providerId === '.well-known'
+          ? `.well-known cannot be "proxy_only" — it is the any-host fallback and has no upstream identity to mirror`
           : `provider "${providerId}" is "proxy_only" but no mirror is configured for it (set policy.mirror.url and include "${providerId}" in policy.mirror.providers)`,
       mechanism: providerRule ? 'provider' : 'default',
     };
@@ -319,7 +319,7 @@ export function evaluatePolicy(input: EvaluateInput): PolicyDecision {
   }
 
   // No policy rule in effect. Fall through to built-in defaults.
-  if (providerId === 'well_known') {
+  if (providerId === '.well-known') {
     if (allowWellKnownFlag) {
       return {
         allowed: true,
@@ -331,7 +331,7 @@ export function evaluatePolicy(input: EvaluateInput): PolicyDecision {
       return {
         allowed: false,
         reason: 'well-known resolution is disabled by default for safety',
-        mechanism: 'well_known_default',
+        mechanism: 'well-known-default',
       };
     }
   }
@@ -351,7 +351,7 @@ export function formatDenyMessage(
   const lines: string[] = [];
   lines.push(`Installation blocked: ${decision.reason}`);
   lines.push('');
-  if (decision.mechanism === 'well_known_default') {
+  if (decision.mechanism === 'well-known-default') {
     lines.push(`"${source}" is not a recognized provider (GitHub, GitLab, HuggingFace).`);
     lines.push('Well-known endpoints can install arbitrary code from any HTTPS host.');
     lines.push('This vector is commonly exploited via prompt injection of LLM agents.');
@@ -359,7 +359,7 @@ export function formatDenyMessage(
     lines.push('To enable:');
     lines.push(`  • for this command:  skills add ${source} --allow-well-known`);
     lines.push(
-      '  • for this user:     set "providers.well_known": "allow" in ~/.agents/skills-policy.json'
+      '  • for this user:     set providers[".well-known"] = "allow" in ~/.agents/skills-policy.json'
     );
   } else if (policySourcePath) {
     lines.push(`Active policy: ${policySourcePath}`);

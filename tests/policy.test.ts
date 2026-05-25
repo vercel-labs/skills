@@ -16,7 +16,7 @@ describe('evaluatePolicy', () => {
   it('default-denies well-known when no policy and no flag', () => {
     const d = evaluatePolicy({ parsed: wk(), policy: null });
     expect(d.allowed).toBe(false);
-    expect(d.mechanism).toBe('well_known_default');
+    expect(d.mechanism).toBe('well-known-default');
   });
 
   it('allows well-known when --allow-well-known flag is set', () => {
@@ -78,7 +78,7 @@ describe('evaluatePolicy', () => {
   it('explicit policy can re-enable well-known fleet-wide', () => {
     const d = evaluatePolicy({
       parsed: wk('skills.acme.corp'),
-      policy: { version: 1, providers: { well_known: 'allow' } },
+      policy: { version: 1, providers: { '.well-known': 'allow' } },
     });
     expect(d.allowed).toBe(true);
     expect(d.mechanism).toBe('provider');
