@@ -10,6 +10,10 @@ const configHome = xdgConfig ?? join(home, '.config');
 const codexHome = process.env.CODEX_HOME?.trim() || join(home, '.codex');
 const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude');
 const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
+const piHome = process.env.PI_CODING_AGENT_DIR?.trim() || join(home, '.pi/agent');
+const copilotHome = process.env.COPILOT_HOME?.trim() || join(home, '.copilot');
+const geminiCliHome = join(process.env.GEMINI_CLI_HOME?.trim() || home, '.gemini');
+const kimiShareDir = process.env.KIMI_SHARE_DIR?.trim() || join(home, '.kimi');
 
 export function getOpenClawGlobalSkillsDir(
   homeDir = home,
@@ -252,18 +256,18 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'gemini-cli',
     displayName: 'Gemini CLI',
     skillsDir: '.agents/skills',
-    globalSkillsDir: join(home, '.gemini/skills'),
+    globalSkillsDir: join(geminiCliHome, 'skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.gemini'));
+      return existsSync(geminiCliHome);
     },
   },
   'github-copilot': {
     name: 'github-copilot',
     displayName: 'GitHub Copilot',
     skillsDir: '.agents/skills',
-    globalSkillsDir: join(home, '.copilot/skills'),
+    globalSkillsDir: join(copilotHome, 'skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.copilot'));
+      return existsSync(copilotHome);
     },
   },
   goose: {
@@ -317,7 +321,7 @@ export const agents: Record<AgentType, AgentConfig> = {
     skillsDir: '.agents/skills',
     globalSkillsDir: join(home, '.config/agents/skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.kimi'));
+      return existsSync(kimiShareDir);
     },
   },
   'kiro-cli': {
@@ -387,9 +391,9 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'pi',
     displayName: 'Pi',
     skillsDir: '.pi/skills',
-    globalSkillsDir: join(home, '.pi/agent/skills'),
+    globalSkillsDir: join(piHome, 'skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.pi/agent'));
+      return existsSync(piHome);
     },
   },
   qoder: {
