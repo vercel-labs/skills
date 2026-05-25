@@ -132,6 +132,8 @@ ${BOLD}Add Options:${RESET}
   --copy                 Copy files instead of symlinking to agent directories
   --all                  Shorthand for --skill '*' --agent '*' -y
   --full-depth           Search all subdirectories even when a root SKILL.md exists
+  --emit-windows-odr     Emit Windows 11 ODR / Agent Launcher registration
+                         artifacts into <skillDir>/windows-odr/ (opt-in)
 
 ${BOLD}Remove Options:${RESET}
   -g, --global           Remove from global scope

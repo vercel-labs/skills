@@ -19,6 +19,7 @@ import type { WellKnownSkill } from './providers/wellknown.ts';
 import { agents, detectInstalledAgents, isUniversalAgent } from './agents.ts';
 import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
 import { parseSkillMd } from './skills.ts';
+import { emitWindowsOdrArtifacts } from './windows-odr.ts';
 
 export type InstallMode = 'symlink' | 'copy';
 
@@ -227,7 +228,13 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
 export async function installSkillForAgent(
   skill: Skill,
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
+  options: {
+    global?: boolean;
+    cwd?: string;
+    mode?: InstallMode;
+    /** Emit Windows ODR artifacts into <skillDir>/windows-odr/. Opt-in. */
+    emitWindowsOdr?: boolean;
+  } = {}
 ): Promise<InstallResult> {
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
@@ -282,6 +289,10 @@ export async function installSkillForAgent(
       await cleanAndCreateDirectory(agentDir);
       await copyDirectory(skill.path, agentDir);
 
+      if (options.emitWindowsOdr) {
+        await emitWindowsOdrArtifacts(skill, agentDir);
+      }
+
       return {
         success: true,
         path: agentDir,
@@ -292,6 +303,10 @@ export async function installSkillForAgent(
     // Symlink mode: copy to canonical location and symlink to agent location
     await cleanAndCreateDirectory(canonicalDir);
     await copyDirectory(skill.path, canonicalDir);
+
+    if (options.emitWindowsOdr) {
+      await emitWindowsOdrArtifacts(skill, canonicalDir);
+    }
 
     // For universal agents with global install, the skill is already in the canonical
     // ~/.agents/skills directory. Skip creating a symlink to the agent-specific global dir

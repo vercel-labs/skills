@@ -437,6 +437,12 @@ export interface AddOptions {
   fullDepth?: boolean;
   copy?: boolean;
   dangerouslyAcceptOpenclawRisks?: boolean;
+  /**
+   * Emit Windows On-Device Registry (ODR) artifacts for each installed skill
+   * into `<skillDir>/windows-odr/`. Opt-in; cross-platform safe (files are
+   * inert until packaged into an MSIX). See src/windows-odr.ts.
+   */
+  emitWindowsOdr?: boolean;
 }
 
 /**
@@ -1539,6 +1545,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           result = await installSkillForAgent(skill, agent, {
             global: installGlobally,
             mode: installMode,
+            emitWindowsOdr: options.emitWindowsOdr,
           });
         }
         results.push({
@@ -1944,6 +1951,8 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       options.fullDepth = true;
     } else if (arg === '--copy') {
       options.copy = true;
+    } else if (arg === '--emit-windows-odr') {
+      options.emitWindowsOdr = true;
     } else if (arg === '--dangerously-accept-openclaw-risks') {
       options.dangerouslyAcceptOpenclawRisks = true;
     } else if (arg && !arg.startsWith('-')) {

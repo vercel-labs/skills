@@ -49,6 +49,7 @@ npx skills add ./my-local-skills
 | `--copy`                  | Copy files instead of symlinking to agent directories                                                                                              |
 | `-y, --yes`               | Skip all confirmation prompts                                                                                                                      |
 | `--all`                   | Install all skills to all agents without prompts                                                                                                   |
+| `--emit-windows-odr`      | Emit Windows 11 ODR / Agent Launcher registration artifacts into each `<skillDir>/windows-odr/` (opt-in, cross-platform safe). See [Windows On-Device Registry](#windows-on-device-registry-odr-opt-in) |
 
 ### Examples
 
@@ -77,6 +78,32 @@ npx skills add vercel-labs/agent-skills --skill '*' -a claude-code
 # Install specific skills to all agents
 npx skills add vercel-labs/agent-skills --agent '*' --skill frontend-design
 ```
+
+### Windows On-Device Registry (ODR) — opt-in
+
+When `--emit-windows-odr` is passed, the installer writes a `windows-odr/`
+subdirectory inside each installed skill containing the artifacts an MSIX
+packager needs to surface that skill as a Windows 11 Agent Launcher:
+
+- `agentRegistration.json` — the agent definition manifest, with fields
+  derived from the skill's frontmatter. `action_id` and `icon` are left as
+  `{{ACTION_ID}}` / `{{ICON_PATH}}` placeholders for the packager to fill.
+- `Package.appxmanifest.fragment.xml` — the two `<uap3:Extension>` blocks
+  (one for `com.microsoft.windows.ai.actions`, one for
+  `com.microsoft.windows.ai.agentInfo`) to paste into your MSIX manifest.
+- `README.md` — per-skill instructions for wrapping the artifacts into an
+  MSIX.
+
+**The `skills` CLI itself does not call `odr.exe`.** Microsoft requires
+package identity for `odr agent-info add` / `remove` and rejects calls
+from unpackaged apps; an `npx`-launched Node process cannot acquire
+identity. The emitted artifacts are the missing piece an org needs to
+package one or more skills into a signed MSIX, where static registration
+takes over at install time with no runtime `odr.exe` calls. See the
+Microsoft docs: <https://learn.microsoft.com/en-us/windows/ai/agent-launchers/agents-get-started>.
+
+The flag is safe on non-Windows hosts — the emitted files are inert until
+packaged.
 
 ### Installation Scope
 
