@@ -547,7 +547,10 @@ Schema:
   },
   "allow_sources": ["github.com/acme-corp/*"],
   "deny_sources": ["github.com/sketchy-org/*"],
-  "proxy": "https://artifactory.corp/agent-skills"  // reserved; see below
+  "mirror": {
+    "url": "https://artifactory.corp/agent-skills",
+    "providers": ["github", "gitlab", "git"]
+  }
 }
 ```
 
@@ -563,8 +566,24 @@ Glob syntax: `*` matches any run of non-slash characters, `**` matches
 anything. Source identifier format is `<host>/<owner>/<repo>` for hosted
 providers, `<host><path>` for well-known, `local` for local paths.
 
-> `proxy_only` is parsed in v1 but rejected with a forward-looking error.
-> Actual URL rewriting through a configured proxy lands in a follow-up PR.
+### Mirror routing (`proxy_only`)
+
+When a provider's effective rule is `proxy_only` AND `mirror` is configured
+with that provider listed in `mirror.providers`, the CLI rewrites the source
+URL before any clone or fetch:
+
+```
+github.com/vercel-labs/agent-skills
+  →  https://artifactory.corp/agent-skills/github.com/vercel-labs/agent-skills
+```
+
+Path shape is `${mirror.url}/${originalHost}/${originalPath}` — the Go
+GOPROXY model. Configure your Artifactory / Nexus / JFrog remote-VCS or
+generic-remote repository to match.
+
+`well_known` cannot be `proxy_only`: it is the catch-all "any HTTPS host"
+fallback and has no upstream identity to mirror. Policy load fails loudly
+if you try.
 
 For an air-gapped fleet pointed at an internal mirror that already filters
 content, a one-liner policy suffices:

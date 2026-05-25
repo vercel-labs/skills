@@ -1023,6 +1023,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         p.outro(pc.red('Installation blocked by policy'));
         process.exit(1);
       }
+      if (decision.rewriteTo) {
+        p.log.info(pc.cyan(`↻ Routing through mirror: ${decision.rewriteTo}`));
+        parsed.url = decision.rewriteTo;
+      }
     }
 
     // Kick off the repo privacy check early so it runs in parallel with

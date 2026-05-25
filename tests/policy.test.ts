@@ -84,14 +84,64 @@ describe('evaluatePolicy', () => {
     expect(d.mechanism).toBe('provider');
   });
 
-  it('proxy_only is parsed but rejected with a forward-looking error', () => {
+  it('proxy_only without a configured mirror denies with a helpful error', () => {
     const d = evaluatePolicy({
       parsed: gh(),
       policy: { version: 1, providers: { github: 'proxy_only' } },
     });
     expect(d.allowed).toBe(false);
-    expect(d.reason).toMatch(/proxy_only/);
-    expect(d.reason).toMatch(/follow-up/);
+    expect(d.reason).toMatch(/no mirror is configured/);
+    expect(d.reason).toMatch(/policy.mirror.url/);
+  });
+
+  it('proxy_only with mirror rewrites to GOPROXY-shaped URL', () => {
+    const d = evaluatePolicy({
+      parsed: gh('vercel-labs/agent-skills'),
+      policy: {
+        version: 1,
+        providers: { github: 'proxy_only' },
+        mirror: {
+          url: 'https://artifactory.corp/agent-skills',
+          providers: ['github'],
+        },
+      },
+    });
+    expect(d.allowed).toBe(true);
+    expect(d.mechanism).toBe('mirror_rewrite');
+    expect(d.rewriteTo).toBe(
+      'https://artifactory.corp/agent-skills/github.com/vercel-labs/agent-skills'
+    );
+  });
+
+  it('proxy_only with mirror but provider not in providers[] denies', () => {
+    const d = evaluatePolicy({
+      parsed: gh(),
+      policy: {
+        version: 1,
+        providers: { github: 'proxy_only' },
+        mirror: {
+          url: 'https://artifactory.corp/agent-skills',
+          providers: ['gitlab'], // github not listed
+        },
+      },
+    });
+    expect(d.allowed).toBe(false);
+    expect(d.reason).toMatch(/no mirror is configured/);
+  });
+
+  it('mirror url trailing slash and host/path are joined cleanly', () => {
+    const d = evaluatePolicy({
+      parsed: gh('foo/bar'),
+      policy: {
+        version: 1,
+        providers: { github: 'proxy_only' },
+        mirror: {
+          url: 'https://artifactory.corp/agent-skills/',
+          providers: ['github'],
+        },
+      },
+    });
+    expect(d.rewriteTo).toBe('https://artifactory.corp/agent-skills/github.com/foo/bar');
   });
 
   it('glob matcher does not let owner-prefix patterns leak across orgs', () => {
