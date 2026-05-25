@@ -132,6 +132,9 @@ ${BOLD}Add Options:${RESET}
   --copy                 Copy files instead of symlinking to agent directories
   --all                  Shorthand for --skill '*' --agent '*' -y
   --full-depth           Search all subdirectories even when a root SKILL.md exists
+  --allow-well-known     Allow installing from a .well-known/agent-skills
+                         endpoint on an arbitrary HTTPS host. Off by default
+                         because any host can serve arbitrary code there.
 
 ${BOLD}Remove Options:${RESET}
   -g, --global           Remove from global scope

@@ -6,6 +6,7 @@ import { agents, detectInstalledAgents } from './agents.ts';
 import { track } from './telemetry.ts';
 import { detectAgent } from './detect-agent.ts';
 import { removeSkillFromLock, getSkillFromLock } from './skill-lock.ts';
+import { recordSkillRemove } from './inventory.ts';
 import type { AgentType } from './types.ts';
 import {
   getInstallPath,
@@ -226,6 +227,16 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
       if (isGlobal) {
         await removeSkillFromLock(skillName);
+      }
+
+      try {
+        await recordSkillRemove({
+          name: skillName,
+          scope: isGlobal ? 'global' : 'project',
+          project_path: isGlobal ? undefined : process.cwd(),
+        });
+      } catch {
+        /* never block remove on inventory write */
       }
 
       results.push({

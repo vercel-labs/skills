@@ -56,6 +56,8 @@ import {
 } from './telemetry.ts';
 import { detectAgent, getAgentType } from './detect-agent.ts';
 import { wellKnownProvider, type WellKnownSkill } from './providers/index.ts';
+import { loadPolicy, evaluatePolicy, formatDenyMessage } from './policy.ts';
+import { recordSkillInstall } from './inventory.ts';
 import {
   addSkillToLock,
   fetchSkillFolderHash,
@@ -437,6 +439,13 @@ export interface AddOptions {
   fullDepth?: boolean;
   copy?: boolean;
   dangerouslyAcceptOpenclawRisks?: boolean;
+  /**
+   * Opt in to well-known endpoint resolution for this command.
+   * Default behavior is to refuse `.well-known/agent-skills`-style
+   * installs because any HTTPS host can serve arbitrary executable
+   * content there, which is an LLM-prompt-injection RCE channel.
+   */
+  allowWellKnown?: boolean;
 }
 
 /**
@@ -771,6 +780,25 @@ async function handleWellKnownSkills(
   const successful = results.filter((r) => r.success);
   const failed = results.filter((r) => !r.success);
 
+  // Record successful well-known installs in the global inventory.
+  try {
+    const successfulNames = new Set(successful.map((r) => r.skill));
+    const installedAt = new Date().toISOString();
+    for (const skill of selectedSkills) {
+      if (!successfulNames.has(skill.installName)) continue;
+      await recordSkillInstall({
+        name: skill.installName,
+        source,
+        scope: installGlobally ? 'global' : 'project',
+        project_path: installGlobally ? undefined : process.cwd(),
+        installed_at: installedAt,
+        provider_id: 'well-known',
+      });
+    }
+  } catch {
+    /* never block install on inventory write */
+  }
+
   // Build skillFiles map: { skillName: sourceUrl }
   const skillFiles: Record<string, string> = {};
   for (const skill of selectedSkills) {
@@ -975,6 +1003,27 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     spinner.stop(
       `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
     );
+
+    // Evaluate installation policy before any network call. The policy
+    // is the admin-managed gate; built-in defaults also default-deny
+    // well-known resolution unless --allow-well-known is passed.
+    {
+      const { policy, sourcePath } = loadPolicy();
+      const decision = evaluatePolicy({
+        parsed,
+        policy,
+        allowWellKnownFlag: options.allowWellKnown,
+      });
+      if (!decision.allowed) {
+        console.log();
+        p.log.error(pc.red(pc.bold('✗ ' + decision.reason)));
+        for (const line of formatDenyMessage(decision, source, sourcePath).split('\n').slice(1)) {
+          p.log.message(pc.dim(line));
+        }
+        p.outro(pc.red('Installation blocked by policy'));
+        process.exit(1);
+      }
+    }
 
     // Kick off the repo privacy check early so it runs in parallel with
     // cloning/discovering/installing. The result is only needed later for
@@ -1555,6 +1604,32 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     console.log();
     const successful = results.filter((r) => r.success);
     const failed = results.filter((r) => !r.success);
+
+    // Record successful installs in the user-global inventory manifest.
+    // The inventory is the fleet-management read-side counterpart to
+    // skills-lock.json — durable, machine-readable, parseable by
+    // detection scripts (Intune / JAMF / osquery / etc.).
+    try {
+      const installedSkillNames = new Set(
+        successful.map((r) => r.skill).filter((n): n is string => !!n)
+      );
+      const installedAt = new Date().toISOString();
+      for (const skill of selectedSkills) {
+        const displayName = getSkillDisplayName(skill);
+        if (!installedSkillNames.has(displayName)) continue;
+        await recordSkillInstall({
+          name: skill.name,
+          source,
+          ref: parsed.ref,
+          scope: installGlobally ? 'global' : 'project',
+          project_path: installGlobally ? undefined : process.cwd(),
+          installed_at: installedAt,
+          provider_id: parsed.type,
+        });
+      }
+    } catch {
+      // Inventory write must never block a successful install.
+    }
     // Track installation result
     // Build skillFiles map: { skillName: relative path to SKILL.md from repo root }
     const skillFiles: Record<string, string> = {};
@@ -1944,6 +2019,8 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       options.fullDepth = true;
     } else if (arg === '--copy') {
       options.copy = true;
+    } else if (arg === '--allow-well-known') {
+      options.allowWellKnown = true;
     } else if (arg === '--dangerously-accept-openclaw-risks') {
       options.dangerouslyAcceptOpenclawRisks = true;
     } else if (arg && !arg.startsWith('-')) {
