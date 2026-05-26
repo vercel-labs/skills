@@ -25,6 +25,22 @@ export function getOwnerRepo(parsed: ParsedSource): string | null {
     return null;
   }
 
+  // Handle SSH URLs with a scheme (e.g., ssh://git@host:7999/owner/repo.git)
+  if (parsed.url.startsWith('ssh://')) {
+    try {
+      const url = new URL(parsed.url);
+      let path = url.pathname.slice(1);
+      path = path.replace(/\.git$/, '');
+
+      if (path.includes('/')) {
+        return path;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   // Handle HTTP(S) URLs
   if (!parsed.url.startsWith('http://') && !parsed.url.startsWith('https://')) {
     return null;
@@ -144,6 +160,10 @@ function decodeFragmentValue(value: string): string {
 
 function looksLikeGitSource(input: string): boolean {
   if (input.startsWith('github:') || input.startsWith('gitlab:') || input.startsWith('git@')) {
+    return true;
+  }
+
+  if (/^ssh:\/\/.+\.git(?:$|[/?])/i.test(input)) {
     return true;
   }
 

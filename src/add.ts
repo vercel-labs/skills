@@ -22,6 +22,14 @@ async function isSourcePrivate(source: string): Promise<boolean | null> {
   }
   return isRepoPrivate(ownerRepo.owner, ownerRepo.repo);
 }
+
+export function getLockSource(parsedUrl: string, normalizedSource: string | null): string | null {
+  // Preserve SSH URLs in lock files instead of normalizing to owner/repo shorthand.
+  // When normalizedSource is used, parseSource() later resolves it to HTTPS,
+  // breaking restore for private repos that require SSH authentication.
+  const isSSH = parsedUrl.startsWith('git@') || parsedUrl.startsWith('ssh://');
+  return isSSH ? parsedUrl : normalizedSource;
+}
 import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
 import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
 import {
@@ -1574,11 +1582,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Normalize source to owner/repo format for telemetry
     const normalizedSource = getOwnerRepo(parsed);
 
-    // Preserve SSH URLs in lock files instead of normalizing to owner/repo shorthand.
-    // When normalizedSource is used, parseSource() later resolves it to HTTPS,
-    // breaking restore for private repos that require SSH authentication.
-    const isSSH = parsed.url.startsWith('git@');
-    const lockSource = isSSH ? parsed.url : normalizedSource;
+    const lockSource = getLockSource(parsed.url, normalizedSource);
 
     // Only track if we have a valid remote source and it's not a private repo.
     // repoPrivacyPromise was started early (right after parsing) so it has

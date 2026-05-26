@@ -262,6 +262,13 @@ describe('parseSource', () => {
       expect(result.url).toBe('https://git.example.com/owner/repo.git');
       expect(result.ref).toBe('release-2026');
     });
+
+    it('Git URL - ssh scheme with #branch', () => {
+      const result = parseSource('ssh://git@git.example.com:7999/owner/repo.git#release-2026');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('ssh://git@git.example.com:7999/owner/repo.git');
+      expect(result.ref).toBe('release-2026');
+    });
   });
 });
 
@@ -399,6 +406,14 @@ describe('getOwnerRepo', () => {
 
   it('getOwnerRepo - SSH URL (custom host)', () => {
     const parsed = { type: 'git', url: 'git@git.company.com:org/team/repo.git' } as const;
+    expect(getOwnerRepo(parsed)).toBe('org/team/repo');
+  });
+
+  it('getOwnerRepo - SSH URL with scheme and port', () => {
+    const parsed = {
+      type: 'git',
+      url: 'ssh://git@git.company.com:7999/org/team/repo.git',
+    } as const;
     expect(getOwnerRepo(parsed)).toBe('org/team/repo');
   });
 
