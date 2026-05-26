@@ -483,6 +483,18 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.codeium/windsurf'));
     },
   },
+  zed: {
+    name: 'zed',
+    displayName: 'Zed',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents/skills'),
+    detectInstalled: async () => {
+      return (
+        existsSync(join(configHome, 'zed')) ||
+        existsSync(join(home, 'Library/Application Support/Zed'))
+      );
+    },
+  },
   zencoder: {
     name: 'zencoder',
     displayName: 'Zencoder',
