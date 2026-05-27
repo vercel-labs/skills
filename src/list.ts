@@ -123,16 +123,25 @@ export async function runList(args: string[]): Promise<void> {
     return;
   }
 
-  function printSkill(skill: InstalledSkill, indent: boolean = false): void {
+  function printSkill(
+    skill: InstalledSkill,
+    indent: boolean = false,
+    maxNameLength: number = 0,
+    maxPathLength: number = 0
+  ): void {
     const prefix = indent ? '  ' : '';
     const shortPath = shortenPath(skill.canonicalPath, cwd);
     const agentNames = skill.agents.map((a) => agents[a].displayName);
     const agentInfo =
       skill.agents.length > 0 ? formatList(agentNames) : `${YELLOW}not linked${RESET}`;
+
+    // Pad skill name and path for alignment
+    const paddedName = sanitizeMetadata(skill.name).padEnd(maxNameLength);
+    const paddedPath = shortPath.padEnd(maxPathLength);
+
     console.log(
-      `${prefix}${CYAN}${sanitizeMetadata(skill.name)}${RESET} ${DIM}${shortPath}${RESET}`
+      `${prefix}${CYAN}${paddedName}${RESET} ${DIM}${paddedPath}${RESET} ${DIM}Agents:${RESET} ${agentInfo}`
     );
-    console.log(`${prefix}  ${DIM}Agents:${RESET} ${agentInfo}`);
   }
 
   console.log(`${BOLD}${scopeLabel} Skills${RESET}`);
@@ -170,8 +179,17 @@ export async function runList(args: string[]): Promise<void> {
       console.log(`${BOLD}${title}${RESET}`);
       const skills = groupedSkills[group];
       if (skills) {
+        // Calculate max lengths for alignment within this group
+        let maxNameLength = 0;
+        let maxPathLength = 0;
         for (const skill of skills) {
-          printSkill(skill, true);
+          const nameLength = sanitizeMetadata(skill.name).length;
+          const pathLength = shortenPath(skill.canonicalPath, cwd).length;
+          if (nameLength > maxNameLength) maxNameLength = nameLength;
+          if (pathLength > maxPathLength) maxPathLength = pathLength;
+        }
+        for (const skill of skills) {
+          printSkill(skill, true, maxNameLength, maxPathLength);
         }
       }
       console.log();
@@ -180,15 +198,33 @@ export async function runList(args: string[]): Promise<void> {
     // Print ungrouped skills if any exist
     if (ungroupedSkills.length > 0) {
       console.log(`${BOLD}General${RESET}`);
+      // Calculate max lengths for alignment within ungrouped skills
+      let maxNameLength = 0;
+      let maxPathLength = 0;
       for (const skill of ungroupedSkills) {
-        printSkill(skill, true);
+        const nameLength = sanitizeMetadata(skill.name).length;
+        const pathLength = shortenPath(skill.canonicalPath, cwd).length;
+        if (nameLength > maxNameLength) maxNameLength = nameLength;
+        if (pathLength > maxPathLength) maxPathLength = pathLength;
+      }
+      for (const skill of ungroupedSkills) {
+        printSkill(skill, true, maxNameLength, maxPathLength);
       }
       console.log();
     }
   } else {
     // No groups, print flat list as before
+    // Calculate max lengths for alignment in flat list
+    let maxNameLength = 0;
+    let maxPathLength = 0;
     for (const skill of installedSkills) {
-      printSkill(skill);
+      const nameLength = sanitizeMetadata(skill.name).length;
+      const pathLength = shortenPath(skill.canonicalPath, cwd).length;
+      if (nameLength > maxNameLength) maxNameLength = nameLength;
+      if (pathLength > maxPathLength) maxPathLength = pathLength;
+    }
+    for (const skill of installedSkills) {
+      printSkill(skill, false, maxNameLength, maxPathLength);
     }
     console.log();
   }
