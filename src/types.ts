@@ -65,6 +65,15 @@ export interface Skill {
   /** Name of the plugin this skill belongs to (if any) */
   pluginName?: string;
   metadata?: Record<string, unknown>;
+  /**
+   * Per-agent variants of this skill. When a repo ships a separate build of the
+   * same skill for different agents (e.g. `.claude/skills/<name>`,
+   * `.agents/skills/<name>`, `.cursor/skills/<name>`), this maps each agent
+   * `skillsDir` (e.g. `".claude/skills"`) to that variant's absolute path.
+   * Only set when 2+ variants exist. The installer copies the variant matching
+   * the target agent so each agent gets the build compiled for it.
+   */
+  variants?: Record<string, string>;
 }
 
 export interface AgentConfig {

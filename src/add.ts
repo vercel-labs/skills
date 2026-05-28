@@ -1365,6 +1365,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Determine install mode (symlink vs copy)
     let installMode: InstallMode = options.copy ? 'copy' : 'symlink';
 
+    // When a selected skill ships per-agent builds (skill.variants), symlinking
+    // every agent to one canonical copy installs a single build everywhere and
+    // overwrites each agent's own variant. Default to copy and warn on symlink.
+    const hasVariantSkill = selectedSkills.some(
+      (s) => s.variants && Object.keys(s.variants).length > 1
+    );
+
     // Only prompt for install mode when there are multiple unique target directories.
     // When all selected agents share the same skillsDir, symlink vs copy is meaningless.
     const uniqueDirs = new Set(targetAgents.map((a) => agents[a].skillsDir));
@@ -1372,13 +1379,20 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     if (!options.copy && !options.yes && uniqueDirs.size > 1) {
       const modeChoice = await p.select({
         message: 'Installation method',
+        initialValue: hasVariantSkill ? 'copy' : 'symlink',
         options: [
           {
             value: 'symlink',
-            label: 'Symlink (Recommended)',
-            hint: 'Single source of truth, easy updates',
+            label: hasVariantSkill ? 'Symlink' : 'Symlink (Recommended)',
+            hint: hasVariantSkill
+              ? "Shares one build across all agents; overwrites each agent's own variant"
+              : 'Single source of truth, easy updates',
           },
-          { value: 'copy', label: 'Copy to all agents', hint: 'Independent copies for each agent' },
+          {
+            value: 'copy',
+            label: hasVariantSkill ? 'Copy to all agents (Recommended)' : 'Copy to all agents',
+            hint: 'Independent copies for each agent',
+          },
         ],
       });
 

@@ -5,6 +5,14 @@ import { sanitizeMetadata } from './sanitize.ts';
 import type { Skill } from './types.ts';
 import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
 import { readLocalLock } from './local-lock.ts';
+import { agents } from './agents.ts';
+
+/**
+ * Every distinct agent skill directory (e.g. ".claude/skills", ".agents/skills",
+ * ".cursor/skills"), derived from the agent registry. Used to detect repos that
+ * ship a separate build of the same skill per agent.
+ */
+const AGENT_SKILL_DIRS: string[] = [...new Set(Object.values(agents).map((a) => a.skillsDir))];
 
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
 
@@ -285,7 +293,32 @@ export async function discoverSkills(
     }
   }
 
+  await attachProviderVariants(skills, searchPath);
   return skills;
+}
+
+/**
+ * When a repo ships a separate build of the same skill per agent (e.g.
+ * `.claude/skills/<name>`, `.agents/skills/<name>`, `.cursor/skills/<name>`),
+ * record each agent `skillsDir` -> that variant's path on the skill. Discovery
+ * otherwise returns a single deduped skill per name; this lets the installer
+ * copy the build compiled for each target agent. Only sets `variants` when 2+
+ * distinct variants exist, so single-build skills are unaffected.
+ */
+async function attachProviderVariants(skills: Skill[], searchPath: string): Promise<void> {
+  for (const skill of skills) {
+    const dirName = basename(skill.path);
+    const variants: Record<string, string> = {};
+    for (const skillsDir of AGENT_SKILL_DIRS) {
+      const candidate = join(searchPath, skillsDir, dirName);
+      if (await hasSkillMd(candidate)) {
+        variants[skillsDir] = candidate;
+      }
+    }
+    if (Object.keys(variants).length >= 2) {
+      skill.variants = variants;
+    }
+  }
 }
 
 export function getSkillDisplayName(skill: Skill): string {
