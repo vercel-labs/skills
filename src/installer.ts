@@ -157,7 +157,7 @@ async function resolveParentSymlinks(path: string): Promise<string> {
  * Creates a symlink, handling cross-platform differences
  * Returns true if symlink was created, false if fallback to copy is needed
  */
-async function createSymlink(target: string, linkPath: string): Promise<boolean> {
+export async function createSymlink(target: string, linkPath: string): Promise<boolean> {
   try {
     const resolvedTarget = resolve(target);
     const resolvedLinkPath = resolve(linkPath);
