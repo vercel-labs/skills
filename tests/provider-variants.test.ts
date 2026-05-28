@@ -64,6 +64,27 @@ describe('per-provider skill variants', () => {
     }
   });
 
+  it('does not attach same-directory variants with different skill names', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'variants-name-mismatch-'));
+    try {
+      await writeVariant(root, '.agents/skills', 'demo', 'agents build');
+      await writeVariant(root, '.claude/skills', 'demo', 'different skill build');
+      await writeFile(
+        join(root, '.claude/skills/demo/SKILL.md'),
+        `---\nname: different-demo\ndescription: Different skill\n---\n\ndifferent skill build\n`,
+        'utf-8'
+      );
+
+      const skills = await discoverSkills(root);
+      const demo = skills.find((s) => s.name === 'demo');
+
+      expect(demo).toBeDefined();
+      expect(demo!.variants).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('copy mode installs the variant compiled for each target agent', async () => {
     const root = await mkdtemp(join(tmpdir(), 'variants-install-'));
     const projectDir = join(root, 'project');

@@ -1376,6 +1376,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // When all selected agents share the same skillsDir, symlink vs copy is meaningless.
     const uniqueDirs = new Set(targetAgents.map((a) => agents[a].skillsDir));
 
+    if (!options.copy && hasVariantSkill && uniqueDirs.size > 1) {
+      installMode = 'copy';
+    }
+
     if (!options.copy && !options.yes && uniqueDirs.size > 1) {
       const modeChoice = await p.select({
         message: 'Installation method',

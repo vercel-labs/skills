@@ -308,10 +308,12 @@ export async function discoverSkills(
 async function attachProviderVariants(skills: Skill[], searchPath: string): Promise<void> {
   for (const skill of skills) {
     const dirName = basename(skill.path);
+    const skillName = normalizeSkillName(skill.name);
     const variants: Record<string, string> = {};
     for (const skillsDir of AGENT_SKILL_DIRS) {
       const candidate = join(searchPath, skillsDir, dirName);
-      if (await hasSkillMd(candidate)) {
+      const candidateSkill = await parseSkillMd(join(candidate, 'SKILL.md'));
+      if (candidateSkill && normalizeSkillName(candidateSkill.name) === skillName) {
         variants[skillsDir] = candidate;
       }
     }
