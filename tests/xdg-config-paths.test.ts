@@ -60,6 +60,19 @@ describe('XDG config paths', () => {
     });
   });
 
+  describe('Antigravity CLI', () => {
+    it('uses ~/.gemini/antigravity-cli/skills for global skills', () => {
+      const expected = join(home, '.gemini', 'antigravity-cli', 'skills');
+      expect(agents['antigravity-cli'].globalSkillsDir).toBe(expected);
+    });
+
+    it('uses a distinct global directory from the Antigravity IDE', () => {
+      expect(agents['antigravity-cli'].globalSkillsDir).not.toBe(
+        agents.antigravity.globalSkillsDir
+      );
+    });
+  });
+
   describe('skill lock file path', () => {
     function getSkillLockPath(xdgStateHome: string | undefined, homeDir: string): string {
       if (xdgStateHome) {
