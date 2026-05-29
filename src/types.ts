@@ -37,6 +37,7 @@ export type AgentType =
   | 'mistral-vibe'
   | 'mux'
   | 'neovate'
+  | 'ona'
   | 'opencode'
   | 'openhands'
   | 'pi'

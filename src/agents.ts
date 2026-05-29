@@ -517,6 +517,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.neovate'));
     },
   },
+  ona: {
+    name: 'ona',
+    displayName: 'Ona',
+    skillsDir: '.ona/skills',
+    globalSkillsDir: join(home, '.ona/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.ona'));
+    },
+  },
   pochi: {
     name: 'pochi',
     displayName: 'Pochi',
