@@ -535,6 +535,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.adal'));
     },
   },
+  reasonix: {
+    name: 'reasonix',
+    displayName: 'Reasonix',
+    skillsDir: '.reasonix/skills',
+    globalSkillsDir: join(home, '.reasonix/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.reasonix'));
+    },
+  },
   universal: {
     name: 'universal',
     displayName: 'Universal',
