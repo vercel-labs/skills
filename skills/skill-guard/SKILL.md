@@ -1,111 +1,172 @@
 ---
 name: skill-guard
 description: >
-  Garde de sécurité pour toute installation de skill ou plugin Claude.
-  Déclencher OBLIGATOIREMENT dès que l'utilisateur demande d'installer
-  un plugin Claude (`claude plugin install`), un skill (`npx skills add`),
-  ou tout équivalent — même si l'utilisateur tape la commande directement.
-  Affiche un pictogramme de risque (✅ ⚠️ ❌ ❓) et bloque l'installation
-  si un risque est détecté jusqu'à confirmation explicite. Ne jamais laisser
-  passer une installation sans ce rapport.
+  Security guard for Claude Code skill and plugin installations — with two
+  modes. (1) INTERCEPT mode: trigger IMMEDIATELY whenever the user asks to
+  install a Claude plugin (claude plugin install), a skill (npx skills add),
+  or any equivalent — even if the user types the command directly. Display a
+  risk pictogram and block if risk is detected. (2) AUDIT mode: trigger when
+  the user asks "are my skills safe?", "audit my installed skills", "scan my
+  environment for risks", "what did I install?", or just installed skill-guard
+  for the first time. Never let an installation pass without a risk report.
 ---
 
-## Objectif
+## Two modes
 
-Intercepter toute installation de skill ou plugin et évaluer son niveau de
-risque avant d'exécuter quoi que ce soit — ou, pour les skills interactifs,
-pendant l'exécution avant que les fichiers ne soient écrits sur disque.
+skill-guard works in two complementary modes:
 
-## Étape 1 — Identifier la source et le nom du package
+- **Intercept mode** — checks risk BEFORE (or during) a new installation
+- **Audit mode** — scans everything ALREADY installed and flags risks
 
-Extraire depuis la demande :
-- **Nom du package** (ex. `code-review`, `find-skills`)
-- **Source** (ex. `claude-plugins-official`, `vercel-labs/skills`, URL GitHub)
-- **Type de commande** : `claude plugin install` ou `npx skills add`
+---
 
-## Étape 2 — Collecter les informations de risque
+## INTERCEPT MODE — Before a new installation
 
-### Cas A : `claude plugin install X@marketplace`
+### Step 1 — Identify the package
 
-Exécuter **avant** l'installation :
+Extract from the request:
+- **Package name** (e.g. `code-review`, `find-skills`)
+- **Source** (e.g. `claude-plugins-official`, `vercel-labs/skills`, GitHub URL)
+- **Command type**: `claude plugin install` or `npx skills add`
+
+### Step 2 — Collect risk data
+
+**Case A: `claude plugin install X@marketplace`**
+
+Run before installing:
 ```
 claude plugin details X@marketplace
 ```
-Analyser l'inventaire retourné pour détecter des signaux d'alerte :
-- Présence de hooks (exécution automatique)
-- Présence de serveurs MCP (accès réseau)
-- Scripts bash exécutés à l'install
-- Permissions inhabituelles
+Inspect the inventory for red flags:
+- Hooks present (automatic execution)
+- MCP servers present (network access)
+- Bash scripts executed at install time
+- Unusual permissions
 
-Les scores externes (Socket, Snyk) ne sont pas disponibles pour ce canal.
-Compenser par l'analyse structurelle de l'inventaire + recherche web si doute.
+External scanners (Socket, Snyk) are not available for this channel.
+Compensate with structural inventory analysis + web search if in doubt.
 
-### Cas B : `npx skills add <repo> --skill <name>`
+**Case B: `npx skills add <repo> --skill <name>`**
 
-Les scores Socket/Snyk sont fournis par skills.sh **dans la sortie de la
-commande elle-même**, juste avant que les fichiers soient écrits sur disque.
+Socket/Snyk scores appear in the installation output before files are written
+to disk. Two-phase protocol:
 
-Protocole en deux temps :
+Phase 1 — Quick pre-check: WebFetch `https://skills.sh/<org>/<repo>` for
+published risk scores. If unavailable (client-side rendered), go to Phase 2.
 
-**Temps 1 — Pré-check rapide :**
-Tenter un WebFetch sur `https://skills.sh/<org>/<repo>` pour récupérer
-d'éventuels scores publiés. Si les scores ne sont pas disponibles (page
-rendue côté client), passer au Temps 2.
-
-**Temps 2 — Interception pendant l'installation :**
-Lancer la commande normalement et lire attentivement la sortie. La section
-"Security Risk Assessments" apparaît dans la sortie **avant** que
-l'installation ne se finalise. Capturer ces scores immédiatement.
-
-Format attendu dans la sortie :
+Phase 2 — Intercept during install: run the command and watch the output for
+the "Security Risk Assessments" section:
 ```
 Security Risk Assessments
   <skill-name>  <Gen>  <Socket>  <Snyk>
   Details: https://skills.sh/<org>/<repo>
 ```
+As soon as these scores appear, apply the risk rule below.
+If risk detected: show report, ask for confirmation.
+If user declines: immediately run `npx skills remove <name> -y`.
 
-Dès que ces scores apparaissent, appliquer la règle de l'Étape 3.
-Si ⚠️ ou ❌ détecté, afficher le rapport et demander confirmation.
-Si l'utilisateur refuse, exécuter immédiatement `npx skills remove <name> -y`.
-
-### Recherche web complémentaire (si données insuffisantes)
-
+**Web search fallback** (if data is insufficient):
 ```
-<nom-du-package> security vulnerability site:socket.dev OR site:snyk.io
+<package-name> security vulnerability site:socket.dev OR site:snyk.io
 ```
 
-## Étape 3 — Appliquer la règle de risque
+### Step 3 — Apply the risk rule
 
-| Pictogramme | Niveau | Condition |
-|-------------|--------|-----------|
-| ✅ | Sûr | Safe + 0 alertes sur tous les scanners disponibles |
-| ⚠️ | Risque modéré | Medium Risk sur au moins un scanner |
-| ❌ | Risque élevé | High Risk ou Critical sur au moins un scanner |
-| ❓ | Inconnu | Aucune donnée de risque disponible |
+| Icon | Level | Condition |
+|------|-------|-----------|
+| ✅ | Safe | Safe + 0 alerts across all available scanners |
+| ⚠️ | Medium risk | Medium Risk on at least one scanner |
+| ❌ | High risk | High or Critical Risk on at least one scanner |
+| ❓ | Unknown | No risk data available |
 
-## Étape 4 — Afficher le rapport
-
-Format standard du rapport :
+### Step 4 — Display the report and act
 
 ```
-[PICTOGRAMME] <nom-du-package>
-  Source    : <marketplace ou URL>
-  Scanners  : Gen=[résultat] · Socket=[résultat] · Snyk=[résultat]
-  Détails   : <URL si disponible>
+[ICON] <package-name>
+  Source   : <marketplace or URL>
+  Scanners : Gen=[result] - Socket=[result] - Snyk=[result]
+  Details  : <URL if available>
 ```
 
-**Comportement selon le niveau :**
+- **Safe**: proceed with installation.
+- **Medium risk**: ask "A medium risk was detected. Do you still want to install?"
+  Do not proceed without explicit confirmation.
+- **High risk**: warn strongly. Recommend against installing.
+  Ask for explicit confirmation. If already installed, offer immediate removal.
+- **Unknown**: state that risk data is unavailable and ask for confirmation.
 
-- **✅ Sûr** : Procéder ou confirmer l'installation. Aucune action requise.
-- **⚠️ Risque modéré** : Afficher le rapport et demander :
-  > "Un risque modéré a été détecté. Veux-tu quand même installer ce package ?"
-  Ne pas finaliser sans confirmation explicite.
-- **❌ Risque élevé** : Afficher le rapport avec avertissement fort.
-  Déconseiller fortement l'installation. Demander confirmation explicite.
-  Si installé (Cas B), proposer la désinstallation immédiate.
-- **❓ Inconnu** : Indiquer l'absence de données et demander confirmation.
+---
 
-## Règle absolue
+## AUDIT MODE — Scan what is already installed
 
-Ne jamais sauter cette vérification, même si l'utilisateur donne la commande
-directement. La sécurité de l'utilisateur prime sur la rapidité d'exécution.
+Trigger this mode when the user asks about the safety of their current
+environment — especially right after installing skill-guard for the first time.
+
+### Step 1 — Inventory everything installed
+
+Run in parallel:
+```bash
+npx skills list
+claude plugin list
+```
+
+Build a complete list: every installed skill and plugin by name.
+
+### Step 2 — Check each item for risk
+
+For each **plugin** (`claude plugin install` origin):
+```
+claude plugin details <plugin-name>
+```
+Look for: hooks, MCP servers, bash scripts, unusual permissions.
+
+For each **skill** (`npx skills add` origin):
+Try `https://skills.sh/<org>/<name>` via WebFetch to retrieve risk scores.
+If unavailable, mark as ❓ Unknown.
+
+Run checks in parallel to keep the audit fast.
+
+### Step 3 — Produce the security report
+
+```
+[skill-guard] Security Audit
+=================================
+Installed: <N> skills   <M> plugins
+
+SKILLS
+  ✅ <name>  — <source / reason safe>
+  ⚠️ <name>  — <scanner> <risk level> — consider removing
+  ❌ <name>  — HIGH RISK — strongly recommend removal
+  ❓ <name>  — no risk data available
+
+PLUGINS
+  ✅ <name>  — <inventory summary: no hooks, no MCP>
+  ⚠️ <name>  — <red flag found>
+
+SUMMARY
+  <N> safe   <N> medium risk   <N> high risk   <N> unknown
+
+RECOMMENDED ACTIONS
+  - Remove: <list of high-risk items>
+  - Review: <list of medium-risk items>
+  - No action: <all-clear items>
+```
+
+### Step 4 — Offer removal for flagged items
+
+For each ⚠️ or ❌ item found:
+- Explain clearly why it is flagged
+- Offer the removal command but do NOT run it automatically
+- Let the user decide
+
+```
+To remove <name>: npx skills remove <name> -y
+             or: claude plugin uninstall <name>
+```
+
+---
+
+## Absolute rule
+
+Never skip a risk check — whether for a new installation or an audit of
+existing ones. The user's security takes priority over speed.
