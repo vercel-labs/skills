@@ -145,10 +145,19 @@ Extract and display:
 - **Open issues** — `open_issues_count` (sign of community activity)
 - **Author** — `owner.login` (known maintainer or anonymous?)
 
-Interpret the signals with common sense:
-- 10,000+ installs + 2 years old + recent update = reassuring despite unknown scanner
-- 3 installs + created last week + no updates = treat with caution
-- Well-known author (vercel-labs, anthropics, etc.) = positive signal
+Interpret the signals and assign a confidence tier:
+
+| Tier | Verdict | Signals |
+|------|---------|---------|
+| **Community-trusted** | "Trusted by the community — install with confidence" | 10k+ installs AND 2+ years old AND recent update AND known author |
+| **Promising** | "Good adoption, looks healthy" | 1k+ installs AND 6+ months old AND maintained |
+| **Cautious** | "Low adoption — review before installing" | <1k installs OR <3 months old OR no recent update |
+| **Risky** | "Very new or abandoned — treat with caution" | <100 installs AND <1 month old OR last update >1 year ago |
+
+Well-known authors (vercel-labs, anthropics, google, microsoft, etc.) bump
+the tier up by one level regardless of other signals — reputation matters.
+Never penalize a skill for unknown scanner data if the community signals
+are strongly positive. Social proof at scale IS a form of validation.
 
 For Claude plugins with unknown risk, run `claude plugin details` and report
 the full component inventory (hooks, MCP servers, scripts) as a proxy for
@@ -203,9 +212,10 @@ Display the social proof summary and let the user judge:
    Created   : <date> (<age>)
    Updated   : <date> (<time since last update>)
    Author    : @<owner> (<link>)
-   Verdict   : <one-sentence assessment based on the signals>
-              e.g. "Low adoption + recent creation — treat with caution"
-              e.g. "10k+ installs, actively maintained — likely safe despite no scanner data"
+   Verdict   : <tier> — <one-sentence assessment>
+              e.g. "⚠️  Cautious   — Only 3 installs, created last week, unknown author"
+              e.g. "👍 Promising  — 2k installs, 8 months old, maintained"
+              e.g. "✅ Trusted    — 45k installs, 2 years old, active, @vercel-labs"
 ```
 
 Do not recommend removal for ❓ items based on unknown data alone —
