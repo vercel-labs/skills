@@ -4,7 +4,7 @@ The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
 
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [51 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [52 more](#supported-agents).
 
 <!-- agent-list:end -->
 
@@ -230,6 +230,7 @@ Skills can be installed to any of these agents:
 
 | Agent                                 | `--agent`                                | Project Path             | Global Path                     |
 | ------------------------------------- | ---------------------------------------- | ------------------------ | ------------------------------- |
+| [AI Assist](https://github.com/fredericlepied/ai-assist) | `ai-assist`             | `.agents/skills/`        | `~/.agents/skills/`             |
 | AiderDesk                             | `aider-desk`                             | `.aider-desk/skills/`    | `~/.aider-desk/skills/`         |
 | Amp, Kimi Code CLI, Replit, Universal | `amp`, `kimi-cli`, `replit`, `universal` | `.agents/skills/`        | `~/.config/agents/skills/`      |
 | Antigravity                           | `antigravity`                            | `.agents/skills/`        | `~/.gemini/antigravity/skills/` |

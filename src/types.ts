@@ -1,4 +1,5 @@
 export type AgentType =
+  | 'ai-assist'
   | 'aider-desk'
   | 'amp'
   | 'antigravity'
@@ -76,6 +77,18 @@ export interface AgentConfig {
   detectInstalled: () => Promise<boolean>;
   /** Whether to show this agent in the universal agents list. Defaults to true. */
   showInUniversalList?: boolean;
+  /** Called after a skill is successfully installed for this agent. */
+  postInstall?: (info: {
+    skillName: string;
+    skillDescription: string;
+    installPath: string;
+    source: string;
+    sourceType: string;
+    ref?: string;
+    skillPath?: string;
+  }) => Promise<void>;
+  /** Called after a skill is successfully removed for this agent. */
+  postUninstall?: (skillName: string) => Promise<void>;
 }
 
 export interface ParsedSource {

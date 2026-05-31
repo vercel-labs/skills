@@ -228,6 +228,18 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
         await removeSkillFromLock(skillName);
       }
 
+      // Call agent postUninstall hooks
+      for (const agentKey of targetAgents) {
+        const agent = agents[agentKey];
+        if (agent.postUninstall) {
+          try {
+            await agent.postUninstall(skillName);
+          } catch {
+            // Don't fail removal if postUninstall hook fails
+          }
+        }
+      }
+
       results.push({
         skill: skillName,
         success: true,
