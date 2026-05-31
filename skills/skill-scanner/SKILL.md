@@ -1,20 +1,22 @@
 ---
 name: skill-scanner
 description: >
-  Scans the agent environment at the start of a project: detects the project
-  type, inventories installed skills and plugins, and recommends 3 to 5 missing
-  but relevant skills. Trigger whenever the user starts a new project, says
-  "let's get started", "what do I need", "audit my tools", or opens a project
-  folder for the first time. Also trigger when the user asks which skills they
-  have or what could help them for their project type. Do NOT trigger for a
-  simple coding question or a direct installation request.
+  Scans the agent environment and recommends the right skills for the current
+  project — whether it is new or already in progress. Trigger whenever the user
+  starts a new project, says "let's get started", "what do I need", "audit my
+  tools", "are we well equipped", "what skills could help here", or asks about
+  their current setup at any point during a project. Also trigger when the user
+  opens a project folder for the first time OR returns to an existing one and
+  wonders if they have the right tools. Do NOT trigger for a simple coding
+  question or a direct installation request.
 ---
 
 ## Purpose
 
-Act like a teammate who walks onto a job site and takes stock of available
-tools before starting — so you never work empty-handed when the right tools
-already exist.
+Act like a teammate who takes stock of available tools — whether it is day one
+or month six of a project. Skills are installed incrementally over time; a
+project that started without `web-fetch` may need it now. Running this audit on
+an existing project is just as valuable as running it at the start.
 
 ## Step 1 — Detect project context
 
