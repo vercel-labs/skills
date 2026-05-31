@@ -30,6 +30,47 @@ export interface SearchSkill {
   installs: number;
 }
 
+function normalizeSearchValue(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function lastPathSegment(value: string): string {
+  return value.split('/').filter(Boolean).at(-1) || value;
+}
+
+function getMatchRank(skill: SearchSkill, query: string): number {
+  const normalizedQuery = normalizeSearchValue(query);
+  if (!normalizedQuery) return 3;
+
+  const targets = [
+    skill.name,
+    skill.slug,
+    skill.source,
+    lastPathSegment(skill.slug),
+    lastPathSegment(skill.source),
+  ]
+    .filter(Boolean)
+    .map(normalizeSearchValue);
+
+  if (targets.some((target) => target === normalizedQuery)) return 0;
+  if (targets.some((target) => target.startsWith(normalizedQuery))) return 1;
+  if (targets.some((target) => target.includes(normalizedQuery))) return 2;
+
+  return 3;
+}
+
+function rankSearchResults(results: SearchSkill[], query: string): SearchSkill[] {
+  return [...results].sort((a, b) => {
+    const rankDiff = getMatchRank(a, query) - getMatchRank(b, query);
+    if (rankDiff !== 0) return rankDiff;
+
+    const installDiff = (b.installs || 0) - (a.installs || 0);
+    if (installDiff !== 0) return installDiff;
+
+    return a.name.localeCompare(b.name);
+  });
+}
+
 // Search via API
 export async function searchSkillsAPI(query: string): Promise<SearchSkill[]> {
   try {
@@ -47,14 +88,14 @@ export async function searchSkillsAPI(query: string): Promise<SearchSkill[]> {
       }>;
     };
 
-    return data.skills
-      .map((skill) => ({
-        name: sanitizeMetadata(skill.name),
-        slug: sanitizeMetadata(skill.id),
-        source: sanitizeMetadata(skill.source || ''),
-        installs: skill.installs,
-      }))
-      .sort((a, b) => (b.installs || 0) - (a.installs || 0));
+    const results = data.skills.map((skill) => ({
+      name: sanitizeMetadata(skill.name),
+      slug: sanitizeMetadata(skill.id),
+      source: sanitizeMetadata(skill.source || ''),
+      installs: skill.installs,
+    }));
+
+    return rankSearchResults(results, query);
   } catch {
     return [];
   }
