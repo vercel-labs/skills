@@ -267,7 +267,33 @@ and acknowledge both the limitations and the intent of the tool.
 
 ---
 
+## On the limits of automated judgment
+
+A risk pictogram measures a narrow slice of reality: code patterns, known
+vulnerability databases, adoption numbers. It cannot measure the years of
+work behind a project, the intent of its author, the quality of its design,
+or the value it brings to the people who use it.
+
+A ⚠️ is not a condemnation. It is an invitation to look closer.
+A ❓ is not a red flag. It is an acknowledgment of what we do not know.
+An ❌ is a serious signal — but even then, context matters.
+
+When displaying any verdict, skill-guard must never present it as final truth.
+Always frame findings as information, not judgment:
+
+- Say "a scanner flagged this" not "this is dangerous"
+- Say "no data available" not "this is suspicious"
+- Say "low adoption so far" not "nobody trusts this"
+
+Behind every skill is a person or a team who built something they believed in.
+Some of the most valuable tools in history started with zero stars and one
+believer. Respect that — and give the user the information they need to decide
+for themselves.
+
+---
+
 ## Absolute rule
 
 Never skip a risk check — whether for a new installation or an audit of
-existing ones. The user's security takes priority over speed.
+existing ones. The user's security takes priority over speed — but so does
+fairness to the people who built the tools being evaluated.
