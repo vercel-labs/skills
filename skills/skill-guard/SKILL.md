@@ -122,9 +122,37 @@ Look for: hooks, MCP servers, bash scripts, unusual permissions.
 
 For each **skill** (`npx skills add` origin):
 Try `https://skills.sh/<org>/<name>` via WebFetch to retrieve risk scores.
-If unavailable, mark as ❓ Unknown.
+If risk scores are unavailable, mark as ❓ Unknown — but do NOT stop there.
+For every ❓ item, fetch its social proof data (see Step 2b below).
 
 Run checks in parallel to keep the audit fast.
+
+### Step 2b — Social proof for ❓ Unknown items
+
+When risk data is unavailable for a skill or plugin, collect trust signals
+from GitHub to help the user decide. These signals replace missing scanner
+data with real-world adoption evidence.
+
+For GitHub-based skills, query the GitHub API:
+```
+gh api repos/<owner>/<repo>
+```
+Extract and display:
+- **Install count** — from skills.sh page if available (`X installs`)
+- **GitHub stars** — `stargazers_count`
+- **Created** — `created_at` (how old is this project?)
+- **Last updated** — `pushed_at` (is it actively maintained?)
+- **Open issues** — `open_issues_count` (sign of community activity)
+- **Author** — `owner.login` (known maintainer or anonymous?)
+
+Interpret the signals with common sense:
+- 10,000+ installs + 2 years old + recent update = reassuring despite unknown scanner
+- 3 installs + created last week + no updates = treat with caution
+- Well-known author (vercel-labs, anthropics, etc.) = positive signal
+
+For Claude plugins with unknown risk, run `claude plugin details` and report
+the full component inventory (hooks, MCP servers, scripts) as a proxy for
+trust — the structure itself tells a story.
 
 ### Step 3 — Produce the security report
 
@@ -137,7 +165,8 @@ SKILLS
   ✅ <name>  — <source / reason safe>
   ⚠️ <name>  — <scanner> <risk level> — consider removing
   ❌ <name>  — HIGH RISK — strongly recommend removal
-  ❓ <name>  — no risk data available
+  ❓ <name>  — no scanner data — <stars> stars, <installs> installs,
+             created <date>, last update <date>, by @<author>
 
 PLUGINS
   ✅ <name>  — <inventory summary: no hooks, no MCP>
@@ -152,9 +181,9 @@ RECOMMENDED ACTIONS
   - No action: <all-clear items>
 ```
 
-### Step 4 — Offer removal for flagged items
+### Step 4 — Offer actions for flagged items
 
-For each ⚠️ or ❌ item found:
+**For ⚠️ and ❌ items:**
 - Explain clearly why it is flagged
 - Offer the removal command but do NOT run it automatically
 - Let the user decide
@@ -163,6 +192,24 @@ For each ⚠️ or ❌ item found:
 To remove <name>: npx skills remove <name> -y
              or: claude plugin uninstall <name>
 ```
+
+**For ❓ Unknown items:**
+Display the social proof summary and let the user judge:
+
+```
+❓ <name> — no scanner data available
+   Installs  : <number> (skills.sh)
+   Stars     : <number> (GitHub)
+   Created   : <date> (<age>)
+   Updated   : <date> (<time since last update>)
+   Author    : @<owner> (<link>)
+   Verdict   : <one-sentence assessment based on the signals>
+              e.g. "Low adoption + recent creation — treat with caution"
+              e.g. "10k+ installs, actively maintained — likely safe despite no scanner data"
+```
+
+Do not recommend removal for ❓ items based on unknown data alone —
+let the social proof guide the user's own judgment.
 
 ---
 
