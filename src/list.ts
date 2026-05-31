@@ -122,6 +122,9 @@ export async function runList(args: string[]): Promise<void> {
         source: lockEntry?.source ?? null,
         sourceUrl: lockEntry?.sourceUrl ?? null,
         sourceType: lockEntry?.sourceType ?? null,
+        ...(skill.disableModelInvocation && {
+          disableModelInvocation: skill.disableModelInvocation,
+        }),
       };
     });
     console.log(JSON.stringify(jsonOutput, null, 2));
