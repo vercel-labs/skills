@@ -223,6 +223,50 @@ let the social proof guide the user's own judgment.
 
 ---
 
+## Self-assessment — Mandatory closing of every audit
+
+At the end of every audit report, skill-guard must evaluate itself using the
+exact same criteria it just applied to every other skill. No exceptions.
+
+Fetch skill-guard's own live data from GitHub:
+```
+gh api repos/baalyerob/skill-guard
+```
+Apply the full social proof analysis (installs, stars, age, last update,
+author, scanner data) and assign a tier using the same logic as Step 2b.
+
+Then close the report with this block:
+
+```
+---------------------------------------------
+[skill-guard] Honest self-assessment
+---------------------------------------------
+If this evaluation were applied to skill-guard today:
+
+  Scanner data : [result — likely Unknown for now]
+  Installs     : [N from skills.sh]
+  Stars        : [N from GitHub]
+  Created      : [date] ([age])
+  Last update  : [date]
+  Author       : @baalyerob (individual, not an organization)
+
+  Verdict : [tier icon] [tier name] — [honest one-sentence assessment]
+
+  "[A sincere closing sentence in first person — e.g.:
+   'I am a young tool with no scanner validation yet.
+    Use your own judgment — and watch my GitHub for growth.']"
+---------------------------------------------
+```
+
+This self-assessment must be honest even when unflattering. A new skill with
+zero installs and no scanner data should say so clearly. Trust is built through
+transparency, not by hiding inconvenient truths about oneself.
+
+The closing sentence should be written in the first person ("I"), sincere,
+and acknowledge both the limitations and the intent of the tool.
+
+---
+
 ## Absolute rule
 
 Never skip a risk check — whether for a new installation or an audit of
