@@ -154,9 +154,9 @@ ${skillData.description}
     const skills = await listInstalledSkills({ global: false, cwd: testDir });
 
     expect(skills).toHaveLength(1);
-    // Should only show amp, not kimi-cli
+    // Should only show amp, not kimi-code-cli
     expect(skills[0]!.agents).toContain('amp');
-    expect(skills[0]!.agents).not.toContain('kimi-cli');
+    expect(skills[0]!.agents).not.toContain('kimi-code-cli');
 
     vi.restoreAllMocks();
   });

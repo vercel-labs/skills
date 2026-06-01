@@ -313,13 +313,13 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.kilocode'));
     },
   },
-  'kimi-cli': {
-    name: 'kimi-cli',
+  'kimi-code-cli': {
+    name: 'kimi-code-cli',
     displayName: 'Kimi Code CLI',
     skillsDir: '.agents/skills',
-    globalSkillsDir: join(home, '.config/agents/skills'),
+    globalSkillsDir: join(home, '.agents/skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.kimi'));
+      return existsSync(join(home, '.kimi-code')) || existsSync(join(home, '.kimi'));
     },
   },
   'kiro-cli': {

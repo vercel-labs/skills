@@ -47,6 +47,18 @@ describe('XDG config paths', () => {
     });
   });
 
+  describe('Kimi Code CLI', () => {
+    it('uses the current agent id', () => {
+      expect('kimi-code-cli' in agents).toBe(true);
+      expect('kimi-cli' in agents).toBe(false);
+    });
+
+    it('uses ~/.agents/skills for global skills', () => {
+      const expected = join(home, '.agents', 'skills');
+      expect(agents['kimi-code-cli'].globalSkillsDir).toBe(expected);
+    });
+  });
+
   describe('Goose', () => {
     it('uses ~/.config/goose/skills for global skills', () => {
       const expected = join(home, '.config', 'goose', 'skills');

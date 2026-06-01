@@ -231,13 +231,13 @@ Skills can be installed to any of these agents:
 | Agent                                 | `--agent`                                | Project Path             | Global Path                     |
 | ------------------------------------- | ---------------------------------------- | ------------------------ | ------------------------------- |
 | AiderDesk                             | `aider-desk`                             | `.aider-desk/skills/`    | `~/.aider-desk/skills/`         |
-| Amp, Kimi Code CLI, Replit, Universal | `amp`, `kimi-cli`, `replit`, `universal` | `.agents/skills/`        | `~/.config/agents/skills/`      |
+| Amp, Replit, Universal                | `amp`, `replit`, `universal`             | `.agents/skills/`        | `~/.config/agents/skills/`      |
 | Antigravity                           | `antigravity`                            | `.agents/skills/`        | `~/.gemini/antigravity/skills/` |
 | Augment                               | `augment`                                | `.augment/skills/`       | `~/.augment/skills/`            |
 | IBM Bob                               | `bob`                                    | `.bob/skills/`           | `~/.bob/skills/`                |
 | Claude Code                           | `claude-code`                            | `.claude/skills/`        | `~/.claude/skills/`             |
 | OpenClaw                              | `openclaw`                               | `skills/`                | `~/.openclaw/skills/`           |
-| Cline, Dexto, Warp                    | `cline`, `dexto`, `warp`                 | `.agents/skills/`        | `~/.agents/skills/`             |
+| Cline, Dexto, Kimi Code CLI, Warp     | `cline`, `dexto`, `kimi-code-cli`, `warp` | `.agents/skills/`        | `~/.agents/skills/`             |
 | CodeArts Agent                        | `codearts-agent`                         | `.codeartsdoer/skills/`  | `~/.codeartsdoer/skills/`       |
 | CodeBuddy                             | `codebuddy`                              | `.codebuddy/skills/`     | `~/.codebuddy/skills/`          |
 | Codemaker                             | `codemaker`                              | `.codemaker/skills/`     | `~/.codemaker/skills/`          |
@@ -486,7 +486,7 @@ Telemetry is automatically disabled in CI environments.
 - [Gemini CLI Skills Documentation](https://geminicli.com/docs/cli/skills/)
 - [GitHub Copilot Agent Skills](https://docs.github.com/en/copilot/concepts/agents/about-agent-skills)
 - [iFlow CLI Skills Documentation](https://platform.iflow.cn/en/cli/examples/skill)
-- [Kimi Code CLI Skills Documentation](https://moonshotai.github.io/kimi-cli/en/customization/skills.html)
+- [Kimi Code CLI Skills Documentation](https://moonshotai.github.io/kimi-code/en/customization/skills)
 - [Kiro CLI Skills Documentation](https://kiro.dev/docs/cli/custom-agents/configuration-reference/#skill-resources)
 - [Kode Skills Documentation](https://github.com/shareAI-lab/kode/blob/main/docs/skills.md)
 - [OpenCode Skills Documentation](https://opencode.ai/docs/skills)
