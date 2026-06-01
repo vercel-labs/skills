@@ -41,6 +41,7 @@ export type AgentType =
   | 'openhands'
   | 'pi'
   | 'qoder'
+  | 'qoder-cn'
   | 'qwen-code'
   | 'replit'
   | 'roo'

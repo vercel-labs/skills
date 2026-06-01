@@ -403,6 +403,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.qoder'));
     },
   },
+  'qoder-cn': {
+    name: 'qoder-cn',
+    displayName: 'Qoder CN',
+    skillsDir: '.qoder/skills',
+    globalSkillsDir: join(home, '.qoder-cn/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.qoder-cn'));
+    },
+  },
   'qwen-code': {
     name: 'qwen-code',
     displayName: 'Qwen Code',

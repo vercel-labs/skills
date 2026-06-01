@@ -4,7 +4,7 @@ The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
 
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [51 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [52 more](#supported-agents).
 
 <!-- agent-list:end -->
 
@@ -269,6 +269,7 @@ Skills can be installed to any of these agents:
 | OpenHands                             | `openhands`                              | `.openhands/skills/`     | `~/.openhands/skills/`          |
 | Pi                                    | `pi`                                     | `.pi/skills/`            | `~/.pi/agent/skills/`           |
 | Qoder                                 | `qoder`                                  | `.qoder/skills/`         | `~/.qoder/skills/`              |
+| Qoder CN                              | `qoder-cn`                               | `.qoder/skills/`         | `~/.qoder-cn/skills/`           |
 | Qwen Code                             | `qwen-code`                              | `.qwen/skills/`          | `~/.qwen/skills/`               |
 | Rovo Dev                              | `rovodev`                                | `.rovodev/skills/`       | `~/.rovodev/skills/`            |
 | Roo Code                              | `roo`                                    | `.roo/skills/`           | `~/.roo/skills/`                |
