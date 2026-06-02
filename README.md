@@ -259,7 +259,7 @@ Skills can be installed to any of these agents:
 | Hermes Agent                          | `hermes-agent`                           | `.hermes/skills/`        | `~/.hermes/skills/`             |
 | Junie                                 | `junie`                                  | `.junie/skills/`         | `~/.junie/skills/`              |
 | iFlow CLI                             | `iflow-cli`                              | `.iflow/skills/`         | `~/.iflow/skills/`              |
-| Kilo Code                             | `kilo`                                   | `.kilocode/skills/`      | `~/.kilocode/skills/`           |
+| Kilo Code                             | `kilo`                                   | `.kilo/skills/`          | `~/.kilo/skills/`               |
 | Kiro CLI                              | `kiro-cli`                               | `.kiro/skills/`          | `~/.kiro/skills/`               |
 | Kode                                  | `kode`                                   | `.kode/skills/`          | `~/.kode/skills/`               |
 | MCPJam                                | `mcpjam`                                 | `.mcpjam/skills/`        | `~/.mcpjam/skills/`             |
@@ -377,7 +377,7 @@ to also discover `SKILL.md` files outside these container directories
 - `.hermes/skills/`
 - `.junie/skills/`
 - `.iflow/skills/`
-- `.kilocode/skills/`
+- `.kilo/skills/`
 - `.kiro/skills/`
 - `.kode/skills/`
 - `.mcpjam/skills/`

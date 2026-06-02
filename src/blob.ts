@@ -238,7 +238,7 @@ const PRIORITY_PREFIXES = [
   '.goose/skills/',
   '.iflow/skills/',
   '.junie/skills/',
-  '.kilocode/skills/',
+  '.kilo/skills/',
   '.kiro/skills/',
   '.mux/skills/',
   '.neovate/skills/',
