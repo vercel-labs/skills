@@ -420,6 +420,81 @@ This enables compatibility with the [Claude Code plugin marketplace](https://cod
 
 If no skills are found in standard locations, a recursive search is performed.
 
+### Remote Plugin Sources
+
+Marketplace plugins can also point at **other repositories**, so a central marketplace repo can act as the
+single entry point while skills live next to the code they document:
+
+```json
+// company/skill-marketplace → .claude-plugin/marketplace.json
+{
+  "name": "company-marketplace",
+  "plugins": [
+    { "name": "format-pr", "source": "./skills/format-pr" },
+    {
+      "name": "design-system",
+      "description": "Design system skill for our frontend monorepo",
+      "source": {
+        "source": "git-subdir",
+        "url": "git@gitlab.company.com:frontend-monorepo.git",
+        "path": "libs/design-system/skills",
+        "ref": "main"
+      }
+    }
+  ]
+}
+```
+
+```bash
+# Users only ever need to know the marketplace:
+npx skills add company/skill-marketplace --skill design-system
+```
+
+Supported remote source types (following the Claude Code marketplace spec): `github`
+(`{ "source": "github", "repo": "owner/repo" }`), `url` (any `https://` or `git@` git URL, including
+self-hosted GitLab/Bitbucket), and `git-subdir` (a subdirectory of a monorepo via `url` + `path`).
+All three accept optional `ref` (branch/tag) and `sha` (exact commit pin). `npm` sources are not
+supported for skill installation.
+
+How it behaves:
+
+- **Lazy resolution** — listing and selection show remote plugins using their manifest
+  `name`/`description` without cloning anything. Only selected plugins are cloned and installed.
+- **Sparse, partial clone for `git-subdir`** — because the subdirectory is known up front, a
+  `git-subdir` source is fetched as a sparse, partial clone (`--filter=blob:none --sparse`): only the
+  declared `path` is materialized, so a single skill in a large monorepo never pulls the whole tree
+  (parity with Claude Code's documented behavior). `github` and `url` sources clone normally, since
+  the skill location is only known after discovery.
+- **Provenance** — the lock file records the marketplace as the skill's source, plus a `resolvedFrom`
+  block (repository, path, ref, and the exact commit installed) for transparency.
+- **Plugin `name` is the stable identifier** — installed skills are tracked by the plugin `name`
+  declared in `marketplace.json`. Renaming a plugin is therefore equivalent to **deleting it and
+  adding a new one**: existing installs no longer match the new name and are reported as removed
+  upstream. Treat `name` as a stable contract and communicate renames as a breaking change.
+- **Updates re-resolve through the marketplace** — `skills update` (project scope) re-reads the
+  manifest and follows whatever it currently declares. If a plugin's resolved source changed since
+  installation, the update asks for consent; in non-interactive mode (`-y`) the skill is skipped and
+  the command exits non-zero, so a redirected source never auto-installs in CI.
+
+#### Name collisions
+
+Names share one namespace, and collisions are always announced — never resolved silently:
+
+- **Local skill vs. remote plugin** — if the marketplace contains a local skill with the same name
+  as a remote plugin, the **local skill wins** and a warning is printed. The remote plugin is not
+  resolved.
+- **Duplicate plugin names** — if `marketplace.json` declares two plugins with the same `name`, the
+  **first entry wins** and a warning is printed (Claude Code's own validator rejects such a
+  marketplace as invalid).
+- **Same inner skill in two plugins** — if two selected remote plugins each contain a skill of the
+  same name, the **first resolved plugin wins** and a warning is printed; the second never silently
+  overwrites the first's lock entry.
+
+A collision that would change the content source of an **already-installed** skill — for example, a
+local skill appearing under the name of an installed remote-plugin skill — is treated as a source
+change on the next `skills update`: it requires consent interactively and is skipped (with a non-zero
+exit) in `-y` mode.
+
 ## Compatibility
 
 Skills are generally compatible across agents since they follow a
