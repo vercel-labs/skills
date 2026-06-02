@@ -167,7 +167,7 @@ export async function fetchRepoTree(
 
   // First pass: unauthenticated.
   let rateLimited = false;
-  let anyFailed = false;
+  let unauthenticatedFetchFailed = false;
   for (const branch of branches) {
     const result = await fetchTreeBranch(ownerRepo, branch, null);
     if (result.tree) return result.tree;
@@ -177,12 +177,13 @@ export async function fetchRepoTree(
       rateLimited = true;
       break;
     }
-    anyFailed = true;
+    unauthenticatedFetchFailed = true;
   }
 
-  if ((!rateLimited && !anyFailed) || !getToken) return null;
+  if ((!rateLimited && !unauthenticatedFetchFailed) || !getToken) return null;
 
-  // Lazy fallback: rate limit hit or potential private repo, and a token resolver was provided.
+  // Lazy fallback: rate limit hit or unauthenticated fetch failed (e.g. private repo),
+  // and a token resolver was provided.
   if (rateLimited) {
     _rateLimitedThisSession = true;
   }
