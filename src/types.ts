@@ -67,6 +67,8 @@ export interface Skill {
   metadata?: Record<string, unknown>;
 }
 
+export type HookSchema = 'nested' | 'flat';
+
 export interface AgentConfig {
   name: string;
   displayName: string;
@@ -76,6 +78,16 @@ export interface AgentConfig {
   detectInstalled: () => Promise<boolean>;
   /** Whether to show this agent in the universal agents list. Defaults to true. */
   showInUniversalList?: boolean;
+  /** Path to the hooks config file, relative to home. Undefined = no hook support. */
+  hooksFile?: string;
+  /** Agent-specific name for the clean Stop lifecycle event. */
+  stopEvent?: string;
+  /** Agent-specific name for the failure lifecycle event (optional). */
+  failEvent?: string;
+  /** Agent-specific name for the UserPromptSubmit event. */
+  promptEvent?: string;
+  /** How to write hook entries for this agent. */
+  hookSchema?: HookSchema;
 }
 
 export interface ParsedSource {

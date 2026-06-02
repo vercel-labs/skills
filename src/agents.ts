@@ -84,6 +84,11 @@ export const agents: Record<AgentType, AgentConfig> = {
     detectInstalled: async () => {
       return existsSync(claudeHome);
     },
+    hooksFile: '.claude/settings.json',
+    stopEvent: 'Stop',
+    failEvent: 'StopFailure',
+    promptEvent: 'UserPromptSubmit',
+    hookSchema: 'nested',
   },
   openclaw: {
     name: 'openclaw',
@@ -151,6 +156,10 @@ export const agents: Record<AgentType, AgentConfig> = {
     detectInstalled: async () => {
       return existsSync(codexHome) || existsSync('/etc/codex');
     },
+    hooksFile: '.codex/hooks.json',
+    stopEvent: 'Stop',
+    promptEvent: 'UserPromptSubmit',
+    hookSchema: 'nested',
   },
   'command-code': {
     name: 'command-code',
@@ -196,6 +205,10 @@ export const agents: Record<AgentType, AgentConfig> = {
     detectInstalled: async () => {
       return existsSync(join(home, '.cursor'));
     },
+    hooksFile: '.cursor/hooks.json',
+    stopEvent: 'stop',
+    promptEvent: 'beforeSubmitPrompt',
+    hookSchema: 'flat',
   },
   deepagents: {
     name: 'deepagents',
@@ -268,6 +281,11 @@ export const agents: Record<AgentType, AgentConfig> = {
     detectInstalled: async () => {
       return existsSync(join(home, '.copilot'));
     },
+    hooksFile: '.copilot/hooks/skills.json',
+    stopEvent: 'agentStop',
+    failEvent: 'errorOccurred',
+    promptEvent: 'userPromptSubmitted',
+    hookSchema: 'flat',
   },
   goose: {
     name: 'goose',

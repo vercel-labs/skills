@@ -35,6 +35,8 @@ export interface SkillLockEntry {
   updatedAt: string;
   /** Name of the plugin this skill belongs to (if any) */
   pluginName?: string;
+  /** Stable hook identity key (e.g. "owner/repo/skillName") stored at install time for hook unwiring */
+  skillRef?: string;
 }
 
 /**
@@ -43,6 +45,15 @@ export interface SkillLockEntry {
 export interface DismissedPrompts {
   /** Dismissed the find-skills skill installation prompt */
   findSkillsPrompt?: boolean;
+}
+
+/**
+ * Tracks which installs (global or per-project) are keeping a skill's prompt hook alive.
+ * The hook is removed only when both globalInstall is false and projectPaths is empty.
+ */
+export interface HookRef {
+  globalInstall: boolean;
+  projectPaths: string[];
 }
 
 /**
@@ -57,6 +68,8 @@ export interface SkillLockFile {
   dismissed?: DismissedPrompts;
   /** Last selected agents for installation */
   lastSelectedAgents?: string[];
+  /** Ref-counts active installations keyed by skillRef — drives hook lifecycle */
+  hookRefs?: Record<string, HookRef>;
 }
 
 /**
@@ -320,4 +333,63 @@ export async function saveSelectedAgents(agents: string[]): Promise<void> {
   const lock = await readSkillLock();
   lock.lastSelectedAgents = agents;
   await writeSkillLock(lock);
+}
+
+/**
+ * Record that a skill's prompt hook is desired for a global or project-scoped install.
+ * Called whenever hook wiring is enabled and the agent supports prompt hooks, regardless
+ * of whether the wire call was a no-op (idempotent reinstall). This ensures ref counts
+ * stay accurate across reinstalls.
+ */
+export async function addHookRef(
+  skillRef: string,
+  scope: { global: true } | { projectPath: string }
+): Promise<void> {
+  const lock = await readSkillLock();
+  if (!lock.hookRefs) lock.hookRefs = {};
+  const ref = lock.hookRefs[skillRef] ?? { globalInstall: false, projectPaths: [] };
+
+  if ('global' in scope) {
+    ref.globalInstall = true;
+  } else {
+    if (!ref.projectPaths.includes(scope.projectPath)) {
+      ref.projectPaths.push(scope.projectPath);
+    }
+  }
+
+  lock.hookRefs[skillRef] = ref;
+  await writeSkillLock(lock);
+}
+
+/**
+ * Remove one reference to a skill's prompt hook.
+ * Returns true if the hook should now be removed (no remaining refs).
+ */
+export async function removeHookRef(
+  skillRef: string,
+  scope: { global: true } | { projectPath: string }
+): Promise<boolean> {
+  const lock = await readSkillLock();
+  // No hookRefs entry means the skill was installed before ref-counting was introduced.
+  // Default to false (keep the hook) — a stale hook is safer than a premature removal,
+  // and `skills hooks repair` will clean up orphans on the next run.
+  if (!lock.hookRefs) return false;
+  const ref = lock.hookRefs[skillRef];
+  if (!ref) return false;
+
+  if ('global' in scope) {
+    ref.globalInstall = false;
+  } else {
+    ref.projectPaths = ref.projectPaths.filter((p) => p !== scope.projectPath);
+  }
+
+  const shouldRemove = !ref.globalInstall && ref.projectPaths.length === 0;
+  if (shouldRemove) {
+    delete lock.hookRefs[skillRef];
+  } else {
+    lock.hookRefs[skillRef] = ref;
+  }
+
+  await writeSkillLock(lock);
+  return shouldRemove;
 }
