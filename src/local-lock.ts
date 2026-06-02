@@ -1,6 +1,7 @@
 import { readFile, writeFile, readdir, stat } from 'fs/promises';
 import { join, relative } from 'path';
 import { createHash } from 'crypto';
+import type { ResolvedFromInfo } from './types.ts';
 
 const LOCAL_LOCK_FILE = 'skills-lock.json';
 const CURRENT_VERSION = 1;
@@ -33,6 +34,13 @@ export interface LocalSkillLockEntry {
    * computes the hash from actual file contents on disk.
    */
   computedHash: string;
+  /**
+   * For skills installed via a marketplace remote plugin source: where the
+   * content actually came from. The marketplace stays the source of record
+   * (`source` above); this field is provenance for transparency and
+   * change detection on update.
+   */
+  resolvedFrom?: ResolvedFromInfo;
 }
 
 /**

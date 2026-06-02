@@ -4,6 +4,7 @@ import { homedir } from 'os';
 import { createHash } from 'crypto';
 import { execSync } from 'child_process';
 import pc from 'picocolors';
+import type { ResolvedFromInfo } from './types.ts';
 
 const AGENTS_DIR = '.agents';
 const LOCK_FILE = '.skill-lock.json';
@@ -35,6 +36,13 @@ export interface SkillLockEntry {
   updatedAt: string;
   /** Name of the plugin this skill belongs to (if any) */
   pluginName?: string;
+  /**
+   * For skills installed via a marketplace remote plugin source: where the
+   * content actually came from. The marketplace stays the source of record
+   * (`source` above); this field is provenance for transparency and
+   * change detection on update.
+   */
+  resolvedFrom?: ResolvedFromInfo;
 }
 
 /**
