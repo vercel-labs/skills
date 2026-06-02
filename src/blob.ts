@@ -178,10 +178,15 @@ export async function fetchRepoTree(
     }
   }
 
-  if (!rateLimited || !getToken) return null;
+  if (!getToken) return null;
 
-  // Lazy fallback: rate limit hit and a token resolver was provided.
-  _rateLimitedThisSession = true;
+  // Lazy fallback: retry with auth. Covers two cases:
+  //   1. Rate-limited (403 + x-ratelimit-remaining: 0) — same as before.
+  //   2. Private repo (401/404 without auth) — unauthenticated pass returns
+  //      rateLimited: false, so the old guard `!rateLimited || !getToken`
+  //      would bail here without ever trying a token. Now we always retry
+  //      with auth when a token resolver is available.
+  if (rateLimited) _rateLimitedThisSession = true;
   const token = getToken();
   if (!token) return null;
 
