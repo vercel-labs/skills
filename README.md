@@ -98,6 +98,7 @@ When installing interactively, you can choose:
 
 | Command                      | Description                                   |
 | ---------------------------- | --------------------------------------------- |
+| `npx skills link [skills]`   | Link installed global skills to agents        |
 | `npx skills list`            | List installed skills (alias: `ls`)           |
 | `npx skills find [query]`    | Search for skills interactively or by keyword |
 | `npx skills remove [skills]` | Remove installed skills from agents           |
@@ -208,6 +209,31 @@ npx skills rm my-skill
 | `-s, --skill`  | Specify skills to remove (use `'*'` for all)     |
 | `-y, --yes`    | Skip confirmation prompts                        |
 | `--all`        | Shorthand for `--skill '*' --agent '*' -y`       |
+
+### `skills link`
+
+Link already-installed global skills to one or more agents.
+
+```bash
+# Interactively search and select from installed global skills
+npx skills link
+
+# Link one global skill to a specific agent
+npx skills link pr-review -a claude-code
+
+# Link multiple global skills
+npx skills link pr-review sql-safety -a claude-code -a cursor
+
+# Link all installed global skills without confirmation
+npx skills link --all -a claude-code -y
+```
+
+| Option         | Description                             |
+| -------------- | --------------------------------------- |
+| `-a, --agent`  | Link to specific agents                 |
+| `-s, --skill`  | Specify installed global skills to link |
+| `-y, --yes`    | Skip confirmation prompts               |
+| `--all`        | Link all installed global skills        |
 
 ## What are Agent Skills?
 

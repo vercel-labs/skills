@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
 import { runFind } from './find.ts';
 import { runInstallFromLock } from './install.ts';
+import { runLink, parseLinkOptions } from './link.ts';
 import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
@@ -72,6 +73,9 @@ function showBanner(): void {
     `  ${DIM}$${RESET} ${TEXT}npx skills remove${RESET}               ${DIM}Remove installed skills${RESET}`
   );
   console.log(
+    `  ${DIM}$${RESET} ${TEXT}npx skills link${RESET}                 ${DIM}Link global skills to an agent${RESET}`
+  );
+  console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills list${RESET}                 ${DIM}List installed skills${RESET}`
   );
   console.log(
@@ -107,6 +111,7 @@ ${BOLD}Manage Skills:${RESET}
                        e.g. vercel-labs/agent-skills
                             https://github.com/vercel-labs/agent-skills
   remove [skills]      Remove installed skills
+  link [skills]        Link installed global skills to agents
   list, ls             List installed skills
   find [query]         Search for skills interactively
 
@@ -139,6 +144,12 @@ ${BOLD}Remove Options:${RESET}
   -s, --skill <skills>   Specify skills to remove (use '*' for all skills)
   -y, --yes              Skip confirmation prompts
   --all                  Shorthand for --skill '*' --agent '*' -y
+
+${BOLD}Link Options:${RESET}
+  -a, --agent <agents>   Specify agents to link to
+  -s, --skill <skills>   Specify installed global skills to link
+  -y, --yes              Skip confirmation prompts
+  --all                  Link all installed global skills
   
 ${BOLD}Experimental Sync Options:${RESET}
   -a, --agent <agents>   Specify agents to install to (use '*' for all agents)
@@ -161,6 +172,8 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills remove                        ${DIM}# interactive remove${RESET}
   ${DIM}$${RESET} skills remove web-design             ${DIM}# remove by name${RESET}
   ${DIM}$${RESET} skills rm --global frontend-design
+  ${DIM}$${RESET} skills link                          ${DIM}# interactively link global skills${RESET}
+  ${DIM}$${RESET} skills link pr-review -a claude-code ${DIM}# link one global skill${RESET}
   ${DIM}$${RESET} skills list                          ${DIM}# list project skills${RESET}
   ${DIM}$${RESET} skills ls -g                         ${DIM}# list global skills${RESET}
   ${DIM}$${RESET} skills ls -a claude-code             ${DIM}# filter by agent${RESET}
@@ -330,6 +343,12 @@ async function main(): Promise<void> {
       const { skills, options: removeOptions } = parseRemoveOptions(restArgs);
       await removeCommand(skills, removeOptions);
       break;
+    case 'link': {
+      showLogo();
+      const { skills, options: linkOptions } = parseLinkOptions(restArgs);
+      await runLink(skills, linkOptions);
+      break;
+    }
     case 'experimental_sync': {
       if (!inAgent) showLogo();
       const { options: syncOptions } = parseSyncOptions(restArgs);

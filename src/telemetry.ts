@@ -48,12 +48,22 @@ interface SyncTelemetryData {
   agents: string;
 }
 
+interface LinkTelemetryData {
+  event: 'link';
+  scope: 'global';
+  skillCount: string;
+  agents: string;
+  successCount: string;
+  failCount: string;
+}
+
 type TelemetryData =
   | InstallTelemetryData
   | RemoveTelemetryData
   | UpdateTelemetryData
   | FindTelemetryData
-  | SyncTelemetryData;
+  | SyncTelemetryData
+  | LinkTelemetryData;
 
 let cliVersion: string | null = null;
 let detectedAgentName: string | null = null;

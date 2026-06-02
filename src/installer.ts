@@ -214,7 +214,7 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
     // Use the real (symlink-resolved) parent directory for computing the relative path.
     // This ensures the symlink target is correct even when the link's parent dir is a symlink.
     const realLinkDir = await resolveParentSymlinks(linkDir);
-    const relativePath = relative(realLinkDir, target);
+    const relativePath = relative(realLinkDir, realTargetWithParents);
     const symlinkType = platform() === 'win32' ? 'junction' : undefined;
 
     await symlink(relativePath, linkPath, symlinkType);
@@ -256,6 +256,8 @@ export async function installSkillForAgent(
   const agentDir = join(agentBase, skillName);
 
   const installMode = options.mode ?? 'symlink';
+  const sourceDir = resolve(skill.path);
+  const canonicalSource = resolve(canonicalDir);
 
   // Validate paths
   if (!isPathSafe(canonicalBase, canonicalDir)) {
@@ -279,6 +281,13 @@ export async function installSkillForAgent(
   try {
     // For copy mode, skip canonical directory and copy directly to agent location
     if (installMode === 'copy') {
+      if (sourceDir === resolve(agentDir)) {
+        return {
+          success: true,
+          path: agentDir,
+          mode: 'copy',
+        };
+      }
       await cleanAndCreateDirectory(agentDir);
       await copyDirectory(skill.path, agentDir);
 
@@ -290,8 +299,10 @@ export async function installSkillForAgent(
     }
 
     // Symlink mode: copy to canonical location and symlink to agent location
-    await cleanAndCreateDirectory(canonicalDir);
-    await copyDirectory(skill.path, canonicalDir);
+    if (sourceDir !== canonicalSource) {
+      await cleanAndCreateDirectory(canonicalDir);
+      await copyDirectory(skill.path, canonicalDir);
+    }
 
     // For universal agents with global install, the skill is already in the canonical
     // ~/.agents/skills directory. Skip creating a symlink to the agent-specific global dir
