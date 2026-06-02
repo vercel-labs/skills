@@ -8,6 +8,7 @@ import pc from 'picocolors';
 import {
   readSkillLock,
   fetchSkillFolderHash,
+  fetchGitSkillFolderHash,
   getGitHubToken,
   type SkillLockEntry,
 } from './skill-lock.ts';
@@ -172,9 +173,6 @@ export function getSkipReason(entry: SkillLockEntry): string {
   if (entry.sourceType === 'local') {
     return 'Local path';
   }
-  if (entry.sourceType === 'git') {
-    return 'Git URL';
-  }
   if (entry.sourceType === 'well-known') {
     return 'Well-known skill';
   }
@@ -312,6 +310,18 @@ export async function updateGlobalSkills(
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
+    // Local paths and well-known skills cannot be re-fetched for hash comparison.
+    if (entry.sourceType === 'local' || entry.sourceType === 'well-known') {
+      skipped.push({
+        name: skillName,
+        reason: getSkipReason(entry),
+        sourceUrl: entry.sourceUrl,
+        sourceType: entry.sourceType,
+        ref: entry.ref,
+      });
+      continue;
+    }
+
     if (!entry.skillFolderHash || !entry.skillPath) {
       skipped.push({
         name: skillName,
@@ -326,8 +336,14 @@ export async function updateGlobalSkills(
     checkable.push({ name: skillName, entry });
   }
 
-  const bySource = new Map<string, typeof checkable>();
-  for (const item of checkable) {
+  // Separate github sources (which can use the GitHub Trees API for efficient
+  // bulk checking) from non-github git sources (which need per-skill cloning).
+  const githubCheckable = checkable.filter((item) => item.entry.sourceType === 'github');
+  const nonGithubCheckable = checkable.filter((item) => item.entry.sourceType !== 'github');
+
+  // Handle github sources: group by source and use the GitHub Trees API.
+  const bySource = new Map<string, typeof githubCheckable>();
+  for (const item of githubCheckable) {
     const source = item.entry.source;
     const existing = bySource.get(source) || [];
     existing.push(item);
@@ -369,6 +385,24 @@ export async function updateGlobalSkills(
       }
     } catch (error) {
       console.log(`  ${DIM}✗ Error checking skills from ${source}${RESET}`);
+    }
+  }
+
+  // Handle non-github sources: use shallow clone + folder hash for each skill.
+  for (const { name: skillName, entry } of nonGithubCheckable) {
+    process.stdout.write(`\r${DIM}Checking skills from source: ${entry.source}${RESET}\x1b[K\n`);
+
+    try {
+      const latestHash = await fetchGitSkillFolderHash(
+        entry.sourceUrl,
+        entry.skillPath!,
+        entry.ref
+      );
+      if (latestHash && latestHash !== entry.skillFolderHash) {
+        updates.push({ name: skillName, source: entry.source, entry });
+      }
+    } catch (error) {
+      // Silently skip — the skill stays at its current version.
     }
   }
 
