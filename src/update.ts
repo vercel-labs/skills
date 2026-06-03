@@ -15,6 +15,8 @@ import {
 import { cloneRepo, cleanupTempDir } from './git.ts';
 import { discoverSkills } from './skills.ts';
 import { fetchRepoTree, findSkillMdPaths, getSkillFolderHashFromTree } from './blob.ts';
+import { parsePluginManifests } from './plugin-manifest.ts';
+import { toCloneUrl } from './remote-plugin.ts';
 import { removeCommand } from './remove.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
@@ -164,6 +166,9 @@ export interface SkippedSkill {
 }
 
 export function getSkipReason(entry: SkillLockEntry): string {
+  if (entry.resolvedFrom) {
+    return 'Marketplace remote plugin (update with project scope)';
+  }
   if (entry.sourceType === 'local') {
     return 'Local path';
   }
@@ -229,13 +234,142 @@ export async function getProjectSkillsForUpdate(
 
   for (const [name, entry] of Object.entries(localLock.skills)) {
     if (!matchesSkillFilter(name, skillFilter)) continue;
-    if (entry.sourceType === 'node_modules' || entry.sourceType === 'local') {
+    if (entry.sourceType === 'node_modules') {
+      continue;
+    }
+    // Local sources can't be re-fetched — unless they're a marketplace whose
+    // entries resolve to remote repositories (resolvedFrom present).
+    if (entry.sourceType === 'local' && !entry.resolvedFrom) {
       continue;
     }
     skills.push({ name, source: entry.source, entry });
   }
 
   return skills;
+}
+
+// ============================================
+// Remote Plugin Entries (marketplace remote sources)
+// ============================================
+
+export interface RemotePluginCheckResult {
+  /** Skills whose marketplace entry is unchanged — safe to reinstall */
+  updatable: string[];
+  /** Skills whose plugin is no longer declared by the marketplace */
+  deleted: string[];
+  /** Skills whose resolved source changed and the change was not accepted */
+  sourceChanged: string[];
+}
+
+/**
+ * Check remote-plugin lock entries against the marketplace's current manifest.
+ *
+ * Implements the warn-on-change trust model:
+ * - plugin gone from the manifest → offer removal (like deleted upstream)
+ * - resolved source (url/path) changed → ask for consent; in non-interactive
+ *   mode the skill is skipped so a redirected source never auto-installs in CI
+ * - a local skill of the same name now ships in the marketplace → the content
+ *   source would flip from the domain repo to the marketplace-local skill: a
+ *   remote→local source change, handled with the same consent flow
+ * - source unchanged → eligible for reinstall
+ *
+ * localSkillNames are the names of skills discovered on disk in the marketplace
+ * itself; a collision with an installed remote-plugin skill is a source change.
+ */
+export async function checkRemotePluginEntries(
+  source: string,
+  remoteEntries: Array<{ name: string; entry: LocalSkillLockEntry }>,
+  manifestBase: string,
+  options: UpdateCheckOptions,
+  localSkillNames: string[] = []
+): Promise<RemotePluginCheckResult> {
+  const result: RemotePluginCheckResult = { updatable: [], deleted: [], sourceChanged: [] };
+  if (remoteEntries.length === 0) return result;
+
+  const manifest = await parsePluginManifests(manifestBase);
+  const isNonInteractive = options.yes || !process.stdin.isTTY;
+  const localSkillNameSet = new Set(localSkillNames.map((n) => n.toLowerCase()));
+
+  for (const { name, entry } of remoteEntries) {
+    const resolvedFrom = entry.resolvedFrom!;
+    const plugin = manifest.remotePlugins.find((rp) => rp.name === resolvedFrom.pluginName);
+
+    if (!plugin) {
+      result.deleted.push(name);
+      continue;
+    }
+
+    const currentUrl = toCloneUrl(plugin.source);
+    const currentPath = plugin.source.source === 'git-subdir' ? plugin.source.path : undefined;
+
+    // A local skill of the same name now in the marketplace would shadow the
+    // remote plugin in `add` (local wins) — the content source would flip from
+    // the domain repo to the marketplace-local skill.
+    const shadowedByLocal = localSkillNameSet.has(name.toLowerCase());
+
+    if (shadowedByLocal || currentUrl !== resolvedFrom.url || currentPath !== resolvedFrom.path) {
+      // The marketplace now points somewhere else than what was installed
+      console.log();
+      console.log(
+        `${DIM}Warning:${RESET} ${BOLD}${sanitizeMetadata(name)}${RESET} resolved source changed:`
+      );
+      console.log(
+        `  ${DIM}was:${RESET} ${resolvedFrom.url}${resolvedFrom.path ? ` (${resolvedFrom.path})` : ''}`
+      );
+      if (shadowedByLocal) {
+        console.log(`  ${DIM}now:${RESET} local skill in ${source}`);
+      } else {
+        console.log(`  ${DIM}now:${RESET} ${currentUrl}${currentPath ? ` (${currentPath})` : ''}`);
+      }
+
+      if (isNonInteractive) {
+        console.log(
+          `  ${DIM}Skipping in non-interactive mode. Run interactively to review and accept.${RESET}`
+        );
+        result.sourceChanged.push(name);
+        continue;
+      }
+
+      const accepted = await p.confirm({
+        message: `Accept the new source for ${sanitizeMetadata(name)} and update?`,
+      });
+
+      if (!accepted || p.isCancel(accepted)) {
+        result.sourceChanged.push(name);
+        continue;
+      }
+    }
+
+    result.updatable.push(name);
+  }
+
+  // Offer to remove skills whose plugin disappeared from the marketplace
+  if (result.deleted.length > 0) {
+    console.log();
+    console.log(
+      `${DIM}Warning:${RESET} The following skills are no longer declared by ${DIM}${source}${RESET}:`
+    );
+    for (const s of result.deleted) {
+      console.log(`  ${DIM}•${RESET} ${sanitizeMetadata(s)}`);
+    }
+
+    if (options.yes || !process.stdin.isTTY) {
+      console.log(`${DIM}Skipping deletion in non-interactive mode.${RESET}`);
+    } else {
+      const confirmed = await p.confirm({
+        message: 'Would you like to remove the local copies of these skills?',
+      });
+
+      if (confirmed && !p.isCancel(confirmed)) {
+        for (const s of result.deleted) {
+          console.log(`${DIM}Removing${RESET} ${s}...`);
+          await removeCommand([s], { yes: true, global: false });
+        }
+      }
+    }
+  }
+
+  return result;
 }
 
 export async function checkAndPromptForDeletions(
@@ -472,12 +606,16 @@ export async function updateGlobalSkills(
   return { successCount, failCount, checkedCount };
 }
 
-export async function updateProjectSkills(
-  options: UpdateCheckOptions = {}
-): Promise<{ successCount: number; failCount: number; foundCount: number }> {
+export async function updateProjectSkills(options: UpdateCheckOptions = {}): Promise<{
+  successCount: number;
+  failCount: number;
+  foundCount: number;
+  sourceChangedCount: number;
+}> {
   const projectSkills = await getProjectSkillsForUpdate(options.skills);
   let successCount = 0;
   let failCount = 0;
+  let sourceChangedCount = 0;
 
   if (projectSkills.length === 0) {
     if (!options.skills) {
@@ -486,16 +624,18 @@ export async function updateProjectSkills(
         `${DIM}Install project skills with${RESET} ${TEXT}npx skills add <package>${RESET}`
       );
     }
-    return { successCount, failCount, foundCount: 0 };
+    return { successCount, failCount, foundCount: 0, sourceChangedCount };
   }
 
-  const updatable = projectSkills.filter((s) => s.entry.skillPath);
-  const legacy = projectSkills.filter((s) => !s.entry.skillPath);
+  // Skills are updatable when we know how to re-fetch them: either by their
+  // path within the source repo, or via their marketplace remote plugin entry.
+  const updatable = projectSkills.filter((s) => s.entry.skillPath || s.entry.resolvedFrom);
+  const legacy = projectSkills.filter((s) => !s.entry.skillPath && !s.entry.resolvedFrom);
 
   if (updatable.length === 0) {
     console.log(`${DIM}No project skills can be updated in place.${RESET}`);
     printLegacyProjectSkills(legacy);
-    return { successCount, failCount, foundCount: projectSkills.length };
+    return { successCount, failCount, foundCount: projectSkills.length, sourceChangedCount };
   }
 
   const cwd = process.cwd();
@@ -539,7 +679,12 @@ export async function updateProjectSkills(
 
   if (!existsSync(cliEntry)) {
     console.log(`${DIM}✗ CLI entrypoint not found at ${cliEntry}${RESET}`);
-    return { successCount, failCount: updatable.length, foundCount: projectSkills.length };
+    return {
+      successCount,
+      failCount: updatable.length,
+      foundCount: projectSkills.length,
+      sourceChangedCount,
+    };
   }
 
   for (const [source, skillsForSource] of bySource) {
@@ -551,15 +696,32 @@ export async function updateProjectSkills(
       .filter(([_, entry]) => entry.source === source)
       .map(([name, _]) => name);
 
+    // Remote-plugin entries are checked against the marketplace manifest
+    // (warn-on-change); regular entries against discovered SKILL.md paths.
+    const remoteEntries = skillsForSource.filter((s) => s.entry.resolvedFrom);
+
     let tempDir: string | null = null;
     let deletedSkills: string[] = [];
+    let remoteCheck: RemotePluginCheckResult = { updatable: [], deleted: [], sourceChanged: [] };
+    let checkFailed = false;
 
     try {
-      tempDir = await cloneRepo(sourceUrl, ref);
-      const discovered = await discoverSkills(tempDir);
+      // Local marketplace sources are read in place; everything else is cloned
+      let manifestBase: string;
+      if (firstEntry.sourceType === 'local') {
+        if (!existsSync(sourceUrl)) {
+          throw new Error(`Local marketplace path not found: ${sourceUrl}`);
+        }
+        manifestBase = sourceUrl;
+      } else {
+        tempDir = await cloneRepo(sourceUrl, ref);
+        manifestBase = tempDir;
+      }
+
+      const discovered = await discoverSkills(manifestBase);
 
       const discoveredPaths = discovered.map((s) => {
-        const relPath = relative(tempDir!, s.path);
+        const relPath = relative(manifestBase, s.path);
         return join(relPath, 'SKILL.md').split(sep).join('/');
       });
 
@@ -571,15 +733,33 @@ export async function updateProjectSkills(
         options,
         discoveredPaths
       );
+
+      remoteCheck = await checkRemotePluginEntries(
+        source,
+        remoteEntries,
+        manifestBase,
+        options,
+        discovered.map((s) => s.name)
+      );
     } catch (error) {
       console.log(`${DIM}✗ Failed to check for deleted skills from ${source}${RESET}`);
+      checkFailed = true;
     } finally {
       if (tempDir) {
         await cleanupTempDir(tempDir);
       }
     }
 
-    const remainingSkills = skillsForSource.filter((s) => !deletedSkills.includes(s.name));
+    sourceChangedCount += remoteCheck.sourceChanged.length;
+
+    const remainingSkills = skillsForSource.filter((s) => {
+      if (deletedSkills.includes(s.name)) return false;
+      // Remote-plugin skills only update when the manifest check confirmed them
+      if (s.entry.resolvedFrom) {
+        return !checkFailed && remoteCheck.updatable.includes(s.name);
+      }
+      return true;
+    });
 
     for (const skill of remainingSkills) {
       const safeName = sanitizeMetadata(skill.name);
@@ -607,7 +787,7 @@ export async function updateProjectSkills(
   }
 
   printLegacyProjectSkills(legacy);
-  return { successCount, failCount, foundCount: projectSkills.length };
+  return { successCount, failCount, foundCount: projectSkills.length, sourceChangedCount };
 }
 
 export function printLegacyProjectSkills(
@@ -639,6 +819,7 @@ export async function runUpdate(args: string[] = []): Promise<void> {
   let totalSuccess = 0;
   let totalFail = 0;
   let totalFound = 0;
+  let totalSourceChanged = 0;
 
   if (scope === 'global' || scope === 'both') {
     if (scope === 'both' && !options.skills) {
@@ -657,10 +838,12 @@ export async function runUpdate(args: string[] = []): Promise<void> {
     if (scope === 'both' && !options.skills) {
       console.log(`${BOLD}Project Skills${RESET}`);
     }
-    const { successCount, failCount, foundCount } = await updateProjectSkills(options);
+    const { successCount, failCount, foundCount, sourceChangedCount } =
+      await updateProjectSkills(options);
     totalSuccess += successCount;
     totalFail += failCount;
     totalFound += foundCount;
+    totalSourceChanged += sourceChangedCount;
   }
 
   if (options.skills && totalFound === 0) {
@@ -684,4 +867,14 @@ export async function runUpdate(args: string[] = []): Promise<void> {
   });
 
   console.log();
+
+  // Skills skipped because their marketplace entry now points at a different
+  // repository require explicit review — exit non-zero so CI surfaces it.
+  if (totalSourceChanged > 0) {
+    console.log(
+      `${DIM}⚠ ${totalSourceChanged} skill(s) skipped: resolved source changed. Run ${TEXT}npx skills update${DIM} interactively to review.${RESET}`
+    );
+    console.log();
+    process.exit(1);
+  }
 }

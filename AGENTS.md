@@ -46,7 +46,8 @@ src/
 ├── telemetry.ts     # Anonymous usage tracking
 ├── types.ts         # TypeScript types
 ├── mintlify.ts      # Mintlify skill fetching (legacy)
-├── plugin-manifest.ts # Plugin manifest discovery support
+├── plugin-manifest.ts # Plugin manifest discovery support (local + remote plugin sources)
+├── remote-plugin.ts # Remote plugin resolution engine (clone + discover marketplace remote sources)
 ├── prompts/         # Interactive prompt helpers
 │   └── search-multiselect.ts
 ├── providers/       # Remote skill providers (GitHub, HuggingFace, Mintlify)
@@ -64,6 +65,10 @@ tests/
 ├── full-depth-discovery.test.ts # --full-depth skill discovery tests
 ├── openclaw-paths.test.ts       # OpenClaw-specific path tests
 ├── plugin-manifest-discovery.test.ts # Plugin manifest skill discovery
+├── remote-plugin-manifest.test.ts   # Remote plugin source parsing from marketplace.json
+├── remote-plugin-resolution.test.ts # Remote plugin resolution engine (file:// git fixtures)
+├── remote-plugin-add.test.ts        # End-to-end install from marketplace remote sources
+├── remote-plugin-update.test.ts     # Update + warn-on-change for remote-plugin skills
 ├── sanitize-name.test.ts     # Tests for sanitizeName (path traversal prevention)
 ├── skill-matching.test.ts    # Tests for filterSkills (multi-word skill name matching)
 ├── source-parser.test.ts     # Tests for URL/path parsing
@@ -91,6 +96,41 @@ tests/
 The lock file format is v3. Key field: `skillFolderHash` (GitHub tree SHA for the skill folder).
 
 If reading an older lock file version, it's wiped. Users must reinstall skills to populate the new format.
+
+### Marketplace Remote Plugin Updates
+
+Skills installed via marketplace remote plugin sources carry an optional `resolvedFrom` block in
+both lock files (no version bump). Project-scoped `skills update` re-reads the marketplace manifest
+(`parsePluginManifests`) and follows whatever it currently declares (the marketplace is the source
+of record). If a plugin's resolved source (url or git-subdir path) differs from `resolvedFrom`, the
+update requires interactive consent; in non-interactive mode the skill is skipped and the command
+exits non-zero (warn-on-change). Global update reports these skills as project-scope-only.
+
+`checkRemotePluginEntries()` (in `src/update.ts`) also receives the marketplace's discovered local
+skill names: a marketplace-local skill appearing under the name of an installed remote-plugin skill
+would flip the content source from the domain repo to the marketplace-local skill (a remote→local
+source change) and is routed through the same consent flow rather than switching silently.
+
+### Remote Plugin Resolution
+
+`src/remote-plugin.ts` (`resolveRemotePlugin` / `resolveRemotePlugins`) is the format-agnostic
+resolution engine: it consumes `{ url, path?, ref?, sha? }`-shaped sources, clones at the declared
+ref/sha, and discovers skills. `git-subdir` sources use `cloneRepoSparse()` (`src/git.ts`) — a
+sparse, partial clone (`--depth 1 --filter=blob:none --sparse` + `sparse-checkout set <path>`, with a
+fetch+checkout fast path and full-clone fallback for `sha` pins) so only the declared subdirectory is
+materialized. `github`/`url` sources keep `cloneRepoAtSha()` / `cloneRepo()` because the skill path is
+only known after discovery.
+
+### Name Collisions (stable identifiers + loud shadowing)
+
+The plugin `name` in `marketplace.json` is the stable identifier installed skills are tracked by;
+renaming a plugin is delete + add. Name collisions are always announced (`src/add.ts` warnings),
+never silent: a local skill shadows a remote plugin of the same name (local wins); duplicate plugin
+names in one marketplace keep the first entry (`parsePluginManifests` returns `duplicatePluginNames`);
+and two resolved plugins providing the same inner skill name keep the first (the second does not
+overwrite the first's lock entry). The `--skill` fallback that searches inside every remote plugin is
+gated behind a confirmation prompt (with a closest-name suggestion via `closestName` in `src/skills.ts`)
+in interactive mode; `-y` mode runs the search deterministically without prompting.
 
 ## Key Integration Points
 

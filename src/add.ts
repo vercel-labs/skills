@@ -66,7 +66,16 @@ import {
   saveSelectedAgents,
 } from './skill-lock.ts';
 import { addSkillToLocalLock, computeSkillFolderHash } from './local-lock.ts';
-import type { Skill, AgentType } from './types.ts';
+import { parsePluginManifests } from './plugin-manifest.ts';
+import {
+  resolveRemotePlugins,
+  createRemotePlaceholder,
+  getRemotePluginEntry,
+  getRemoteSourceDisplay,
+  buildResolvedFrom,
+  type ResolvedPlugin,
+} from './remote-plugin.ts';
+import type { Skill, AgentType, RemotePluginEntry } from './types.ts';
 import {
   tryBlobInstall,
   getSkillFolderHashFromTree,
@@ -288,6 +297,17 @@ function buildResultLines(
   }
 
   return lines;
+}
+
+/**
+ * Truncate a hint so the rendered option line (tree prefix + label + hint) never
+ * exceeds the terminal width. A wrapped option line breaks clack's frame-height
+ * accounting and leaves artifact lines behind on every redraw.
+ */
+function skillHint(label: string, description: string): string {
+  // ~12 columns of overhead: tree/checkbox prefix, spacing and surrounding parens
+  const available = Math.max(20, (process.stdout.columns || 80) - label.length - 12);
+  return description.length > available ? description.slice(0, available - 1) + '…' : description;
 }
 
 /**
@@ -966,6 +986,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
   }
 
   let tempDir: string | null = null;
+  // Temp clones created by remote plugin resolution (cleaned up alongside tempDir)
+  const resolutionCloneDirs: string[] = [];
+  // Maps resolved skill name → the remote plugin it came from (for lock provenance)
+  const resolvedPluginBySkill = new Map<string, ResolvedPlugin>();
+  // Remote plugins that failed to resolve (reported and reflected in the exit code)
+  const remoteFailures: string[] = [];
 
   try {
     const spinner = p.spinner();
@@ -1091,7 +1117,44 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       });
     }
 
-    if (skills.length === 0) {
+    // Discover remote plugins declared in the marketplace manifest.
+    // Blob installs have no local checkout to read the manifest from.
+    const manifestBasePath = parsed.type === 'local' ? parsed.localPath! : tempDir;
+    let remotePlugins: RemotePluginEntry[] = [];
+    if (manifestBasePath) {
+      const manifestResult = await parsePluginManifests(manifestBasePath);
+      // Local skills shadow remote plugins with the same name (local wins).
+      // Shadowing is always announced, never silent.
+      const localSkillNames = new Set(skills.map((s) => s.name));
+      for (const rp of manifestResult.remotePlugins) {
+        if (localSkillNames.has(rp.name)) {
+          p.log.warn(
+            pc.yellow(
+              `⚠ remote plugin "${rp.name}" is shadowed by a local skill with the same name (local wins)`
+            )
+          );
+        }
+      }
+      remotePlugins = manifestResult.remotePlugins.filter((rp) => !localSkillNames.has(rp.name));
+
+      if (manifestResult.unsupportedPlugins.length > 0) {
+        p.log.warn(
+          `Skipped plugins with unsupported source types: ${manifestResult.unsupportedPlugins.join(', ')}`
+        );
+      }
+
+      // Duplicate plugin names in one marketplace: the first entry wins. Claude
+      // Code's own validator rejects such marketplaces as invalid.
+      for (const name of manifestResult.duplicatePluginNames) {
+        p.log.warn(
+          pc.yellow(
+            `⚠ duplicate plugin name "${name}" in marketplace.json — only the first entry is used`
+          )
+        );
+      }
+    }
+
+    if (skills.length === 0 && remotePlugins.length === 0) {
       spinner.stop(pc.red('No skills found'));
       p.outro(
         pc.red('No valid skills found. Skills require a SKILL.md with name and description.')
@@ -1101,7 +1164,19 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     if (!blobResult) {
-      spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
+      const foundParts = [`${pc.green(skills.length)} skill${skills.length !== 1 ? 's' : ''}`];
+      if (remotePlugins.length > 0) {
+        foundParts.push(
+          `${pc.green(remotePlugins.length)} remote plugin${remotePlugins.length !== 1 ? 's' : ''}`
+        );
+      }
+      spinner.stop(`Found ${foundParts.join(' and ')}`);
+    }
+
+    // Remote plugins join the selection list as placeholders; they are resolved
+    // (cloned + discovered) lazily, only after being selected.
+    if (remotePlugins.length > 0) {
+      skills = [...skills, ...remotePlugins.map(createRemotePlaceholder)];
     }
 
     if (options.list) {
@@ -1131,7 +1206,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
           .join(' ');
 
-        console.log(pc.bold(title));
+        // Remote plugin groups get a globe prefix so they can't be confused
+        // with groups of local plugins. Double space: the emoji is double-width,
+        // and terminals that misreport its width overlap the next cell.
+        const isRemoteGroup = groupedSkills[group]!.some((s) => getRemotePluginEntry(s) !== null);
+        console.log((isRemoteGroup ? '🌐  ' : '') + pc.bold(title));
         for (const skill of groupedSkills[group]!) {
           p.log.message(`  ${pc.cyan(getSkillDisplayName(skill))}`);
           p.log.message(`    ${pc.dim(skill.description)}`);
@@ -1162,6 +1241,74 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       p.log.info(`Installing all ${skills.length} skills`);
     } else if (options.skill && options.skill.length > 0) {
       selectedSkills = filterSkills(skills, options.skill);
+
+      // Names that didn't match a local skill or a remote plugin name may refer
+      // to skills inside unresolved remote plugins — resolve those plugins and
+      // match against the skills they contain.
+      const matchedNames = new Set(
+        selectedSkills.flatMap((s) => [s.name.toLowerCase(), getSkillDisplayName(s).toLowerCase()])
+      );
+      const unmatchedNames = options.skill.filter(
+        (n) => n !== '*' && !matchedNames.has(n.toLowerCase())
+      );
+      const unselectedPlugins = remotePlugins.filter(
+        (rp) => !selectedSkills.some((s) => getRemotePluginEntry(s)?.name === rp.name)
+      );
+
+      // Resolving every remote plugin clones every domain repo — expensive and
+      // easy to trigger by a typo. In interactive mode, require confirmation
+      // before the mass search. In -y mode behavior is unchanged (deterministic):
+      // the search runs as before.
+      let searchRemotePlugins = unmatchedNames.length > 0 && unselectedPlugins.length > 0;
+
+      if (searchRemotePlugins && !options.yes) {
+        const proceed = await p.confirm({
+          message: `Search inside ${unselectedPlugins.length} remote plugin${unselectedPlugins.length !== 1 ? 's' : ''} for ${unmatchedNames.map((n) => pc.cyan(n)).join(', ')}? This will fetch ${unselectedPlugins.length} repositor${unselectedPlugins.length !== 1 ? 'ies' : 'y'}.`,
+          initialValue: false,
+        });
+
+        if (p.isCancel(proceed)) {
+          p.cancel('Installation cancelled');
+          await cleanup(tempDir);
+          process.exit(0);
+        }
+
+        searchRemotePlugins = proceed;
+      }
+
+      if (searchRemotePlugins) {
+        spinner.start(
+          `Searching ${unselectedPlugins.length} remote plugin${unselectedPlugins.length !== 1 ? 's' : ''} for: ${unmatchedNames.join(', ')}`
+        );
+        const searchResults = await resolveRemotePlugins(unselectedPlugins, { includeInternal });
+        let foundCount = 0;
+        for (const result of searchResults) {
+          if (!result.ok) continue;
+          resolutionCloneDirs.push(result.plugin.clonePath);
+          const matches = filterSkills(result.plugin.skills, unmatchedNames);
+          for (const skill of matches) {
+            // First plugin to provide a given skill name wins; later collisions
+            // are announced and skipped rather than silently overwriting.
+            const existing = resolvedPluginBySkill.get(skill.name);
+            if (existing) {
+              p.log.warn(
+                pc.yellow(
+                  `⚠ skill "${skill.name}" is provided by both "${existing.entry.name}" and "${result.plugin.entry.name}" (first wins)`
+                )
+              );
+              continue;
+            }
+            selectedSkills.push(skill);
+            resolvedPluginBySkill.set(skill.name, result.plugin);
+            foundCount++;
+          }
+        }
+        spinner.stop(
+          foundCount > 0
+            ? `Found ${pc.green(foundCount)} matching skill${foundCount !== 1 ? 's' : ''} in remote plugins`
+            : pc.dim('No additional matches in remote plugins')
+        );
+      }
 
       if (selectedSkills.length === 0) {
         p.log.error(`No matching skills found for: ${options.skill.join(', ')}`);
@@ -1210,12 +1357,16 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
         const grouped: Record<string, p.Option<Skill>[]> = {};
         for (const s of sortedSkills) {
-          const groupName = s.pluginName ? kebabToTitle(s.pluginName) : 'Other';
+          // Remote plugin groups get a globe prefix so they can't be confused
+          // with groups of local plugins. Double space: the emoji is double-width,
+          // and terminals that misreport its width overlap the next cell.
+          const remotePrefix = getRemotePluginEntry(s) ? '🌐  ' : '';
+          const groupName = s.pluginName ? remotePrefix + kebabToTitle(s.pluginName) : 'Other';
           if (!grouped[groupName]) grouped[groupName] = [];
           grouped[groupName]!.push({
             value: s,
             label: getSkillDisplayName(s),
-            hint: s.description.length > 60 ? s.description.slice(0, 57) + '...' : s.description,
+            hint: skillHint(getSkillDisplayName(s), s.description),
           });
         }
 
@@ -1228,7 +1379,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         const skillChoices = sortedSkills.map((s) => ({
           value: s,
           label: getSkillDisplayName(s),
-          hint: s.description.length > 60 ? s.description.slice(0, 57) + '...' : s.description,
+          hint: skillHint(getSkillDisplayName(s), s.description),
         }));
 
         selected = await multiselect({
@@ -1245,6 +1396,82 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
 
       selectedSkills = selected as Skill[];
+    }
+
+    // Resolve any selected remote plugins (lazy resolution: clone only what was selected)
+    const pendingResolution = selectedSkills.filter((s) => getRemotePluginEntry(s) !== null);
+    if (pendingResolution.length > 0) {
+      const entries = pendingResolution.map((s) => getRemotePluginEntry(s)!);
+      spinner.start(
+        `Resolving ${entries.length} remote plugin${entries.length !== 1 ? 's' : ''}...`
+      );
+      const resolutionResults = await resolveRemotePlugins(entries, { includeInternal });
+
+      const resolvedSkills: Skill[] = [];
+      for (const result of resolutionResults) {
+        if (!result.ok) continue;
+        resolutionCloneDirs.push(result.plugin.clonePath);
+        for (const skill of result.plugin.skills) {
+          // Two resolved plugins can contain an inner skill of the same name.
+          // The first wins; the second is announced and dropped so it can't
+          // silently overwrite the first plugin's lock entry.
+          const existing = resolvedPluginBySkill.get(skill.name);
+          if (existing) {
+            p.log.warn(
+              pc.yellow(
+                `⚠ skill "${skill.name}" is provided by both "${existing.entry.name}" and "${result.plugin.entry.name}" (first wins)`
+              )
+            );
+            continue;
+          }
+          resolvedSkills.push(skill);
+          resolvedPluginBySkill.set(skill.name, result.plugin);
+        }
+      }
+      const failureCount = resolutionResults.filter((r) => !r.ok).length;
+      const okCount = resolutionResults.length - failureCount;
+
+      spinner.stop(
+        failureCount > 0
+          ? pc.yellow(`Resolved ${okCount}/${resolutionResults.length} remote plugins`)
+          : `Resolved ${pc.green(okCount)} remote plugin${okCount !== 1 ? 's' : ''}`
+      );
+
+      // Transparency: show where each plugin's content actually came from
+      for (const result of resolutionResults) {
+        if (result.ok) {
+          p.log.info(
+            `${pc.cyan(result.plugin.entry.name)} ${pc.dim('→')} ${getRemoteSourceDisplay(result.plugin.entry.source)} ${pc.dim('@')} ${pc.yellow(result.plugin.resolvedSha.slice(0, 7))}`
+          );
+        } else {
+          remoteFailures.push(result.failure.entry.name);
+          p.log.error(
+            `${pc.red('✗')} ${result.failure.entry.name}: ${result.failure.error.message.split('\n')[0]}`
+          );
+          if (result.failure.error instanceof GitCloneError && result.failure.error.isAuthError) {
+            p.log.message(
+              pc.dim(
+                `  This plugin resolves to ${getRemoteSourceDisplay(result.failure.entry.source)} — ensure you have access to that repository.`
+              )
+            );
+          }
+        }
+      }
+
+      // Replace placeholders with the skills they resolved to
+      selectedSkills = [
+        ...selectedSkills.filter((s) => getRemotePluginEntry(s) === null),
+        ...resolvedSkills,
+      ];
+
+      if (selectedSkills.length === 0) {
+        p.outro(pc.red('No skills could be resolved'));
+        await cleanup(tempDir);
+        for (const dir of resolutionCloneDirs) {
+          await cleanup(dir);
+        }
+        process.exit(1);
+      }
     }
 
     // Kick off security audit fetch early (non-blocking) so it runs
@@ -1633,6 +1860,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           try {
             let skillFolderHash = '';
             const skillPathValue = skillFiles[skill.name];
+            const resolvedPlugin = resolvedPluginBySkill.get(skill.name);
 
             if (blobResult && skillPathValue) {
               const hash = getSkillFolderHashFromTree(blobResult.tree, skillPathValue);
@@ -1644,6 +1872,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               const skillDir = join(tempDir, dirname(skillPathValue));
               const hash = await computeSkillFolderHash(skillDir);
               if (hash) skillFolderHash = hash;
+            } else if (resolvedPlugin) {
+              // Remote-plugin skill: hash the content from the resolution clone
+              const hash = await computeSkillFolderHash(skill.path);
+              if (hash) skillFolderHash = hash;
             }
 
             await addSkillToLock(skill.name, {
@@ -1654,6 +1886,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               skillPath: skillPathValue,
               skillFolderHash,
               pluginName: skill.pluginName,
+              ...(resolvedPlugin && { resolvedFrom: buildResolvedFrom(resolvedPlugin) }),
             });
           } catch {
             // Don't fail installation if lock file update fails
@@ -1675,6 +1908,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
                 ? (skill as BlobSkill).snapshotHash
                 : await computeSkillFolderHash(skill.path);
             const skillPathValue = skillFiles[skill.name];
+            const resolvedPlugin = resolvedPluginBySkill.get(skill.name);
             await addSkillToLocalLock(
               skill.name,
               {
@@ -1683,6 +1917,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
                 sourceType: parsed.type,
                 ...(skillPathValue && { skillPath: skillPathValue }),
                 computedHash,
+                ...(resolvedPlugin && { resolvedFrom: buildResolvedFrom(resolvedPlugin) }),
               },
               cwd
             );
@@ -1798,6 +2033,17 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         pc.dim('  Review skills before use; they run with full agent permissions.')
     );
 
+    // Some remote plugins could not be resolved — exit non-zero so CI notices
+    // the partial failure (cli.ts always exits 0 after main() completes).
+    if (remoteFailures.length > 0) {
+      p.log.warn(pc.yellow(`Could not resolve: ${remoteFailures.join(', ')} (see errors above)`));
+      await cleanup(tempDir);
+      for (const dir of resolutionCloneDirs) {
+        await cleanup(dir);
+      }
+      process.exit(1);
+    }
+
     // Prompt for find-skills after successful install
     await promptForFindSkills(options, targetAgents);
   } catch (error) {
@@ -1815,6 +2061,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     process.exit(1);
   } finally {
     await cleanup(tempDir);
+    // Clean up temp clones created by remote plugin resolution
+    for (const dir of resolutionCloneDirs) {
+      await cleanup(dir);
+    }
   }
 }
 
