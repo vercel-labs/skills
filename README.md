@@ -241,7 +241,7 @@ Skills can be installed to any of these agents:
 |-------|-----------|--------------|-------------|
 | AiderDesk | `aider-desk` | `.aider-desk/skills/` | `~/.aider-desk/skills/` |
 | Amp, Replit, Universal | `amp`, `replit`, `universal` | `.agents/skills/` | `~/.config/agents/skills/` |
-| Antigravity | `antigravity` | `.agents/skills/` | `~/.gemini/antigravity/skills/` |
+| Antigravity | `antigravity` | `.agents/skills/` | `~/.gemini/config/skills/` |
 | Antigravity CLI | `antigravity-cli` | `.agents/skills/` | `~/.gemini/antigravity-cli/skills/` |
 | AstrBot | `astrbot` | `data/skills/` | `~/.astrbot/data/skills/` |
 | Autohand Code CLI | `autohand-code` | `.autohand/skills/` | `~/.autohand/skills/` |
