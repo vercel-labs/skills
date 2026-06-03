@@ -1,4 +1,5 @@
 export type AgentType =
+  | 'ai-assist'
   | 'aider-desk'
   | 'amp'
   | 'antigravity'
