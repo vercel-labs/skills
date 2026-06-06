@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { existsSync, rmSync, mkdirSync, writeFileSync, lstatSync } from 'fs';
+import { existsSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from './test-utils.ts';
@@ -129,10 +129,11 @@ description: Detected agent dir creation
 
     expect(result.exitCode).toBe(0);
 
-    // The skill must be symlinked into the project's .claude/skills.
+    // The skill must be materialized into the project's .claude/skills so the
+    // detected agent can read it (symlink on POSIX, junction/copy on Windows).
     const linked = join(projectDir, '.claude', 'skills', 'detected-skill');
     expect(existsSync(linked)).toBe(true);
-    expect(lstatSync(linked).isSymbolicLink()).toBe(true);
+    expect(readFileSync(join(linked, 'SKILL.md'), 'utf-8')).toContain('detected-skill');
   });
 
   it('should filter skills by name with --skill flag', () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdirSync, writeFileSync, readFileSync, rmSync, lstatSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from '../src/test-utils.ts';
@@ -238,10 +238,11 @@ description: Test explicit agent dir creation
 
       runCli(['experimental_sync', '-y', '-a', 'claude-code'], testDir);
 
-      // The skill must be symlinked into .claude/skills so claude-code can read it.
+      // The skill must be materialized into .claude/skills so claude-code can read it
+      // (symlink on POSIX, junction/copy fallback on Windows — assert readability).
       const linked = join(testDir, '.claude', 'skills', 'sync-explicit-skill');
       expect(existsSync(linked)).toBe(true);
-      expect(lstatSync(linked).isSymbolicLink()).toBe(true);
+      expect(readFileSync(join(linked, 'SKILL.md'), 'utf-8')).toContain('sync-explicit-skill');
     });
   });
 
