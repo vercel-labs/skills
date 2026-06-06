@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { existsSync, rmSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, rmSync, mkdirSync, writeFileSync, lstatSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from './test-utils.ts';
@@ -88,6 +88,51 @@ Instructions here.
     expect(result.stdout).toContain('my-skill');
     expect(result.stdout).toContain('Done!');
     expect(result.exitCode).toBe(0);
+  });
+
+  // Regression: a non-universal agent that is auto-detected (NOT passed via -a) must
+  // still get its config dir created when missing. claude-code reads from .claude/skills,
+  // so skipping would silently install nothing for it. This covers the detected-agent
+  // path, not just the explicit `-a` flag.
+  it('creates missing .claude/skills for an auto-detected (non -a) agent', () => {
+    // Skill to install from a local source directory.
+    const sourceRoot = join(testDir, 'source');
+    const skillDir = join(sourceRoot, 'skills', 'detected-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: detected-skill
+description: Detected agent dir creation
+---
+
+# Detected Skill
+`
+    );
+
+    // Project to install into — no .claude/ present.
+    const projectDir = join(testDir, 'project');
+    mkdirSync(projectDir, { recursive: true });
+
+    // Isolate detection: an empty HOME means no agents are detected via the home dir,
+    // while CLAUDE_CONFIG_DIR pointing at an existing dir makes claude-code the single
+    // detected agent — so it is selected without `-a`.
+    const fakeHome = join(testDir, 'home');
+    const claudeConfig = join(testDir, 'claude-config');
+    mkdirSync(fakeHome, { recursive: true });
+    mkdirSync(claudeConfig, { recursive: true });
+
+    const result = runCli(['add', sourceRoot, '-y'], projectDir, {
+      HOME: fakeHome,
+      CLAUDE_CONFIG_DIR: claudeConfig,
+    });
+
+    expect(result.exitCode).toBe(0);
+
+    // The skill must be symlinked into the project's .claude/skills.
+    const linked = join(projectDir, '.claude', 'skills', 'detected-skill');
+    expect(existsSync(linked)).toBe(true);
+    expect(lstatSync(linked).isSymbolicLink()).toBe(true);
   });
 
   it('should filter skills by name with --skill flag', () => {
