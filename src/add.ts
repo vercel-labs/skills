@@ -1261,11 +1261,16 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       : Promise.resolve(null);
 
     let targetAgents: AgentType[];
+    // Blanket install to every known agent (e.g. `--agent '*'`). In this mode we
+    // skip non-universal agents whose config dir doesn't exist; when agents are
+    // explicitly selected we honor the choice and create their directories.
+    let installToAllAgents = false;
     const validAgents = Object.keys(agents);
 
     if (options.agent?.includes('*')) {
       // --agent '*' selects all agents
       targetAgents = validAgents as AgentType[];
+      installToAllAgents = true;
       p.log.info(`Installing to all ${targetAgents.length} agents`);
     } else if (options.agent && options.agent.length > 0) {
       const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
@@ -1287,6 +1292,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       if (installedAgents.length === 0) {
         if (options.yes) {
           targetAgents = validAgents as AgentType[];
+          installToAllAgents = true;
           p.log.info('Installing to all agents');
         } else {
           p.log.info('Select agents to install skills to');
@@ -1535,13 +1541,14 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           result = await installBlobSkillForAgent(
             { installName: blobSkill.name, files: blobSkill.files },
             agent,
-            { global: installGlobally, mode: installMode }
+            { global: installGlobally, mode: installMode, explicitAgents: !installToAllAgents }
           );
         } else {
           // Disk-based install: copy from cloned/local directory
           result = await installSkillForAgent(skill, agent, {
             global: installGlobally,
             mode: installMode,
+            explicitAgents: !installToAllAgents,
           });
         }
         results.push({

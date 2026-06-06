@@ -226,12 +226,17 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
 
   // 3. Select agents
   let targetAgents: AgentType[];
+  // Blanket install to every known agent (e.g. `--agent '*'`). In this mode we skip
+  // non-universal agents whose config dir doesn't exist; when agents are explicitly
+  // selected we honor the choice and create their directories.
+  let installToAllAgents = false;
   const validAgents = Object.keys(agents);
   const universalAgents = getUniversalAgents();
   const visibleUniversalAgents = getVisibleUniversalAgents();
 
   if (options.agent?.includes('*')) {
     targetAgents = validAgents as AgentType[];
+    installToAllAgents = true;
     p.log.info(`Installing to all ${targetAgents.length} agents`);
   } else if (options.agent && options.agent.length > 0) {
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
@@ -361,6 +366,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
         global: false,
         cwd,
         mode: 'symlink',
+        explicitAgents: !installToAllAgents,
       });
       results.push({
         skill: skill.name,
