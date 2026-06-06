@@ -90,6 +90,43 @@ Instructions here.
     expect(result.exitCode).toBe(0);
   });
 
+  // Coverage for the global non-universal-agent install (#851 / #744): a global
+  // `-g -a claude-code` install must place the skill where claude-code reads it
+  // (~/.claude/skills), not only in the canonical ~/.agents/skills. The current
+  // behavior is correct; this locks it in. HOME and CLAUDE_CONFIG_DIR are isolated
+  // into testDir so the test never touches the real home directory.
+  it('installs a global skill into the claude-code global dir (~/.claude/skills)', () => {
+    const sourceRoot = join(testDir, 'source');
+    const skillDir = join(sourceRoot, 'skills', 'global-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: global-skill
+description: Global install for a non-universal agent
+---
+
+# Global Skill
+`
+    );
+
+    const fakeHome = join(testDir, 'home');
+    const claudeConfig = join(fakeHome, '.claude');
+    mkdirSync(claudeConfig, { recursive: true });
+
+    const result = runCli(['add', sourceRoot, '-y', '-g', '-a', 'claude-code'], testDir, {
+      HOME: fakeHome,
+      CLAUDE_CONFIG_DIR: claudeConfig,
+    });
+
+    expect(result.exitCode).toBe(0);
+
+    // The skill must be readable from claude-code's global skills dir.
+    const installed = join(claudeConfig, 'skills', 'global-skill');
+    expect(existsSync(installed)).toBe(true);
+    expect(readFileSync(join(installed, 'SKILL.md'), 'utf-8')).toContain('global-skill');
+  });
+
   // Regression: a non-universal agent that is auto-detected (NOT passed via -a) must
   // still get its config dir created when missing. claude-code reads from .claude/skills,
   // so skipping would silently install nothing for it. This covers the detected-agent
