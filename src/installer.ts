@@ -1,7 +1,6 @@
 import {
   mkdir,
   cp,
-  access,
   readdir,
   symlink,
   lstat,
@@ -882,6 +881,65 @@ export async function listInstalledSkills(
   // Use a Map to deduplicate skills by scope:name
   const skillsMap: Map<string, InstalledSkill> = new Map();
   const scopes: Array<{ global: boolean; path: string; agentType?: AgentType }> = [];
+  const parsedSkillCache = new Map<string, Skill | null>();
+  const agentSkillIndexCache = new Map<
+    string,
+    {
+      dirNames: Set<string>;
+      skillNames: Set<string>;
+    }
+  >();
+
+  async function parseSkillMdForList(skillMdPath: string): Promise<Skill | null> {
+    let cacheKey = skillMdPath;
+    try {
+      cacheKey = await realpath(skillMdPath);
+    } catch {
+      // Fall back to the requested path for dangling links or inaccessible files.
+    }
+
+    if (!parsedSkillCache.has(cacheKey)) {
+      parsedSkillCache.set(cacheKey, await parseSkillMd(skillMdPath));
+    }
+
+    return parsedSkillCache.get(cacheKey)!;
+  }
+
+  async function getAgentSkillIndex(agentBase: string): Promise<{
+    dirNames: Set<string>;
+    skillNames: Set<string>;
+  }> {
+    if (agentSkillIndexCache.has(agentBase)) {
+      return agentSkillIndexCache.get(agentBase)!;
+    }
+
+    const index = {
+      dirNames: new Set<string>(),
+      skillNames: new Set<string>(),
+    };
+
+    try {
+      const agentEntries = await readdir(agentBase, { withFileTypes: true });
+      for (const agentEntry of agentEntries) {
+        const candidateDir = join(agentBase, agentEntry.name);
+        if (!(await isDirEntryOrSymlinkToDir(agentEntry, candidateDir))) continue;
+        if (!isPathSafe(agentBase, candidateDir)) continue;
+
+        index.dirNames.add(agentEntry.name);
+        index.dirNames.add(agentEntry.name.toLowerCase());
+
+        const candidateSkill = await parseSkillMdForList(join(candidateDir, 'SKILL.md'));
+        if (candidateSkill) {
+          index.skillNames.add(candidateSkill.name);
+        }
+      }
+    } catch {
+      // Agent base directory doesn't exist or cannot be scanned.
+    }
+
+    agentSkillIndexCache.set(agentBase, index);
+    return index;
+  }
 
   // Detect which agents are actually installed
   const detectedAgents = await detectInstalledAgents();
@@ -938,15 +996,17 @@ export async function listInstalledSkills(
     // skills were installed with `--agent <name>` but the agent is no longer
     // detected (e.g. ~/.openclaw was removed).  Only add dirs that actually
     // exist on disk to avoid unnecessary readdir errors.
-    const allAgentTypes = Object.keys(agents) as AgentType[];
-    for (const agentType of allAgentTypes) {
-      if (agentsToCheck.includes(agentType)) continue;
-      const agent = agents[agentType];
-      if (isGlobal && agent.globalSkillsDir === undefined) continue;
-      const agentDir = isGlobal ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
-      if (scopes.some((s) => s.path === agentDir && s.global === isGlobal)) continue;
-      if (existsSync(agentDir)) {
-        scopes.push({ global: isGlobal, path: agentDir, agentType });
+    if (!agentFilter) {
+      const allAgentTypes = Object.keys(agents) as AgentType[];
+      for (const agentType of allAgentTypes) {
+        if (agentsToCheck.includes(agentType)) continue;
+        const agent = agents[agentType];
+        if (isGlobal && agent.globalSkillsDir === undefined) continue;
+        const agentDir = isGlobal ? agent.globalSkillsDir! : join(cwd, agent.skillsDir);
+        if (scopes.some((s) => s.path === agentDir && s.global === isGlobal)) continue;
+        if (existsSync(agentDir)) {
+          scopes.push({ global: isGlobal, path: agentDir, agentType });
+        }
       }
     }
   }
@@ -970,7 +1030,7 @@ export async function listInstalledSkills(
         }
 
         // Parse the skill
-        const skill = await parseSkillMd(skillMdPath);
+        const skill = await parseSkillMdForList(skillMdPath);
         if (!skill) {
           continue;
         }
@@ -1024,44 +1084,19 @@ export async function listInstalledSkills(
             ])
           );
 
+          const agentIndex = await getAgentSkillIndex(agentBase);
           for (const possibleName of possibleNames) {
-            const agentSkillDir = join(agentBase, possibleName);
-            if (!isPathSafe(agentBase, agentSkillDir)) continue;
-
-            try {
-              await access(agentSkillDir);
+            if (
+              agentIndex.dirNames.has(possibleName) ||
+              agentIndex.dirNames.has(possibleName.toLowerCase())
+            ) {
               found = true;
               break;
-            } catch {
-              // Try next name
             }
           }
 
-          // Fallback: scan all directories and check SKILL.md files
-          // Handles cases where directory names don't match (e.g., "git-review" vs "Git Review Before Commit")
-          if (!found) {
-            try {
-              const agentEntries = await readdir(agentBase, { withFileTypes: true });
-              for (const agentEntry of agentEntries) {
-                const candidateDir = join(agentBase, agentEntry.name);
-                if (!(await isDirEntryOrSymlinkToDir(agentEntry, candidateDir))) continue;
-                if (!isPathSafe(agentBase, candidateDir)) continue;
-
-                try {
-                  const candidateSkillMd = join(candidateDir, 'SKILL.md');
-                  await stat(candidateSkillMd);
-                  const candidateSkill = await parseSkillMd(candidateSkillMd);
-                  if (candidateSkill && candidateSkill.name === skill.name) {
-                    found = true;
-                    break;
-                  }
-                } catch {
-                  // Not a valid skill directory
-                }
-              }
-            } catch {
-              // Agent base directory doesn't exist
-            }
+          if (!found && agentIndex.skillNames.has(skill.name)) {
+            found = true;
           }
 
           if (found) {
