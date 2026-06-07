@@ -91,6 +91,8 @@ export function resetRepoTreeAuthState(): void {
 interface BranchFetchResult {
   tree: RepoTree | null;
   rateLimited: boolean;
+  /** 404 from an unauthenticated request — the signature of a private repo. */
+  notFound: boolean;
 }
 
 async function fetchTreeBranch(
@@ -121,6 +123,7 @@ async function fetchTreeBranch(
       return {
         tree: { sha: data.sha, branch, tree: data.tree },
         rateLimited: false,
+        notFound: false,
       };
     }
 
@@ -128,9 +131,13 @@ async function fetchTreeBranch(
     // (A bare 403 means permission denied, which is not retryable here.)
     const rateLimited =
       response.status === 403 && response.headers.get('x-ratelimit-remaining') === '0';
-    return { tree: null, rateLimited };
+    // GitHub returns 404 (not 403) to unauthenticated requests for private
+    // repos, to avoid disclosing their existence. An authenticated retry may
+    // succeed for a user who has access.
+    const notFound = response.status === 404;
+    return { tree: null, rateLimited, notFound };
   } catch {
-    return { tree: null, rateLimited: false };
+    return { tree: null, rateLimited: false, notFound: false };
   }
 }
 
@@ -141,10 +148,14 @@ async function fetchTreeBranch(
  *
  * Authentication is lazy: by default the call goes out unauthenticated,
  * which is enough for the vast majority of users (60 req/hr per IP).
- * Only if GitHub responds with a rate-limit 403 do we ask the optional
- * `getToken` callback for a token and retry. This avoids invoking
- * `gh auth token` on every install, which corporate endpoint security
- * tools flag as suspicious credential extraction. See issue #523.
+ * We only ask the optional `getToken` callback for a token and retry when the
+ * unauthenticated call cannot possibly succeed without one:
+ *   - a rate-limit 403 (X-RateLimit-Remaining: 0), or
+ *   - a 404, which is what GitHub returns to unauthenticated requests for a
+ *     private repo (so `update` can refresh private skills, like `add` does).
+ * The happy path (public repo, 200) never reaches for a token, so this keeps
+ * `gh auth token` from running on ordinary installs — which corporate endpoint
+ * security tools flag as suspicious credential extraction. See issue #523.
  */
 export async function fetchRepoTree(
   ownerRepo: string,
@@ -167,6 +178,7 @@ export async function fetchRepoTree(
 
   // First pass: unauthenticated.
   let rateLimited = false;
+  let notFound = false;
   for (const branch of branches) {
     const result = await fetchTreeBranch(ownerRepo, branch, null);
     if (result.tree) return result.tree;
@@ -176,12 +188,20 @@ export async function fetchRepoTree(
       rateLimited = true;
       break;
     }
+    if (result.notFound) {
+      // Likely a private repo (unauth 404). An auth retry covers all branches,
+      // so stop the unauth pass here.
+      notFound = true;
+      break;
+    }
   }
 
-  if (!rateLimited || !getToken) return null;
+  if ((!rateLimited && !notFound) || !getToken) return null;
 
-  // Lazy fallback: rate limit hit and a token resolver was provided.
-  _rateLimitedThisSession = true;
+  // Lazy fallback: the unauth pass hit a rate limit or a private-repo 404, and
+  // a token resolver was provided. Only memoize the rate-limit case — a private
+  // 404 is repo-specific, so later public repos should still try unauth first.
+  if (rateLimited) _rateLimitedThisSession = true;
   const token = getToken();
   if (!token) return null;
 
