@@ -111,6 +111,34 @@ export function getAgentBaseDir(agentType: AgentType, global: boolean, cwd?: str
   return join(baseDir, agent.skillsDir);
 }
 
+/**
+ * Deduplicate agents by their resolved skills directory.
+ *
+ * Many agents — every "universal" agent — share the same canonical
+ * `.agents/skills` directory. Installing a skill once per agent would copy
+ * identical files to that same directory repeatedly (and re-run existence
+ * checks for each), producing redundant filesystem work and duplicated output.
+ *
+ * This keeps only the first agent encountered for each distinct resolved
+ * directory, preserving input order.
+ */
+export function dedupeAgentsByDir(
+  agentTypes: AgentType[],
+  options: { global: boolean; cwd?: string }
+): AgentType[] {
+  const seen = new Set<string>();
+  const deduped: AgentType[] = [];
+
+  for (const agentType of agentTypes) {
+    const baseDir = getAgentBaseDir(agentType, options.global, options.cwd);
+    if (seen.has(baseDir)) continue;
+    seen.add(baseDir);
+    deduped.push(agentType);
+  }
+
+  return deduped;
+}
+
 function resolveSymlinkTarget(linkPath: string, linkTarget: string): string {
   return resolve(dirname(linkPath), linkTarget);
 }

@@ -38,6 +38,7 @@ import {
   isSkillInstalled,
   getCanonicalPath,
   installWellKnownSkillForAgent,
+  dedupeAgentsByDir,
   type InstallMode,
 } from './installer.ts';
 import {
@@ -754,8 +755,13 @@ async function handleWellKnownSkills(
     error?: string;
   }[] = [];
 
+  // Agents sharing a resolved skills directory (e.g. all universal agents
+  // share `.agents/skills`) would otherwise install the same skill to the same
+  // path repeatedly. Install once per distinct directory.
+  const installAgents = dedupeAgentsByDir(targetAgents, { global: installGlobally, cwd });
+
   for (const skill of selectedSkills) {
-    for (const agent of targetAgents) {
+    for (const agent of installAgents) {
       const result = await installWellKnownSkillForAgent(skill, agent, {
         global: installGlobally,
         mode: installMode,
@@ -1526,8 +1532,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       pluginName?: string;
     }[] = [];
 
+    // Agents sharing a resolved skills directory (e.g. all universal agents
+    // share `.agents/skills`) would otherwise install the same skill to the
+    // same path repeatedly. Install once per distinct directory.
+    const installAgents = dedupeAgentsByDir(targetAgents, { global: installGlobally, cwd });
+
     for (const skill of selectedSkills) {
-      for (const agent of targetAgents) {
+      for (const agent of installAgents) {
         let result;
         if (blobResult && 'files' in skill) {
           // Blob-based install: write files from snapshot
