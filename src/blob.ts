@@ -246,6 +246,7 @@ const PRIORITY_PREFIXES = [
   '.openhands/skills/',
   '.pi/skills/',
   '.qoder/skills/',
+  '.qoderwork/skills/',
   '.roo/skills/',
   '.trae/skills/',
   '.windsurf/skills/',

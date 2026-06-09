@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [67 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [68 more](#supported-agents).
 <!-- agent-list:end -->
 
 [![skills.sh](https://skills.sh/b/vercel-labs/skills)](https://skills.sh/vercel-labs/skills)
@@ -287,6 +287,7 @@ Skills can be installed to any of these agents:
 | Pi | `pi` | `.pi/skills/` | `~/.pi/agent/skills/` |
 | Qoder | `qoder` | `.qoder/skills/` | `~/.qoder/skills/` |
 | Qoder CN | `qoder-cn` | `.qoder/skills/` | `~/.qoder-cn/skills/` |
+| QoderWork | `qoderwork` | `.qoderwork/skills/` | `~/.qoderwork/skills/` |
 | Qwen Code | `qwen-code` | `.qwen/skills/` | `~/.qwen/skills/` |
 | Reasonix | `reasonix` | `.reasonix/skills/` | `~/.reasonix/skills/` |
 | Rovo Dev | `rovodev` | `.rovodev/skills/` | `~/.rovodev/skills/` |
@@ -413,6 +414,7 @@ to also discover `SKILL.md` files outside these container directories
 - `.ona/skills/`
 - `.pi/skills/`
 - `.qoder/skills/`
+- `.qoderwork/skills/`
 - `.qwen/skills/`
 - `.reasonix/skills/`
 - `.rovodev/skills/`
@@ -524,6 +526,7 @@ Telemetry is automatically disabled in CI environments.
 - [OpenHands Skills Documentation](https://docs.openhands.ai/modules/usage/how-to/using-skills)
 - [Pi Skills Documentation](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/skills.md)
 - [Qoder Skills Documentation](https://docs.qoder.com/cli/Skills)
+- [QoderWork Skills Documentation](https://docs.qoder.com/qoderwork/skills)
 - [Replit Skills Documentation](https://docs.replit.com/replitai/skills)
 - [Roo Code Skills Documentation](https://docs.roocode.com/features/skills)
 - [Trae Skills Documentation](https://docs.trae.ai/ide/skills)
