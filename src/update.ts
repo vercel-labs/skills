@@ -456,7 +456,6 @@ export async function updateGlobalSkills(
     const result = spawnSync(process.execPath, [cliEntry, 'add', installUrl, '-g', '-y'], {
       stdio: ['inherit', 'pipe', 'pipe'],
       encoding: 'utf-8',
-      shell: process.platform === 'win32',
     });
 
     if (result.status === 0) {
@@ -592,7 +591,6 @@ export async function updateProjectSkills(
         {
           stdio: ['inherit', 'pipe', 'pipe'],
           encoding: 'utf-8',
-          shell: process.platform === 'win32',
         }
       );
 
