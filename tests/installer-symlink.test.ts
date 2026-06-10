@@ -15,8 +15,9 @@ import {
   readdir,
 } from 'node:fs/promises';
 import { join } from 'node:path';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { installSkillForAgent } from '../src/installer.ts';
+import { installSkillForAgent, willSkipAgentSymlink } from '../src/installer.ts';
 
 async function makeSkillSource(root: string, name: string): Promise<string> {
   const dir = join(root, 'source-skill');
@@ -183,6 +184,85 @@ describe('installer symlink regression', () => {
       const stats = await lstat(installedPath);
       expect(stats.isDirectory()).toBe(true);
       expect(stats.isSymbolicLink()).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('project-level symlink skip (config dir missing)', () => {
+  it('predicts the skip via willSkipAgentSymlink', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
+    const projectDir = join(root, 'project');
+    await mkdir(projectDir, { recursive: true });
+
+    try {
+      // Project install, non-universal agent, no .claude/ in project → skip
+      expect(willSkipAgentSymlink('claude-code', false, projectDir)).toBe(true);
+
+      // Global installs never skip
+      expect(willSkipAgentSymlink('claude-code', true, projectDir)).toBe(false);
+
+      // Universal agents never skip
+      expect(willSkipAgentSymlink('github-copilot', false, projectDir)).toBe(false);
+
+      // Existing config dir disarms the skip
+      await mkdir(join(projectDir, '.claude'), { recursive: true });
+      expect(willSkipAgentSymlink('claude-code', false, projectDir)).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('returns skipped: true and creates no .claude/ when the config dir is missing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
+    const projectDir = join(root, 'project');
+    await mkdir(projectDir, { recursive: true });
+
+    const skillName = 'skip-report-skill';
+    const skillDir = await makeSkillSource(root, skillName);
+
+    try {
+      const result = await installSkillForAgent(
+        { name: skillName, description: 'test', path: skillDir },
+        'claude-code',
+        { cwd: projectDir, mode: 'symlink', global: false }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.skipped).toBe(true);
+
+      // The skill lands in the canonical dir, but no .claude/ is created
+      const canonicalPath = join(projectDir, '.agents/skills', skillName);
+      const stats = await lstat(canonicalPath);
+      expect(stats.isDirectory()).toBe(true);
+      expect(existsSync(join(projectDir, '.claude'))).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('symlinks into .claude/skills/ when .claude/ pre-exists', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
+    const projectDir = join(root, 'project');
+    await mkdir(join(projectDir, '.claude'), { recursive: true });
+
+    const skillName = 'no-skip-skill';
+    const skillDir = await makeSkillSource(root, skillName);
+
+    try {
+      const result = await installSkillForAgent(
+        { name: skillName, description: 'test', path: skillDir },
+        'claude-code',
+        { cwd: projectDir, mode: 'symlink', global: false }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.skipped).toBeUndefined();
+
+      const agentPath = join(projectDir, '.claude/skills', skillName);
+      const stats = await lstat(agentPath);
+      expect(stats.isSymbolicLink()).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
