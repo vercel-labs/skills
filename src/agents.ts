@@ -562,6 +562,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.terramind'));
     },
   },
+  'theia-ide': {
+    name: 'theia-ide',
+    displayName: 'Theia IDE',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.theia-ide'));
+    },
+  },
   tinycloud: {
     name: 'tinycloud',
     displayName: 'Tinycloud',

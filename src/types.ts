@@ -58,6 +58,7 @@ export type AgentType =
   | 'rovodev'
   | 'tabnine-cli'
   | 'terramind'
+  | 'theia-ide'
   | 'tinycloud'
   | 'trae'
   | 'trae-cn'
