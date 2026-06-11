@@ -47,6 +47,8 @@ npx skills add git@github.com:vercel-labs/agent-skills.git
 npx skills add ./my-local-skills
 ```
 
+Tree URLs (GitHub `/tree/...`, GitLab `/-/tree/...`) can be pasted straight from the browser — branch names containing slashes are resolved against the repository's refs.
+
 ### Options
 
 | Option                    | Description                                                                                                                                        |

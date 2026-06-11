@@ -1,4 +1,5 @@
 import { isAbsolute, resolve } from 'path';
+import { listRemoteRefs, type RemoteRefs } from './git.ts';
 import type { ParsedSource } from './types.ts';
 
 /**
@@ -281,6 +282,12 @@ export function parseSource(input: string): ParsedSource {
     );
   }
 
+  // Tree URLs copied from the GitHub/GitLab web UI may carry a query string
+  // (GitLab appends ?ref_type=heads); it is never part of the ref or subpath.
+  if (/^https?:\/\/[^?#]*\/tree\/[^?#]*\?/.test(input)) {
+    input = input.slice(0, input.indexOf('?'));
+  }
+
   // GitHub URL with path: https://github.com/owner/repo/tree/branch/path/to/skill
   const githubTreeWithPathMatch = input.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/);
   if (githubTreeWithPathMatch) {
@@ -405,6 +412,69 @@ export function parseSource(input: string): ParsedSource {
     url: input,
     ...(fragmentRef ? { ref: fragmentRef } : {}),
   };
+}
+
+/**
+ * A tree URL whose portion after /tree/ spans multiple segments is ambiguous:
+ * the string alone cannot tell where a branch name containing "/" ends and
+ * the subpath begins (e.g. /-/tree/bugfix/ABC-123/libs/skills). Resolve it
+ * the same way GitLab's own router does — ask the remote for its refs and
+ * take the longest prefix that names an existing branch or tag (branches win
+ * over tags on an exact tie).
+ *
+ * Lazy by design: returns `parsed` untouched, with zero network calls, unless
+ * the source is an http(s) tree URL with a multi-segment tail. If ls-remote
+ * fails (offline, no access) or no ref matches, the current single-segment
+ * behavior is preserved.
+ */
+export async function resolveAmbiguousTreeRef(
+  source: string,
+  parsed: ParsedSource
+): Promise<ParsedSource> {
+  if (parsed.type !== 'github' && parsed.type !== 'gitlab') {
+    return parsed;
+  }
+  if (!source.startsWith('http://') && !source.startsWith('https://')) {
+    return parsed;
+  }
+
+  // Neither the fragment nor the query string is part of the ref or subpath.
+  const sourceUrl = source.split('#')[0]!.split('?')[0]!;
+  const treeMatch =
+    parsed.type === 'gitlab'
+      ? sourceUrl.match(/^https?:\/\/[^/]+\/.+?\/-\/tree\/(.+)$/)
+      : sourceUrl.match(/github\.com\/[^/]+\/[^/]+\/tree\/(.+)$/);
+  if (!treeMatch) {
+    return parsed;
+  }
+
+  // The GitLab UI sometimes encodes "/" within branch names as %2F.
+  const rest = treeMatch[1]!.replace(/%2F/gi, '/').replace(/\/+$/, '');
+  const segments = rest.split('/').filter(Boolean);
+  if (segments.length <= 1) {
+    return parsed;
+  }
+
+  let refs: RemoteRefs;
+  try {
+    refs = await listRemoteRefs(parsed.url);
+  } catch {
+    return parsed;
+  }
+
+  for (let i = segments.length; i >= 1; i--) {
+    const candidate = segments.slice(0, i).join('/');
+    if (refs.heads.has(candidate) || refs.tags.has(candidate)) {
+      const subpath = segments.slice(i).join('/');
+      return {
+        ...parsed,
+        ref: candidate,
+        subpath: subpath ? sanitizeSubpath(subpath) : undefined,
+      };
+    }
+  }
+
+  return parsed;
 }
 
 /**

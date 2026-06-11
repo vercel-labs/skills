@@ -248,6 +248,36 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
   }
 }
 
+export interface RemoteRefs {
+  heads: Set<string>;
+  tags: Set<string>;
+}
+
+/**
+ * List branch and tag names on a remote without cloning (one ls-remote
+ * round-trip). Authentication is delegated entirely to local git.
+ */
+export async function listRemoteRefs(url: string): Promise<RemoteRefs> {
+  const output = await createGitClient().listRemote(['--heads', '--tags', url]);
+  const heads = new Set<string>();
+  const tags = new Set<string>();
+
+  for (const line of output.split('\n')) {
+    const refName = line.split('\t')[1];
+    // Skip peeled tag entries (refs/tags/v1^{}) — the plain entry is enough.
+    if (!refName || refName.endsWith('^{}')) {
+      continue;
+    }
+    if (refName.startsWith('refs/heads/')) {
+      heads.add(refName.slice('refs/heads/'.length));
+    } else if (refName.startsWith('refs/tags/')) {
+      tags.add(refName.slice('refs/tags/'.length));
+    }
+  }
+
+  return { heads, tags };
+}
+
 export async function cleanupTempDir(dir: string): Promise<void> {
   // Validate that the directory path is within tmpdir to prevent deletion of arbitrary paths
   const normalizedDir = normalize(resolve(dir));

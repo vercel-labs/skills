@@ -3,7 +3,13 @@ import pc from 'picocolors';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { sep, join, dirname } from 'path';
-import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
+import {
+  parseSource,
+  resolveAmbiguousTreeRef,
+  getOwnerRepo,
+  parseOwnerRepo,
+  isRepoPrivate,
+} from './source-parser.ts';
 import { stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 
@@ -975,7 +981,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     const spinner = p.spinner();
 
     spinner.start('Parsing source...');
-    const parsed = parseSource(source);
+    const parsed = await resolveAmbiguousTreeRef(source, parseSource(source));
     spinner.stop(
       `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
     );

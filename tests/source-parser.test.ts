@@ -6,9 +6,14 @@
  * correctly extracts type, url, ref (branch), and subpath.
  */
 
-import { describe, it, expect } from 'vitest';
-import { platform } from 'os';
-import { parseSource, getOwnerRepo } from '../src/source-parser.ts';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { execFileSync } from 'child_process';
+import { mkdtempSync, rmSync } from 'fs';
+import { platform, tmpdir } from 'os';
+import { join } from 'path';
+import { pathToFileURL } from 'url';
+import { parseSource, resolveAmbiguousTreeRef, getOwnerRepo } from '../src/source-parser.ts';
+import type { ParsedSource } from '../src/types.ts';
 
 const isWindows = platform() === 'win32';
 
@@ -480,5 +485,169 @@ describe('Prefix shorthand tests', () => {
       expect(result.type).toBe('gitlab');
       expect(result.url).toBe('https://gitlab.com/group/subgroup/repo.git');
     });
+  });
+});
+
+describe('tree URL query strings', () => {
+  it('strips ?ref_type=heads from a GitLab tree URL with branch only', () => {
+    const result = parseSource('https://gitlab.com/owner/repo/-/tree/main?ref_type=heads');
+    expect(result.type).toBe('gitlab');
+    expect(result.url).toBe('https://gitlab.com/owner/repo.git');
+    expect(result.ref).toBe('main');
+    expect(result.subpath).toBeUndefined();
+  });
+
+  it('strips ?ref_type=heads from a GitLab tree URL with subpath', () => {
+    const result = parseSource('https://gitlab.com/owner/repo/-/tree/main/skills?ref_type=heads');
+    expect(result.type).toBe('gitlab');
+    expect(result.ref).toBe('main');
+    expect(result.subpath).toBe('skills');
+  });
+
+  it('strips query strings from GitHub tree URLs', () => {
+    const result = parseSource('https://github.com/owner/repo/tree/main/skills?foo=bar');
+    expect(result.type).toBe('github');
+    expect(result.ref).toBe('main');
+    expect(result.subpath).toBe('skills');
+  });
+});
+
+describe('resolveAmbiguousTreeRef', () => {
+  let fixtureDir: string;
+  let fixtureUrl: string;
+
+  function git(cwd: string, ...args: string[]): void {
+    execFileSync('git', args, { cwd, stdio: 'pipe' });
+  }
+
+  // Build the parsed source for a tree URL, but point its repo URL at the
+  // local fixture so ls-remote runs against file:// (zero network).
+  function parsedForFixture(source: string): ParsedSource {
+    return { ...parseSource(source), url: fixtureUrl };
+  }
+
+  beforeAll(() => {
+    fixtureDir = mkdtempSync(join(tmpdir(), 'skills-tree-ref-fixture-'));
+    fixtureUrl = pathToFileURL(fixtureDir).href;
+
+    git(fixtureDir, 'init', '-b', 'main');
+    git(
+      fixtureDir,
+      '-c',
+      'user.email=test@example.com',
+      '-c',
+      'user.name=test',
+      'commit',
+      '--allow-empty',
+      '-m',
+      'init'
+    );
+    // Branch names containing slashes. Note git itself forbids a branch named
+    // "bugfix" alongside "bugfix/x" (ref namespace conflict), so the ambiguous
+    // shorter ref is a tag.
+    git(fixtureDir, 'branch', 'bugfix/ABC-123-some-fix');
+    git(fixtureDir, 'branch', 'bugfix/x');
+    git(fixtureDir, 'tag', 'bugfix');
+    git(fixtureDir, 'tag', 'release/1.0');
+  });
+
+  afterAll(() => {
+    rmSync(fixtureDir, { recursive: true, force: true });
+  });
+
+  it('resolves a GitLab branch containing slashes plus a subpath', async () => {
+    const source =
+      'https://gitlab.example.com/group/repo/-/tree/bugfix/ABC-123-some-fix/libs/skills';
+    const parsed = parsedForFixture(source);
+    // Without resolution, the parser can only guess a single-segment ref.
+    expect(parsed.ref).toBe('bugfix');
+
+    const resolved = await resolveAmbiguousTreeRef(source, parsed);
+    expect(resolved.ref).toBe('bugfix/ABC-123-some-fix');
+    expect(resolved.subpath).toBe('libs/skills');
+  });
+
+  it('prefers the longest matching ref when both bugfix and bugfix/x exist', async () => {
+    const source = 'https://gitlab.example.com/group/repo/-/tree/bugfix/x';
+    const resolved = await resolveAmbiguousTreeRef(source, parsedForFixture(source));
+    expect(resolved.ref).toBe('bugfix/x');
+    expect(resolved.subpath).toBeUndefined();
+  });
+
+  it('falls back to the shorter ref when the longer prefix is not a ref', async () => {
+    const source = 'https://gitlab.example.com/group/repo/-/tree/bugfix/docs';
+    const resolved = await resolveAmbiguousTreeRef(source, parsedForFixture(source));
+    expect(resolved.ref).toBe('bugfix');
+    expect(resolved.subpath).toBe('docs');
+  });
+
+  it('resolves tag refs containing slashes', async () => {
+    const source = 'https://gitlab.example.com/group/repo/-/tree/release/1.0/skills';
+    const resolved = await resolveAmbiguousTreeRef(source, parsedForFixture(source));
+    expect(resolved.ref).toBe('release/1.0');
+    expect(resolved.subpath).toBe('skills');
+  });
+
+  it('resolves GitHub-style tree URLs', async () => {
+    const source = 'https://github.com/owner/repo/tree/bugfix/ABC-123-some-fix/libs/skills';
+    const resolved = await resolveAmbiguousTreeRef(source, parsedForFixture(source));
+    expect(resolved.ref).toBe('bugfix/ABC-123-some-fix');
+    expect(resolved.subpath).toBe('libs/skills');
+  });
+
+  it('decodes %2F in the tree portion before matching', async () => {
+    const source =
+      'https://gitlab.example.com/group/repo/-/tree/bugfix%2FABC-123-some-fix/libs/skills';
+    const resolved = await resolveAmbiguousTreeRef(source, parsedForFixture(source));
+    expect(resolved.ref).toBe('bugfix/ABC-123-some-fix');
+    expect(resolved.subpath).toBe('libs/skills');
+  });
+
+  it('ignores query strings appended by the GitLab UI', async () => {
+    const source =
+      'https://gitlab.example.com/group/repo/-/tree/bugfix/ABC-123-some-fix/libs/skills?ref_type=heads';
+    const resolved = await resolveAmbiguousTreeRef(source, parsedForFixture(source));
+    expect(resolved.ref).toBe('bugfix/ABC-123-some-fix');
+    expect(resolved.subpath).toBe('libs/skills');
+  });
+
+  it('keeps the single-segment parse when no ref matches', async () => {
+    const source = 'https://gitlab.example.com/group/repo/-/tree/nope/nothing';
+    const parsed = parsedForFixture(source);
+    const resolved = await resolveAmbiguousTreeRef(source, parsed);
+    expect(resolved).toBe(parsed);
+    expect(resolved.ref).toBe('nope');
+    expect(resolved.subpath).toBe('nothing');
+  });
+
+  it('keeps the single-segment parse when ls-remote fails', async () => {
+    const source =
+      'https://gitlab.example.com/group/repo/-/tree/bugfix/ABC-123-some-fix/libs/skills';
+    const parsed: ParsedSource = {
+      ...parseSource(source),
+      url: pathToFileURL(join(tmpdir(), 'skills-no-such-repo')).href,
+    };
+    const resolved = await resolveAmbiguousTreeRef(source, parsed);
+    expect(resolved).toBe(parsed);
+    expect(resolved.ref).toBe('bugfix');
+    expect(resolved.subpath).toBe('ABC-123-some-fix/libs/skills');
+  });
+
+  it('returns single-segment tree URLs unchanged without resolving', async () => {
+    const source = 'https://gitlab.example.com/group/repo/-/tree/main';
+    // The repo URL is intentionally unreachable: a single-segment tree URL
+    // must short-circuit before any ls-remote happens.
+    const parsed = parseSource(source);
+    const resolved = await resolveAmbiguousTreeRef(source, parsed);
+    expect(resolved).toBe(parsed);
+    expect(resolved.ref).toBe('main');
+  });
+
+  it('returns non-tree sources unchanged without resolving', async () => {
+    const source = 'owner/repo/skills/my-skill';
+    const parsed = parseSource(source);
+    const resolved = await resolveAmbiguousTreeRef(source, parsed);
+    expect(resolved).toBe(parsed);
+    expect(resolved.subpath).toBe('skills/my-skill');
   });
 });
