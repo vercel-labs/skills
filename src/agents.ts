@@ -9,6 +9,7 @@ const home = homedir();
 const configHome = xdgConfig ?? join(home, '.config');
 const codexHome = process.env.CODEX_HOME?.trim() || join(home, '.codex');
 const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude');
+const aiAssistHome = process.env.AI_ASSIST_CONFIG_DIR?.trim() || join(home, '.ai-assist');
 const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
 const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
@@ -32,6 +33,15 @@ export function getOpenClawGlobalSkillsDir(
 }
 
 export const agents: Record<AgentType, AgentConfig> = {
+  'ai-assist': {
+    name: 'ai-assist',
+    displayName: 'AI Assist',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents/skills'),
+    detectInstalled: async () => {
+      return existsSync(aiAssistHome);
+    },
+  },
   'aider-desk': {
     name: 'aider-desk',
     displayName: 'AiderDesk',

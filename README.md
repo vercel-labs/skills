@@ -3,7 +3,9 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [67 more](#supported-agents).
+
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [68 more](#supported-agents).
+
 <!-- agent-list:end -->
 
 [![skills.sh](https://skills.sh/b/vercel-labs/skills)](https://skills.sh/vercel-labs/skills)
@@ -239,6 +241,7 @@ Skills can be installed to any of these agents:
 <!-- supported-agents:start -->
 | Agent | `--agent` | Project Path | Global Path |
 |-------|-----------|--------------|-------------|
+| [AI Assist](https://github.com/fredericlepied/ai-assist) | `ai-assist` | `.agents/skills/` | `~/.agents/skills/` |
 | AiderDesk | `aider-desk` | `.aider-desk/skills/` | `~/.aider-desk/skills/` |
 | Amp, Replit, Universal | `amp`, `replit`, `universal` | `.agents/skills/` | `~/.config/agents/skills/` |
 | Antigravity | `antigravity` | `.agents/skills/` | `~/.gemini/antigravity/skills/` |
