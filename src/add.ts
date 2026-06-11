@@ -2,13 +2,37 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
-import { sep, join, dirname } from 'path';
+import { sep, join, dirname, resolve, isAbsolute } from 'path';
 import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
 import { stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 
 // Helper to check if a value is a cancel symbol (works with both clack and our custom prompts)
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
+
+/**
+ * Expands a user-supplied path argument:
+ *   - leading `~`              → user's home directory
+ *   - leading `$HOME` / `${HOME}` → user's home directory
+ *   - relative paths           → resolved against process.cwd()
+ *
+ * Returns an absolute, resolved path. Used to support friendly inputs like
+ * `~/my-skills` for the `--skills-dir` flag.
+ */
+export function expandPath(input: string): string {
+  if (!input) return input;
+  let p = input;
+
+  // ~ or ~/foo  →  $HOME or $HOME/foo
+  if (p === '~' || p.startsWith('~/') || p.startsWith('~\\')) {
+    p = homedir() + p.slice(1);
+  }
+
+  // $HOME, ${HOME}, $HOME/foo, ${HOME}/foo
+  p = p.replace(/^\$\{?HOME\}?(?=$|[/\\])/, homedir());
+
+  return isAbsolute(p) ? resolve(p) : resolve(process.cwd(), p);
+}
 
 /**
  * Check if a source identifier (owner/repo format) represents a private GitHub repo.
@@ -38,6 +62,7 @@ import {
   isSkillInstalled,
   getCanonicalPath,
   installWellKnownSkillForAgent,
+  sanitizeName,
   type InstallMode,
 } from './installer.ts';
 import {
@@ -441,6 +466,15 @@ export interface AddOptions {
   fullDepth?: boolean;
   copy?: boolean;
   dangerouslyAcceptOpenclawRisks?: boolean;
+  /**
+   * Custom installation directory. When set, skills are copied directly into
+   * `<skillsDir>/<skill-name>/`, bypassing the canonical `.agents/skills` dir
+   * and any agent-specific symlink/copy logic. Mutually exclusive with `--global`.
+   *
+   * Used by clients that read skills from their own folder structure and don't
+   * want to be added to the agent registry.
+   */
+  skillsDir?: string;
 }
 
 /**
@@ -552,7 +586,12 @@ async function handleWellKnownSkills(
   let targetAgents: AgentType[];
   const validAgents = Object.keys(agents);
 
-  if (options.agent?.includes('*')) {
+  if (options.skillsDir) {
+    // Custom skillsDir install: agent is a label only — the install path is
+    // fully determined by skillsDir.
+    targetAgents = ['universal' as AgentType];
+    p.log.info(`Installing to: ${pc.cyan(options.skillsDir)}`);
+  } else if (options.agent?.includes('*')) {
     // --agent '*' selects all agents
     targetAgents = validAgents as AgentType[];
     p.log.info(`Installing to all ${targetAgents.length} agents`);
@@ -625,7 +664,7 @@ async function handleWellKnownSkills(
   // Check if any selected agents support global installation
   const supportsGlobal = targetAgents.some((a) => agents[a].globalSkillsDir !== undefined);
 
-  if (options.global === undefined && !options.yes && supportsGlobal) {
+  if (options.global === undefined && !options.yes && supportsGlobal && !options.skillsDir) {
     const scope = await p.select({
       message: 'Installation scope',
       options: [
@@ -708,10 +747,14 @@ async function handleWellKnownSkills(
   for (const skill of selectedSkills) {
     if (summaryLines.length > 0) summaryLines.push('');
 
-    const canonicalPath = getCanonicalPath(skill.installName, { global: installGlobally });
-    const shortCanonical = shortenPath(canonicalPath, cwd);
-    summaryLines.push(`${pc.cyan(shortCanonical)}`);
-    summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
+    const displayPath = options.skillsDir
+      ? join(options.skillsDir, sanitizeName(skill.installName))
+      : getCanonicalPath(skill.installName, { global: installGlobally });
+    const shortDisplay = shortenPath(displayPath, cwd);
+    summaryLines.push(`${pc.cyan(shortDisplay)}`);
+    if (!options.skillsDir) {
+      summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
+    }
     if (skill.files.size > 1) {
       summaryLines.push(`  ${pc.dim('files:')} ${skill.files.size}`);
     }
@@ -721,7 +764,7 @@ async function handleWellKnownSkills(
       .filter((a) => skillOverwrites?.get(a))
       .map((a) => agents[a].displayName);
 
-    if (overwriteAgents.length > 0) {
+    if (overwriteAgents.length > 0 && !options.skillsDir) {
       summaryLines.push(`  ${pc.yellow('overwrites:')} ${formatList(overwriteAgents)}`);
     }
   }
@@ -760,6 +803,7 @@ async function handleWellKnownSkills(
       const result = await installWellKnownSkillForAgent(skill, agent, {
         global: installGlobally,
         mode: installMode,
+        skillsDir: options.skillsDir,
       });
       results.push({
         skill: skill.installName,
@@ -814,8 +858,9 @@ async function handleWellKnownSkills(
     }
   }
 
-  // Add to local lock file for project-scoped installs
-  if (successful.length > 0 && !installGlobally) {
+  // Add to local lock file for project-scoped installs.
+  // Skip when --skills-dir is set (custom path is outside the lock-file scope).
+  if (successful.length > 0 && !installGlobally && !options.skillsDir) {
     const successfulSkillNames = new Set(successful.map((r) => r.skill));
     for (const skill of selectedSkills) {
       if (successfulSkillNames.has(skill.installName)) {
@@ -932,6 +977,45 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     console.log(`    ${pc.cyan('npx skills add')} ${pc.yellow('vercel-labs/agent-skills')}`);
     console.log();
     process.exit(1);
+  }
+
+  // --skills-dir validation:
+  //   - parseAddOptions sets it to '' when the user passed `--skills-dir`
+  //     without an argument (sentinel).
+  //   - it's mutually exclusive with --global (the path IS the global path).
+  if (options.skillsDir !== undefined) {
+    if (options.skillsDir === '') {
+      console.log();
+      console.log(
+        pc.bgRed(pc.white(pc.bold(' ERROR '))) +
+          ' ' +
+          pc.red('--skills-dir requires a path argument')
+      );
+      console.log();
+      console.log(pc.dim('  Example:'));
+      console.log(
+        `    ${pc.cyan('npx skills add')} ${pc.yellow('owner/repo')} ${pc.cyan('--skills-dir')} ${pc.yellow('~/my-skills')}`
+      );
+      console.log();
+      process.exit(1);
+    }
+    if (options.global) {
+      console.log();
+      console.log(
+        pc.bgRed(pc.white(pc.bold(' ERROR '))) +
+          ' ' +
+          pc.red('--skills-dir cannot be combined with --global')
+      );
+      console.log(
+        pc.dim('  --skills-dir already specifies an absolute install path; --global is redundant.')
+      );
+      console.log();
+      process.exit(1);
+    }
+    // Resolve to absolute path early so downstream code is unambiguous.
+    options.skillsDir = expandPath(options.skillsDir);
+    // Custom skillsDir always copies (no symlink dance).
+    options.copy = true;
   }
 
   // --all implies --skill '*' and --agent '*' and -y
@@ -1267,7 +1351,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     let targetAgents: AgentType[];
     const validAgents = Object.keys(agents);
 
-    if (options.agent?.includes('*')) {
+    if (options.skillsDir) {
+      // Custom skillsDir install: agent is a label only — the install path is
+      // fully determined by skillsDir. Use a single placeholder agent to drive
+      // the install loop; the installer ignores agentType when skillsDir is set.
+      targetAgents = ['universal' as AgentType];
+      p.log.info(`Installing to: ${pc.cyan(options.skillsDir)}`);
+    } else if (options.agent?.includes('*')) {
       // --agent '*' selects all agents
       targetAgents = validAgents as AgentType[];
       p.log.info(`Installing to all ${targetAgents.length} agents`);
@@ -1343,7 +1433,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Check if any selected agents support global installation
     const supportsGlobal = targetAgents.some((a) => agents[a].globalSkillsDir !== undefined);
 
-    if (options.global === undefined && !options.yes && supportsGlobal) {
+    // Skip the project/global scope prompt when --skills-dir is set (the path
+    // IS the install destination — global vs project doesn't apply).
+    if (options.global === undefined && !options.yes && supportsGlobal && !options.skillsDir) {
       const scope = await p.select({
         message: 'Installation scope',
         options: [
@@ -1444,17 +1536,23 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       for (const skill of skills) {
         if (summaryLines.length > 0) summaryLines.push('');
 
-        const canonicalPath = getCanonicalPath(skill.name, { global: installGlobally });
-        const shortCanonical = shortenPath(canonicalPath, cwd);
-        summaryLines.push(`${pc.cyan(shortCanonical)}`);
-        summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
+        // For --skills-dir installs, show the actual destination
+        // (<skillsDir>/<skill-name>) instead of the canonical .agents/skills path.
+        const displayPath = options.skillsDir
+          ? join(options.skillsDir, sanitizeName(skill.name))
+          : getCanonicalPath(skill.name, { global: installGlobally });
+        const shortDisplay = shortenPath(displayPath, cwd);
+        summaryLines.push(`${pc.cyan(shortDisplay)}`);
+        if (!options.skillsDir) {
+          summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
+        }
 
         const skillOverwrites = overwriteStatus.get(skill.name);
         const overwriteAgents = targetAgents
           .filter((a) => skillOverwrites?.get(a))
           .map((a) => agents[a].displayName);
 
-        if (overwriteAgents.length > 0) {
+        if (overwriteAgents.length > 0 && !options.skillsDir) {
           summaryLines.push(`  ${pc.yellow('overwrites:')} ${formatList(overwriteAgents)}`);
         }
       }
@@ -1539,13 +1637,14 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           result = await installBlobSkillForAgent(
             { installName: blobSkill.name, files: blobSkill.files },
             agent,
-            { global: installGlobally, mode: installMode }
+            { global: installGlobally, mode: installMode, skillsDir: options.skillsDir }
           );
         } else {
           // Disk-based install: copy from cloned/local directory
           result = await installSkillForAgent(skill, agent, {
             global: installGlobally,
             mode: installMode,
+            skillsDir: options.skillsDir,
           });
         }
         results.push({
@@ -1669,8 +1768,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
-    // Add to local lock file for project-scoped installs
-    if (successful.length > 0 && !installGlobally) {
+    // Add to local lock file for project-scoped installs.
+    // Skip when --skills-dir is set: the skill lives outside any
+    // project/global scope tracked by the lock files. Treat it like a
+    // one-off install — `skills update` won't see it (documented in README).
+    if (successful.length > 0 && !installGlobally && !options.skillsDir) {
       const successfulSkillNames = new Set(successful.map((r) => r.skill));
       for (const skill of selectedSkills) {
         const skillDisplayName = getSkillDisplayName(skill);
@@ -1951,6 +2053,18 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       options.fullDepth = true;
     } else if (arg === '--copy') {
       options.copy = true;
+    } else if (arg === '--skills-dir') {
+      // --skills-dir <path>  (consumes next arg)
+      const next = args[i + 1];
+      if (!next || next.startsWith('-')) {
+        // Defer the user-facing error to runAdd so we can use the same
+        // error formatting as other validation failures. Mark it with a
+        // sentinel that runAdd checks for.
+        options.skillsDir = '';
+      } else {
+        options.skillsDir = next;
+        i++;
+      }
     } else if (arg === '--dangerously-accept-openclaw-risks') {
       options.dangerouslyAcceptOpenclawRisks = true;
     } else if (arg && !arg.startsWith('-')) {

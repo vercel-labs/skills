@@ -56,6 +56,7 @@ npx skills add ./my-local-skills
 | `-s, --skill <skills...>` | Install specific skills by name (use `'*'` for all skills)                                                                                         |
 | `-l, --list`              | List available skills without installing                                                                                                           |
 | `--copy`                  | Copy files instead of symlinking to agent directories                                                                                              |
+| `--skills-dir <path>`     | Install directly to `<path>/<skill-name>/` (custom location). See [Custom install directory](#custom-install-directory).                           |
 | `-y, --yes`               | Skip all confirmation prompts                                                                                                                      |
 | `--all`                   | Install all skills to all agents without prompts                                                                                                   |
 
@@ -102,6 +103,31 @@ When installing interactively, you can choose:
 | ------------------------- | ------------------------------------------------------------------------------------------- |
 | **Symlink** (Recommended) | Creates symlinks from each agent to a canonical copy. Single source of truth, easy updates. |
 | **Copy**                  | Creates independent copies for each agent. Use when symlinks aren't supported.              |
+
+### Custom install directory
+
+The `--skills-dir <path>` flag installs skills directly into a directory you choose, bypassing
+the canonical `.agents/skills/` tree and any agent-specific symlink/copy logic. This is intended
+for clients that read skills from their own folder structure and aren't (yet) part of the agent
+registry — e.g. a desktop app that loads skills from `~/my-app/skills/`.
+
+```bash
+# Install a skill pack directly into a custom skills folder
+npx skills add owner/my-skills --skills-dir ~/my-app/skills -y
+
+# Result:
+#   ~/my-app/skills/<skill-name>/SKILL.md
+#   ~/my-app/skills/<skill-name>/...
+```
+
+Notes:
+
+- The path is created if it doesn't exist (`mkdir -p`).
+- `~`, `$HOME`, and relative paths are expanded automatically.
+- Files are always copied (no symlinks), regardless of `--copy`.
+- Mutually exclusive with `--global` (the path **is** the install location).
+- Lock files are skipped, so `skills update` and `skills remove` don't track skills installed
+  this way. Re-run `skills add ... --skills-dir ...` to update.
 
 ## Other Commands
 
