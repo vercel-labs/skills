@@ -248,6 +248,34 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
   }
 }
 
+/**
+ * Clone only `subpath` of a repository using a shallow, blobless, sparse
+ * clone followed by `git sparse-checkout set <subpath>`. Falls back to a
+ * regular full shallow clone when the sparse sequence fails (e.g. very old
+ * git versions), so behavior degrades to exactly what cloneRepo provides.
+ */
+export async function cloneRepoSparse(
+  url: string,
+  ref: string | undefined,
+  subpath: string
+): Promise<string> {
+  const tempDir = await mkdtemp(join(tmpdir(), 'skills-'));
+  const cloneOptions = ref
+    ? ['--depth', '1', '--filter=blob:none', '--sparse', '--branch', ref]
+    : ['--depth', '1', '--filter=blob:none', '--sparse'];
+
+  try {
+    const git = createGitClient();
+    await git.clone(url, tempDir, cloneOptions);
+    await git.cwd(tempDir);
+    await git.raw(['sparse-checkout', 'set', subpath]);
+    return tempDir;
+  } catch {
+    await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    return cloneRepo(url, ref);
+  }
+}
+
 export async function cleanupTempDir(dir: string): Promise<void> {
   // Validate that the directory path is within tmpdir to prevent deletion of arbitrary paths
   const normalizedDir = normalize(resolve(dir));
