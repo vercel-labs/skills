@@ -4,7 +4,8 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from './test-utils.ts';
 import { shouldInstallInternalSkills } from './skills.ts';
-import { parseAddOptions, getLockSource } from './add.ts';
+import { parseAddOptions, getLockSource, filterAgentsForGlobalScope } from './add.ts';
+import type { AgentType } from './types.ts';
 
 describe('add command', () => {
   let testDir: string;
@@ -406,6 +407,19 @@ describe('parseAddOptions', () => {
     expect(result.options.fullDepth).toBe(true);
     expect(result.options.list).toBe(true);
     expect(result.options.global).toBe(true);
+  });
+});
+
+describe('filterAgentsForGlobalScope', () => {
+  it('drops agents without a global skills dir for global installs', () => {
+    const result = filterAgentsForGlobalScope(['claude-code', 'promptscript'] as AgentType[], true);
+    expect(result).toContain('claude-code');
+    expect(result).not.toContain('promptscript');
+  });
+
+  it('keeps every agent for project (non-global) installs', () => {
+    const agents = ['claude-code', 'promptscript'] as AgentType[];
+    expect(filterAgentsForGlobalScope(agents, false)).toEqual(agents);
   });
 });
 
