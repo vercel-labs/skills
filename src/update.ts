@@ -7,11 +7,7 @@ import pc from 'picocolors';
 
 import { readSkillLock, getGitHubToken, type SkillLockEntry } from './skill-lock.ts';
 import { computeSkillFolderHash, readLocalLock, type LocalSkillLockEntry } from './local-lock.ts';
-import {
-  formatSourceInput,
-  buildUpdateInstallSource,
-  buildLocalUpdateSource,
-} from './update-source.ts';
+import { formatSourceInput, buildUpdateInstallSource } from './update-source.ts';
 import { cloneRepo, cleanupTempDir } from './git.ts';
 import { discoverSkills } from './skills.ts';
 import { fetchRepoTree, findSkillMdPaths, getSkillFolderHashFromTree } from './blob.ts';
@@ -526,12 +522,15 @@ export async function updateProjectSkills(
   console.log(`${TEXT}Refreshing ${updatable.length} skill(s)...${RESET}`);
   console.log();
 
+  // Group by effective source (sourceUrl || source).
+  // Different hosts must not mix — e.g. same owner/repo on github.com
+  // vs a self-hosted GitLab are separate clone groups.
   const bySource = new Map<string, typeof updatable>();
   for (const skill of updatable) {
-    const source = skill.entry.source;
-    const existing = bySource.get(source) || [];
+    const effectiveSource = skill.entry.sourceUrl || skill.entry.source;
+    const existing = bySource.get(effectiveSource) || [];
     existing.push(skill);
-    bySource.set(source, existing);
+    bySource.set(effectiveSource, existing);
   }
 
   const localLock = await readLocalLock();
@@ -542,20 +541,25 @@ export async function updateProjectSkills(
     return { successCount, failCount: updatable.length, foundCount: projectSkills.length };
   }
 
-  for (const [source, skillsForSource] of bySource) {
+  for (const [, skillsForSource] of bySource) {
     const firstEntry = skillsForSource[0]!.entry;
-    const sourceUrl = firstEntry.source;
+    const cloneSource = firstEntry.sourceUrl || firstEntry.source;
     const ref = firstEntry.ref;
 
+    // For deletion checks, filter lock entries with the same effective source.
+    const firstEffectiveSource = firstEntry.sourceUrl || firstEntry.source;
     const allLockedForSource = Object.entries(localLock.skills)
-      .filter(([_, entry]) => entry.source === source)
-      .map(([name, _]) => name);
+      .filter(([, entry]) => {
+        const entryEffectiveSource = entry.sourceUrl || entry.source;
+        return entryEffectiveSource === firstEffectiveSource;
+      })
+      .map(([name]) => name);
 
     let tempDir: string | null = null;
     let deletedSkills: string[] = [];
 
     try {
-      tempDir = await cloneRepo(sourceUrl, ref);
+      tempDir = await cloneRepo(cloneSource, ref);
       const discovered = await discoverSkills(tempDir);
 
       const discoveredPaths = discovered.map((s) => {
@@ -564,7 +568,7 @@ export async function updateProjectSkills(
       });
 
       deletedSkills = await checkAndPromptForDeletions(
-        source,
+        cloneSource,
         allLockedForSource,
         localLock.skills,
         false,
@@ -572,7 +576,7 @@ export async function updateProjectSkills(
         discoveredPaths
       );
     } catch (error) {
-      console.log(`${DIM}✗ Failed to check for deleted skills from ${source}${RESET}`);
+      console.log(`${DIM}✗ Failed to check for deleted skills from ${cloneSource}${RESET}`);
     } finally {
       if (tempDir) {
         await cleanupTempDir(tempDir);
@@ -584,7 +588,8 @@ export async function updateProjectSkills(
     for (const skill of remainingSkills) {
       const safeName = sanitizeMetadata(skill.name);
       console.log(`${TEXT}Updating ${safeName}...${RESET}`);
-      const installUrl = formatSourceInput(skill.entry.source, skill.entry.ref);
+      const installSource = skill.entry.sourceUrl || skill.entry.source;
+      const installUrl = formatSourceInput(installSource, skill.entry.ref);
 
       const result = spawnSync(
         process.execPath,

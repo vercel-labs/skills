@@ -226,6 +226,106 @@ describe('local-lock', () => {
         await rm(dir, { recursive: true, force: true });
       }
     });
+
+    it('stores and preserves sourceUrl when present', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await addSkillToLocalLock(
+          'gitlab-skill',
+          {
+            source: 'gradiant-organization/skill-inventory',
+            sourceUrl: 'https://gitlab.gradiant.co.kr/gradiant-organization/skill-inventory.git',
+            sourceType: 'gitlab',
+            computedHash: 'hash456',
+          },
+          dir
+        );
+
+        const lock = await readLocalLock(dir);
+        expect(lock.skills['gitlab-skill']).toEqual({
+          source: 'gradiant-organization/skill-inventory',
+          sourceUrl: 'https://gitlab.gradiant.co.kr/gradiant-organization/skill-inventory.git',
+          sourceType: 'gitlab',
+          computedHash: 'hash456',
+        });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('preserves sourceUrl across read/write cycle', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await addSkillToLocalLock(
+          'skill-with-url',
+          {
+            source: 'org/repo',
+            sourceUrl: 'https://custom-git.example.com/org/repo.git',
+            ref: 'develop',
+            sourceType: 'gitlab',
+            computedHash: 'hash789',
+          },
+          dir
+        );
+
+        // Read back and verify sourceUrl is preserved
+        const lock = await readLocalLock(dir);
+        expect(lock.skills['skill-with-url']!.sourceUrl).toBe(
+          'https://custom-git.example.com/org/repo.git'
+        );
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('reads a lock file with sourceUrl field', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        const content = {
+          version: 1,
+          skills: {
+            'my-skill': {
+              source: 'owner/repo',
+              sourceUrl: 'https://gitlab.example.com/owner/repo.git',
+              sourceType: 'gitlab',
+              computedHash: 'abc123',
+            },
+          },
+        };
+        await writeFile(join(dir, 'skills-lock.json'), JSON.stringify(content), 'utf-8');
+
+        const lock = await readLocalLock(dir);
+        expect(lock.skills['my-skill']!.sourceUrl).toBe(
+          'https://gitlab.example.com/owner/repo.git'
+        );
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('reads lock files without sourceUrl (backward compatibility)', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        // Old format without sourceUrl
+        const content = {
+          version: 1,
+          skills: {
+            'old-skill': {
+              source: 'org/repo',
+              sourceType: 'github',
+              computedHash: 'abc123',
+            },
+          },
+        };
+        await writeFile(join(dir, 'skills-lock.json'), JSON.stringify(content), 'utf-8');
+
+        const lock = await readLocalLock(dir);
+        expect(lock.skills['old-skill']!.sourceUrl).toBeUndefined();
+        expect(lock.skills['old-skill']!.source).toBe('org/repo');
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('removeSkillFromLocalLock', () => {

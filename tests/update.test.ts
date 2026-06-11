@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { updateProjectSkills, updateGlobalSkills } from '../src/update.ts';
+import { spawnSync } from 'child_process';
+import {
+  updateProjectSkills,
+  updateGlobalSkills,
+  printLegacyProjectSkills,
+} from '../src/update.ts';
 import * as git from '../src/git.ts';
 import * as skills from '../src/skills.ts';
 import * as blob from '../src/blob.ts';
@@ -267,6 +272,280 @@ describe('Update Cleanup Unit Tests', () => {
       expect(localLock.computeSkillFolderHash).toHaveBeenCalledWith(
         join('/tmp/repo', 'skills/skill-a')
       );
+    });
+  });
+
+  describe('updateProjectSkills with sourceUrl', () => {
+    it('should use sourceUrl for clone when available', async () => {
+      vi.mocked(localLock.readLocalLock).mockResolvedValue({
+        version: 1,
+        skills: {
+          'skill-a': {
+            source: 'gradiant-organization/skill-inventory',
+            sourceUrl: 'https://gitlab.gradiant.co.kr/gradiant-organization/skill-inventory.git',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'gitlab',
+            computedHash: 'abc',
+          },
+        },
+      });
+
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        { name: 'skill-a', path: '/tmp/repo/skills/skill-a', description: 'A', rawContent: '' },
+      ]);
+      vi.mocked(localLock.computeSkillFolderHash).mockResolvedValue('new-hash');
+
+      await updateProjectSkills({ yes: true });
+
+      // Should clone using sourceUrl, not the hostless source
+      expect(git.cloneRepo).toHaveBeenCalledWith(
+        'https://gitlab.gradiant.co.kr/gradiant-organization/skill-inventory.git',
+        undefined
+      );
+    });
+
+    it('should use sourceUrl in spawned add command', async () => {
+      vi.mocked(localLock.readLocalLock).mockResolvedValue({
+        version: 1,
+        skills: {
+          'skill-a': {
+            source: 'gradiant-organization/skill-inventory',
+            sourceUrl: 'https://gitlab.gradiant.co.kr/gradiant-organization/skill-inventory.git',
+            ref: 'main',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'gitlab',
+            computedHash: 'abc',
+          },
+        },
+      });
+
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        { name: 'skill-a', path: '/tmp/repo/skills/skill-a', description: 'A', rawContent: '' },
+      ]);
+      vi.mocked(localLock.computeSkillFolderHash).mockResolvedValue('new-hash');
+
+      await updateProjectSkills({ yes: true });
+
+      // The spawned add command should use sourceUrl with ref
+      expect(vi.mocked(spawnSync)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.arrayContaining([
+          'add',
+          'https://gitlab.gradiant.co.kr/gradiant-organization/skill-inventory.git#main',
+          '--skill',
+          'skill-a',
+          '-y',
+        ]),
+        expect.anything()
+      );
+    });
+
+    it('should fall back to source when sourceUrl is not set', async () => {
+      vi.mocked(localLock.readLocalLock).mockResolvedValue({
+        version: 1,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            computedHash: 'abc',
+          },
+        },
+      });
+
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        { name: 'skill-a', path: '/tmp/repo/skills/skill-a', description: 'A', rawContent: '' },
+      ]);
+      vi.mocked(localLock.computeSkillFolderHash).mockResolvedValue('new-hash');
+
+      await updateProjectSkills({ yes: true });
+
+      // Should clone using source (owner/repo) when no sourceUrl
+      expect(git.cloneRepo).toHaveBeenCalledWith('owner/repo', undefined);
+    });
+
+    it('should keep GitHub project update spawned source at repo root', async () => {
+      vi.mocked(localLock.readLocalLock).mockResolvedValue({
+        version: 1,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            ref: 'main',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            computedHash: 'abc',
+          },
+        },
+      });
+
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        { name: 'skill-a', path: '/tmp/repo/skills/skill-a', description: 'A', rawContent: '' },
+      ]);
+      vi.mocked(localLock.computeSkillFolderHash).mockResolvedValue('new-hash');
+
+      await updateProjectSkills({ yes: true });
+
+      expect(vi.mocked(spawnSync)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.arrayContaining(['add', 'owner/repo#main', '--skill', 'skill-a', '-y']),
+        expect.anything()
+      );
+      expect(vi.mocked(spawnSync).mock.calls[0]![1]).not.toContain(
+        'owner/repo/skills/skill-a#main'
+      );
+    });
+
+    it('should group by effective source, separating different hosts', async () => {
+      // Two skills with same hostless "source" but different sourceUrl (different hosts)
+      vi.mocked(localLock.readLocalLock).mockResolvedValue({
+        version: 1,
+        skills: {
+          'github-skill': {
+            source: 'org/repo',
+            skillPath: 'skills/github-skill/SKILL.md',
+            sourceType: 'github',
+            computedHash: 'aaa',
+          },
+          'gitlab-skill': {
+            source: 'org/repo',
+            sourceUrl: 'https://gitlab.example.com/org/repo.git',
+            skillPath: 'skills/gitlab-skill/SKILL.md',
+            sourceType: 'gitlab',
+            computedHash: 'bbb',
+          },
+        },
+      });
+
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        {
+          name: 'github-skill',
+          path: '/tmp/repo/skills/github-skill',
+          description: 'A',
+          rawContent: '',
+        },
+        {
+          name: 'gitlab-skill',
+          path: '/tmp/repo/skills/gitlab-skill',
+          description: 'B',
+          rawContent: '',
+        },
+      ]);
+      vi.mocked(localLock.computeSkillFolderHash).mockResolvedValue('new-hash');
+
+      await updateProjectSkills({ yes: true });
+
+      // Should clone twice — once for each host
+      expect(git.cloneRepo).toHaveBeenCalledTimes(2);
+      expect(git.cloneRepo).toHaveBeenCalledWith('org/repo', undefined);
+      expect(git.cloneRepo).toHaveBeenCalledWith(
+        'https://gitlab.example.com/org/repo.git',
+        undefined
+      );
+    });
+
+    it('should not consider other sourceUrl entries deleted during deletion checks', async () => {
+      vi.mocked(localLock.readLocalLock).mockResolvedValue({
+        version: 1,
+        skills: {
+          'github-skill': {
+            source: 'org/repo',
+            skillPath: 'skills/github-skill/SKILL.md',
+            sourceType: 'github',
+            computedHash: 'aaa',
+          },
+          'gitlab-skill': {
+            source: 'org/repo',
+            sourceUrl: 'https://gitlab.example.com/org/repo.git',
+            skillPath: 'skills/gitlab-skill/SKILL.md',
+            sourceType: 'gitlab',
+            computedHash: 'bbb',
+          },
+        },
+      });
+
+      vi.mocked(git.cloneRepo).mockImplementation(async (source) => {
+        return source === 'org/repo' ? '/tmp/github' : '/tmp/gitlab';
+      });
+      vi.mocked(skills.discoverSkills).mockImplementation(async (root) => {
+        if (root === '/tmp/github') {
+          return [
+            {
+              name: 'github-skill',
+              path: '/tmp/github/skills/github-skill',
+              description: 'A',
+              rawContent: '',
+            },
+          ];
+        }
+        return [
+          {
+            name: 'gitlab-skill',
+            path: '/tmp/gitlab/skills/gitlab-skill',
+            description: 'B',
+            rawContent: '',
+          },
+        ];
+      });
+      vi.mocked(p.confirm).mockResolvedValue(true);
+      vi.mocked(localLock.computeSkillFolderHash).mockResolvedValue('new-hash');
+
+      await updateProjectSkills();
+
+      expect(remove.removeCommand).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('printLegacyProjectSkills', () => {
+    it('falls back to source when sourceUrl is not set', () => {
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      printLegacyProjectSkills([
+        {
+          name: 'github-skill',
+          source: 'owner/repo',
+          entry: {
+            source: 'owner/repo',
+            ref: 'v1',
+            sourceType: 'github',
+            computedHash: 'abc',
+          },
+        },
+      ]);
+
+      const output = consoleSpy.mock.calls.map((c) => c[0]).join('\n');
+      expect(output).toContain('owner/repo#v1');
+      expect(output).not.toContain('undefined');
+
+      consoleSpy.mockRestore();
+    });
+
+    it('does not append legacy skillPath to GitHub reinstall command', () => {
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      printLegacyProjectSkills([
+        {
+          name: 'github-skill',
+          source: 'owner/repo',
+          entry: {
+            source: 'owner/repo',
+            ref: 'v1',
+            sourceType: 'github',
+            skillPath: 'skills/github-skill/SKILL.md',
+            computedHash: 'abc',
+          },
+        },
+      ]);
+
+      const output = consoleSpy.mock.calls.map((c) => c[0]).join('\n');
+      expect(output).toContain('owner/repo#v1');
+      expect(output).not.toContain('owner/repo/skills/github-skill#v1');
+
+      consoleSpy.mockRestore();
     });
   });
 });

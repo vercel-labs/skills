@@ -7,6 +7,77 @@ import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './sour
 import { stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 
+/**
+ * Sanitize a source URL for safe storage in lock files.
+ * Removes credentials (username/password), query strings, and fragments.
+ * Preserves the scheme, host, port, and path.
+ *
+ * For SSH URLs (ssh://...), keeps username/host/path but removes query/hash.
+ * For scp-like SSH (git@host:org/repo.git), leaves as-is.
+ * For non-URL strings (owner/repo shorthand), returns as-is.
+ */
+export function sanitizeSourceUrl(url: string): string {
+  const scheme = url.match(/^([a-z][a-z0-9+.-]*):/i)?.[1]?.toLowerCase();
+
+  // scp-like SSH: git@host:org/repo.git — leave as-is
+  if (url.startsWith('git@')) {
+    return url;
+  }
+
+  // ssh:// URLs: keep username/host/path, remove query/hash
+  if (scheme === 'ssh') {
+    try {
+      const parsed = new URL(url);
+      // Rebuild without credentials, query, or hash
+      // For SSH, we need to keep the username (typically 'git')
+      const userInfo = parsed.username ? `${parsed.username}@` : '';
+      return `ssh://${userInfo}${parsed.host}${parsed.pathname}`;
+    } catch {
+      return stripUrlSecretsBestEffort(url);
+    }
+  }
+
+  // HTTP(S) URLs: remove credentials, query, hash
+  if (scheme === 'http' || scheme === 'https') {
+    try {
+      const parsed = new URL(url);
+      parsed.username = '';
+      parsed.password = '';
+      parsed.search = '';
+      parsed.hash = '';
+      return parsed.toString();
+    } catch {
+      return stripUrlSecretsBestEffort(url);
+    }
+  }
+
+  // Non-URL strings (owner/repo, local paths): return as-is
+  return url;
+}
+
+function stripUrlSecretsBestEffort(url: string): string {
+  return url.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@\s]+@/i, '$1').replace(/[?#].*$/, '');
+}
+
+export function getLocalLockSourceUrl(
+  parsedUrl: string,
+  lockSourceValue: string,
+  sourceType: string
+): string | undefined {
+  // GitHub shorthand/full URL project updates already work with the normalized source.
+  // Only persist a full clone URL when the normalized source would be lossy.
+  if (sourceType === 'github' || sourceType === 'local') {
+    return undefined;
+  }
+
+  if (parsedUrl === lockSourceValue) {
+    return undefined;
+  }
+
+  const sanitizedSourceUrl = sanitizeSourceUrl(parsedUrl);
+  return sanitizedSourceUrl === lockSourceValue ? undefined : sanitizedSourceUrl;
+}
+
 // Helper to check if a value is a cancel symbol (works with both clack and our custom prompts)
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
 
@@ -1668,6 +1739,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Add to local lock file for project-scoped installs
     if (successful.length > 0 && !installGlobally) {
       const successfulSkillNames = new Set(successful.map((r) => r.skill));
+      const lockSourceValue = lockSource || parsed.url;
+      const sourceUrl = getLocalLockSourceUrl(parsed.url, lockSourceValue, parsed.type);
       for (const skill of selectedSkills) {
         const skillDisplayName = getSkillDisplayName(skill);
         if (successfulSkillNames.has(skillDisplayName)) {
@@ -1681,9 +1754,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             await addSkillToLocalLock(
               skill.name,
               {
-                source: lockSource || parsed.url,
+                source: lockSourceValue,
                 ref: parsed.ref,
                 sourceType: parsed.type,
+                ...(sourceUrl && { sourceUrl }),
                 ...(skillPathValue && { skillPath: skillPathValue }),
                 computedHash,
               },

@@ -20,6 +20,13 @@ export interface LocalSkillLockEntry {
   /** The provider/source type (e.g., "github", "node_modules", "local") */
   sourceType: string;
   /**
+   * Sanitized clone URL for restoring/updating when `source` is normalized/hostless.
+   * Stored for self-hosted GitLab or other non-GitHub sources where `source` may
+   * be normalized to `owner/repo` but the full URL is needed for cloning.
+   * Credentials, query strings, and fragments are stripped for security.
+   */
+  sourceUrl?: string;
+  /**
    * Path to the skill's SKILL.md within the source repo (e.g., "skills/pdf/SKILL.md").
    * Required to re-install only this skill on update — without it, an update would
    * refetch every skill in the source repo. Optional for backward compatibility with
