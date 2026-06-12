@@ -417,6 +417,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.mcpjam'));
     },
   },
+  mimocode: {
+    name: 'mimocode',
+    displayName: 'MiMoCode',
+    skillsDir: '.mimocode/skills',
+    globalSkillsDir: join(configHome, 'mimocode/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(configHome, 'mimocode'));
+    },
+  },
   'mistral-vibe': {
     name: 'mistral-vibe',
     displayName: 'Mistral Vibe',
