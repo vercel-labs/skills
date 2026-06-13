@@ -103,6 +103,26 @@ When installing interactively, you can choose:
 | **Symlink** (Recommended) | Creates symlinks from each agent to a canonical copy. Single source of truth, easy updates. |
 | **Copy**                  | Creates independent copies for each agent. Use when symlinks aren't supported.              |
 
+#### Windows and Claude Code desktop
+
+On Windows, skills are linked into agent directories with directory junctions,
+because real symlinks need admin rights or Developer Mode. Claude Code's agent
+loader follows these junctions, so the model can load and run the skills. Its
+desktop `/` command menu does not list them, because that menu scans the skills
+directory and keeps only real directories, and a junction reports as a reparse
+point rather than a plain directory.
+
+If your skills load but never appear when you type `/` in the Claude Code
+desktop app, install them with `--copy` so each skill is written as a real
+directory:
+
+```bash
+npx skills add owner/repo --copy
+```
+
+The underlying behavior is tracked in
+[anthropics/claude-code#68318](https://github.com/anthropics/claude-code/issues/68318).
+
 ## Other Commands
 
 | Command                      | Description                                   |
