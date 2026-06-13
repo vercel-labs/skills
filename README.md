@@ -219,6 +219,168 @@ npx skills rm my-skill
 | `-y, --yes`    | Skip confirmation prompts                        |
 | `--all`        | Shorthand for `--skill '*' --agent '*' -y`       |
 
+## Programmatic Usage
+
+In addition to the CLI, this package exports a programmatic API for managing skills from Node.js applications, CI pipelines, and other tools.
+
+```bash
+npm install skills
+```
+
+### Quick Start
+
+```ts
+import {
+  parseSource,
+  getOwnerRepo,
+  tryBlobInstall,
+  installBlobSkillForAgent,
+  addSkillToLocalLock,
+} from 'skills';
+
+// Parse a source string (same formats as the CLI)
+const parsed = parseSource('vercel-labs/agent-skills');
+const ownerRepo = getOwnerRepo(parsed)!;
+
+// Fetch skills via the GitHub blob fast path (no git clone needed)
+const result = await tryBlobInstall(ownerRepo, {
+  skillFilter: 'web-design-guidelines',
+});
+
+if (result) {
+  for (const skill of result.skills) {
+    // Install to the cursor agent directory
+    await installBlobSkillForAgent(skill, 'cursor', {
+      mode: 'copy',
+    });
+
+    // Record in the project lock file
+    await addSkillToLocalLock(skill.name, {
+      source: ownerRepo,
+      sourceType: parsed.type,
+      skillPath: skill.repoPath,
+      computedHash: skill.snapshotHash,
+    });
+  }
+}
+```
+
+### API Overview
+
+The library organizes exports into several areas:
+
+#### Source Parsing
+
+Parse the same source formats accepted by the CLI — GitHub shorthand, URLs, GitLab, local paths, and well-known endpoints.
+
+```ts
+import { parseSource, getOwnerRepo, parseOwnerRepo } from 'skills';
+
+parseSource('vercel-labs/agent-skills');
+// → { type: 'github', url: 'https://github.com/vercel-labs/agent-skills.git' }
+
+parseSource('https://gitlab.com/org/repo/-/tree/main/skills/my-skill');
+// → { type: 'gitlab', url: '...', ref: 'main', subpath: 'skills/my-skill' }
+
+getOwnerRepo(parseSource('vercel-labs/agent-skills'));
+// → 'vercel-labs/agent-skills'
+```
+
+#### Lock Files
+
+Read and write both project-scoped (`skills-lock.json`) and global (`~/.agents/.skill-lock.json`) lock files.
+
+```ts
+import { readLocalLock, readSkillLock } from 'skills';
+
+// Project lock
+const projectLock = await readLocalLock();
+// → { version: 1, skills: { 'find-skills': { source: '...', computedHash: '...' } } }
+
+// Global lock
+const globalLock = await readSkillLock();
+```
+
+#### Skill Discovery
+
+Discover `SKILL.md` files on disk or from a GitHub repo tree.
+
+```ts
+import {
+  discoverSkills,
+  fetchRepoTree,
+  findSkillMdPaths,
+  getSkillFolderHashFromTree,
+} from 'skills';
+
+// On-disk discovery
+const skills = await discoverSkills('/path/to/cloned/repo');
+
+// Remote discovery via GitHub Trees API (single API call)
+const tree = await fetchRepoTree('vercel-labs/agent-skills');
+if (tree) {
+  const paths = findSkillMdPaths(tree);
+  // → ['skills/web-design-guidelines/SKILL.md', ...]
+
+  const hash = getSkillFolderHashFromTree(tree, 'skills/web-design-guidelines/SKILL.md');
+  // → 'abc123...' (tree SHA, changes when any file in the folder changes)
+}
+```
+
+#### Installation
+
+Install skills to agent directories, check installation status, and list installed skills.
+
+```ts
+import { installBlobSkillForAgent, listInstalledSkills, isSkillInstalled } from 'skills';
+
+const installed = await listInstalledSkills({ global: false });
+const exists = await isSkillInstalled('web-design-guidelines', 'cursor');
+```
+
+#### Agent Registry
+
+Access the full registry of supported agents with their paths and detection logic.
+
+```ts
+import { agents, getAgentConfig, detectInstalledAgents } from 'skills';
+
+const cursorConfig = getAgentConfig('cursor');
+// → { name: 'cursor', displayName: 'Cursor', skillsDir: '.agents/skills/', ... }
+
+const installed = await detectInstalledAgents();
+// → ['cursor', 'claude-code', ...]
+```
+
+#### Search
+
+Search the [skills.sh](https://skills.sh) directory programmatically.
+
+```ts
+import { searchSkillsAPI } from 'skills';
+
+const results = await searchSkillsAPI('typescript');
+// → [{ name: 'TypeScript Best Practices', slug: '...', source: '...', installs: 42 }, ...]
+```
+
+#### Frontmatter Parsing
+
+Parse `SKILL.md` YAML frontmatter.
+
+```ts
+import { parseFrontmatter } from 'skills';
+
+const { data, content } = parseFrontmatter(rawMarkdown);
+// data → { name: 'my-skill', description: '...' }
+// content → '# My Skill\n...'
+```
+
+### Notes
+
+- **Side effects**: Lock file functions perform filesystem I/O. Blob and tree functions make HTTP requests to GitHub APIs and `skills.sh`. Installation functions create directories, write files, and create symlinks.
+- **`getGitHubToken()`** falls back to `gh auth token` via subprocess when environment variables (`GITHUB_TOKEN`, `GH_TOKEN`) are not set. Set one of these environment variables for fully silent programmatic usage.
+- **Telemetry**: The library exports `fetchAuditData` for checking skill security data but does not send CLI telemetry when used programmatically. The `track()` function is intentionally not exported.
+
 ## What are Agent Skills?
 
 Agent skills are reusable instruction sets that extend your coding agent's capabilities. They're defined in `SKILL.md`
