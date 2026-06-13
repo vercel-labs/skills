@@ -128,4 +128,56 @@ describe('source-parser', () => {
       });
     });
   });
+
+  describe('Bare Domain Well-Known Discovery', () => {
+    it('routes a bare domain to the well-known provider over https', () => {
+      const result = parseSource('openagreements.org');
+      expect(result).toEqual({
+        type: 'well-known',
+        url: 'https://openagreements.org',
+      });
+    });
+
+    it('routes a bare subdomain to well-known', () => {
+      const result = parseSource('skills.example.com');
+      expect(result).toEqual({
+        type: 'well-known',
+        url: 'https://skills.example.com',
+      });
+    });
+
+    it('preserves a port on a bare domain', () => {
+      const result = parseSource('skills.example.com:8443');
+      expect(result).toEqual({
+        type: 'well-known',
+        url: 'https://skills.example.com:8443',
+      });
+    });
+
+    it('routes a bare domain with a hyphenated label', () => {
+      const result = parseSource('my-skills.example-host.com');
+      expect(result).toEqual({
+        type: 'well-known',
+        url: 'https://my-skills.example-host.com',
+      });
+    });
+
+    it('still parses owner/repo shorthand as github, not a bare domain', () => {
+      const result = parseSource('vercel-labs/agent-skills');
+      expect(result.type).toBe('github');
+    });
+
+    it('leaves a scheme-less .git target to the git fallback', () => {
+      const result = parseSource('repo.git');
+      expect(result.type).toBe('git');
+    });
+
+    it('leaves a single-label host (no dot) to the git fallback', () => {
+      const result = parseSource('intranet');
+      expect(result).toEqual({
+        type: 'git',
+        url: 'intranet',
+      });
+    });
+  });
 });
