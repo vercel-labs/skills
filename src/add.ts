@@ -1580,8 +1580,25 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             .slice(tempDir.length + 1)
             .split(sep)
             .join('/') + '/SKILL.md';
+      } else if (parsed.type === 'local' && parsed.localPath) {
+        // Local install: record the path relative to the local source root so
+        // `skills update` can re-discover this skill in the directory. This map
+        // is never sent as telemetry for local sources (the track() call below
+        // is gated on a remote `normalizedSource`), so no local path leaks.
+        const root = parsed.localPath;
+        if (skill.path === root) {
+          skillFiles[skill.name] = 'SKILL.md';
+        } else if (skill.path.startsWith(root + sep)) {
+          skillFiles[skill.name] =
+            skill.path
+              .slice(root.length + 1)
+              .split(sep)
+              .join('/') + '/SKILL.md';
+        } else {
+          continue;
+        }
       } else {
-        // Local path - skip telemetry for local installs
+        // Unknown layout - skip
         continue;
       }
     }
@@ -1623,14 +1640,20 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
+    // Source identifier recorded in the global lock. Remote installs use the
+    // owner/repo (or preserved SSH URL); local installs use the resolved
+    // directory path so `skills update` can re-read it from disk later.
+    const globalLockSource =
+      lockSource || normalizedSource || (parsed.type === 'local' ? parsed.localPath! : null);
+
     // Add to skill lock file for update tracking (only for global installs)
-    if (successful.length > 0 && installGlobally && normalizedSource) {
+    if (successful.length > 0 && installGlobally && globalLockSource) {
       const successfulSkillNames = new Set(successful.map((r) => r.skill));
 
       // For GitHub clone installs, fetch the repo tree once and reuse it
       // for all skills — avoids N sequential API calls that take ~400ms each.
       let cachedTree: Awaited<ReturnType<typeof fetchRepoTree>> | undefined;
-      if (parsed.type === 'github' && !blobResult) {
+      if (parsed.type === 'github' && !blobResult && normalizedSource) {
         cachedTree = await fetchRepoTree(normalizedSource, parsed.ref, getGitHubToken);
       }
 
@@ -1651,10 +1674,15 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               const skillDir = join(tempDir, dirname(skillPathValue));
               const hash = await computeSkillFolderHash(skillDir);
               if (hash) skillFolderHash = hash;
+            } else if (parsed.type === 'local' && skillPathValue) {
+              // Local install: hash the skill folder on disk (no clone). This
+              // is what a later `skills update` recomputes to detect changes.
+              const hash = await computeSkillFolderHash(skill.path);
+              if (hash) skillFolderHash = hash;
             }
 
             await addSkillToLock(skill.name, {
-              source: lockSource || normalizedSource,
+              source: globalLockSource,
               sourceType: parsed.type,
               sourceUrl: parsed.url,
               ref: parsed.ref,

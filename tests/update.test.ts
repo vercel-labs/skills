@@ -8,6 +8,7 @@ import * as skillLock from '../src/skill-lock.ts';
 import * as remove from '../src/remove.ts';
 import * as p from '@clack/prompts';
 import { readFileSync } from 'fs';
+import { spawnSync } from 'child_process';
 import { join } from 'path';
 
 // Mock dependencies
@@ -267,6 +268,81 @@ describe('Update Cleanup Unit Tests', () => {
       expect(localLock.computeSkillFolderHash).toHaveBeenCalledWith(
         join('/tmp/repo', 'skills/skill-a')
       );
+    });
+
+    it('re-syncs a local-source skill from disk when its folder hash changed', async () => {
+      const localRoot = '/tmp/local-src';
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: localRoot,
+            sourceUrl: localRoot,
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'local',
+            skillFolderHash: 'old-hash',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+
+      // Local sources are read from disk directly — never cloned.
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        {
+          name: 'skill-a',
+          path: join(localRoot, 'skills/skill-a'),
+          description: 'A',
+          rawContent: '',
+        },
+      ]);
+      vi.mocked(localLock.computeSkillFolderHash).mockResolvedValue('new-hash');
+
+      await updateGlobalSkills({ yes: true });
+
+      expect(git.cloneRepo).not.toHaveBeenCalled();
+      expect(blob.fetchRepoTree).not.toHaveBeenCalled();
+      expect(localLock.computeSkillFolderHash).toHaveBeenCalledWith(
+        join(localRoot, 'skills/skill-a')
+      );
+      // Re-installs from the directory root, filtered to the skill by name.
+      expect(spawnSync).toHaveBeenCalledWith(
+        process.execPath,
+        expect.arrayContaining(['add', localRoot, '-g', '-y', '-s', 'skill-a']),
+        expect.anything()
+      );
+    });
+
+    it('does not re-sync a local-source skill when its folder hash is unchanged', async () => {
+      const localRoot = '/tmp/local-src';
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: localRoot,
+            sourceUrl: localRoot,
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'local',
+            skillFolderHash: 'same-hash',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        {
+          name: 'skill-a',
+          path: join(localRoot, 'skills/skill-a'),
+          description: 'A',
+          rawContent: '',
+        },
+      ]);
+      vi.mocked(localLock.computeSkillFolderHash).mockResolvedValue('same-hash');
+
+      await updateGlobalSkills({ yes: true });
+
+      expect(spawnSync).not.toHaveBeenCalled();
     });
   });
 });
