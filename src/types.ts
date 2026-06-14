@@ -37,6 +37,7 @@ export type AgentType =
   | 'kilo'
   | 'kimi-code-cli'
   | 'kiro-cli'
+  | 'kogniterm'
   | 'kode'
   | 'lingma'
   | 'loaf'
