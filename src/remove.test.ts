@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, rmSync, mkdirSync, writeFileSync, readdirSync, readFileSync } from 'fs';
+import { existsSync, rmSync, mkdirSync, writeFileSync, readdirSync, readFileSync, symlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli, runCliWithInput } from './test-utils.js';
@@ -258,6 +258,67 @@ This is a test skill.
       const result = runCli(['remove', 'global-skill', '--global', '-y'], testDir);
       // Command should run without error (skill may not be found in global scope from test dir)
       expect(result.exitCode).toBe(0);
+    });
+  });
+
+  describe('global lock stale cleanup', () => {
+    let fakeHome: string;
+
+    beforeEach(() => {
+      fakeHome = join(tmpdir(), `skills-global-lock-test-${Date.now()}`);
+      mkdirSync(join(fakeHome, '.agents'), { recursive: true });
+      mkdirSync(join(fakeHome, '.claude', 'skills'), { recursive: true });
+
+      const lockPath = join(fakeHome, '.agents', '.skill-lock.json');
+      writeFileSync(
+        lockPath,
+        JSON.stringify(
+          {
+            version: 3,
+            skills: {
+              'ollama-review': {
+                source: 'pizzayap/pza-skills',
+                sourceType: 'github',
+                sourceUrl: 'https://github.com/pizzayap/pza-skills.git',
+                skillPath: 'skills/ollama-review/SKILL.md',
+                skillFolderHash: 'fffc535918d3cdc76702eb0d93ef8b8a9b310379',
+                installedAt: '2026-05-01T08:41:34.050Z',
+                updatedAt: '2026-05-21T07:14:46.367Z',
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      // Canonical dir intentionally missing; dangling harness symlink only.
+      symlinkSync(
+        join('..', '..', '.agents', 'skills', 'ollama-review'),
+        join(fakeHome, '.claude', 'skills', 'ollama-review')
+      );
+    });
+
+    afterEach(() => {
+      if (existsSync(fakeHome)) {
+        rmSync(fakeHome, { recursive: true, force: true });
+      }
+    });
+
+    it('should remove stale global lock entry and dangling symlink when canonical dir is gone', () => {
+      const result = runCli(['remove', 'ollama-review', '-g', '-y'], testDir, {
+        HOME: fakeHome,
+      });
+
+      expect(result.stdout).toContain('Successfully removed');
+      expect(result.exitCode).toBe(0);
+
+      const updatedLock = JSON.parse(
+        readFileSync(join(fakeHome, '.agents', '.skill-lock.json'), 'utf-8')
+      );
+      expect(updatedLock.skills['ollama-review']).toBeUndefined();
+      expect(existsSync(join(fakeHome, '.claude', 'skills', 'ollama-review'))).toBe(false);
+      expect(existsSync(join(fakeHome, '.agents', 'skills', 'ollama-review'))).toBe(false);
     });
   });
 
