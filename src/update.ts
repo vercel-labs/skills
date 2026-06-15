@@ -449,11 +449,15 @@ export async function updateGlobalSkills(
       );
       continue;
     }
-    const result = spawnSync(process.execPath, [cliEntry, 'add', installUrl, '-g', '-y'], {
-      stdio: ['inherit', 'pipe', 'pipe'],
-      encoding: 'utf-8',
-      shell: process.platform === 'win32',
-    });
+    const result = spawnSync(
+      process.execPath,
+      [cliEntry, 'add', installUrl, '--skill', update.name, '-g', '-y'],
+      {
+        stdio: ['inherit', 'pipe', 'pipe'],
+        encoding: 'utf-8',
+        shell: process.platform === 'win32',
+      }
+    );
 
     if (result.status === 0) {
       successCount++;

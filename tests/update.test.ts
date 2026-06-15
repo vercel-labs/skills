@@ -306,7 +306,14 @@ describe('Update Cleanup Unit Tests', () => {
 
       expect(vi.mocked(spawnSync)).toHaveBeenCalledWith(
         expect.anything(),
-        expect.arrayContaining(['add', 'owner/repo/skills/skill-a#main', '-g', '-y']),
+        expect.arrayContaining([
+          'add',
+          'owner/repo/skills/skill-a#main',
+          '--skill',
+          'skill-a',
+          '-g',
+          '-y',
+        ]),
         expect.anything()
       );
       expect(vi.mocked(spawnSync).mock.calls[0]![1]).not.toContain(
@@ -341,7 +348,14 @@ describe('Update Cleanup Unit Tests', () => {
 
       expect(vi.mocked(spawnSync)).toHaveBeenCalledWith(
         expect.anything(),
-        expect.arrayContaining(['add', 'https://gitlab.com/owner/repo.git#main', '-g', '-y']),
+        expect.arrayContaining([
+          'add',
+          'https://gitlab.com/owner/repo.git#main',
+          '--skill',
+          'skill-a',
+          '-g',
+          '-y',
+        ]),
         expect.anything()
       );
     });
