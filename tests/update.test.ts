@@ -273,6 +273,78 @@ describe('Update Cleanup Unit Tests', () => {
         join('/tmp/repo', 'skills/skill-a')
       );
     });
+
+    it('should keep GitHub global update source path-targeted', async () => {
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            sourceUrl: 'https://github.com/owner/repo.git',
+            ref: 'main',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            skillFolderHash: 'old-hash',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+
+      vi.mocked(blob.fetchRepoTree).mockResolvedValue({
+        sha: 'rootsha',
+        branch: 'main',
+        tree: [
+          { path: 'skills/skill-a/SKILL.md', type: 'blob', sha: 'sha1' },
+          { path: 'skills/skill-a', type: 'tree', sha: 'abc' },
+        ],
+      });
+      vi.mocked(blob.findSkillMdPaths).mockReturnValue(['skills/skill-a/SKILL.md']);
+      vi.mocked(blob.getSkillFolderHashFromTree).mockReturnValue('new-hash');
+
+      await updateGlobalSkills({ yes: true });
+
+      expect(vi.mocked(spawnSync)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.arrayContaining(['add', 'owner/repo/skills/skill-a#main', '-g', '-y']),
+        expect.anything()
+      );
+      expect(vi.mocked(spawnSync).mock.calls[0]![1]).not.toContain(
+        'https://github.com/owner/repo.git#main'
+      );
+    });
+
+    it('should use sourceUrl when applying global non-GitHub git updates', async () => {
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            sourceUrl: 'https://gitlab.com/owner/repo.git',
+            ref: 'main',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'git',
+            skillFolderHash: 'old-hash',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        { name: 'skill-a', path: '/tmp/repo/skills/skill-a', description: 'A', rawContent: '' },
+      ]);
+      vi.mocked(localLock.computeSkillFolderHash).mockResolvedValue('new-hash');
+
+      await updateGlobalSkills({ yes: true });
+
+      expect(vi.mocked(spawnSync)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.arrayContaining(['add', 'https://gitlab.com/owner/repo.git#main', '-g', '-y']),
+        expect.anything()
+      );
+    });
   });
 
   describe('updateProjectSkills with sourceUrl', () => {

@@ -1,6 +1,7 @@
 export interface UpdateSourceEntry {
   source: string;
   sourceUrl: string;
+  sourceType?: string;
   ref?: string;
   skillPath?: string;
 }
@@ -66,6 +67,16 @@ function appendFolderAndRef(source: string, skillPath: string, ref?: string): st
   return ref ? `${withFolder}#${ref}` : withFolder;
 }
 
+function getPathTargetedUpdateSource(entry: UpdateSourceEntry): string {
+  // GitHub shorthand supports path-targeted update sources like owner/repo/path#ref.
+  if (entry.sourceType === 'github') {
+    return entry.source;
+  }
+
+  // Generic/custom Git sources can have hostless normalized `source`, so prefer sourceUrl.
+  return entry.sourceUrl || entry.source;
+}
+
 /**
  * Build the source argument for `skills add` during update.
  * Uses shorthand form for path-targeted updates to avoid branch/path ambiguity.
@@ -74,7 +85,7 @@ export function buildUpdateInstallSource(entry: UpdateSourceEntry): string {
   if (!entry.skillPath) {
     return formatSourceInput(entry.sourceUrl, entry.ref);
   }
-  return appendFolderAndRef(entry.source, entry.skillPath, entry.ref);
+  return appendFolderAndRef(getPathTargetedUpdateSource(entry), entry.skillPath, entry.ref);
 }
 
 /**

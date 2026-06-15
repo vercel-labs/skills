@@ -21,24 +21,47 @@ describe('update-source', () => {
   });
 
   describe('buildUpdateInstallSource', () => {
-    it('builds root-level install source without trailing slash', () => {
+    it('builds root-level GitHub install source without trailing slash', () => {
       const result = buildUpdateInstallSource({
         source: 'owner/repo',
         sourceUrl: 'https://github.com/owner/repo.git',
+        sourceType: 'github',
         ref: 'feature/install',
         skillPath: 'SKILL.md',
       });
       expect(result).toBe('owner/repo#feature/install');
     });
 
-    it('builds nested skill install source with ref', () => {
+    it('builds nested GitHub skill install source with ref', () => {
       const result = buildUpdateInstallSource({
         source: 'owner/repo',
         sourceUrl: 'https://github.com/owner/repo.git',
+        sourceType: 'github',
         ref: 'feature/install',
         skillPath: 'skills/my-skill/SKILL.md',
       });
       expect(result).toBe('owner/repo/skills/my-skill#feature/install');
+    });
+
+    it('uses sourceUrl for GitLab skillPath updates', () => {
+      const result = buildUpdateInstallSource({
+        source: 'owner/repo',
+        sourceUrl: 'https://gitlab.com/owner/repo.git',
+        sourceType: 'gitlab',
+        ref: 'feature/install',
+        skillPath: 'skills/my-skill/SKILL.md',
+      });
+      expect(result).toBe('https://gitlab.com/owner/repo.git#feature/install');
+    });
+
+    it('uses sourceUrl for generic git skillPath updates', () => {
+      const result = buildUpdateInstallSource({
+        source: 'owner/repo',
+        sourceUrl: 'https://git.example.com/owner/repo.git',
+        sourceType: 'git',
+        skillPath: 'skills/my-skill/SKILL.md',
+      });
+      expect(result).toBe('https://git.example.com/owner/repo.git');
     });
 
     it('falls back to sourceUrl when skillPath is missing', () => {
