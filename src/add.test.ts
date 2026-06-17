@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { existsSync, rmSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from './test-utils.ts';
@@ -88,6 +88,54 @@ Instructions here.
     expect(result.stdout).toContain('my-skill');
     expect(result.stdout).toContain('Done!');
     expect(result.exitCode).toBe(0);
+  });
+
+  it('should copy per-agent variants when installing non-interactively', () => {
+    const claudeSkillDir = join(testDir, '.claude', 'skills', 'variant-skill');
+    const agentsSkillDir = join(testDir, '.agents', 'skills', 'variant-skill');
+    mkdirSync(claudeSkillDir, { recursive: true });
+    mkdirSync(agentsSkillDir, { recursive: true });
+
+    writeFileSync(
+      join(claudeSkillDir, 'SKILL.md'),
+      `---
+name: variant-skill
+description: Variant skill
+---
+
+CLAUDE BUILD
+`
+    );
+    writeFileSync(
+      join(agentsSkillDir, 'SKILL.md'),
+      `---
+name: variant-skill
+description: Variant skill
+---
+
+AGENTS BUILD
+`
+    );
+
+    const targetDir = join(testDir, 'project');
+    mkdirSync(targetDir, { recursive: true });
+
+    const result = runCli(['add', testDir, '-y', '--agent', 'claude-code', 'codex'], targetDir);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Done!');
+    expect(
+      readFileSync(join(targetDir, '.claude', 'skills', 'variant-skill', 'SKILL.md'), 'utf-8')
+    ).toContain('CLAUDE BUILD');
+    expect(
+      readFileSync(join(targetDir, '.agents', 'skills', 'variant-skill', 'SKILL.md'), 'utf-8')
+    ).toContain('AGENTS BUILD');
+    expect(existsSync(join(targetDir, '.claude', 'skills', 'variant-skill', 'SKILL.md'))).toBe(
+      true
+    );
+    expect(existsSync(join(targetDir, '.agents', 'skills', 'variant-skill', 'SKILL.md'))).toBe(
+      true
+    );
   });
 
   it('should filter skills by name with --skill flag', () => {

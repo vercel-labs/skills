@@ -257,6 +257,11 @@ export async function installSkillForAgent(
 
   const installMode = options.mode ?? 'symlink';
 
+  // When the source ships a per-agent build of this skill, copy the variant
+  // compiled for THIS agent's skillsDir instead of the single discovered build.
+  // Falls back to skill.path when there is no agent-specific variant.
+  const sourcePath = skill.variants?.[agent.skillsDir] ?? skill.path;
+
   // Validate paths
   if (!isPathSafe(canonicalBase, canonicalDir)) {
     return {
@@ -280,7 +285,7 @@ export async function installSkillForAgent(
     // For copy mode, skip canonical directory and copy directly to agent location
     if (installMode === 'copy') {
       await cleanAndCreateDirectory(agentDir);
-      await copyDirectory(skill.path, agentDir);
+      await copyDirectory(sourcePath, agentDir);
 
       return {
         success: true,
@@ -325,9 +330,9 @@ export async function installSkillForAgent(
     const symlinkCreated = await createSymlink(canonicalDir, agentDir);
 
     if (!symlinkCreated) {
-      // Symlink failed, fall back to copy
+      // Symlink failed, fall back to copy (use this agent's variant if present)
       await cleanAndCreateDirectory(agentDir);
-      await copyDirectory(skill.path, agentDir);
+      await copyDirectory(sourcePath, agentDir);
 
       return {
         success: true,
