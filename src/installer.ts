@@ -154,6 +154,40 @@ async function resolveParentSymlinks(path: string): Promise<string> {
 }
 
 /**
+ * Checks if two paths resolve to the same physical location.
+ * Handles symlinks in both the paths themselves and their parent directories.
+ *
+ * This prevents accidental deletion when source and destination are the same,
+ * which can happen when installing a skill from its canonical location
+ * (e.g., npx skills add ./.agents/skills -s my-skill).
+ *
+ * @param path1 - First path to compare
+ * @param path2 - Second path to compare
+ * @returns true if paths point to the same location
+ */
+async function isSamePath(path1: string, path2: string): Promise<boolean> {
+  const resolved1 = resolve(path1);
+  const resolved2 = resolve(path2);
+
+  // Check with realpath (handles existing symlinks)
+  const [real1, real2] = await Promise.all([
+    realpath(resolved1).catch(() => resolved1),
+    realpath(resolved2).catch(() => resolved2),
+  ]);
+
+  if (real1 === real2) {
+    return true;
+  }
+
+  // Check with parent symlinks resolved
+  // This handles cases like ~/.claude/skills -> ~/.agents/skills
+  const withParents1 = await resolveParentSymlinks(path1);
+  const withParents2 = await resolveParentSymlinks(path2);
+
+  return withParents1 === withParents2;
+}
+
+/**
  * Creates a symlink, handling cross-platform differences
  * Returns true if symlink was created, false if fallback to copy is needed
  */
@@ -290,8 +324,15 @@ export async function installSkillForAgent(
     }
 
     // Symlink mode: copy to canonical location and symlink to agent location
-    await cleanAndCreateDirectory(canonicalDir);
-    await copyDirectory(skill.path, canonicalDir);
+    // Check if source is already at canonical location to prevent deletion
+    const isSourceAlreadyCanonical = await isSamePath(skill.path, canonicalDir);
+
+    if (!isSourceAlreadyCanonical) {
+      // Only clean and copy if source is different from destination
+      await cleanAndCreateDirectory(canonicalDir);
+      await copyDirectory(skill.path, canonicalDir);
+    }
+    // If source === canonical, files are already in place, skip to symlink creation
 
     // For universal agents with global install, the skill is already in the canonical
     // ~/.agents/skills directory. Skip creating a symlink to the agent-specific global dir
@@ -326,14 +367,19 @@ export async function installSkillForAgent(
 
     if (!symlinkCreated) {
       // Symlink failed, fall back to copy
-      await cleanAndCreateDirectory(agentDir);
-      await copyDirectory(skill.path, agentDir);
+      // Check if source is already at agent location to prevent deletion
+      const isSourceAlreadyAgent = await isSamePath(skill.path, agentDir);
+
+      if (!isSourceAlreadyAgent) {
+        await cleanAndCreateDirectory(agentDir);
+        await copyDirectory(skill.path, agentDir);
+      }
 
       return {
         success: true,
         path: agentDir,
         canonicalPath: canonicalDir,
-        mode: 'symlink',
+        mode: 'copy',
         symlinkFailed: true,
       };
     }
