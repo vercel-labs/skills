@@ -36,6 +36,17 @@ function rateLimitResponse(): Response {
   });
 }
 
+function notFoundResponse(): Response {
+  // GitHub returns 404 for a private repo accessed without credentials.
+  return new Response(JSON.stringify({ message: 'Not Found' }), {
+    status: 404,
+    headers: {
+      'content-type': 'application/json',
+      'x-ratelimit-remaining': '59',
+    },
+  });
+}
+
 function permissionDeniedResponse(): Response {
   return new Response(JSON.stringify({ message: 'Not Found' }), {
     status: 403,
@@ -91,19 +102,77 @@ describe('fetchRepoTree lazy auth fallback', () => {
     );
   });
 
-  it('does not invoke the token resolver on a non-rate-limit 403', async () => {
-    // A 403 for a private repo (permission denied) is not retryable.
-    // The fallback should NOT trigger and should NOT spawn `gh auth token`.
+  it('invokes the token resolver and retries with auth on a 404 (private repo)', async () => {
+    // Private repos 404 unauthenticated, then resolve once a token is sent.
+    fetchMock
+      .mockResolvedValueOnce(notFoundResponse())
+      .mockResolvedValueOnce(notFoundResponse())
+      .mockResolvedValueOnce(notFoundResponse())
+      .mockResolvedValueOnce(okResponse(SAMPLE_TREE));
+    const getToken = vi.fn(() => 'ghp_fake_token');
+
+    const result = await fetchRepoTree('private/repo', undefined, getToken);
+
+    expect(result?.sha).toBe('deadbeef');
+    expect(getToken).toHaveBeenCalledTimes(1);
+    // 3 unauth attempts (HEAD, main, master) + 1 auth attempt = 4
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    const retryInit = fetchMock.mock.calls[3]?.[1] as RequestInit;
+    expect((retryInit.headers as Record<string, string>)['Authorization']).toBe(
+      'Bearer ghp_fake_token'
+    );
+  });
+
+  it('returns null for a 404 when no token resolver is provided', async () => {
+    fetchMock
+      .mockResolvedValueOnce(notFoundResponse())
+      .mockResolvedValueOnce(notFoundResponse())
+      .mockResolvedValueOnce(notFoundResponse());
+
+    const result = await fetchRepoTree('private/repo', undefined);
+
+    expect(result).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not memoize 404 fallback to subsequent calls (repo-specific, not process-wide)', async () => {
+    // First call: private repo 404 → auth fallback (ref='main' → 1 branch)
+    fetchMock
+      .mockResolvedValueOnce(notFoundResponse())
+      .mockResolvedValueOnce(okResponse(SAMPLE_TREE))
+      // Second call: different repo, should still try unauth first
+      .mockResolvedValueOnce(okResponse({ ...SAMPLE_TREE, sha: 'cafef00d' }));
+
+    const getToken = vi.fn(() => 'ghp_fake_token');
+
+    const first = await fetchRepoTree('private/repo', 'main', getToken);
+    const second = await fetchRepoTree('public/repo', 'main', getToken);
+
+    expect(first?.sha).toBe('deadbeef');
+    expect(second?.sha).toBe('cafef00d');
+    // The second call should NOT have used Authorization (unauth succeeded)
+    const secondCallInit = fetchMock.mock.calls[2]?.[1] as RequestInit;
+    expect((secondCallInit.headers as Record<string, string>)['Authorization']).toBeUndefined();
+  });
+
+  it('invokes the token resolver on a non-rate-limit 403 but still returns null when auth fails', async () => {
+    // A bare 403 is unlikely to be fixed by auth, but the lazy fallback
+    // tries once anyway — the cost is one extra getToken() call and one
+    // extra API round-trip, both on an already-failed path.
     fetchMock
       .mockResolvedValueOnce(permissionDeniedResponse())
       .mockResolvedValueOnce(permissionDeniedResponse())
+      .mockResolvedValueOnce(permissionDeniedResponse())
+      // Auth retry also 403s
+      .mockResolvedValueOnce(permissionDeniedResponse())
+      .mockResolvedValueOnce(permissionDeniedResponse())
       .mockResolvedValueOnce(permissionDeniedResponse());
-    const getToken = vi.fn(() => 'should-not-be-called');
+    const getToken = vi.fn(() => 'ghp_fake_token');
 
     const result = await fetchRepoTree('private/repo', undefined, getToken);
 
     expect(result).toBeNull();
-    expect(getToken).not.toHaveBeenCalled();
+    expect(getToken).toHaveBeenCalledTimes(1);
   });
 
   it('returns null gracefully when rate-limited and no token resolver is provided', async () => {

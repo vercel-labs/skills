@@ -339,41 +339,42 @@ export async function updateGlobalSkills(
     try {
       const isGitHubSource = firstEntry.sourceType === 'github';
 
+      // GitHub API fast path: compare tree hashes without cloning.
+      // Falls through to the clone-based check on failure (e.g. private
+      // repo without a token, SSH-only auth, rate limit with no resolver).
       if (isGitHubSource) {
         const tree = await fetchRepoTree(source, firstEntry.ref, getGitHubToken);
 
-        if (!tree) {
-          console.log(`  ${DIM}✗ Failed to fetch tree for ${source}${RESET}`);
+        if (tree) {
+          const discoveredPaths = findSkillMdPaths(tree);
+
+          const allLockedForSource = Object.entries(lock.skills)
+            .filter(([_, entry]) => entry.source === source)
+            .map(([name, _]) => name);
+
+          const deletedSkills = await checkAndPromptForDeletions(
+            source,
+            allLockedForSource,
+            lock.skills,
+            true,
+            options,
+            discoveredPaths
+          );
+
+          const deletedSkillSet = new Set(deletedSkills);
+
+          for (const { name: skillName, entry } of itemsForSource) {
+            if (deletedSkillSet.has(skillName)) continue;
+
+            const latestHash = getSkillFolderHashFromTree(tree, entry.skillPath!);
+            if (latestHash && latestHash !== entry.skillFolderHash) {
+              updates.push({ name: skillName, source, entry });
+            }
+          }
+
           continue;
         }
-
-        const discoveredPaths = findSkillMdPaths(tree);
-
-        const allLockedForSource = Object.entries(lock.skills)
-          .filter(([_, entry]) => entry.source === source)
-          .map(([name, _]) => name);
-
-        const deletedSkills = await checkAndPromptForDeletions(
-          source,
-          allLockedForSource,
-          lock.skills,
-          true,
-          options,
-          discoveredPaths
-        );
-
-        const deletedSkillSet = new Set(deletedSkills);
-
-        for (const { name: skillName, entry } of itemsForSource) {
-          if (deletedSkillSet.has(skillName)) continue;
-
-          const latestHash = getSkillFolderHashFromTree(tree, entry.skillPath!);
-          if (latestHash && latestHash !== entry.skillFolderHash) {
-            updates.push({ name: skillName, source, entry });
-          }
-        }
-
-        continue;
+        // tree fetch failed — fall through to clone-based check
       }
 
       tempDir = await cloneRepo(sourceUrl, firstEntry.ref);
