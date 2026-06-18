@@ -16,7 +16,7 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { installSkillForAgent } from '../src/installer.ts';
+import { installBlobSkillForAgent, installSkillForAgent } from '../src/installer.ts';
 
 async function makeSkillSource(root: string, name: string): Promise<string> {
   const dir = join(root, 'source-skill');
@@ -142,6 +142,81 @@ describe('installer symlink regression', () => {
           expect(entryStats.isDirectory()).toBe(true);
         }
       }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('creates missing agent directories for project-level symlink installs', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
+    const projectDir = join(root, 'project');
+    await mkdir(projectDir, { recursive: true });
+
+    const skillName = 'claude-project-skill';
+    const skillDir = await makeSkillSource(root, skillName);
+
+    try {
+      const result = await installSkillForAgent(
+        { name: skillName, description: 'test', path: skillDir },
+        'claude-code',
+        { cwd: projectDir, mode: 'symlink', global: false }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.skipped).toBeUndefined();
+      expect(result.symlinkFailed).toBeUndefined();
+
+      const canonicalDir = join(projectDir, '.agents/skills', skillName);
+      const canonicalStats = await lstat(canonicalDir);
+      expect(canonicalStats.isDirectory()).toBe(true);
+
+      const claudeRootStats = await lstat(join(projectDir, '.claude'));
+      expect(claudeRootStats.isDirectory()).toBe(true);
+
+      const claudeSkillDir = join(projectDir, '.claude/skills', skillName);
+      const claudeStats = await lstat(claudeSkillDir);
+      expect(claudeStats.isSymbolicLink()).toBe(true);
+
+      const contents = await readFile(join(claudeSkillDir, 'SKILL.md'), 'utf-8');
+      expect(contents).toContain(`name: ${skillName}`);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('creates missing agent directories for blob project-level symlink installs', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
+    const projectDir = join(root, 'project');
+    await mkdir(projectDir, { recursive: true });
+
+    const skillName = 'claude-blob-project-skill';
+
+    try {
+      const result = await installBlobSkillForAgent(
+        {
+          installName: skillName,
+          files: [
+            { path: 'SKILL.md', contents: `---\nname: ${skillName}\ndescription: test\n---\n` },
+          ],
+        },
+        'claude-code',
+        { cwd: projectDir, mode: 'symlink', global: false }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.skipped).toBeUndefined();
+      expect(result.symlinkFailed).toBeUndefined();
+
+      const canonicalDir = join(projectDir, '.agents/skills', skillName);
+      const canonicalStats = await lstat(canonicalDir);
+      expect(canonicalStats.isDirectory()).toBe(true);
+
+      const claudeSkillDir = join(projectDir, '.claude/skills', skillName);
+      const claudeStats = await lstat(claudeSkillDir);
+      expect(claudeStats.isSymbolicLink()).toBe(true);
+
+      const contents = await readFile(join(claudeSkillDir, 'SKILL.md'), 'utf-8');
+      expect(contents).toContain(`name: ${skillName}`);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
