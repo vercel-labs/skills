@@ -1,6 +1,6 @@
 import { homedir } from 'os';
 import { join } from 'path';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { xdgConfig } from 'xdg-basedir';
 import type { AgentConfig, AgentType } from './types.ts';
 
@@ -14,6 +14,20 @@ const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
 const zedAppDataHome = process.env.APPDATA?.trim();
 const zedFlatpakConfigHome = process.env.FLATPAK_XDG_CONFIG_HOME?.trim();
+
+function packageJsonHasDependency(packageJsonPath: string, dependencyName: string): boolean {
+  try {
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8')) as {
+      dependencies?: Record<string, unknown>;
+      devDependencies?: Record<string, unknown>;
+    };
+    return !!(
+      packageJson.dependencies?.[dependencyName] || packageJson.devDependencies?.[dependencyName]
+    );
+  } catch {
+    return false;
+  }
+}
 
 export function getOpenClawGlobalSkillsDir(
   homeDir = home,
@@ -260,6 +274,18 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.factory/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.factory'));
+    },
+  },
+  eve: {
+    name: 'eve',
+    displayName: 'Eve',
+    skillsDir: 'agent/skills',
+    globalSkillsDir: undefined,
+    detectInstalled: async () => {
+      const cwd = process.cwd();
+      return (
+        existsSync(join(cwd, 'agent')) && packageJsonHasDependency(join(cwd, 'package.json'), 'eve')
+      );
     },
   },
   firebender: {

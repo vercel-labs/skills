@@ -536,7 +536,9 @@ async function selectAgentsInteractive(options: {
 
   const universalAgents = getUniversalAgents().filter(supportsGlobalFilter);
   const visibleUniversalAgents = getVisibleUniversalAgents().filter(supportsGlobalFilter);
-  const otherAgents = getNonUniversalAgents().filter(supportsGlobalFilter);
+  const otherAgents = getNonUniversalAgents().filter(
+    (agent) => agent !== 'eve' && supportsGlobalFilter(agent)
+  );
 
   // Universal agents shown as locked section
   const universalSection = {
@@ -1532,13 +1534,18 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       spinner.stop(`${totalAgents} agents`);
 
       if (!options.yes && remembered.agents.length > 0) {
-        if (installedAgents.length === 0) {
+        if (remembered.agents.includes('eve') && installedAgents.includes('eve')) {
+          targetAgents = ['eve'];
+          p.log.info(`Installing to: ${pc.cyan(agents.eve.displayName)}`);
+        } else if (installedAgents.length === 0) {
           p.log.info('Select agents to install skills to');
 
-          const allAgentChoices = Object.entries(agents).map(([key, config]) => ({
-            value: key as AgentType,
-            label: config.displayName,
-          }));
+          const allAgentChoices = Object.entries(agents)
+            .filter(([key]) => key !== 'eve')
+            .map(([key, config]) => ({
+              value: key as AgentType,
+              label: config.displayName,
+            }));
 
           const selected = await promptForAgents(
             'Which agents do you want to install to?',
@@ -1568,6 +1575,38 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
           targetAgents = selected as AgentType[];
         }
+      } else if (installedAgents.includes('eve') && (options.yes || !agentResult.isAgent)) {
+        const useEve = options.yes
+          ? true
+          : await p.confirm({
+              message: 'Detected an Eve project. Install skills for Eve?',
+              initialValue: true,
+            });
+
+        if (p.isCancel(useEve)) {
+          p.cancel('Installation cancelled');
+          await cleanup(tempDir);
+          process.exit(0);
+        }
+
+        if (useEve) {
+          targetAgents = ['eve'];
+          p.log.info(`Installing to: ${pc.cyan(agents.eve.displayName)}`);
+        } else {
+          const selected = await selectAgentsInteractive({
+            global: options.global,
+            rememberedAgents: remembered.agents,
+            fallbackAgents: installedAgents,
+          });
+
+          if (p.isCancel(selected)) {
+            p.cancel('Installation cancelled');
+            await cleanup(tempDir);
+            process.exit(0);
+          }
+
+          targetAgents = selected as AgentType[];
+        }
       } else if (installedAgents.length === 0) {
         if (options.yes) {
           targetAgents = validAgents as AgentType[];
@@ -1575,10 +1614,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         } else {
           p.log.info('Select agents to install skills to');
 
-          const allAgentChoices = Object.entries(agents).map(([key, config]) => ({
-            value: key as AgentType,
-            label: config.displayName,
-          }));
+          const allAgentChoices = Object.entries(agents)
+            .filter(([key]) => key !== 'eve')
+            .map(([key, config]) => ({
+              value: key as AgentType,
+              label: config.displayName,
+            }));
 
           // Use helper to prompt with search
           const selected = await promptForAgents(
@@ -1737,7 +1778,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       for (const skill of skills) {
         if (summaryLines.length > 0) summaryLines.push('');
 
-        const canonicalPath = getCanonicalPath(skill.name, { global: installGlobally });
+        const canonicalPath =
+          targetAgents.length === 1
+            ? getCanonicalPath(skill.name, { global: installGlobally, agent: targetAgents[0] })
+            : getCanonicalPath(skill.name, { global: installGlobally });
         const shortCanonical = shortenPath(canonicalPath, cwd);
         summaryLines.push(`${pc.cyan(shortCanonical)}`);
         summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));

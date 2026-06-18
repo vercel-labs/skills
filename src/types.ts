@@ -24,6 +24,7 @@ export type AgentType =
   | 'devin'
   | 'dexto'
   | 'droid'
+  | 'eve'
   | 'firebender'
   | 'forgecode'
   | 'gemini-cli'
