@@ -224,6 +224,15 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
   }
 }
 
+async function pathsReferToSameLocation(a: string, b: string): Promise<boolean> {
+  const [realA, realB] = await Promise.all([
+    realpath(a).catch(() => resolve(a)),
+    realpath(b).catch(() => resolve(b)),
+  ]);
+
+  return realA === realB;
+}
+
 export async function installSkillForAgent(
   skill: Skill,
   agentType: AgentType,
@@ -277,8 +286,18 @@ export async function installSkillForAgent(
   }
 
   try {
+    const sourceIsAgentDir = await pathsReferToSameLocation(skill.path, agentDir);
+
     // For copy mode, skip canonical directory and copy directly to agent location
     if (installMode === 'copy') {
+      if (sourceIsAgentDir) {
+        return {
+          success: true,
+          path: agentDir,
+          mode: 'copy',
+        };
+      }
+
       await cleanAndCreateDirectory(agentDir);
       await copyDirectory(skill.path, agentDir);
 
@@ -290,8 +309,11 @@ export async function installSkillForAgent(
     }
 
     // Symlink mode: copy to canonical location and symlink to agent location
-    await cleanAndCreateDirectory(canonicalDir);
-    await copyDirectory(skill.path, canonicalDir);
+    const sourceIsCanonicalDir = await pathsReferToSameLocation(skill.path, canonicalDir);
+    if (!sourceIsCanonicalDir) {
+      await cleanAndCreateDirectory(canonicalDir);
+      await copyDirectory(skill.path, canonicalDir);
+    }
 
     // For universal agents with global install, the skill is already in the canonical
     // ~/.agents/skills directory. Skip creating a symlink to the agent-specific global dir
@@ -302,6 +324,16 @@ export async function installSkillForAgent(
         path: canonicalDir,
         canonicalPath: canonicalDir,
         mode: 'symlink',
+      };
+    }
+
+    if (sourceIsAgentDir) {
+      return {
+        success: true,
+        path: agentDir,
+        canonicalPath: canonicalDir,
+        mode: 'symlink',
+        skipped: true,
       };
     }
 
@@ -473,6 +505,86 @@ export function getCanonicalPath(
   }
 
   return canonicalPath;
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function isSymlinkToTarget(linkPath: string, targetPath: string): Promise<boolean> {
+  try {
+    const stats = await lstat(linkPath);
+    if (!stats.isSymbolicLink()) return false;
+
+    const linkTarget = await readlink(linkPath);
+    const resolvedLinkTarget = resolveSymlinkTarget(linkPath, linkTarget);
+    const [realLinkTarget, realTarget] = await Promise.all([
+      realpath(resolvedLinkTarget).catch(() => resolve(resolvedLinkTarget)),
+      realpath(targetPath).catch(() => resolve(targetPath)),
+    ]);
+
+    return realLinkTarget === realTarget;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Infer the install mode for legacy lock entries that predate persisted mode.
+ *
+ * Symlink mode is represented by a canonical .agents/skills/<skill> directory
+ * plus agent-specific symlinks pointing to it. Copy mode is represented by
+ * independent agent skill directories. If every selected agent resolves to the
+ * same target directory, copy remains the least surprising default.
+ */
+export async function inferInstallModeForSkill(
+  skillName: string,
+  agentTypes: AgentType[],
+  options: { global?: boolean; cwd?: string } = {}
+): Promise<InstallMode | undefined> {
+  if (agentTypes.length === 0) return undefined;
+
+  const isGlobal = options.global ?? false;
+  const cwd = options.cwd || process.cwd();
+  const uniqueDirs = new Set(agentTypes.map((a) => getAgentBaseDir(a, isGlobal, cwd)));
+  if (uniqueDirs.size <= 1) return 'copy';
+
+  const canonicalPath = getCanonicalPath(skillName, { global: isGlobal, cwd });
+  const canonicalExists = await pathExists(canonicalPath);
+
+  let sawAgentInstall = false;
+  let sawCanonicalSymlink = false;
+  let sawIndependentAgentDir = false;
+
+  for (const agentType of agentTypes) {
+    if (isGlobal && agents[agentType].globalSkillsDir === undefined) continue;
+
+    const agentPath = getInstallPath(skillName, agentType, { global: isGlobal, cwd });
+    if (resolve(agentPath) === resolve(canonicalPath)) {
+      if (canonicalExists) sawAgentInstall = true;
+      continue;
+    }
+
+    if (!(await pathExists(agentPath))) continue;
+    sawAgentInstall = true;
+
+    if (canonicalExists && (await isSymlinkToTarget(agentPath, canonicalPath))) {
+      sawCanonicalSymlink = true;
+    } else {
+      sawIndependentAgentDir = true;
+    }
+  }
+
+  if (canonicalExists && sawCanonicalSymlink && !sawIndependentAgentDir) return 'symlink';
+  if (sawIndependentAgentDir) return 'copy';
+  if (sawAgentInstall && !canonicalExists) return 'copy';
+
+  return undefined;
 }
 
 /**

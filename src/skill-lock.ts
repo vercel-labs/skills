@@ -4,6 +4,7 @@ import { homedir } from 'os';
 import { createHash } from 'crypto';
 import { execSync } from 'child_process';
 import pc from 'picocolors';
+import type { InstallMode } from './installer.ts';
 
 const AGENTS_DIR = '.agents';
 const LOCK_FILE = '.skill-lock.json';
@@ -35,6 +36,10 @@ export interface SkillLockEntry {
   updatedAt: string;
   /** Name of the plugin this skill belongs to (if any) */
   pluginName?: string;
+  /** Agents selected when this skill was installed. Used to seed rerun prompts. */
+  agents?: string[];
+  /** Install mode selected when this skill was installed. */
+  installMode?: InstallMode;
 }
 
 /**
@@ -251,6 +256,27 @@ export async function getSkillFromLock(skillName: string): Promise<SkillLockEntr
 export async function getAllLockedSkills(): Promise<Record<string, SkillLockEntry>> {
   const lock = await readSkillLock();
   return lock.skills;
+}
+
+/**
+ * Get locked global skills whose source matches one of the provided source identifiers.
+ */
+export async function getSkillsFromLockBySource(
+  sources: string[]
+): Promise<Record<string, SkillLockEntry>> {
+  const sourceSet = new Set(sources.filter(Boolean));
+  if (sourceSet.size === 0) return {};
+
+  const lock = await readSkillLock();
+  const matches: Record<string, SkillLockEntry> = {};
+
+  for (const [skillName, entry] of Object.entries(lock.skills)) {
+    if (sourceSet.has(entry.source) || sourceSet.has(entry.sourceUrl)) {
+      matches[skillName] = entry;
+    }
+  }
+
+  return matches;
 }
 
 /**

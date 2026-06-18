@@ -38,6 +38,7 @@ import {
   isSkillInstalled,
   getCanonicalPath,
   installWellKnownSkillForAgent,
+  inferInstallModeForSkill,
   type InstallMode,
 } from './installer.ts';
 import {
@@ -65,8 +66,15 @@ import {
   dismissPrompt,
   getLastSelectedAgents,
   saveSelectedAgents,
+  getSkillsFromLockBySource,
+  type SkillLockEntry,
 } from './skill-lock.ts';
-import { addSkillToLocalLock, computeSkillFolderHash } from './local-lock.ts';
+import {
+  addSkillToLocalLock,
+  computeSkillFolderHash,
+  getLocalSkillsBySource,
+  type LocalSkillLockEntry,
+} from './local-lock.ts';
 import type { Skill, AgentType } from './types.ts';
 import {
   tryBlobInstall,
@@ -256,6 +264,151 @@ function ensureUniversalAgents(targetAgents: AgentType[]): AgentType[] {
   return result;
 }
 
+interface RememberedAddState {
+  projectSkills: Record<string, LocalSkillLockEntry>;
+  globalSkills: Record<string, SkillLockEntry>;
+  skillNames: string[];
+  agents: AgentType[];
+  installMode?: InstallMode;
+  scope?: boolean;
+}
+
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  return [...new Set(values.filter((value): value is string => !!value))];
+}
+
+function getRememberedSkillNames(
+  projectSkills: Record<string, LocalSkillLockEntry>,
+  globalSkills: Record<string, SkillLockEntry>
+): string[] {
+  return uniqueStrings([...Object.keys(projectSkills), ...Object.keys(globalSkills)]);
+}
+
+function getRememberedAgentsFromEntries(
+  entries: Array<LocalSkillLockEntry | SkillLockEntry>
+): AgentType[] {
+  const validAgents = new Set(Object.keys(agents));
+  const remembered: AgentType[] = [];
+
+  for (const entry of entries) {
+    for (const agent of entry.agents ?? []) {
+      if (validAgents.has(agent) && !remembered.includes(agent as AgentType)) {
+        remembered.push(agent as AgentType);
+      }
+    }
+  }
+
+  return remembered;
+}
+
+function getCommonInstallMode(
+  entries: Array<LocalSkillLockEntry | SkillLockEntry>
+): InstallMode | undefined {
+  const modes = uniqueStrings(entries.map((entry) => entry.installMode));
+  return modes.length === 1 ? (modes[0] as InstallMode) : undefined;
+}
+
+export function buildRememberedAddState(
+  projectSkills: Record<string, LocalSkillLockEntry>,
+  globalSkills: Record<string, SkillLockEntry>
+): RememberedAddState {
+  const projectEntries = Object.values(projectSkills);
+  const globalEntries = Object.values(globalSkills);
+  const allEntries = [...projectEntries, ...globalEntries];
+  const hasProjectMatches = projectEntries.length > 0;
+  const hasGlobalMatches = globalEntries.length > 0;
+
+  return {
+    projectSkills,
+    globalSkills,
+    skillNames: getRememberedSkillNames(projectSkills, globalSkills),
+    agents: getRememberedAgentsFromEntries(allEntries),
+    installMode: getCommonInstallMode(allEntries),
+    scope: hasProjectMatches !== hasGlobalMatches ? hasGlobalMatches : undefined,
+  };
+}
+
+function filterRememberedSkills<T extends { name?: string; installName?: string }>(
+  skills: T[],
+  rememberedSkillNames: string[]
+): T[] {
+  const remembered = new Set(rememberedSkillNames);
+  return skills.filter((skill) => {
+    const name = 'installName' in skill ? skill.installName : skill.name;
+    return name ? remembered.has(name) : false;
+  });
+}
+
+function getRememberedSkillScope(
+  skillName: string,
+  remembered: RememberedAddState
+): 'project' | 'global' | 'project + global' | undefined {
+  const hasProject = skillName in remembered.projectSkills;
+  const hasGlobal = skillName in remembered.globalSkills;
+
+  if (hasProject && hasGlobal) return 'project + global';
+  if (hasProject) return 'project';
+  if (hasGlobal) return 'global';
+  return undefined;
+}
+
+function buildSkillChoiceHint(
+  skillName: string,
+  description: string,
+  remembered: RememberedAddState
+): string {
+  const scope = getRememberedSkillScope(skillName, remembered);
+  const rememberedEntry = remembered.projectSkills[skillName] ?? remembered.globalSkills[skillName];
+  const parts: string[] = [];
+
+  if (scope) {
+    const agentCount = rememberedEntry?.agents?.length;
+    const mode = rememberedEntry?.installMode;
+    parts.push(
+      `installed: ${scope}${agentCount ? `, ${agentCount} agent${agentCount !== 1 ? 's' : ''}` : ''}${mode ? `, ${mode}` : ''}`
+    );
+  }
+
+  if (description) {
+    parts.push(description.length > 60 ? description.slice(0, 57) + '...' : description);
+  }
+
+  return parts.join(' • ');
+}
+
+async function loadRememberedAddState(
+  sourceCandidates: string[],
+  cwd: string
+): Promise<RememberedAddState> {
+  const [projectSkills, globalSkills] = await Promise.all([
+    getLocalSkillsBySource(sourceCandidates, cwd).catch(() => ({})),
+    getSkillsFromLockBySource(sourceCandidates).catch(() => ({})),
+  ]);
+
+  return buildRememberedAddState(projectSkills, globalSkills);
+}
+
+async function inferRememberedInstallMode(options: {
+  remembered: RememberedAddState;
+  selectedSkillNames: string[];
+  targetAgents: AgentType[];
+  global: boolean;
+  cwd: string;
+}): Promise<InstallMode | undefined> {
+  if (options.remembered.installMode) return options.remembered.installMode;
+
+  const modes = new Set<InstallMode>();
+  for (const skillName of options.selectedSkillNames) {
+    const inferred = await inferInstallModeForSkill(skillName, options.targetAgents, {
+      global: options.global,
+      cwd: options.cwd,
+    });
+    if (inferred) modes.add(inferred);
+  }
+
+  return modes.size === 1 ? [...modes][0] : undefined;
+}
+
 /**
  * Builds result lines from installation results, splitting by universal vs symlinked
  */
@@ -317,7 +470,8 @@ function multiselect<Value>(opts: {
  */
 export async function promptForAgents(
   message: string,
-  choices: Array<{ value: AgentType; label: string; hint?: string }>
+  choices: Array<{ value: AgentType; label: string; hint?: string }>,
+  rememberedAgents?: AgentType[]
 ): Promise<AgentType[] | symbol> {
   // Get last selected agents to pre-select
   let lastSelected: string[] | undefined;
@@ -335,7 +489,11 @@ export async function promptForAgents(
 
   let initialValues: AgentType[] = [];
 
-  if (lastSelected && lastSelected.length > 0) {
+  if (rememberedAgents && rememberedAgents.length > 0) {
+    initialValues = rememberedAgents.filter((a) => validAgents.includes(a));
+  }
+
+  if (initialValues.length === 0 && lastSelected && lastSelected.length > 0) {
     // Filter stored agents against currently valid agents
     initialValues = lastSelected.filter((a) => validAgents.includes(a as AgentType)) as AgentType[];
   }
@@ -370,6 +528,8 @@ export async function promptForAgents(
  */
 async function selectAgentsInteractive(options: {
   global?: boolean;
+  rememberedAgents?: AgentType[];
+  fallbackAgents?: AgentType[];
 }): Promise<AgentType[] | symbol> {
   // Filter out agents that don't support global installation when --global is used
   const supportsGlobalFilter = (a: AgentType) => !options.global || agents[a].globalSkillsDir;
@@ -403,11 +563,23 @@ async function selectAgentsInteractive(options: {
     // Silently ignore errors
   }
 
-  const initialSelected = lastSelected
-    ? (lastSelected.filter(
-        (a) => otherAgents.includes(a as AgentType) && !universalAgents.includes(a as AgentType)
-      ) as AgentType[])
+  let initialSelected = options.rememberedAgents
+    ? options.rememberedAgents.filter(
+        (a) => otherAgents.includes(a) && !universalAgents.includes(a)
+      )
     : [];
+
+  if (initialSelected.length === 0 && lastSelected) {
+    initialSelected = lastSelected.filter(
+      (a) => otherAgents.includes(a as AgentType) && !universalAgents.includes(a as AgentType)
+    ) as AgentType[];
+  }
+
+  if (initialSelected.length === 0 && options.fallbackAgents) {
+    initialSelected = options.fallbackAgents.filter(
+      (a) => otherAgents.includes(a) && !universalAgents.includes(a)
+    );
+  }
 
   const selected = await searchMultiselect({
     message: 'Which agents do you want to install to?',
@@ -495,6 +667,10 @@ async function handleWellKnownSkills(
     process.exit(0);
   }
 
+  const cwd = process.cwd();
+  const sourceIdentifier = wellKnownProvider.getSourceIdentifier(url);
+  const remembered = await loadRememberedAddState([sourceIdentifier, url], cwd);
+
   // Filter skills if --skill option is provided
   let selectedSkills: WellKnownSkill[];
 
@@ -527,16 +703,18 @@ async function handleWellKnownSkills(
     selectedSkills = skills;
     p.log.info(`Installing all ${skills.length} skills`);
   } else {
+    const rememberedSkills = filterRememberedSkills(skills, remembered.skillNames);
     // Prompt user to select skills
     const skillChoices = skills.map((s) => ({
       value: s,
       label: s.installName,
-      hint: s.description.length > 60 ? s.description.slice(0, 57) + '...' : s.description,
+      hint: buildSkillChoiceHint(s.installName, s.description, remembered),
     }));
 
     const selected = await multiselect({
       message: 'Select skills to install',
       options: skillChoices,
+      initialValues: rememberedSkills,
       required: true,
     });
 
@@ -572,7 +750,42 @@ async function handleWellKnownSkills(
     const totalAgents = Object.keys(agents).length;
     spinner.stop(`${totalAgents} agents`);
 
-    if (installedAgents.length === 0) {
+    if (!options.yes && remembered.agents.length > 0) {
+      if (installedAgents.length === 0) {
+        p.log.info('Select agents to install skills to');
+
+        const allAgentChoices = Object.entries(agents).map(([key, config]) => ({
+          value: key as AgentType,
+          label: config.displayName,
+        }));
+
+        const selected = await promptForAgents(
+          'Which agents do you want to install to?',
+          allAgentChoices,
+          remembered.agents
+        );
+
+        if (p.isCancel(selected)) {
+          p.cancel('Installation cancelled');
+          process.exit(0);
+        }
+
+        targetAgents = selected as AgentType[];
+      } else {
+        const selected = await selectAgentsInteractive({
+          global: options.global,
+          rememberedAgents: remembered.agents,
+          fallbackAgents: installedAgents,
+        });
+
+        if (p.isCancel(selected)) {
+          p.cancel('Installation cancelled');
+          process.exit(0);
+        }
+
+        targetAgents = selected as AgentType[];
+      }
+    } else if (installedAgents.length === 0) {
       if (options.yes) {
         targetAgents = validAgents as AgentType[];
         p.log.info('Installing to all agents');
@@ -587,7 +800,8 @@ async function handleWellKnownSkills(
         // Use helper to prompt with search
         const selected = await promptForAgents(
           'Which agents do you want to install to?',
-          allAgentChoices
+          allAgentChoices,
+          remembered.agents
         );
 
         if (p.isCancel(selected)) {
@@ -609,7 +823,11 @@ async function handleWellKnownSkills(
         );
       }
     } else {
-      const selected = await selectAgentsInteractive({ global: options.global });
+      const selected = await selectAgentsInteractive({
+        global: options.global,
+        rememberedAgents: remembered.agents,
+        fallbackAgents: installedAgents,
+      });
 
       if (p.isCancel(selected)) {
         p.cancel('Installation cancelled');
@@ -628,6 +846,7 @@ async function handleWellKnownSkills(
   if (options.global === undefined && !options.yes && supportsGlobal) {
     const scope = await p.select({
       message: 'Installation scope',
+      initialValue: remembered.scope,
       options: [
         {
           value: false,
@@ -656,10 +875,19 @@ async function handleWellKnownSkills(
   // Only prompt for install mode when there are multiple unique target directories.
   // When all selected agents share the same skillsDir, symlink vs copy is meaningless.
   const uniqueDirs = new Set(targetAgents.map((a) => agents[a].skillsDir));
+  const selectedSkillNames = selectedSkills.map((skill) => skill.installName);
+  const rememberedInstallMode = await inferRememberedInstallMode({
+    remembered,
+    selectedSkillNames,
+    targetAgents,
+    global: installGlobally,
+    cwd,
+  });
 
   if (!options.copy && !options.yes && uniqueDirs.size > 1) {
     const modeChoice = await p.select({
       message: 'Installation method',
+      initialValue: rememberedInstallMode ?? 'symlink',
       options: [
         {
           value: 'symlink',
@@ -680,8 +908,6 @@ async function handleWellKnownSkills(
     // Single target directory — default to copy (no symlink needed)
     installMode = 'copy';
   }
-
-  const cwd = process.cwd();
 
   // Build installation summary
   const summaryLines: string[] = [];
@@ -739,7 +965,6 @@ async function handleWellKnownSkills(
   }
 
   // Kick off privacy check early so it runs in parallel with installation
-  const sourceIdentifier = wellKnownProvider.getSourceIdentifier(url);
   const wellKnownPrivacyPromise = isSourcePrivate(sourceIdentifier).catch(() => null);
 
   spinner.start('Installing skills...');
@@ -806,6 +1031,8 @@ async function handleWellKnownSkills(
             sourceType: 'well-known',
             sourceUrl: skill.sourceUrl,
             skillFolderHash: '', // Well-known skills don't have a folder hash
+            agents: targetAgents,
+            installMode,
           });
         } catch {
           // Don't fail installation if lock file update fails
@@ -830,6 +1057,8 @@ async function handleWellKnownSkills(
                 source: sourceIdentifier,
                 sourceType: 'well-known',
                 computedHash,
+                agents: targetAgents,
+                installMode,
               },
               cwd
             );
@@ -970,6 +1199,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
   }
 
   let tempDir: string | null = null;
+  const cwd = process.cwd();
 
   try {
     const spinner = p.spinner();
@@ -1024,6 +1254,16 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         options.skill.push(parsed.skillFilter);
       }
     }
+
+    const normalizedSourceForMemory = getOwnerRepo(parsed);
+    const lockSourceForMemory = getLockSource(parsed.url, normalizedSourceForMemory);
+    const sourceCandidates = uniqueStrings([
+      lockSourceForMemory,
+      normalizedSourceForMemory,
+      parsed.url,
+      parsed.localPath,
+    ]);
+    const remembered = await loadRememberedAddState(sourceCandidates, cwd);
 
     // Include internal skills when a specific skill is explicitly requested
     // (via --skill or @skill syntax)
@@ -1204,6 +1444,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
       // Check if any skills have plugin grouping
       const hasGroups = sortedSkills.some((s) => s.pluginName);
+      const rememberedSkills = filterRememberedSkills(sortedSkills, remembered.skillNames);
 
       let selected: Skill[] | symbol;
 
@@ -1222,25 +1463,27 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           grouped[groupName]!.push({
             value: s,
             label: getSkillDisplayName(s),
-            hint: s.description.length > 60 ? s.description.slice(0, 57) + '...' : s.description,
+            hint: buildSkillChoiceHint(getSkillDisplayName(s), s.description, remembered),
           });
         }
 
         selected = await p.groupMultiselect({
           message: `Select skills to install ${pc.dim('(space to toggle)')}`,
           options: grouped,
+          initialValues: rememberedSkills,
           required: true,
-        });
+        } as Parameters<typeof p.groupMultiselect<Skill>>[0]);
       } else {
         const skillChoices = sortedSkills.map((s) => ({
           value: s,
           label: getSkillDisplayName(s),
-          hint: s.description.length > 60 ? s.description.slice(0, 57) + '...' : s.description,
+          hint: buildSkillChoiceHint(getSkillDisplayName(s), s.description, remembered),
         }));
 
         selected = await multiselect({
           message: 'Select skills to install',
           options: skillChoices,
+          initialValues: rememberedSkills,
           required: true,
         });
       }
@@ -1288,7 +1531,44 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       const totalAgents = Object.keys(agents).length;
       spinner.stop(`${totalAgents} agents`);
 
-      if (installedAgents.length === 0) {
+      if (!options.yes && remembered.agents.length > 0) {
+        if (installedAgents.length === 0) {
+          p.log.info('Select agents to install skills to');
+
+          const allAgentChoices = Object.entries(agents).map(([key, config]) => ({
+            value: key as AgentType,
+            label: config.displayName,
+          }));
+
+          const selected = await promptForAgents(
+            'Which agents do you want to install to?',
+            allAgentChoices,
+            remembered.agents
+          );
+
+          if (p.isCancel(selected)) {
+            p.cancel('Installation cancelled');
+            await cleanup(tempDir);
+            process.exit(0);
+          }
+
+          targetAgents = selected as AgentType[];
+        } else {
+          const selected = await selectAgentsInteractive({
+            global: options.global,
+            rememberedAgents: remembered.agents,
+            fallbackAgents: installedAgents,
+          });
+
+          if (p.isCancel(selected)) {
+            p.cancel('Installation cancelled');
+            await cleanup(tempDir);
+            process.exit(0);
+          }
+
+          targetAgents = selected as AgentType[];
+        }
+      } else if (installedAgents.length === 0) {
         if (options.yes) {
           targetAgents = validAgents as AgentType[];
           p.log.info('Installing to all agents');
@@ -1303,7 +1583,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           // Use helper to prompt with search
           const selected = await promptForAgents(
             'Which agents do you want to install to?',
-            allAgentChoices
+            allAgentChoices,
+            remembered.agents
           );
 
           if (p.isCancel(selected)) {
@@ -1326,7 +1607,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           );
         }
       } else {
-        const selected = await selectAgentsInteractive({ global: options.global });
+        const selected = await selectAgentsInteractive({
+          global: options.global,
+          rememberedAgents: remembered.agents,
+          fallbackAgents: installedAgents,
+        });
 
         if (p.isCancel(selected)) {
           p.cancel('Installation cancelled');
@@ -1346,6 +1631,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     if (options.global === undefined && !options.yes && supportsGlobal) {
       const scope = await p.select({
         message: 'Installation scope',
+        initialValue: remembered.scope,
         options: [
           {
             value: false,
@@ -1375,10 +1661,19 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Only prompt for install mode when there are multiple unique target directories.
     // When all selected agents share the same skillsDir, symlink vs copy is meaningless.
     const uniqueDirs = new Set(targetAgents.map((a) => agents[a].skillsDir));
+    const selectedSkillNames = selectedSkills.map((skill) => getSkillDisplayName(skill));
+    const rememberedInstallMode = await inferRememberedInstallMode({
+      remembered,
+      selectedSkillNames,
+      targetAgents,
+      global: installGlobally,
+      cwd,
+    });
 
     if (!options.copy && !options.yes && uniqueDirs.size > 1) {
       const modeChoice = await p.select({
         message: 'Installation method',
+        initialValue: rememberedInstallMode ?? 'symlink',
         options: [
           {
             value: 'symlink',
@@ -1400,8 +1695,6 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       // Single target directory — default to copy (no symlink needed)
       installMode = 'copy';
     }
-
-    const cwd = process.cwd();
 
     // Build installation summary
     const summaryLines: string[] = [];
@@ -1661,6 +1954,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               skillPath: skillPathValue,
               skillFolderHash,
               pluginName: skill.pluginName,
+              agents: targetAgents,
+              installMode,
             });
           } catch {
             // Don't fail installation if lock file update fails
@@ -1690,6 +1985,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
                 sourceType: parsed.type,
                 ...(skillPathValue && { skillPath: skillPathValue }),
                 computedHash,
+                agents: targetAgents,
+                installMode,
               },
               cwd
             );

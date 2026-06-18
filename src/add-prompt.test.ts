@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { promptForAgents } from './add.js';
+import { buildRememberedAddState, promptForAgents } from './add.js';
 import * as skillLock from './skill-lock.js';
 import * as searchMultiselectModule from './prompts/search-multiselect.js';
 
@@ -53,6 +53,19 @@ describe('promptForAgents', () => {
     );
   });
 
+  it('should prefer source-specific remembered agents over global history', async () => {
+    vi.mocked(skillLock.getLastSelectedAgents).mockResolvedValue(['cursor']);
+    vi.mocked(searchMultiselectModule.searchMultiselect).mockResolvedValue(['opencode']);
+
+    await promptForAgents('Select agents', choices, ['opencode']);
+
+    expect(searchMultiselectModule.searchMultiselect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialSelected: ['opencode'],
+      })
+    );
+  });
+
   it('should filter out invalid agents from history', async () => {
     vi.mocked(skillLock.getLastSelectedAgents).mockResolvedValue(['cursor', 'invalid-agent']);
     vi.mocked(searchMultiselectModule.searchMultiselect).mockResolvedValue(['cursor']);
@@ -99,5 +112,77 @@ describe('promptForAgents', () => {
     await promptForAgents('Select agents', choices);
 
     expect(skillLock.saveSelectedAgents).not.toHaveBeenCalled();
+  });
+});
+
+describe('buildRememberedAddState', () => {
+  it('derives remembered skills, agents, scope, and mode from project entries', () => {
+    const remembered = buildRememberedAddState(
+      {
+        alpha: {
+          source: 'org/repo',
+          sourceType: 'github',
+          computedHash: 'hash',
+          agents: ['claude-code', 'codex'],
+          installMode: 'copy',
+        },
+      },
+      {}
+    );
+
+    expect(remembered.skillNames).toEqual(['alpha']);
+    expect(remembered.agents).toEqual(['claude-code', 'codex']);
+    expect(remembered.scope).toBe(false);
+    expect(remembered.installMode).toBe('copy');
+  });
+
+  it('derives global scope only when global is the clear match', () => {
+    const remembered = buildRememberedAddState(
+      {},
+      {
+        alpha: {
+          source: 'org/repo',
+          sourceType: 'github',
+          sourceUrl: 'https://github.com/org/repo.git',
+          skillFolderHash: 'hash',
+          installedAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          agents: ['continue'],
+          installMode: 'symlink',
+        },
+      }
+    );
+
+    expect(remembered.scope).toBe(true);
+    expect(remembered.agents).toEqual(['continue']);
+    expect(remembered.installMode).toBe('symlink');
+  });
+
+  it('does not pick a scope or mode when remembered entries conflict', () => {
+    const remembered = buildRememberedAddState(
+      {
+        alpha: {
+          source: 'org/repo',
+          sourceType: 'github',
+          computedHash: 'hash',
+          installMode: 'copy',
+        },
+      },
+      {
+        beta: {
+          source: 'org/repo',
+          sourceType: 'github',
+          sourceUrl: 'https://github.com/org/repo.git',
+          skillFolderHash: 'hash',
+          installedAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          installMode: 'symlink',
+        },
+      }
+    );
+
+    expect(remembered.skillNames).toEqual(['alpha', 'beta']);
+    expect(remembered.scope).toBeUndefined();
+    expect(remembered.installMode).toBeUndefined();
   });
 });

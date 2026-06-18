@@ -90,6 +90,35 @@ Instructions here.
     expect(result.exitCode).toBe(0);
   });
 
+  it('should persist explicit copy mode and agents for project installs', () => {
+    const skillDir = join(testDir, 'skills', 'copy-mode-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: copy-mode-skill
+description: Copy mode test skill
+---
+
+# Copy Mode Skill
+`
+    );
+
+    const targetDir = join(testDir, 'project');
+    mkdirSync(targetDir, { recursive: true });
+
+    const result = runCli(['add', testDir, '-y', '--agent', 'claude-code', '--copy'], targetDir);
+
+    expect(result.exitCode).toBe(0);
+    const lock = JSON.parse(
+      require('fs').readFileSync(join(targetDir, 'skills-lock.json'), 'utf-8')
+    );
+    expect(lock.skills['copy-mode-skill']).toMatchObject({
+      agents: ['claude-code'],
+      installMode: 'copy',
+    });
+  });
+
   it('should filter skills by name with --skill flag', () => {
     // Create multiple test skills
     const skill1Dir = join(testDir, 'skills', 'skill-one');

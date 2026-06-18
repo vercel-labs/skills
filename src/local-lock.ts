@@ -1,6 +1,7 @@
 import { readFile, writeFile, readdir, stat } from 'fs/promises';
 import { join, relative } from 'path';
 import { createHash } from 'crypto';
+import type { InstallMode } from './installer.ts';
 
 const LOCAL_LOCK_FILE = 'skills-lock.json';
 const CURRENT_VERSION = 1;
@@ -33,6 +34,10 @@ export interface LocalSkillLockEntry {
    * computes the hash from actual file contents on disk.
    */
   computedHash: string;
+  /** Agents selected when this skill was installed. Used to seed rerun prompts. */
+  agents?: string[];
+  /** Install mode selected when this skill was installed. */
+  installMode?: InstallMode;
 }
 
 /**
@@ -157,6 +162,28 @@ export async function addSkillToLocalLock(
   const lock = await readLocalLock(cwd);
   lock.skills[skillName] = entry;
   await writeLocalLock(lock, cwd);
+}
+
+/**
+ * Get project skills whose source matches one of the provided source identifiers.
+ */
+export async function getLocalSkillsBySource(
+  sources: string[],
+  cwd?: string
+): Promise<Record<string, LocalSkillLockEntry>> {
+  const sourceSet = new Set(sources.filter(Boolean));
+  if (sourceSet.size === 0) return {};
+
+  const lock = await readLocalLock(cwd);
+  const matches: Record<string, LocalSkillLockEntry> = {};
+
+  for (const [skillName, entry] of Object.entries(lock.skills)) {
+    if (sourceSet.has(entry.source)) {
+      matches[skillName] = entry;
+    }
+  }
+
+  return matches;
 }
 
 /**
