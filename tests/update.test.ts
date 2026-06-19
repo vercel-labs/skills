@@ -359,6 +359,56 @@ describe('Update Cleanup Unit Tests', () => {
         expect.anything()
       );
     });
+
+    it('keeps same normalized global sources isolated by sourceUrl during clone and deletion checks', async () => {
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'github-skill': {
+            source: 'org/repo',
+            sourceUrl: 'https://github.com/org/repo.git',
+            skillPath: 'skills/github-skill/SKILL.md',
+            sourceType: 'git',
+            skillFolderHash: 'old-a',
+            installedAt: '',
+            updatedAt: '',
+          },
+          'gitlab-skill': {
+            source: 'org/repo',
+            sourceUrl: 'https://gitlab.example.com/org/repo.git',
+            skillPath: 'skills/gitlab-skill/SKILL.md',
+            sourceType: 'git',
+            skillFolderHash: 'old-b',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+
+      vi.mocked(git.cloneRepo).mockImplementation(async (source) =>
+        source === 'https://github.com/org/repo.git' ? '/tmp/github' : '/tmp/gitlab'
+      );
+      vi.mocked(skills.discoverSkills).mockImplementation(async (root) => [
+        {
+          name: root === '/tmp/github' ? 'github-skill' : 'gitlab-skill',
+          path: `${root}/skills/${root === '/tmp/github' ? 'github-skill' : 'gitlab-skill'}`,
+          description: 'A',
+          rawContent: '',
+        },
+      ]);
+      vi.mocked(p.confirm).mockResolvedValue(true);
+      vi.mocked(localLock.computeSkillFolderHash).mockResolvedValue('old-a');
+
+      await updateGlobalSkills();
+
+      expect(git.cloneRepo).toHaveBeenCalledTimes(2);
+      expect(git.cloneRepo).toHaveBeenCalledWith('https://github.com/org/repo.git', undefined);
+      expect(git.cloneRepo).toHaveBeenCalledWith(
+        'https://gitlab.example.com/org/repo.git',
+        undefined
+      );
+      expect(remove.removeCommand).not.toHaveBeenCalled();
+    });
   });
 
   describe('updateProjectSkills with sourceUrl', () => {
@@ -630,6 +680,29 @@ describe('Update Cleanup Unit Tests', () => {
       const output = consoleSpy.mock.calls.map((c) => c[0]).join('\n');
       expect(output).toContain('owner/repo#v1');
       expect(output).not.toContain('owner/repo/skills/github-skill#v1');
+
+      consoleSpy.mockRestore();
+    });
+
+    it('uses sourceUrl with ref when sourceUrl exists', () => {
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      printLegacyProjectSkills([
+        {
+          name: 'gitlab-skill',
+          source: 'org/repo',
+          entry: {
+            source: 'org/repo',
+            sourceUrl: 'https://gitlab.example.com/org/repo.git',
+            ref: 'v1',
+            sourceType: 'git',
+            computedHash: 'abc',
+          },
+        },
+      ]);
+
+      const output = consoleSpy.mock.calls.map((c) => c[0]).join('\n');
+      expect(output).toContain('https://gitlab.example.com/org/repo.git#v1');
 
       consoleSpy.mockRestore();
     });

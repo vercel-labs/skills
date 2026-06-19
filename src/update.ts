@@ -189,6 +189,11 @@ export function getInstallSource(skill: SkippedSkill): string {
   return formatSourceInput(url, skill.ref);
 }
 
+function getGlobalUpdateGroupKey(entry: SkillLockEntry): string {
+  const source = entry.sourceType === 'github' ? entry.source : entry.sourceUrl || entry.source;
+  return JSON.stringify([entry.sourceType, entry.ref || '', source]);
+}
+
 export function printSkippedSkills(skipped: SkippedSkill[]): void {
   if (skipped.length === 0) return;
   console.log();
@@ -319,14 +324,15 @@ export async function updateGlobalSkills(
 
   const bySource = new Map<string, typeof checkable>();
   for (const item of checkable) {
-    const source = item.entry.source;
-    const existing = bySource.get(source) || [];
+    const groupKey = getGlobalUpdateGroupKey(item.entry);
+    const existing = bySource.get(groupKey) || [];
     existing.push(item);
-    bySource.set(source, existing);
+    bySource.set(groupKey, existing);
   }
 
-  for (const [source, itemsForSource] of bySource) {
+  for (const [groupKey, itemsForSource] of bySource) {
     const firstEntry = itemsForSource[0]!.entry;
+    const source = firstEntry.source;
     const sourceUrl = firstEntry.sourceUrl || firstEntry.source;
     let tempDir: string | null = null;
 
@@ -346,7 +352,7 @@ export async function updateGlobalSkills(
         const discoveredPaths = findSkillMdPaths(tree);
 
         const allLockedForSource = Object.entries(lock.skills)
-          .filter(([_, entry]) => entry.source === source)
+          .filter(([_, entry]) => getGlobalUpdateGroupKey(entry) === groupKey)
           .map(([name, _]) => name);
 
         const deletedSkills = await checkAndPromptForDeletions(
@@ -378,7 +384,7 @@ export async function updateGlobalSkills(
       });
 
       const allLockedForSource = Object.entries(lock.skills)
-        .filter(([_, entry]) => entry.source === source)
+        .filter(([_, entry]) => getGlobalUpdateGroupKey(entry) === groupKey)
         .map(([name, _]) => name);
 
       const deletedSkills = await checkAndPromptForDeletions(
@@ -628,7 +634,10 @@ export function printLegacyProjectSkills(
     `${DIM}${legacy.length} project skill(s) cannot be updated automatically (installed before skillPath tracking):${RESET}`
   );
   for (const skill of legacy) {
-    const reinstall = formatSourceInput(skill.entry.source, skill.entry.ref);
+    const reinstall = formatSourceInput(
+      skill.entry.sourceUrl || skill.entry.source,
+      skill.entry.ref
+    );
     console.log(`  ${TEXT}•${RESET} ${sanitizeMetadata(skill.name)}`);
     console.log(`    ${DIM}To refresh: ${TEXT}npx skills add ${reinstall} -y${RESET}`);
   }
