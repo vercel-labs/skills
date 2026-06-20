@@ -453,10 +453,13 @@ export async function updateGlobalSkills(
       );
       continue;
     }
+    // Spawn the Node binary directly (no shell). process.execPath can contain
+    // spaces (e.g. "C:\Program Files\nodejs\node.exe"); with shell:true on
+    // Windows the unquoted command line is split by cmd.exe at the space and the
+    // update fails with `'C:\Program' is not recognized`. See #941 / #1119.
     const result = spawnSync(process.execPath, [cliEntry, 'add', installUrl, '-g', '-y'], {
       stdio: ['inherit', 'pipe', 'pipe'],
       encoding: 'utf-8',
-      shell: process.platform === 'win32',
     });
 
     if (result.status === 0) {
@@ -586,13 +589,14 @@ export async function updateProjectSkills(
       console.log(`${TEXT}Updating ${safeName}...${RESET}`);
       const installUrl = formatSourceInput(skill.entry.source, skill.entry.ref);
 
+      // See note above: spawn the Node binary directly without a shell so that
+      // Windows paths containing spaces don't break the update (#941 / #1119).
       const result = spawnSync(
         process.execPath,
         [cliEntry, 'add', installUrl, '--skill', skill.name, '-y'],
         {
           stdio: ['inherit', 'pipe', 'pipe'],
           encoding: 'utf-8',
-          shell: process.platform === 'win32',
         }
       );
 
