@@ -663,11 +663,18 @@ async function handleWellKnownSkills(
   // Determine install mode (symlink vs copy)
   let installMode: InstallMode = options.copy ? 'copy' : 'symlink';
 
+  // Antigravity IDE does not follow symlinks during skill discovery,
+  // so default to copy mode when it is a target agent. (#633)
+  const hasAntigravity = targetAgents.includes('antigravity');
+  if (hasAntigravity && !options.copy) {
+    installMode = 'copy';
+  }
+
   // Only prompt for install mode when there are multiple unique target directories.
   // When all selected agents share the same skillsDir, symlink vs copy is meaningless.
   const uniqueDirs = new Set(targetAgents.map((a) => agents[a].skillsDir));
 
-  if (!options.copy && !options.yes && uniqueDirs.size > 1) {
+  if (!options.copy && !hasAntigravity && !options.yes && uniqueDirs.size > 1) {
     const modeChoice = await p.select({
       message: 'Installation method',
       options: [
@@ -1412,11 +1419,18 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Determine install mode (symlink vs copy)
     let installMode: InstallMode = options.copy ? 'copy' : 'symlink';
 
+    // Antigravity IDE does not follow symlinks during skill discovery,
+    // so default to copy mode when it is a target agent. (#633)
+    const hasAntigravity = targetAgents.includes('antigravity');
+    if (hasAntigravity && !options.copy) {
+      installMode = 'copy';
+    }
+
     // Only prompt for install mode when there are multiple unique target directories.
     // When all selected agents share the same skillsDir, symlink vs copy is meaningless.
     const uniqueDirs = new Set(targetAgents.map((a) => agents[a].skillsDir));
 
-    if (!options.copy && !options.yes && uniqueDirs.size > 1) {
+    if (!options.copy && !hasAntigravity && !options.yes && uniqueDirs.size > 1) {
       const modeChoice = await p.select({
         message: 'Installation method',
         options: [
