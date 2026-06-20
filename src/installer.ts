@@ -117,6 +117,25 @@ export function getAgentBaseDir(agentType: AgentType, global: boolean, cwd?: str
   return join(baseDir, agent.skillsDir);
 }
 
+/**
+ * True when a project-level symlink install for this agent will be skipped
+ * because the agent's config directory (e.g. .claude/, .windsurf/) doesn't
+ * already exist in the project. The skill still lands in .agents/skills/,
+ * but agents that don't read that path (like Claude Code) won't see it.
+ * Remedies: install globally (-g), use --copy, or create the directory first.
+ */
+export function willSkipAgentSymlink(
+  agentType: AgentType,
+  isGlobal: boolean,
+  cwd: string
+): boolean {
+  if (isGlobal || isUniversalAgent(agentType)) {
+    return false;
+  }
+  const agentRootDir = join(cwd, agents[agentType].skillsDir.split('/')[0]!);
+  return !existsSync(agentRootDir);
+}
+
 function resolveSymlinkTarget(linkPath: string, linkTarget: string): string {
   return resolve(dirname(linkPath), linkTarget);
 }
@@ -343,17 +362,14 @@ export async function installSkillForAgent(
     // whose config directory doesn't already exist in the project. This prevents
     // creating directories like .windsurf/, .kiro/, etc. when those agents aren't
     // actually used in this project. The skill is already available in .agents/skills/.
-    if (!isGlobal && !isUniversalAgent(agentType)) {
-      const agentRootDir = join(cwd, agents[agentType].skillsDir.split('/')[0]!);
-      if (!existsSync(agentRootDir)) {
-        return {
-          success: true,
-          path: canonicalDir,
-          canonicalPath: canonicalDir,
-          mode: 'symlink',
-          skipped: true,
-        };
-      }
+    if (willSkipAgentSymlink(agentType, isGlobal, cwd)) {
+      return {
+        success: true,
+        path: canonicalDir,
+        canonicalPath: canonicalDir,
+        mode: 'symlink',
+        skipped: true,
+      };
     }
 
     const symlinkCreated = await createSymlink(canonicalDir, agentDir);
@@ -972,17 +988,14 @@ export async function installBlobSkillForAgent(
 
     // For project-level installs, skip creating symlinks for non-universal agents
     // whose config directory doesn't already exist in the project.
-    if (!isGlobal && !isUniversalAgent(agentType)) {
-      const agentRootDir = join(cwd, agents[agentType].skillsDir.split('/')[0]!);
-      if (!existsSync(agentRootDir)) {
-        return {
-          success: true,
-          path: canonicalDir,
-          canonicalPath: canonicalDir,
-          mode: 'symlink',
-          skipped: true,
-        };
-      }
+    if (willSkipAgentSymlink(agentType, isGlobal, cwd)) {
+      return {
+        success: true,
+        path: canonicalDir,
+        canonicalPath: canonicalDir,
+        mode: 'symlink',
+        skipped: true,
+      };
     }
 
     const symlinkCreated = await createSymlink(canonicalDir, agentDir);

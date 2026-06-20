@@ -39,6 +39,7 @@ import {
   isSkillInstalled,
   getCanonicalPath,
   installWellKnownSkillForAgent,
+  willSkipAgentSymlink,
   type InstallMode,
 } from './installer.ts';
 import {
@@ -225,18 +226,45 @@ function splitAgentsByType(agentTypes: AgentType[]): {
 }
 
 /**
- * Builds summary lines showing universal vs symlinked agents
+ * Builds the hint shown next to skipped agents, naming the missing config
+ * directories and the remedies.
  */
-function buildAgentSummaryLines(targetAgents: AgentType[], installMode: InstallMode): string[] {
+function formatSkipHint(skippedAgents: AgentType[]): string {
+  const dirs = [...new Set(skippedAgents.map((a) => agents[a].skillsDir.split('/')[0]))];
+  return `(no ${dirs.join(' or ')} in project — use -g, --copy, or create the directory first)`;
+}
+
+/**
+ * Builds summary lines showing universal vs symlinked agents.
+ * Agents whose project-level symlink will be skipped (config dir missing,
+ * see willSkipAgentSymlink) are listed as skipped instead of promised.
+ */
+function buildAgentSummaryLines(
+  targetAgents: AgentType[],
+  installMode: InstallMode,
+  isGlobal: boolean,
+  cwd: string
+): string[] {
   const lines: string[] = [];
-  const { universal, symlinked } = splitAgentsByType(targetAgents);
+  const { universal } = splitAgentsByType(targetAgents);
 
   if (installMode === 'symlink') {
+    const willSkip = targetAgents.filter((a) => willSkipAgentSymlink(a, isGlobal, cwd));
+    const skippedNames = willSkip.map((a) => agents[a].displayName);
+    const symlinked = targetAgents
+      .filter((a) => !isUniversalAgent(a) && !willSkip.includes(a))
+      .map((a) => agents[a].displayName);
+
     if (universal.length > 0) {
       lines.push(`  ${pc.green('universal:')} ${formatList(universal)}`);
     }
     if (symlinked.length > 0) {
       lines.push(`  ${pc.dim('symlink →')} ${formatList(symlinked)}`);
+    }
+    if (skippedNames.length > 0) {
+      lines.push(
+        `  ${pc.yellow('skipped:')} ${formatList(skippedNames)} ${pc.dim(formatSkipHint(willSkip))}`
+      );
     }
   } else {
     // Copy mode - all agents get copies
@@ -287,6 +315,8 @@ function buildResultLines(
     .map((r) => r.agent);
   const failedSymlinks = results.filter((r) => r.symlinkFailed && !r.skipped).map((r) => r.agent);
 
+  const skippedNames = [...new Set(results.filter((r) => r.skipped).map((r) => r.agent))];
+
   if (universal.length > 0) {
     lines.push(`  ${pc.green('universal:')} ${formatList(universal)}`);
   }
@@ -295,6 +325,12 @@ function buildResultLines(
   }
   if (failedSymlinks.length > 0) {
     lines.push(`  ${pc.yellow('copied:')} ${formatList(failedSymlinks)}`);
+  }
+  if (skippedNames.length > 0) {
+    const skippedTypes = targetAgents.filter((a) => skippedNames.includes(agents[a].displayName));
+    lines.push(
+      `  ${pc.yellow('skipped:')} ${formatList(skippedNames)} ${pc.dim(formatSkipHint(skippedTypes))}`
+    );
   }
 
   return lines;
@@ -721,7 +757,7 @@ async function handleWellKnownSkills(
     const canonicalPath = getCanonicalPath(skill.installName, { global: installGlobally });
     const shortCanonical = shortenPath(canonicalPath, cwd);
     summaryLines.push(`${pc.cyan(shortCanonical)}`);
-    summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
+    summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode, installGlobally, cwd));
     if (skill.files.size > 1) {
       summaryLines.push(`  ${pc.dim('files:')} ${skill.files.size}`);
     }
@@ -1490,7 +1526,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             : getCanonicalPath(skill.name, { global: installGlobally });
         const shortCanonical = shortenPath(canonicalPath, cwd);
         summaryLines.push(`${pc.cyan(shortCanonical)}`);
-        summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
+        summaryLines.push(
+          ...buildAgentSummaryLines(targetAgents, installMode, installGlobally, cwd)
+        );
 
         const skillOverwrites = overwriteStatus.get(skill.name);
         const overwriteAgents = targetAgents
