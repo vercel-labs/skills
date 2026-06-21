@@ -1984,7 +1984,7 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       i++;
       let nextArg = args[i];
       while (i < args.length && nextArg && !nextArg.startsWith('-')) {
-        options.agent.push(nextArg);
+        options.agent.push(...nextArg.split(','));
         i++;
         nextArg = args[i];
       }
@@ -1994,7 +1994,7 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       i++;
       let nextArg = args[i];
       while (i < args.length && nextArg && !nextArg.startsWith('-')) {
-        options.skill.push(nextArg);
+        options.skill.push(...nextArg.split(','));
         i++;
         nextArg = args[i];
       }

@@ -309,7 +309,7 @@ export function parseRemoveOptions(args: string[]): { skills: string[]; options:
       i++;
       let nextArg = args[i];
       while (i < args.length && nextArg && !nextArg.startsWith('-')) {
-        options.agent.push(nextArg);
+        options.agent.push(...nextArg.split(','));
         i++;
         nextArg = args[i];
       }

@@ -57,7 +57,7 @@ export function parseListOptions(args: string[]): ListOptions {
       options.agent = options.agent || [];
       // Collect all following arguments until next flag
       while (i + 1 < args.length && !args[i + 1]!.startsWith('-')) {
-        options.agent.push(args[++i]!);
+        options.agent.push(...args[++i]!.split(','));
       }
     }
   }
