@@ -64,13 +64,20 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(configHome, 'amp'));
     },
   },
+  // Three sibling Antigravity products (per Homebrew cask history). All share the
+  // `.agents/skills` workspace dir but each has its own global skills dir, so none
+  // are universal — global installs symlink into each product's own dir.
+  //   antigravity      (v2 orchestration hub)  ~/.gemini/antigravity       ~/.gemini/config/skills
+  //   antigravity-ide  (v2 IDE)                ~/.gemini/antigravity-ide   ~/.gemini/antigravity-ide/skills
+  //   antigravity-cli                          ~/.gemini/antigravity-cli   ~/.gemini/antigravity-cli/skills
+  // Note: `antigravity` v1 was the IDE and reused ~/.gemini/antigravity; v2 reused
+  // the same dir for a different product, so that marker is v1/v2-ambiguous.
+  // We accept the ambiguity: v1 is legacy, and issue #1470 specifies the path for v2.
   antigravity: {
     name: 'antigravity',
-    displayName: 'Antigravity 2.0',
+    displayName: 'Antigravity',
     skillsDir: '.agents/skills',
     globalSkillsDir: join(home, '.gemini/config/skills'),
-    // Reads workspace skills from .agents/skills, but uses its own global dir
-    // (~/.gemini/config/skills), so it must be symlinked like a non-universal agent.
     universal: false,
     detectInstalled: async () => {
       // Detection path per https://github.com/vercel-labs/skills/issues/1470
@@ -91,16 +98,10 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'antigravity-ide',
     displayName: 'Antigravity IDE',
     skillsDir: '.agents/skills',
-    globalSkillsDir: join(home, '.gemini/antigravity/skills'),
+    globalSkillsDir: join(home, '.gemini/antigravity-ide/skills'),
     universal: false,
     detectInstalled: async () => {
-      // Legacy product. Shares the ~/.gemini/antigravity marker with 2.0, so only
-      // report it as installed when the 2.0-specific config dir is absent (otherwise
-      // every 2.0 user would also auto-select this legacy entry). Selectable via
-      // `-a antigravity-ide` regardless.
-      return (
-        existsSync(join(home, '.gemini/antigravity')) && !existsSync(join(home, '.gemini/config'))
-      );
+      return existsSync(join(home, '.gemini/antigravity-ide'));
     },
   },
   astrbot: {

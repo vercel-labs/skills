@@ -74,7 +74,7 @@ describe('XDG config paths', () => {
     });
   });
 
-  describe('Antigravity 2.0', () => {
+  describe('Antigravity (orchestration hub)', () => {
     it('uses ~/.gemini/config/skills for global skills', () => {
       const expected = join(home, '.gemini', 'config', 'skills');
       expect(agents.antigravity.globalSkillsDir).toBe(expected);
@@ -95,8 +95,8 @@ describe('XDG config paths', () => {
   });
 
   describe('Antigravity IDE', () => {
-    it('uses ~/.gemini/antigravity/skills for global skills', () => {
-      const expected = join(home, '.gemini', 'antigravity', 'skills');
+    it('uses ~/.gemini/antigravity-ide/skills for global skills', () => {
+      const expected = join(home, '.gemini', 'antigravity-ide', 'skills');
       expect(agents['antigravity-ide'].globalSkillsDir).toBe(expected);
     });
 
@@ -104,7 +104,7 @@ describe('XDG config paths', () => {
       expect(isUniversalAgent('antigravity-ide')).toBe(false);
       expect(getNonUniversalAgents()).toContain('antigravity-ide');
       expect(getAgentBaseDir('antigravity-ide', true)).toBe(
-        join(home, '.gemini', 'antigravity', 'skills')
+        join(home, '.gemini', 'antigravity-ide', 'skills')
       );
     });
   });
@@ -115,7 +115,7 @@ describe('XDG config paths', () => {
       expect(agents['antigravity-cli'].globalSkillsDir).toBe(expected);
     });
 
-    it('uses a distinct global directory from Antigravity 2.0 and Antigravity IDE', () => {
+    it('uses a distinct global directory from Antigravity and Antigravity IDE', () => {
       const dirs = new Set([
         agents.antigravity.globalSkillsDir,
         agents['antigravity-ide'].globalSkillsDir,
