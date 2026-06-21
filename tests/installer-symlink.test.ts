@@ -224,4 +224,49 @@ describe('installer symlink regression', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  // Regression test for issue #745:
+  // When installing to a single non-universal agent with symlink mode,
+  // the agent directory should be a symlink to the canonical location.
+  it('creates symlink for single non-universal agent', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
+    const projectDir = join(root, 'project');
+    await mkdir(projectDir, { recursive: true });
+
+    const skillName = 'single-agent-symlink-skill';
+    const skillDir = await makeSkillSource(root, skillName);
+
+    try {
+      // Install for claude-code (a non-universal agent) with symlink mode
+      const result = await installSkillForAgent(
+        { name: skillName, description: 'test', path: skillDir },
+        'claude-code',
+        { cwd: projectDir, mode: 'symlink', global: false }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.symlinkFailed).toBeUndefined();
+
+      // Canonical location should have the actual files
+      const canonicalPath = join(projectDir, '.agents/skills', skillName);
+      const canonicalStats = await lstat(canonicalPath);
+      expect(canonicalStats.isDirectory()).toBe(true);
+      expect(canonicalStats.isSymbolicLink()).toBe(false);
+
+      // Read the SKILL.md from canonical location
+      const skillMd = await readFile(join(canonicalPath, 'SKILL.md'), 'utf-8');
+      expect(skillMd).toContain(skillName);
+
+      // Agent location should be a symlink to canonical
+      const agentPath = join(projectDir, '.claude/skills', skillName);
+      const agentStats = await lstat(agentPath);
+      expect(agentStats.isSymbolicLink()).toBe(true);
+
+      // Verify the symlink points to the canonical location
+      const linkTarget = await readlink(agentPath);
+      expect(linkTarget).toContain('.agents/skills');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
