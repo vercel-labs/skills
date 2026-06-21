@@ -234,11 +234,17 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
 export async function installSkillForAgent(
   skill: Skill,
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
+  options: {
+    global?: boolean;
+    cwd?: string;
+    mode?: InstallMode;
+    explicitlySelected?: boolean;
+  } = {}
 ): Promise<InstallResult> {
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
   const cwd = options.cwd || process.cwd();
+  const explicitlySelected = options.explicitlySelected ?? false;
 
   // Check if agent supports global installation
   if (isGlobal && agent.globalSkillsDir === undefined) {
@@ -343,7 +349,13 @@ export async function installSkillForAgent(
     // whose config directory doesn't already exist in the project. This prevents
     // creating directories like .windsurf/, .kiro/, etc. when those agents aren't
     // actually used in this project. The skill is already available in .agents/skills/.
-    if (!isGlobal && !isUniversalAgent(agentType)) {
+    //
+    // Exception: when the user explicitly selected this agent (via -a / --agent),
+    // their intent is unambiguous, so always create the symlink even if the
+    // agent's config directory doesn't yet exist. Without this exception, e.g.
+    // `npx skills add <pkg> -a claude-code` in a fresh project silently fails
+    // to install for Claude Code unless the user pre-creates `.claude/`.
+    if (!isGlobal && !isUniversalAgent(agentType) && !explicitlySelected) {
       const agentRootDir = join(cwd, agents[agentType].skillsDir.split('/')[0]!);
       if (!existsSync(agentRootDir)) {
         return {
@@ -860,11 +872,17 @@ export async function installWellKnownSkillForAgent(
 export async function installBlobSkillForAgent(
   skill: { installName: string; files: Array<{ path: string; contents: string }> },
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
+  options: {
+    global?: boolean;
+    cwd?: string;
+    mode?: InstallMode;
+    explicitlySelected?: boolean;
+  } = {}
 ): Promise<InstallResult> {
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
   const cwd = options.cwd || process.cwd();
+  const explicitlySelected = options.explicitlySelected ?? false;
   const installMode = options.mode ?? 'symlink';
 
   if (isGlobal && agent.globalSkillsDir === undefined) {
@@ -972,7 +990,11 @@ export async function installBlobSkillForAgent(
 
     // For project-level installs, skip creating symlinks for non-universal agents
     // whose config directory doesn't already exist in the project.
-    if (!isGlobal && !isUniversalAgent(agentType)) {
+    //
+    // Exception: when the user explicitly selected this agent (via -a / --agent),
+    // their intent is unambiguous, so always create the symlink. See the matching
+    // comment in installSkillForAgent for the full rationale.
+    if (!isGlobal && !isUniversalAgent(agentType) && !explicitlySelected) {
       const agentRootDir = join(cwd, agents[agentType].skillsDir.split('/')[0]!);
       if (!existsSync(agentRootDir)) {
         return {
