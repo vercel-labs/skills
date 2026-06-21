@@ -80,6 +80,8 @@ export interface Skill {
   rawContent?: string;
   /** Name of the plugin this skill belongs to (if any) */
   pluginName?: string;
+  /** Tags from SKILL.md frontmatter (lowercased) for --tag filtering */
+  tags?: string[];
   metadata?: Record<string, unknown>;
 }
 

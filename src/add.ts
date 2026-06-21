@@ -32,7 +32,7 @@ export function getLockSource(parsedUrl: string, normalizedSource: string | null
   return isSSH ? parsedUrl : normalizedSource;
 }
 import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
-import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
+import { discoverSkills, getSkillDisplayName, filterSkills, filterSkillsByTag } from './skills.ts';
 import {
   installSkillForAgent,
   installBlobSkillForAgent,
@@ -446,6 +446,7 @@ export interface AddOptions {
   agent?: string[];
   yes?: boolean;
   skill?: string[];
+  tag?: string[];
   list?: boolean;
   all?: boolean;
   fullDepth?: boolean;
@@ -1121,6 +1122,25 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
     }
 
+    const hasSkillFilter =
+      !!(options.skill && options.skill.length > 0) && !options.skill!.includes('*');
+    const hasTagFilter = !!(options.tag && options.tag.length > 0);
+
+    // Pre-compute filtered set so --list and the install path see the same skills.
+    let preFiltered: Skill[];
+    if (options.skill?.includes('*') || (!hasSkillFilter && !hasTagFilter)) {
+      preFiltered = skills;
+    } else {
+      const byName = hasSkillFilter ? filterSkills(skills, options.skill!) : [];
+      const byTag = hasTagFilter ? filterSkillsByTag(skills, options.tag!) : [];
+      const seen = new Set<string>();
+      preFiltered = [...byName, ...byTag].filter((s) => {
+        if (seen.has(s.path)) return false;
+        seen.add(s.path);
+        return true;
+      });
+    }
+
     if (options.list) {
       console.log();
       p.log.step(pc.bold('Available Skills'));
@@ -1129,7 +1149,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       const groupedSkills: Record<string, Skill[]> = {};
       const ungroupedSkills: Skill[] = [];
 
-      for (const skill of skills) {
+      for (const skill of preFiltered) {
         if (skill.pluginName) {
           const group = skill.pluginName;
           if (!groupedSkills[group]) groupedSkills[group] = [];
@@ -1166,7 +1186,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
 
       console.log();
-      p.outro('Use --skill <name> to install specific skills');
+      p.outro('Use --skill <name> or --tag <tag> to filter skills');
       await cleanup(tempDir);
       process.exit(0);
     }
@@ -1177,14 +1197,21 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       // --skill '*' selects all skills
       selectedSkills = skills;
       p.log.info(`Installing all ${skills.length} skills`);
-    } else if (options.skill && options.skill.length > 0) {
-      selectedSkills = filterSkills(skills, options.skill);
+    } else if (hasSkillFilter || hasTagFilter) {
+      selectedSkills = preFiltered;
 
       if (selectedSkills.length === 0) {
-        p.log.error(`No matching skills found for: ${options.skill.join(', ')}`);
+        const criteria = [
+          hasSkillFilter ? `name: ${options.skill!.join(', ')}` : null,
+          hasTagFilter ? `tag: ${options.tag!.join(', ')}` : null,
+        ]
+          .filter(Boolean)
+          .join('; ');
+        p.log.error(`No matching skills found for ${criteria}`);
         p.log.info('Available skills:');
         for (const s of skills) {
-          p.log.message(`  - ${getSkillDisplayName(s)}`);
+          const tagStr = s.tags && s.tags.length > 0 ? pc.dim(` [${s.tags.join(', ')}]`) : '';
+          p.log.message(`  - ${getSkillDisplayName(s)}${tagStr}`);
         }
         await cleanup(tempDir);
         process.exit(1);
@@ -1995,6 +2022,16 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       let nextArg = args[i];
       while (i < args.length && nextArg && !nextArg.startsWith('-')) {
         options.skill.push(nextArg);
+        i++;
+        nextArg = args[i];
+      }
+      i--; // Back up one since the loop will increment
+    } else if (arg === '-t' || arg === '--tag') {
+      options.tag = options.tag || [];
+      i++;
+      let nextArg = args[i];
+      while (i < args.length && nextArg && !nextArg.startsWith('-')) {
+        options.tag.push(nextArg);
         i++;
         nextArg = args[i];
       }
