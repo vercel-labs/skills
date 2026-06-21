@@ -214,6 +214,38 @@ description: Test force
     });
   });
 
+  // Regression: sync into a non-universal agent (claude-code) whose config dir
+  // doesn't exist yet must still create it when that agent is explicitly selected.
+  // claude-code reads from .claude/skills (not .agents/skills), so skipping would
+  // silently sync nothing usable for it.
+  describe('agent directory creation', () => {
+    it('creates a missing .claude/skills symlink for explicitly selected claude-code', () => {
+      const pkgDir = join(testDir, 'node_modules', 'my-pkg');
+      mkdirSync(pkgDir, { recursive: true });
+      writeFileSync(
+        join(pkgDir, 'SKILL.md'),
+        `---
+name: sync-explicit-skill
+description: Test explicit agent dir creation
+---
+
+# Sync Explicit
+`
+      );
+
+      // No .claude/ dir exists in the project before sync.
+      expect(existsSync(join(testDir, '.claude'))).toBe(false);
+
+      runCli(['experimental_sync', '-y', '-a', 'claude-code'], testDir);
+
+      // The skill must be materialized into .claude/skills so claude-code can read it
+      // (symlink on POSIX, junction/copy fallback on Windows — assert readability).
+      const linked = join(testDir, '.claude', 'skills', 'sync-explicit-skill');
+      expect(existsSync(linked)).toBe(true);
+      expect(readFileSync(join(linked, 'SKILL.md'), 'utf-8')).toContain('sync-explicit-skill');
+    });
+  });
+
   describe('CLI routing', () => {
     it('should show experimental_sync in help output', () => {
       const result = runCli(['--help']);

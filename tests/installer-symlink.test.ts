@@ -224,4 +224,74 @@ describe('installer symlink regression', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  // Regression: a non-universal agent whose config dir doesn't exist in the project
+  // is skipped on a blanket install (default behavior), so we don't create directories
+  // like .claude/ for agents that aren't actually used in the project.
+  it('skips non-universal agent when its config dir is missing (blanket install)', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
+    const projectDir = join(root, 'project');
+    await mkdir(projectDir, { recursive: true });
+
+    const skillName = 'blanket-skill';
+    const skillDir = await makeSkillSource(root, skillName);
+
+    try {
+      // No .claude/ dir exists; explicitAgents defaults to false (blanket install).
+      const result = await installSkillForAgent(
+        { name: skillName, description: 'test', path: skillDir },
+        'claude-code',
+        { cwd: projectDir, mode: 'symlink', global: false }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.skipped).toBe(true);
+
+      // Skill exists in the canonical location...
+      const canonicalSkillDir = join(projectDir, '.agents/skills', skillName);
+      expect((await lstat(canonicalSkillDir)).isDirectory()).toBe(true);
+
+      // ...but no .claude/ directory was created for the unused agent.
+      await expect(lstat(join(projectDir, '.claude'))).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  // Regression: when a non-universal agent is explicitly selected, its directory and
+  // symlink must be created even if the dir doesn't exist yet. Claude Code reads from
+  // .claude/skills (not .agents/skills), so skipping would silently install nothing.
+  it('creates symlink for explicitly selected non-universal agent with missing dir', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
+    const projectDir = join(root, 'project');
+    await mkdir(projectDir, { recursive: true });
+
+    const skillName = 'explicit-skill';
+    const skillDir = await makeSkillSource(root, skillName);
+
+    try {
+      // No .claude/ dir exists, but the user explicitly chose claude-code.
+      const result = await installSkillForAgent(
+        { name: skillName, description: 'test', path: skillDir },
+        'claude-code',
+        { cwd: projectDir, mode: 'symlink', global: false, explicitAgents: true }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.skipped).toBeUndefined();
+
+      // Skill exists in the canonical location.
+      const canonicalSkillDir = join(projectDir, '.agents/skills', skillName);
+      expect((await lstat(canonicalSkillDir)).isDirectory()).toBe(true);
+
+      // And it is materialized into .claude/skills so Claude Code can actually read it.
+      // (Symlink on POSIX, junction/copy fallback on Windows — assert the skill is
+      // readable rather than the link type, to stay platform-agnostic like the tests above.)
+      const claudeSkillDir = join(projectDir, '.claude/skills', skillName);
+      const contents = await readFile(join(claudeSkillDir, 'SKILL.md'), 'utf-8');
+      expect(contents).toContain(`name: ${skillName}`);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
