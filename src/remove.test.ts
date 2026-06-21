@@ -104,6 +104,36 @@ This is a test skill.
       expect(existsSync(join(skillsDir, 'skill-three'))).toBe(true);
     });
 
+    it('should remove project skill from local lock file', () => {
+      writeFileSync(
+        join(testDir, 'skills-lock.json'),
+        JSON.stringify({
+          version: 1,
+          skills: {
+            'skill-one': {
+              source: 'org/repo',
+              sourceType: 'github',
+              computedHash: 'hash-one',
+            },
+            'skill-two': {
+              source: 'org/repo',
+              sourceType: 'github',
+              computedHash: 'hash-two',
+            },
+          },
+        })
+      );
+
+      const result = runCli(['remove', 'skill-one', '-y'], testDir);
+
+      expect(result.stdout).toContain('Successfully removed');
+      const lock = JSON.parse(
+        require('fs').readFileSync(join(testDir, 'skills-lock.json'), 'utf-8')
+      );
+      expect(lock.skills['skill-one']).toBeUndefined();
+      expect(lock.skills['skill-two']).toBeDefined();
+    });
+
     it('should remove multiple skills by name', () => {
       const result = runCli(['remove', 'skill-one', 'skill-two', '-y'], testDir);
 

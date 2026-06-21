@@ -125,6 +125,60 @@ describe('installer symlink regression', () => {
     }
   });
 
+  it('does not replace a local source that is also an agent skill destination', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
+    const projectDir = join(root, 'project');
+    const skillName = 'demo-skill';
+    const skillDir = join(projectDir, 'skills', skillName);
+
+    try {
+      await mkdir(skillDir, { recursive: true });
+      await writeFile(
+        join(skillDir, 'SKILL.md'),
+        `---\nname: ${skillName}\ndescription: test\n---\n`,
+        'utf-8'
+      );
+
+      const openClawResult = await installSkillForAgent(
+        { name: skillName, description: 'test', path: skillDir },
+        'openclaw',
+        { cwd: projectDir, mode: 'symlink', global: false }
+      );
+
+      expect(openClawResult.success).toBe(true);
+      expect(openClawResult.skipped).toBe(true);
+
+      const sourceStats = await lstat(skillDir);
+      expect(sourceStats.isDirectory()).toBe(true);
+      expect(sourceStats.isSymbolicLink()).toBe(false);
+      await expect(readFile(join(skillDir, 'SKILL.md'), 'utf-8')).resolves.toContain(
+        `name: ${skillName}`
+      );
+
+      const canonicalDir = join(projectDir, '.agents', 'skills', skillName);
+      await expect(readFile(join(canonicalDir, 'SKILL.md'), 'utf-8')).resolves.toContain(
+        `name: ${skillName}`
+      );
+
+      await mkdir(join(projectDir, '.claude'), { recursive: true });
+      const claudeResult = await installSkillForAgent(
+        { name: skillName, description: 'test', path: skillDir },
+        'claude-code',
+        { cwd: projectDir, mode: 'symlink', global: false }
+      );
+
+      expect(claudeResult.success).toBe(true);
+      await expect(readFile(join(canonicalDir, 'SKILL.md'), 'utf-8')).resolves.toContain(
+        `name: ${skillName}`
+      );
+      await expect(readFile(join(skillDir, 'SKILL.md'), 'utf-8')).resolves.toContain(
+        `name: ${skillName}`
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   // Regression test for #293: when agent skills dir is a symlink to canonical dir
   it('handles agent skills dir being a symlink to canonical dir', async () => {
     const root = await mkdtemp(join(tmpdir(), 'add-skill-'));

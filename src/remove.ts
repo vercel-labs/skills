@@ -6,6 +6,7 @@ import { agents, detectInstalledAgents } from './agents.ts';
 import { track } from './telemetry.ts';
 import { detectAgent } from './detect-agent.ts';
 import { removeSkillFromLock, getSkillFromLock } from './skill-lock.ts';
+import { removeSkillFromLocalLock } from './local-lock.ts';
 import type { AgentType } from './types.ts';
 import {
   getInstallPath,
@@ -226,6 +227,8 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
       if (isGlobal) {
         await removeSkillFromLock(skillName);
+      } else {
+        await removeSkillFromLocalLock(skillName, cwd);
       }
 
       results.push({

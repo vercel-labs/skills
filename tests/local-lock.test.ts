@@ -9,6 +9,7 @@ import {
   removeSkillFromLocalLock,
   computeSkillFolderHash,
   getLocalLockPath,
+  getLocalSkillsBySource,
 } from '../src/local-lock.ts';
 
 describe('local-lock', () => {
@@ -222,6 +223,52 @@ describe('local-lock', () => {
           sourceType: 'github',
           computedHash: 'hash123',
         });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('stores install preferences when present', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await addSkillToLocalLock(
+          'preferred-skill',
+          {
+            source: 'org/repo',
+            sourceType: 'github',
+            computedHash: 'hash123',
+            agents: ['claude-code', 'codex'],
+            installMode: 'symlink',
+          },
+          dir
+        );
+
+        const lock = await readLocalLock(dir);
+        expect(lock.skills['preferred-skill']).toMatchObject({
+          agents: ['claude-code', 'codex'],
+          installMode: 'symlink',
+        });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('finds skills by source for rerun defaults', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await addSkillToLocalLock(
+          'matching-skill',
+          { source: 'org/repo', sourceType: 'github', computedHash: 'hash123' },
+          dir
+        );
+        await addSkillToLocalLock(
+          'other-skill',
+          { source: 'other/repo', sourceType: 'github', computedHash: 'hash456' },
+          dir
+        );
+
+        const matches = await getLocalSkillsBySource(['org/repo'], dir);
+        expect(Object.keys(matches)).toEqual(['matching-skill']);
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
