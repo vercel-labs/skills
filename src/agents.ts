@@ -64,15 +64,8 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(configHome, 'amp'));
     },
   },
-  // Three sibling Antigravity products (per Homebrew cask history). All share the
-  // `.agents/skills` workspace dir but each has its own global skills dir, so none
-  // are universal — global installs symlink into each product's own dir.
-  //   antigravity      (v2 orchestration hub)  ~/.gemini/antigravity       ~/.gemini/config/skills
-  //   antigravity-ide  (v2 IDE)                ~/.gemini/antigravity-ide   ~/.gemini/antigravity-ide/skills
-  //   antigravity-cli                          ~/.gemini/antigravity-cli   ~/.gemini/antigravity-cli/skills
-  // Note: `antigravity` v1 was the IDE and reused ~/.gemini/antigravity; v2 reused
-  // the same dir for a different product, so that marker is v1/v2-ambiguous.
-  // We accept the ambiguity: v1 is legacy, and issue #1470 specifies the path for v2.
+  // Antigravity products share the `.agents/skills` workspace dir but each has its
+  // own global skills dir, so none are universal. Paths per Homebrew cask records.
   antigravity: {
     name: 'antigravity',
     displayName: 'Antigravity',
@@ -80,7 +73,7 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.gemini/config/skills'),
     universal: false,
     detectInstalled: async () => {
-      // Detection path per https://github.com/vercel-labs/skills/issues/1470
+      // Per https://github.com/vercel-labs/skills/issues/1470
       return existsSync(join(home, '.gemini/antigravity'));
     },
   },
