@@ -66,10 +66,14 @@ export const agents: Record<AgentType, AgentConfig> = {
   },
   antigravity: {
     name: 'antigravity',
-    displayName: 'Antigravity',
+    displayName: 'Antigravity 2.0',
     skillsDir: '.agents/skills',
-    globalSkillsDir: join(home, '.gemini/antigravity/skills'),
+    globalSkillsDir: join(home, '.gemini/config/skills'),
+    // Reads workspace skills from .agents/skills, but uses its own global dir
+    // (~/.gemini/config/skills), so it must be symlinked like a non-universal agent.
+    universal: false,
     detectInstalled: async () => {
+      // Detection path per https://github.com/vercel-labs/skills/issues/1470
       return existsSync(join(home, '.gemini/antigravity'));
     },
   },
@@ -78,8 +82,25 @@ export const agents: Record<AgentType, AgentConfig> = {
     displayName: 'Antigravity CLI',
     skillsDir: '.agents/skills',
     globalSkillsDir: join(home, '.gemini/antigravity-cli/skills'),
+    universal: false,
     detectInstalled: async () => {
       return existsSync(join(home, '.gemini/antigravity-cli'));
+    },
+  },
+  'antigravity-ide': {
+    name: 'antigravity-ide',
+    displayName: 'Antigravity IDE',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.gemini/antigravity/skills'),
+    universal: false,
+    detectInstalled: async () => {
+      // Legacy product. Shares the ~/.gemini/antigravity marker with 2.0, so only
+      // report it as installed when the 2.0-specific config dir is absent (otherwise
+      // every 2.0 user would also auto-select this legacy entry). Selectable via
+      // `-a antigravity-ide` regardless.
+      return (
+        existsSync(join(home, '.gemini/antigravity')) && !existsSync(join(home, '.gemini/config'))
+      );
     },
   },
   astrbot: {
@@ -736,9 +757,7 @@ export function getAgentConfig(type: AgentType): AgentConfig {
  */
 export function getUniversalAgents(): AgentType[] {
   return (Object.entries(agents) as [AgentType, AgentConfig][])
-    .filter(
-      ([_, config]) => config.skillsDir === '.agents/skills' && config.showInUniversalList !== false
-    )
+    .filter(([type, config]) => isUniversalAgent(type) && config.showInUniversalList !== false)
     .map(([type]) => type);
 }
 
@@ -749,8 +768,8 @@ export function getUniversalAgents(): AgentType[] {
 export function getVisibleUniversalAgents(): AgentType[] {
   return (Object.entries(agents) as [AgentType, AgentConfig][])
     .filter(
-      ([_, config]) =>
-        config.skillsDir === '.agents/skills' &&
+      ([type, config]) =>
+        isUniversalAgent(type) &&
         config.showInUniversalList !== false &&
         config.showInUniversalPrompt !== false
     )
@@ -763,7 +782,7 @@ export function getVisibleUniversalAgents(): AgentType[] {
  */
 export function getNonUniversalAgents(): AgentType[] {
   return (Object.entries(agents) as [AgentType, AgentConfig][])
-    .filter(([_, config]) => config.skillsDir !== '.agents/skills')
+    .filter(([type]) => !isUniversalAgent(type))
     .map(([type]) => type);
 }
 
@@ -771,5 +790,7 @@ export function getNonUniversalAgents(): AgentType[] {
  * Check if an agent uses the universal .agents/skills directory.
  */
 export function isUniversalAgent(type: AgentType): boolean {
-  return agents[type].skillsDir === '.agents/skills';
+  // Explicit flag wins; otherwise infer from the shared canonical workspace dir.
+  const config = agents[type];
+  return config.universal ?? config.skillsDir === '.agents/skills';
 }
