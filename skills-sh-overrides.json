@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "redirects": [
+    {
+      "from": "LilMGenius/skills/re0",
+      "to": "LilMGenius/paperthin/re0",
+      "reason": "Source repo renamed LilMGenius/skills -> LilMGenius/paperthin (GitHub 301-redirects); the skill moved with it.",
+      "evidence": ["https://github.com/LilMGenius/paperthin"],
+      "verifiedAt": "2026-06-21"
+    },
+    {
+      "from": "LilMGenius/skills/re0-git",
+      "to": "LilMGenius/paperthin/re0-git",
+      "reason": "Source repo renamed LilMGenius/skills -> LilMGenius/paperthin (GitHub 301-redirects); the skill moved with it.",
+      "evidence": ["https://github.com/LilMGenius/paperthin"],
+      "verifiedAt": "2026-06-21"
+    },
+    {
+      "from": "LilMGenius/skills/shower",
+      "to": "LilMGenius/paperthin/shower",
+      "reason": "Source repo renamed LilMGenius/skills -> LilMGenius/paperthin (GitHub 301-redirects); the skill moved with it.",
+      "evidence": ["https://github.com/LilMGenius/paperthin"],
+      "verifiedAt": "2026-06-21"
+    },
+    {
+      "from": "LilMGenius/skills/ssotize",
+      "to": "LilMGenius/paperthin/ssotize",
+      "reason": "Source repo renamed LilMGenius/skills -> LilMGenius/paperthin (GitHub 301-redirects); the skill moved with it.",
+      "evidence": ["https://github.com/LilMGenius/paperthin"],
+      "verifiedAt": "2026-06-21"
+    },
+    {
+      "from": "LilMGenius/skills/tasting",
+      "to": "LilMGenius/paperthin/tasting",
+      "reason": "Source repo renamed LilMGenius/skills -> LilMGenius/paperthin (GitHub 301-redirects); the skill moved with it.",
+      "evidence": ["https://github.com/LilMGenius/paperthin"],
+      "verifiedAt": "2026-06-21"
+    },
+    {
+      "from": "LilMGenius/skills/ssotchk",
+      "to": "LilMGenius/paperthin/ssotchk",
+      "reason": "Source repo renamed LilMGenius/skills -> LilMGenius/paperthin (GitHub 301-redirects); the skill moved with it.",
+      "evidence": ["https://github.com/LilMGenius/paperthin"],
+      "verifiedAt": "2026-06-21"
+    },
+    {
+      "from": "LilMGenius/skills/ssot-check",
+      "to": "LilMGenius/paperthin/ssotchk",
+      "reason": "Skill renamed ssot-check -> ssotchk and the repo renamed skills -> paperthin; ssot-check no longer exists in the source.",
+      "evidence": ["https://github.com/LilMGenius/paperthin/blob/main/skills/cross/ssotchk/SKILL.md"],
+      "verifiedAt": "2026-06-21"
+    }
+  ]
+}
