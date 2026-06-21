@@ -144,6 +144,13 @@ export async function searchMultiselect<T>(
     lockedSection,
   } = options;
 
+  // VT escape codes (cursor movement, line erase) only work when the terminal
+  // has ANSI/VT processing enabled. On Windows cmd/PowerShell without VT mode,
+  // escape sequences print as literal text, causing each render to append a new
+  // frame instead of overwriting the previous one. Use color depth as a proxy:
+  // depth > 1 means the terminal processes ANSI escapes.
+  const vtSupported = process.stdout.isTTY && (process.stdout.getColorDepth?.() ?? 1) > 1;
+
   return new Promise((resolve) => {
     const rl = readline.createInterface({
       input: process.stdin,
@@ -179,14 +186,13 @@ export async function searchMultiselect<T>(
     };
 
     const clearRender = (): void => {
-      if (lastRenderHeight > 0) {
-        // Move up and clear each line
-        process.stdout.write(`\x1b[${lastRenderHeight}A`);
-        for (let i = 0; i < lastRenderHeight; i++) {
-          process.stdout.write('\x1b[2K\x1b[1B');
-        }
-        process.stdout.write(`\x1b[${lastRenderHeight}A`);
+      if (!vtSupported || lastRenderHeight === 0) return;
+      // Move up and clear each line
+      process.stdout.write(`\x1b[${lastRenderHeight}A`);
+      for (let i = 0; i < lastRenderHeight; i++) {
+        process.stdout.write('\x1b[2K\x1b[1B');
       }
+      process.stdout.write(`\x1b[${lastRenderHeight}A`);
     };
 
     const render = (state: 'active' | 'submit' | 'cancel' = 'active'): void => {
@@ -294,7 +300,8 @@ export async function searchMultiselect<T>(
       // Use wrapped row count: logical lines can span multiple terminal rows when hints
       // or labels exceed column width. Using lines.length alone under-counts and breaks
       // clearRender(), causing the prompt to re-print hundreds of times on each redraw.
-      lastRenderHeight = countVisualRowsForLines(lines, process.stdout.columns);
+      // Only track height for overwriting when VT is supported
+      lastRenderHeight = vtSupported ? countVisualRowsForLines(lines, process.stdout.columns) : 0;
     };
 
     const cleanup = (): void => {

@@ -69,6 +69,11 @@ const MOVE_TO_COL = (n: number) => `\x1b[${n}G`;
 
 // Custom fzf-style search prompt using raw readline
 async function runSearchPrompt(initialQuery = ''): Promise<SearchSkill | null> {
+  // VT escape codes only work when the terminal has ANSI/VT processing enabled.
+  // On Windows without VT mode, escape sequences print as literal text, causing
+  // each render to append new lines instead of overwriting the previous frame.
+  const vtSupported = process.stdout.isTTY && (process.stdout.getColorDepth?.() ?? 1) > 1;
+
   let results: SearchSkill[] = [];
   let selectedIndex = 0;
   let query = initialQuery;
@@ -87,17 +92,21 @@ async function runSearchPrompt(initialQuery = ''): Promise<SearchSkill | null> {
   // Resume stdin to start receiving events
   process.stdin.resume();
 
-  // Hide cursor during selection
-  process.stdout.write(HIDE_CURSOR);
+  // Hide cursor during selection (only when VT is supported)
+  if (vtSupported) {
+    process.stdout.write(HIDE_CURSOR);
+  }
 
   function render(): void {
-    // Move cursor up to overwrite previous render
-    if (lastRenderedLines > 0) {
+    // Move cursor up to overwrite previous render (only when VT is supported)
+    if (vtSupported && lastRenderedLines > 0) {
       process.stdout.write(MOVE_UP(lastRenderedLines) + MOVE_TO_COL(1));
     }
 
-    // Clear from cursor to end of screen (removes ghost trails)
-    process.stdout.write(CLEAR_DOWN);
+    // Clear from cursor to end of screen (only when VT is supported)
+    if (vtSupported) {
+      process.stdout.write(CLEAR_DOWN);
+    }
 
     const lines: string[] = [];
 
@@ -139,7 +148,8 @@ async function runSearchPrompt(initialQuery = ''): Promise<SearchSkill | null> {
       process.stdout.write(line + '\n');
     }
 
-    lastRenderedLines = lines.length;
+    // Only track height for overwriting when VT is supported
+    lastRenderedLines = vtSupported ? lines.length : 0;
   }
 
   function triggerSearch(q: string): void {
@@ -193,7 +203,9 @@ async function runSearchPrompt(initialQuery = ''): Promise<SearchSkill | null> {
       if (process.stdin.isTTY) {
         process.stdin.setRawMode(false);
       }
-      process.stdout.write(SHOW_CURSOR);
+      if (vtSupported) {
+        process.stdout.write(SHOW_CURSOR);
+      }
       // Pause stdin to fully release it for child processes
       process.stdin.pause();
     }

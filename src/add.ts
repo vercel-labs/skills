@@ -868,11 +868,19 @@ async function handleWellKnownSkills(
       const firstResult = skillResults[0]!;
 
       if (firstResult.mode === 'copy') {
-        // Copy mode: show skill name and list all agent paths
+        // Copy mode: group by unique path (global installs share one dir across agents)
         resultLines.push(`${pc.green('✓')} ${skillName} ${pc.dim('(copied)')}`);
+        const byPath = new Map<string, string[]>();
         for (const r of skillResults) {
           const shortPath = shortenPath(r.path, cwd);
-          resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
+          const names = byPath.get(shortPath) ?? [];
+          names.push(r.agent);
+          byPath.set(shortPath, names);
+        }
+        for (const [shortPath, agentNames] of byPath) {
+          resultLines.push(
+            `  ${pc.dim('→')} ${shortPath} ${pc.dim('(' + formatList(agentNames) + ')')}`
+          );
         }
       } else {
         // Symlink mode: show canonical path and universal/symlinked agents
@@ -1788,11 +1796,19 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           const firstResult = skillResults[0]!;
 
           if (firstResult.mode === 'copy') {
-            // Copy mode: show skill name and list all agent paths
+            // Copy mode: group by unique path (global installs share one dir across agents)
             resultLines.push(`${pc.green('✓')} ${entry.skill} ${pc.dim('(copied)')}`);
+            const byPath = new Map<string, string[]>();
             for (const r of skillResults) {
               const shortPath = shortenPath(r.path, cwd);
-              resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
+              const names = byPath.get(shortPath) ?? [];
+              names.push(r.agent);
+              byPath.set(shortPath, names);
+            }
+            for (const [shortPath, agentNames] of byPath) {
+              resultLines.push(
+                `  ${pc.dim('→')} ${shortPath} ${pc.dim('(' + formatList(agentNames) + ')')}`
+              );
             }
           } else {
             // Symlink mode: show canonical path and universal/symlinked agents

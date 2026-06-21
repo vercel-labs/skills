@@ -384,4 +384,7 @@ async function main(): Promise<void> {
   }
 }
 
-main().finally(() => flushTelemetry().then(() => process.exit(0)));
+// No explicit process.exit(0) — let Node drain naturally after flush.
+// Calling process.exit() while undici connection-pool handles are still
+// live triggers a libuv assertion on Windows (UV_HANDLE_CLOSING, async.c:76).
+main().finally(() => flushTelemetry());

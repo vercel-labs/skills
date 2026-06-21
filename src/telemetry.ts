@@ -119,13 +119,15 @@ export async function fetchAuditData(
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-    const response = await fetch(`${AUDIT_URL}?${params.toString()}`, {
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-
-    if (!response.ok) return null;
-    return (await response.json()) as AuditResponse;
+    try {
+      const response = await fetch(`${AUDIT_URL}?${params.toString()}`, {
+        signal: controller.signal,
+      });
+      if (!response.ok) return null;
+      return (await response.json()) as AuditResponse;
+    } finally {
+      clearTimeout(timeout);
+    }
   } catch {
     return null;
   }
@@ -181,6 +183,17 @@ export function track(data: TelemetryData): void {
  */
 export async function flushTelemetry(timeoutMs = 5000): Promise<void> {
   if (pendingTelemetry.length === 0) return;
-  const timeout = new Promise<void>((resolve) => setTimeout(resolve, timeoutMs));
-  await Promise.race([Promise.all(pendingTelemetry), timeout]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, timeoutMs);
+    // Unref so this timer doesn't prevent natural process exit if everything
+    // else has already drained — avoids hanging when telemetry is the last
+    // active handle.
+    timer.unref?.();
+  });
+  try {
+    await Promise.race([Promise.all(pendingTelemetry), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
