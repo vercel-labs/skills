@@ -452,6 +452,21 @@ This enables compatibility with the [Claude Code plugin marketplace](https://cod
 
 If no skills are found in standard locations, a recursive search is performed.
 
+## Publishing Skills
+
+There is no submission form or registry to apply to — the [skills.sh](https://skills.sh) directory is populated automatically from CLI usage. To publish a skill so others can install it and so it can surface in the directory:
+
+1. **Put the skill in a public Git repository** with a valid `SKILL.md` (a `name` and `description` in the frontmatter — see [Creating Skills](#creating-skills)). A private repository can still be installed by anyone who has git access to it, but it cannot be indexed publicly.
+2. **Share the install command** so others can add it:
+
+   ```bash
+   npx skills add <owner>/<repo>
+   ```
+
+3. **Let installs accumulate.** The [skills.sh](https://skills.sh) directory and leaderboard are ranked from the anonymous install telemetry collected by the CLI (see [Telemetry](#telemetry)). As people install your skill it appears in search and climbs the leaderboard — there is no manual registration step.
+
+Installs made with telemetry disabled — via `DISABLE_TELEMETRY` or `DO_NOT_TRACK`, and automatically in CI — do not count toward directory ranking.
+
 ## Compatibility
 
 Skills are generally compatible across agents since they follow a
