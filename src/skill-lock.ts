@@ -35,6 +35,12 @@ export interface SkillLockEntry {
   updatedAt: string;
   /** Name of the plugin this skill belongs to (if any) */
   pluginName?: string;
+  /**
+   * Namespace prefix applied to this skill at install time (e.g. the source
+   * repo name). Recorded so `update` can re-apply the same `--prefix`, keeping
+   * the skill grouped/renamed across updates. Absent for unprefixed installs.
+   */
+  prefix?: string;
 }
 
 /**

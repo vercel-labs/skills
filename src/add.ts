@@ -3,7 +3,7 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
-import { sep, join, dirname } from 'path';
+import { sep, join, dirname, basename } from 'path';
 import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
 import { stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
@@ -31,6 +31,24 @@ export function getLockSource(parsedUrl: string, normalizedSource: string | null
   const isSSH = parsedUrl.startsWith('git@') || parsedUrl.startsWith('ssh://');
   return isSSH ? parsedUrl : normalizedSource;
 }
+
+/**
+ * Resolve the effective prefix string for an install from the `--prefix`
+ * option. `true` (bare `--prefix`) derives it from the source repo name; a
+ * string is used as-is. Returns undefined when no prefix was requested or when
+ * the repo name can't be determined (e.g. a non owner/repo source).
+ */
+export function resolvePrefix(
+  prefixOption: string | true | undefined,
+  normalizedSource: string | null
+): string | undefined {
+  if (!prefixOption) return undefined;
+  if (typeof prefixOption === 'string') return prefixOption;
+  // Bare `--prefix`: derive from the source repo name (e.g. owner/repo -> repo).
+  if (!normalizedSource) return undefined;
+  const ownerRepo = parseOwnerRepo(normalizedSource);
+  return ownerRepo?.repo;
+}
 import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
 import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
 import {
@@ -39,6 +57,8 @@ import {
   isSkillInstalled,
   getCanonicalPath,
   installWellKnownSkillForAgent,
+  buildInstallName,
+  renameInstalledSkill,
   type InstallMode,
 } from './installer.ts';
 import {
@@ -450,6 +470,14 @@ export interface AddOptions {
   all?: boolean;
   fullDepth?: boolean;
   copy?: boolean;
+  /**
+   * Namespace installed skills under a prefix so a repo's skills group
+   * together and don't collide across sources.
+   * `true` (bare `--prefix`) derives the prefix from the source repo name;
+   * a string (`--prefix=<value>`) uses a custom prefix. Recorded in the lock
+   * file so `update` keeps the skill prefixed.
+   */
+  prefix?: string | true;
   dangerouslyAcceptOpenclawRisks?: boolean;
 }
 
@@ -480,6 +508,12 @@ async function handleWellKnownSkills(
   }
 
   spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
+
+  if (options.prefix) {
+    p.log.warn(
+      '--prefix is not supported for well-known skill sources; installing without a prefix.'
+    );
+  }
 
   // Log discovered skills
   for (const skill of skills) {
@@ -994,6 +1028,17 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // cloning/discovering/installing. The result is only needed later for
     // telemetry gating — it should never block user-visible output.
     const ownerRepoRaw = getOwnerRepo(parsed);
+
+    // Resolve the namespace prefix (if --prefix was passed) from the source
+    // repo. Computed once here and threaded into every install/lock call so the
+    // on-disk name, lock key, and frontmatter `name:` all agree.
+    const resolvedPrefix = resolvePrefix(options.prefix, ownerRepoRaw);
+    if (options.prefix && !resolvedPrefix) {
+      p.log.warn(
+        'Could not derive a --prefix from this source; installing without a prefix. Use --prefix=<value> to set one explicitly.'
+      );
+    }
+
     const repoPrivacyPromise: Promise<boolean | null> = (() => {
       if (!ownerRepoRaw) return Promise.resolve(null);
       const ownerRepo = parseOwnerRepo(ownerRepoRaw);
@@ -1453,7 +1498,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         targetAgents.map(async (agent) => ({
           skillName: skill.name,
           agent,
-          installed: await isSkillInstalled(skill.name, agent, { global: installGlobally }),
+          installed: await isSkillInstalled(buildInstallName(skill.name, resolvedPrefix), agent, {
+            global: installGlobally,
+          }),
         }))
       )
     );
@@ -1484,10 +1531,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       for (const skill of skills) {
         if (summaryLines.length > 0) summaryLines.push('');
 
+        const installName = buildInstallName(skill.name, resolvedPrefix);
         const canonicalPath =
           targetAgents.length === 1
-            ? getCanonicalPath(skill.name, { global: installGlobally, agent: targetAgents[0] })
-            : getCanonicalPath(skill.name, { global: installGlobally });
+            ? getCanonicalPath(installName, { global: installGlobally, agent: targetAgents[0] })
+            : getCanonicalPath(installName, { global: installGlobally });
         const shortCanonical = shortenPath(canonicalPath, cwd);
         summaryLines.push(`${pc.cyan(shortCanonical)}`);
         summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
@@ -1571,6 +1619,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       symlinkFailed?: boolean;
       error?: string;
       pluginName?: string;
+      agentType: AgentType;
     }[] = [];
 
     for (const skill of selectedSkills) {
@@ -1580,7 +1629,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           // Blob-based install: write files from snapshot
           const blobSkill = skill as BlobSkill;
           result = await installBlobSkillForAgent(
-            { installName: blobSkill.name, files: blobSkill.files },
+            {
+              installName: buildInstallName(blobSkill.name, resolvedPrefix),
+              files: blobSkill.files,
+            },
             agent,
             { global: installGlobally, mode: installMode }
           );
@@ -1596,11 +1648,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           result = await installSkillForAgent(skill, agent, {
             global: installGlobally,
             mode: installMode,
+            prefix: resolvedPrefix,
           });
         }
         results.push({
           skill: getSkillDisplayName(skill),
           agent: agents[agent].displayName,
+          agentType: agent,
           pluginName: skill.pluginName,
           ...result,
         });
@@ -1608,6 +1662,28 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     spinner.stop('Installation complete');
+
+    // When a prefix was applied, rewrite each installed SKILL.md's `name:` to
+    // the prefixed name so the agent invokes the namespaced skill. Symlink mode
+    // shares one canonical copy, so dedupe paths; copy mode rewrites each
+    // agent's copy.
+    if (resolvedPrefix) {
+      const renamed = new Set<string>();
+      for (const skill of selectedSkills) {
+        const prefixedName = buildInstallName(skill.name || basename(skill.path), resolvedPrefix);
+        const displayName = getSkillDisplayName(skill);
+        for (const r of results) {
+          if (!r.success || r.skill !== displayName) continue;
+          if (r.agentType === 'eve') continue;
+          const dirs = [r.canonicalPath, r.path].filter((dir): dir is string => Boolean(dir));
+          for (const dir of dirs) {
+            if (renamed.has(dir)) continue;
+            renamed.add(dir);
+            await renameInstalledSkill(dir, prefixedName);
+          }
+        }
+      }
+    }
 
     console.log();
     const successful = results.filter((r) => r.success);
@@ -1703,7 +1779,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               if (hash) skillFolderHash = hash;
             }
 
-            await addSkillToLock(skill.name, {
+            await addSkillToLock(buildInstallName(skill.name, resolvedPrefix), {
               source: lockSource || normalizedSource,
               sourceType: parsed.type,
               sourceUrl: parsed.url,
@@ -1711,6 +1787,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               skillPath: skillPathValue,
               skillFolderHash,
               pluginName: skill.pluginName,
+              ...(resolvedPrefix && { prefix: resolvedPrefix }),
             });
           } catch {
             // Don't fail installation if lock file update fails
@@ -1735,13 +1812,14 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
                   : await computeSkillFolderHash(skill.path);
             const skillPathValue = skillFiles[skill.name];
             await addSkillToLocalLock(
-              skill.name,
+              buildInstallName(skill.name, resolvedPrefix),
               {
                 source: lockSource || parsed.url,
                 ref: parsed.ref,
                 sourceType: parsed.type,
                 ...(skillPathValue && { skillPath: skillPathValue }),
                 computedHash,
+                ...(resolvedPrefix && { prefix: resolvedPrefix }),
               },
               cwd
             );
@@ -2003,6 +2081,14 @@ export function parseAddOptions(args: string[]): { source: string[]; options: Ad
       options.fullDepth = true;
     } else if (arg === '--copy') {
       options.copy = true;
+    } else if (arg === '--prefix') {
+      // Bare `--prefix`: derive the prefix from the source repo name.
+      options.prefix = true;
+    } else if (arg!.startsWith('--prefix=')) {
+      // `--prefix=<value>`: custom prefix. The `=` form avoids ambiguity with
+      // the positional source argument (e.g. `add --prefix owner/repo`).
+      const value = arg!.slice('--prefix='.length).trim();
+      options.prefix = value.length > 0 ? value : true;
     } else if (arg === '--dangerously-accept-openclaw-risks') {
       options.dangerouslyAcceptOpenclawRisks = true;
     } else if (arg && !arg.startsWith('-')) {

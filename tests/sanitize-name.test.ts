@@ -8,7 +8,13 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { sanitizeName } from '../src/installer.ts';
+import {
+  sanitizeName,
+  applyPrefix,
+  stripPrefix,
+  buildInstallName,
+  rewriteFrontmatterName,
+} from '../src/installer.ts';
 
 describe('sanitizeName', () => {
   describe('basic transformations', () => {
@@ -134,5 +140,83 @@ describe('sanitizeName', () => {
       expect(sanitizeName('docs.example.com')).toBe('docs.example.com');
       expect(sanitizeName('bun.sh')).toBe('bun.sh');
     });
+  });
+});
+
+describe('applyPrefix', () => {
+  it('prepends a sanitized prefix', () => {
+    expect(applyPrefix('tool', 'bundle')).toBe('bundle-tool');
+    expect(applyPrefix('tool', 'Bundle Pack')).toBe('bundle-pack-tool');
+  });
+
+  it('is a no-op without a prefix', () => {
+    expect(applyPrefix('tool')).toBe('tool');
+    expect(applyPrefix('tool', '')).toBe('tool');
+  });
+
+  it('does not double-prefix', () => {
+    expect(applyPrefix('browser-use', 'browser-use')).toBe('browser-use');
+    expect(applyPrefix('bundle-tool', 'bundle')).toBe('bundle-tool');
+  });
+});
+
+describe('stripPrefix', () => {
+  it('removes an applied prefix (inverse of applyPrefix)', () => {
+    expect(stripPrefix('bundle-tool', 'bundle')).toBe('tool');
+  });
+
+  it('is a no-op when not prefixed or no prefix given', () => {
+    expect(stripPrefix('tool', 'bundle')).toBe('tool');
+    expect(stripPrefix('tool')).toBe('tool');
+    // Dedup case: name equals prefix, never had a `<prefix>-` segment.
+    expect(stripPrefix('browser-use', 'browser-use')).toBe('browser-use');
+  });
+
+  it('round-trips with applyPrefix', () => {
+    const prefix = 'bundle';
+    expect(stripPrefix(applyPrefix('tool', prefix), prefix)).toBe('tool');
+  });
+});
+
+describe('buildInstallName', () => {
+  it('sanitizes the name when no prefix is given', () => {
+    expect(buildInstallName('My Skill')).toBe('my-skill');
+  });
+
+  it('namespaces under a prefix', () => {
+    expect(buildInstallName('tool', 'bundle')).toBe('bundle-tool');
+  });
+
+  it('does not double-prefix an already-prefixed name', () => {
+    expect(buildInstallName('browser-use', 'browser-use')).toBe('browser-use');
+    expect(buildInstallName('bundle-tool', 'bundle')).toBe('bundle-tool');
+  });
+});
+
+describe('rewriteFrontmatterName', () => {
+  it('rewrites the name value inside frontmatter, leaving the body intact', () => {
+    const raw = `---\nname: tool\ndescription: Test tool\n---\n# Body\ntext\n`;
+    const out = rewriteFrontmatterName(raw, 'bundle-tool');
+    expect(out).toContain('name: bundle-tool');
+    expect(out).toContain('description: Test tool');
+    expect(out).toContain('# Body');
+    expect(out).not.toContain('name: tool');
+  });
+
+  it('is idempotent', () => {
+    const raw = `---\nname: bundle-tool\n---\nbody\n`;
+    expect(rewriteFrontmatterName(raw, 'bundle-tool')).toBe(raw);
+  });
+
+  it('inserts a name line when frontmatter lacks one', () => {
+    const raw = `---\ndescription: no name here\n---\nbody\n`;
+    const out = rewriteFrontmatterName(raw, 'prefixed-skill');
+    expect(out).toContain('name: prefixed-skill');
+    expect(out).toContain('description: no name here');
+  });
+
+  it('returns input unchanged when there is no frontmatter', () => {
+    const raw = `# Just markdown\nno frontmatter`;
+    expect(rewriteFrontmatterName(raw, 'whatever')).toBe(raw);
   });
 });

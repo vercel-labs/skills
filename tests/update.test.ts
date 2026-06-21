@@ -113,6 +113,9 @@ describe('Update Cleanup Unit Tests', () => {
       // Run update
       await updateProjectSkills();
 
+      // Verify shorthand lock sources are resolved to cloneable URLs for the deletion check
+      expect(git.cloneRepo).toHaveBeenCalledWith('https://github.com/owner/repo.git', undefined);
+
       // Verify prompt was shown
       expect(p.confirm).toHaveBeenCalled();
 

@@ -58,6 +58,78 @@ export function sanitizeName(name: string): string {
 }
 
 /**
+ * Apply a `<prefix>-` namespace to a (already-sanitized) skill name. The prefix
+ * is sanitized with the same rules. To avoid double-prefixing, the name is
+ * returned unchanged when it already equals the prefix or already starts
+ * with `<prefix>-` (so a repo `browser-use` shipping a `browser-use` skill
+ * stays `browser-use`, not `browser-use-browser-use`).
+ */
+export function applyPrefix(name: string, prefix?: string): string {
+  if (!prefix) return name;
+  const p = sanitizeName(prefix);
+  if (!p || name === p || name.startsWith(`${p}-`)) return name;
+  return sanitizeName(`${p}-${name}`);
+}
+
+/**
+ * Strip a previously-applied `<prefix>-` namespace from a skill name,
+ * recovering the original (upstream) name. Used by `update` to re-target the
+ * unprefixed source skill before re-applying the prefix. Inverse of
+ * {@link applyPrefix}; a no-op when the name isn't actually prefixed.
+ */
+export function stripPrefix(name: string, prefix?: string): string {
+  if (!prefix) return name;
+  const p = sanitizeName(prefix);
+  return p && name.startsWith(`${p}-`) ? name.slice(p.length + 1) : name;
+}
+
+/**
+ * Build the install/lock name for a skill: the sanitized name, optionally
+ * namespaced under a `<prefix>-`. Centralizes the naming so the install dir,
+ * lock key, and frontmatter `name:` all agree.
+ */
+export function buildInstallName(rawName: string, prefix?: string): string {
+  return applyPrefix(sanitizeName(rawName), prefix);
+}
+
+/**
+ * Rewrite the `name:` value in a SKILL.md frontmatter block so the skill is
+ * actually invoked under its prefixed name, not just stored in a prefixed
+ * folder. Operates only inside the leading `---` block, leaves the body
+ * untouched, and inserts a `name:` line if the frontmatter somehow lacks one.
+ * Returns the input unchanged when there is no frontmatter block. Idempotent:
+ * re-running with the same name is a no-op.
+ */
+export function rewriteFrontmatterName(raw: string, newName: string): string {
+  const match = raw.match(/^(---\r?\n)([\s\S]*?)(\r?\n---\r?\n?)([\s\S]*)$/);
+  if (!match) return raw;
+  const [, open, body, close, content] = match;
+  const nameLine = /^([ \t]*name:[ \t]*).*$/m;
+  const newBody = nameLine.test(body!)
+    ? body!.replace(nameLine, `$1${newName}`)
+    : `name: ${newName}\n${body}`;
+  return `${open}${newBody}${close}${content}`;
+}
+
+/**
+ * Apply {@link rewriteFrontmatterName} to an installed skill's SKILL.md in
+ * place. Best-effort: silently skips when the file is missing or unreadable so
+ * a rename never fails the install.
+ */
+export async function renameInstalledSkill(skillDir: string, newName: string): Promise<void> {
+  const skillMdPath = join(skillDir, 'SKILL.md');
+  try {
+    const raw = await readFile(skillMdPath, 'utf-8');
+    const rewritten = rewriteFrontmatterName(raw, newName);
+    if (rewritten !== raw) {
+      await writeFile(skillMdPath, rewritten, 'utf-8');
+    }
+  } catch {
+    // SKILL.md missing/unreadable — nothing to rename.
+  }
+}
+
+/**
  * Validates that a path is within an expected base directory
  * @param basePath - The expected base directory
  * @param targetPath - The path to validate
@@ -234,7 +306,7 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
 export async function installSkillForAgent(
   skill: Skill,
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
+  options: { global?: boolean; cwd?: string; mode?: InstallMode; prefix?: string } = {}
 ): Promise<InstallResult> {
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
@@ -250,9 +322,10 @@ export async function installSkillForAgent(
     };
   }
 
-  // Sanitize skill name to prevent directory traversal
+  // Sanitize skill name to prevent directory traversal, then namespace it
+  // under the optional prefix.
   const rawSkillName = skill.name || basename(skill.path);
-  const skillName = sanitizeName(rawSkillName);
+  const skillName = applyPrefix(sanitizeName(rawSkillName), options.prefix);
 
   const installMode = options.mode ?? 'symlink';
 

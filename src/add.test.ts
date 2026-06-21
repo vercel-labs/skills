@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { existsSync, rmSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, rmSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from './test-utils.ts';
 import { shouldInstallInternalSkills } from './skills.ts';
-import { parseAddOptions, getLockSource } from './add.ts';
+import { parseAddOptions, getLockSource, resolvePrefix } from './add.ts';
 
 describe('add command', () => {
   let testDir: string;
@@ -88,6 +88,39 @@ Instructions here.
     expect(result.stdout).toContain('my-skill');
     expect(result.stdout).toContain('Done!');
     expect(result.exitCode).toBe(0);
+  });
+
+  it('should preserve Eve frontmatter rules when installing with --prefix', () => {
+    const skillDir = join(testDir, 'skills', 'eve-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: eve-skill
+description: Eve skill
+---
+
+# Eve Skill
+`
+    );
+
+    const targetDir = join(testDir, 'eve-project');
+    mkdirSync(join(targetDir, 'agent'), { recursive: true });
+    writeFileSync(
+      join(targetDir, 'package.json'),
+      JSON.stringify({ dependencies: { eve: '^0.11.5' } }),
+      'utf-8'
+    );
+
+    const result = runCli(['add', testDir, '-y', '--agent', 'eve', '--prefix=repo'], targetDir);
+
+    expect(result.exitCode).toBe(0);
+    const installed = readFileSync(
+      join(targetDir, 'agent/skills/repo-eve-skill/SKILL.md'),
+      'utf-8'
+    );
+    expect(installed).toContain('description: "Eve skill"');
+    expect(installed).not.toContain('name:');
   });
 
   it('should filter skills by name with --skill flag', () => {
@@ -406,6 +439,49 @@ describe('parseAddOptions', () => {
     expect(result.options.fullDepth).toBe(true);
     expect(result.options.list).toBe(true);
     expect(result.options.global).toBe(true);
+  });
+
+  it('should parse bare --prefix as true (derive from repo)', () => {
+    const result = parseAddOptions(['owner/repo', '--prefix']);
+    expect(result.source).toEqual(['owner/repo']);
+    expect(result.options.prefix).toBe(true);
+  });
+
+  it('should parse --prefix=<value> as a custom string', () => {
+    const result = parseAddOptions(['owner/repo', '--prefix=team']);
+    expect(result.source).toEqual(['owner/repo']);
+    expect(result.options.prefix).toBe('team');
+  });
+
+  it('should not consume the positional source as a prefix value', () => {
+    const result = parseAddOptions(['--prefix', 'owner/repo']);
+    expect(result.source).toEqual(['owner/repo']);
+    expect(result.options.prefix).toBe(true);
+  });
+
+  it('should treat an empty --prefix= as auto-derive', () => {
+    const result = parseAddOptions(['owner/repo', '--prefix=']);
+    expect(result.options.prefix).toBe(true);
+  });
+});
+
+describe('resolvePrefix', () => {
+  it('returns undefined when no prefix requested', () => {
+    expect(resolvePrefix(undefined, 'owner/repo')).toBeUndefined();
+  });
+
+  it('derives the repo name from the source for bare --prefix', () => {
+    expect(resolvePrefix(true, 'owner/bundle')).toBe('bundle');
+  });
+
+  it('returns undefined for bare --prefix when the source has no repo', () => {
+    expect(resolvePrefix(true, null)).toBeUndefined();
+    expect(resolvePrefix(true, 'not-a-repo-source')).toBeUndefined();
+  });
+
+  it('uses a custom prefix string as-is, even without a repo source', () => {
+    expect(resolvePrefix('team', null)).toBe('team');
+    expect(resolvePrefix('team', 'owner/repo')).toBe('team');
   });
 });
 
