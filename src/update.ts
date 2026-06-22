@@ -31,6 +31,39 @@ const BOLD = '\x1b[1m';
 const DIM = '\x1b[38;5;102m';
 const TEXT = '\x1b[38;5;145m';
 
+function getSpawnOutput(output: unknown): string {
+  let text = '';
+  if (typeof output === 'string') {
+    text = output;
+  } else if (Buffer.isBuffer(output)) {
+    text = output.toString('utf-8');
+  }
+  return text
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => {
+      const trimmed = line.trim();
+      return trimmed && !/^[◐◓◑◒]\s/.test(trimmed);
+    })
+    .join('\n')
+    .trim();
+}
+
+function printSpawnFailureOutput(result: { stdout?: unknown; stderr?: unknown }): void {
+  const stderr = getSpawnOutput(result.stderr);
+  const stdout = getSpawnOutput(result.stdout);
+
+  if (stderr) {
+    console.log(`${DIM}  stderr:${RESET}`);
+    console.log(stderr);
+  }
+  if (stdout && stdout !== stderr) {
+    console.log(`${DIM}  stdout:${RESET}`);
+    console.log(stdout);
+  }
+}
+
 // ============================================
 // Scope Detection and Prompt
 // ============================================
@@ -468,6 +501,7 @@ export async function processWellKnownUpdates(
       } else {
         failCount++;
         console.log(`  ${DIM}✗ Failed to update ${safeName}${RESET}`);
+        printSpawnFailureOutput(spawnResult);
       }
     }
   }
@@ -710,6 +744,7 @@ export async function updateGlobalSkills(
     } else {
       failCount++;
       console.log(`  ${DIM}✗ Failed to update ${safeName}${RESET}`);
+      printSpawnFailureOutput(result);
     }
   }
 
@@ -916,6 +951,7 @@ export async function updateProjectSkills(
       } else {
         failCount++;
         console.log(`  ${DIM}✗ Failed to update ${safeName}${RESET}`);
+        printSpawnFailureOutput(result);
       }
     }
   }

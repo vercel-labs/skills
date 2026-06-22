@@ -1,10 +1,23 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { checkWellKnownForUpdates, type WellKnownUpdateItem } from '../src/update.ts';
+import { spawnSync } from 'child_process';
+import {
+  checkWellKnownForUpdates,
+  processWellKnownUpdates,
+  type WellKnownUpdateItem,
+} from '../src/update.ts';
 import {
   computeWellKnownSkillDigest,
   wellKnownProvider,
   type WellKnownSkill,
 } from '../src/providers/index.ts';
+
+vi.mock('child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('child_process')>();
+  return {
+    ...actual,
+    spawnSync: vi.fn().mockReturnValue({ status: 0 }),
+  };
+});
 
 const BASE_URL = 'https://skills.example.com/p/testpack';
 
@@ -76,6 +89,7 @@ async function digestOf(name: string, contents = V1_CONTENTS): Promise<string> {
 }
 
 afterEach(() => {
+  vi.clearAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -254,5 +268,36 @@ describe('checkWellKnownForUpdates', () => {
       .map((call) => String(call[0]))
       .filter((url) => url.endsWith('/SKILL.md'));
     expect(fileCalls).toEqual([`${BASE_URL}/.well-known/skills/alpha-skill/SKILL.md`]);
+  });
+
+  it('prints child process output when well-known reinstall fails', async () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    stubWellKnownServer(v2Index([{ name: 'alpha-skill', digest: DIGEST_A }]));
+    vi.mocked(spawnSync).mockReturnValueOnce({
+      status: 1,
+      signal: null,
+      error: undefined,
+      pid: 123,
+      output: [null, 'install stdout detail', 'install stderr detail'],
+      stdout: 'install stdout detail',
+      stderr: 'install stderr detail',
+    });
+
+    try {
+      await processWellKnownUpdates(
+        new Map([[BASE_URL, [{ name: 'alpha-skill', digest: DIGEST_STALE }]]]),
+        true,
+        { yes: true }
+      );
+
+      const output = consoleSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+      expect(output).toContain('Failed to update alpha-skill');
+      expect(output).toContain('stderr:');
+      expect(output).toContain('install stderr detail');
+      expect(output).toContain('stdout:');
+      expect(output).toContain('install stdout detail');
+    } finally {
+      consoleSpy.mockRestore();
+    }
   });
 });
