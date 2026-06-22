@@ -659,8 +659,13 @@ export async function updateGlobalSkills(
 
   if (updates.length === 0) {
     if (!wkChanged) {
-      console.log(`${TEXT}✓ All global skills are up to date${RESET}`);
+      const message =
+        skipped.length > 0
+          ? '✓ All checkable global skills are up to date'
+          : '✓ All global skills are up to date';
+      console.log(`${TEXT}${message}${RESET}`);
     }
+    printSkippedSkills(skipped);
     return { successCount, failCount, checkedCount };
   }
 
