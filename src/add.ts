@@ -336,6 +336,22 @@ function ensureUniversalAgents(targetAgents: AgentType[]): AgentType[] {
 }
 
 /**
+ * When agents are auto-selected (`--agent '*'`, `--yes`, or detection) for a
+ * global install, drop the ones that only support project-scoped skills (no
+ * `globalSkillsDir`, e.g. PromptScript). Without this, a blanket
+ * `--global`/`--yes` install reports a spurious "does not support global skill
+ * installation" failure for them. Explicit `--agent <name>` selections bypass
+ * this so the per-agent error still surfaces for a deliberately-named agent.
+ */
+export function filterAgentsForGlobalScope(
+  targetAgents: AgentType[],
+  global: boolean
+): AgentType[] {
+  if (!global) return targetAgents;
+  return targetAgents.filter((a) => agents[a].globalSkillsDir !== undefined);
+}
+
+/**
  * Builds result lines from installation results, splitting by universal vs symlinked
  */
 function buildResultLines(
@@ -734,6 +750,13 @@ async function handleWellKnownSkills(
     }
 
     installGlobally = scope as boolean;
+  }
+
+  // Drop auto-selected agents that can't satisfy a global install (e.g.
+  // PromptScript). Skip when the user named agents explicitly so the
+  // per-agent error still surfaces for a deliberately-named agent.
+  if (!(options.agent?.length && !options.agent.includes('*'))) {
+    targetAgents = filterAgentsForGlobalScope(targetAgents, installGlobally);
   }
 
   // Determine install mode (symlink vs copy)
@@ -1529,6 +1552,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
 
       installGlobally = scope as boolean;
+    }
+
+    // Drop auto-selected agents that can't satisfy a global install (e.g.
+    // PromptScript). Skip when the user named agents explicitly so the
+    // per-agent error still surfaces for a deliberately-named agent.
+    if (!(options.agent?.length && !options.agent.includes('*'))) {
+      targetAgents = filterAgentsForGlobalScope(targetAgents, installGlobally);
     }
 
     // Determine install mode (symlink vs copy)
