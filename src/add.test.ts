@@ -90,6 +90,29 @@ Instructions here.
     expect(result.exitCode).toBe(0);
   });
 
+  it('should skip agents without global support instead of failing per skill', () => {
+    const skillDir = join(testDir, 'skills', 'my-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: my-skill
+description: My test skill
+---
+
+# My Skill
+`
+    );
+
+    const result = runCli(['add', testDir, '-y', '-g', '--agent', 'promptscript'], testDir);
+    const output = result.stdout + result.stderr;
+
+    expect(output).toContain('Skipping PromptScript');
+    expect(output).not.toContain('does not support global skill installation');
+    expect(output).toContain('None of the selected agents support global installation');
+    expect(result.exitCode).toBe(1);
+  });
+
   it('should filter skills by name with --skill flag', () => {
     // Create multiple test skills
     const skill1Dir = join(testDir, 'skills', 'skill-one');
