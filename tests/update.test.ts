@@ -7,6 +7,7 @@ import * as localLock from '../src/local-lock.ts';
 import * as skillLock from '../src/skill-lock.ts';
 import * as remove from '../src/remove.ts';
 import * as p from '@clack/prompts';
+import { spawnSync } from 'child_process';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -155,6 +156,21 @@ describe('Update Cleanup Unit Tests', () => {
 
       // Verify removeCommand was NOT called
       expect(remove.removeCommand).not.toHaveBeenCalled();
+
+      expect(spawnSync).toHaveBeenCalledWith(
+        process.execPath,
+        [
+          expect.stringMatching(/bin[/\\]cli\.mjs$/),
+          'add',
+          'owner/repo/skills/skill-a',
+          '--skill',
+          'skill-a',
+          '-y',
+        ],
+        expect.objectContaining({
+          encoding: 'utf-8',
+        })
+      );
     });
 
     it('should skip deletion when isTTY is false', async () => {
@@ -266,6 +282,55 @@ describe('Update Cleanup Unit Tests', () => {
       expect(git.cloneRepo).toHaveBeenCalledWith('git@github.com:owner/repo.git', undefined);
       expect(localLock.computeSkillFolderHash).toHaveBeenCalledWith(
         join('/tmp/repo', 'skills/skill-a')
+      );
+    });
+
+    it('should reinstall global updates from the source root without the blob fast path', async () => {
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'grill-me': {
+            source: 'vercel-labs/skills',
+            sourceUrl: 'https://github.com/vercel-labs/skills.git',
+            ref: 'feature/install',
+            skillPath: 'skills/grill-me/SKILL.md',
+            sourceType: 'github',
+            skillFolderHash: 'old-hash',
+            installedAt: '',
+            updatedAt: '',
+            pluginName: 'mattpocock-skills',
+          },
+        },
+      });
+
+      vi.mocked(blob.fetchRepoTree).mockResolvedValue({
+        sha: 'rootsha',
+        branch: 'main',
+        tree: [
+          { path: 'skills/grill-me/SKILL.md', type: 'blob', sha: 'sha1' },
+          { path: 'skills/grill-me', type: 'tree', sha: 'new-hash' },
+        ],
+      });
+      vi.mocked(blob.findSkillMdPaths).mockReturnValue(['skills/grill-me/SKILL.md']);
+      vi.mocked(blob.getSkillFolderHashFromTree).mockReturnValue('new-hash');
+
+      await updateGlobalSkills({ yes: true });
+
+      expect(spawnSync).toHaveBeenCalledWith(
+        process.execPath,
+        [
+          expect.stringMatching(/bin[/\\]cli\.mjs$/),
+          'add',
+          'vercel-labs/skills#feature/install',
+          '--skill',
+          'grill-me',
+          '-g',
+          '-y',
+          '--full-depth',
+        ],
+        expect.objectContaining({
+          encoding: 'utf-8',
+        })
       );
     });
   });

@@ -7,11 +7,7 @@ import pc from 'picocolors';
 
 import { readSkillLock, getGitHubToken, type SkillLockEntry } from './skill-lock.ts';
 import { computeSkillFolderHash, readLocalLock, type LocalSkillLockEntry } from './local-lock.ts';
-import {
-  formatSourceInput,
-  buildUpdateInstallSource,
-  buildLocalUpdateSource,
-} from './update-source.ts';
+import { formatSourceInput, buildLocalUpdateSource } from './update-source.ts';
 import { cloneRepo, cleanupTempDir } from './git.ts';
 import { discoverSkills } from './skills.ts';
 import { fetchRepoTree, findSkillMdPaths, getSkillFolderHashFromTree } from './blob.ts';
@@ -443,7 +439,7 @@ export async function updateGlobalSkills(
   for (const update of updates) {
     const safeName = sanitizeMetadata(update.name);
     console.log(`${TEXT}Updating ${safeName}...${RESET}`);
-    const installUrl = buildUpdateInstallSource(update.entry);
+    const installUrl = formatSourceInput(update.entry.source, update.entry.ref);
 
     const cliEntry = join(__dirname, '..', 'bin', 'cli.mjs');
     if (!existsSync(cliEntry)) {
@@ -453,11 +449,15 @@ export async function updateGlobalSkills(
       );
       continue;
     }
-    const result = spawnSync(process.execPath, [cliEntry, 'add', installUrl, '-g', '-y'], {
-      stdio: ['inherit', 'pipe', 'pipe'],
-      encoding: 'utf-8',
-      shell: process.platform === 'win32',
-    });
+    const result = spawnSync(
+      process.execPath,
+      [cliEntry, 'add', installUrl, '--skill', update.name, '-g', '-y', '--full-depth'],
+      {
+        stdio: ['inherit', 'pipe', 'pipe'],
+        encoding: 'utf-8',
+        shell: process.platform === 'win32',
+      }
+    );
 
     if (result.status === 0) {
       successCount++;
@@ -584,7 +584,7 @@ export async function updateProjectSkills(
     for (const skill of remainingSkills) {
       const safeName = sanitizeMetadata(skill.name);
       console.log(`${TEXT}Updating ${safeName}...${RESET}`);
-      const installUrl = formatSourceInput(skill.entry.source, skill.entry.ref);
+      const installUrl = buildLocalUpdateSource(skill.entry);
 
       // Preserve Eve subagent placement recorded at install time. The lock stores
       // '' for the root agent, which maps to the `root` keyword for `add --subagent`.

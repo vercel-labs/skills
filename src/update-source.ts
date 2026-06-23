@@ -1,10 +1,3 @@
-export interface UpdateSourceEntry {
-  source: string;
-  sourceUrl: string;
-  ref?: string;
-  skillPath?: string;
-}
-
 export interface LocalUpdateSourceEntry {
   source: string;
   ref?: string;
@@ -64,17 +57,6 @@ function appendFolderAndRef(source: string, skillPath: string, ref?: string): st
   const folder = deriveSkillFolder(skillPath);
   const withFolder = folder ? `${source}/${folder}` : source;
   return ref ? `${withFolder}#${ref}` : withFolder;
-}
-
-/**
- * Build the source argument for `skills add` during update.
- * Uses shorthand form for path-targeted updates to avoid branch/path ambiguity.
- */
-export function buildUpdateInstallSource(entry: UpdateSourceEntry): string {
-  if (!entry.skillPath) {
-    return formatSourceInput(entry.sourceUrl, entry.ref);
-  }
-  return appendFolderAndRef(entry.source, entry.skillPath, entry.ref);
 }
 
 /**
