@@ -163,6 +163,9 @@ ${BOLD}List Options:${RESET}
   -a, --agent <agents>   Filter by specific agents
   --json                 Output as JSON (machine-readable, no ANSI codes)
 
+${BOLD}Find Options:${RESET}
+  --unsafe               Show skills with risky/unknown audit results (default: safe only)
+
 ${BOLD}Options:${RESET}
   --help, -h        Show this help message
   --version, -v     Show version number
@@ -182,7 +185,8 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills ls -a claude-code             ${DIM}# filter by agent${RESET}
   ${DIM}$${RESET} skills ls --json                      ${DIM}# JSON output${RESET}
   ${DIM}$${RESET} skills find                          ${DIM}# interactive search${RESET}
-  ${DIM}$${RESET} skills find typescript               ${DIM}# search by keyword${RESET}
+  ${DIM}$${RESET} skills find typescript               ${DIM}# search by keyword (safe only)${RESET}
+  ${DIM}$${RESET} skills find typescript --unsafe      ${DIM}# include risky/unknown audit results${RESET}
   ${DIM}$${RESET} skills update
   ${DIM}$${RESET} skills update my-skill             ${DIM}# update a single skill${RESET}
   ${DIM}$${RESET} skills update -g                    ${DIM}# update global skills only${RESET}

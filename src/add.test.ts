@@ -4,7 +4,8 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from './test-utils.ts';
 import { shouldInstallInternalSkills } from './skills.ts';
-import { parseAddOptions, getLockSource } from './add.ts';
+import { parseAddOptions, getLockSource, getUnsafeSkills, hasUnsafeAudit } from './add.ts';
+import type { AuditResponse } from './telemetry.ts';
 
 describe('add command', () => {
   let testDir: string;
@@ -522,5 +523,70 @@ This is a test skill for -y flag mode testing.
     expect(result.stdout).not.toContain("One-time prompt - you won't be asked again");
     // Should complete successfully
     expect(result.exitCode).toBe(0);
+  });
+});
+
+describe('unsafe audit detection', () => {
+  const at = '2026-01-01T00:00:00Z';
+  const skills = [{ slug: 'demo', displayName: 'demo' }];
+
+  describe('hasUnsafeAudit', () => {
+    it('returns false for undefined data', () => {
+      expect(hasUnsafeAudit(undefined)).toBe(false);
+    });
+
+    it('returns false when all partners are safe/low', () => {
+      expect(
+        hasUnsafeAudit({
+          ath: { risk: 'safe', analyzedAt: at },
+          snyk: { risk: 'low', analyzedAt: at },
+        })
+      ).toBe(false);
+    });
+
+    it.each(['medium', 'high', 'critical'] as const)('flags %s risk as unsafe', (risk) => {
+      expect(hasUnsafeAudit({ ath: { risk, analyzedAt: at } })).toBe(true);
+    });
+
+    it('flags any positive Socket alert count as unsafe', () => {
+      expect(hasUnsafeAudit({ socket: { risk: 'safe', alerts: 1, analyzedAt: at } })).toBe(true);
+    });
+
+    it('does not flag zero alerts on a safe partner', () => {
+      expect(hasUnsafeAudit({ socket: { risk: 'safe', alerts: 0, analyzedAt: at } })).toBe(false);
+    });
+
+    it('does not treat unknown risk as unsafe', () => {
+      expect(hasUnsafeAudit({ ath: { risk: 'unknown', analyzedAt: at } })).toBe(false);
+    });
+  });
+
+  describe('getUnsafeSkills', () => {
+    it('returns empty array when audit data is null', () => {
+      expect(getUnsafeSkills(null, skills)).toEqual([]);
+    });
+
+    it('returns the display names of skills with unsafe results', () => {
+      const auditData: AuditResponse = {
+        demo: { ath: { risk: 'high', analyzedAt: at } },
+      };
+      // hasUnsafeResults drives `initialValue: !hasUnsafeResults`, so a non-empty
+      // result here means the install confirm prompt defaults to "No".
+      expect(getUnsafeSkills(auditData, skills)).toEqual(['demo']);
+    });
+
+    it('returns empty when no selected skill is unsafe', () => {
+      const auditData: AuditResponse = {
+        demo: { ath: { risk: 'safe', analyzedAt: at } },
+      };
+      expect(getUnsafeSkills(auditData, skills)).toEqual([]);
+    });
+
+    it('only reports skills that are actually selected', () => {
+      const auditData: AuditResponse = {
+        other: { ath: { risk: 'critical', analyzedAt: at } },
+      };
+      expect(getUnsafeSkills(auditData, skills)).toEqual([]);
+    });
   });
 });
