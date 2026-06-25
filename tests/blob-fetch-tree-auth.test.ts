@@ -46,6 +46,18 @@ function permissionDeniedResponse(): Response {
   });
 }
 
+function notFoundResponse(): Response {
+  // GitHub returns 404 (not 403) to unauthenticated callers for a private repo,
+  // hiding its existence. x-ratelimit-remaining is non-zero: this is NOT a rate limit.
+  return new Response(JSON.stringify({ message: 'Not Found' }), {
+    status: 404,
+    headers: {
+      'content-type': 'application/json',
+      'x-ratelimit-remaining': '44',
+    },
+  });
+}
+
 describe('fetchRepoTree lazy auth fallback', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
   let originalFetch: typeof globalThis.fetch;
@@ -89,6 +101,59 @@ describe('fetchRepoTree lazy auth fallback', () => {
     expect((retryInit.headers as Record<string, string>)['Authorization']).toBe(
       'Bearer ghp_fake_token'
     );
+  });
+
+  it('retries with auth when a private repo 404s unauthenticated', async () => {
+    // A private repo returns 404 to anonymous callers. A token can unlock it,
+    // so the resolver must be invoked and the retry must carry Authorization.
+    fetchMock
+      .mockResolvedValueOnce(notFoundResponse())
+      .mockResolvedValueOnce(okResponse(SAMPLE_TREE));
+    const getToken = vi.fn(() => 'ghp_fake_token');
+
+    const result = await fetchRepoTree('goldsky-io/internal-skills', 'main', getToken);
+
+    expect(result?.sha).toBe('deadbeef');
+    expect(getToken).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const retryInit = fetchMock.mock.calls[1]?.[1] as RequestInit;
+    expect((retryInit.headers as Record<string, string>)['Authorization']).toBe(
+      'Bearer ghp_fake_token'
+    );
+  });
+
+  it('does not memo a 404 as a session-wide rate limit', async () => {
+    // A 404 is per-repo. It must not flip the session into auth-first mode and
+    // skip the unauth pass for a subsequent, unrelated public repo.
+    fetchMock
+      // First repo (private): unauth 404 -> auth 200
+      .mockResolvedValueOnce(notFoundResponse())
+      .mockResolvedValueOnce(okResponse(SAMPLE_TREE))
+      // Second repo (public): must start unauth and succeed
+      .mockResolvedValueOnce(okResponse({ ...SAMPLE_TREE, sha: 'cafef00d' }));
+    const getToken = vi.fn(() => 'ghp_fake_token');
+
+    const first = await fetchRepoTree('goldsky-io/internal-skills', 'main', getToken);
+    const second = await fetchRepoTree('vercel/skills', 'main', getToken);
+
+    expect(first?.sha).toBe('deadbeef');
+    expect(second?.sha).toBe('cafef00d');
+    expect(getToken).toHaveBeenCalledTimes(1); // only the private repo needed it
+    const secondCallInit = fetchMock.mock.calls[2]?.[1] as RequestInit;
+    expect((secondCallInit.headers as Record<string, string>)['Authorization']).toBeUndefined();
+  });
+
+  it('returns null when a private repo 404s and no token is available', async () => {
+    fetchMock
+      .mockResolvedValueOnce(notFoundResponse())
+      .mockResolvedValueOnce(notFoundResponse())
+      .mockResolvedValueOnce(notFoundResponse());
+    const getToken = vi.fn(() => null);
+
+    const result = await fetchRepoTree('goldsky-io/internal-skills', undefined, getToken);
+
+    expect(result).toBeNull();
+    expect(getToken).toHaveBeenCalledTimes(1);
   });
 
   it('does not invoke the token resolver on a non-rate-limit 403', async () => {

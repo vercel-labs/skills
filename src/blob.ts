@@ -91,6 +91,12 @@ export function resetRepoTreeAuthState(): void {
 interface BranchFetchResult {
   tree: RepoTree | null;
   rateLimited: boolean;
+  /**
+   * The unauthenticated request returned a status that a token might resolve
+   * (404 for a private repo GitHub hides, or 401). Unlike `rateLimited`, this
+   * is per-repo rather than IP-wide, so it must not set the session-wide memo.
+   */
+  authMayHelp: boolean;
 }
 
 async function fetchTreeBranch(
@@ -121,6 +127,7 @@ async function fetchTreeBranch(
       return {
         tree: { sha: data.sha, branch, tree: data.tree },
         rateLimited: false,
+        authMayHelp: false,
       };
     }
 
@@ -128,9 +135,13 @@ async function fetchTreeBranch(
     // (A bare 403 means permission denied, which is not retryable here.)
     const rateLimited =
       response.status === 403 && response.headers.get('x-ratelimit-remaining') === '0';
-    return { tree: null, rateLimited };
+    // A private repo returns 404 to unauthenticated callers (GitHub hides its
+    // existence); 401 means bad/absent credentials. Either may succeed once we
+    // attach a token. Only meaningful when we asked unauthenticated.
+    const authMayHelp = !token && (response.status === 404 || response.status === 401);
+    return { tree: null, rateLimited, authMayHelp };
   } catch {
-    return { tree: null, rateLimited: false };
+    return { tree: null, rateLimited: false, authMayHelp: false };
   }
 }
 
@@ -167,6 +178,7 @@ export async function fetchRepoTree(
 
   // First pass: unauthenticated.
   let rateLimited = false;
+  let authMayHelp = false;
   for (const branch of branches) {
     const result = await fetchTreeBranch(ownerRepo, branch, null);
     if (result.tree) return result.tree;
@@ -176,12 +188,16 @@ export async function fetchRepoTree(
       rateLimited = true;
       break;
     }
+    if (result.authMayHelp) authMayHelp = true;
   }
 
-  if (!rateLimited || !getToken) return null;
+  // Lazy fallback: retry with a token when one might help — either we were
+  // rate-limited (IP-wide) or the repo looks private/auth-gated (per-repo).
+  if ((!rateLimited && !authMayHelp) || !getToken) return null;
 
-  // Lazy fallback: rate limit hit and a token resolver was provided.
-  _rateLimitedThisSession = true;
+  // A rate limit is IP-wide, so memo it to skip the unauth pass next time.
+  // A 404/401 is repo-specific, so it must not poison other lookups.
+  if (rateLimited) _rateLimitedThisSession = true;
   const token = getToken();
   if (!token) return null;
 

@@ -25,9 +25,12 @@ import {
 } from './git.ts';
 
 function createGitClientMock(clone: ReturnType<typeof vi.fn>) {
-  return {
+  const client = {
     clone,
+    // createGitClient() chains .env(...) onto simpleGit(); keep it chainable.
+    env: vi.fn(() => client),
   };
+  return client;
 }
 
 function mockExecFileSuccess(stdout = '', stderr = '') {

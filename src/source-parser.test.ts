@@ -120,9 +120,10 @@ describe('source-parser', () => {
     });
 
     it('parses SSH git URL with #branch', () => {
+      // GitHub SSH URLs are detected as `github` so updates can use the Trees API.
       const result = parseSource('git@github.com:owner/repo.git#feature/install');
       expect(result).toEqual({
-        type: 'git',
+        type: 'github',
         url: 'git@github.com:owner/repo.git',
         ref: 'feature/install',
       });
