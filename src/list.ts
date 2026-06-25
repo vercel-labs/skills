@@ -95,6 +95,7 @@ export async function runList(args: string[]): Promise<void> {
   if (options.json) {
     const jsonOutput = installedSkills.map((skill) => ({
       name: skill.name,
+      description: skill.description,
       path: skill.canonicalPath,
       scope: skill.scope,
       agents: skill.agents.map((a) => agents[a].displayName),
@@ -142,6 +143,11 @@ export async function runList(args: string[]): Promise<void> {
     console.log(
       `${prefix}${CYAN}${paddedName}${RESET} ${DIM}${paddedPath}${RESET} ${DIM}Agents:${RESET} ${agentInfo}`
     );
+
+    const description = sanitizeMetadata(skill.description ?? '');
+    if (description) {
+      console.log(`${prefix}  ${TEXT}${description}${RESET}`);
+    }
   }
 
   console.log(`${BOLD}${scopeLabel} Skills${RESET}`);
