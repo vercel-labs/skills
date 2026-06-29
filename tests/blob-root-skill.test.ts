@@ -8,6 +8,19 @@ description: Build durable backend AI agents with the eve framework.
 # eve
 `;
 
+const ROOT_SKILL_WITH_FILES_MD = `---
+name: packaged-root
+description: Root skill with explicit payload.
+files:
+  - SKILL.md
+  - scripts/
+  - templates/*.md
+  - config.example.json
+  - "!scripts/dev-only.js"
+---
+# Packaged Root
+`;
+
 function okResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status: 200,
@@ -66,6 +79,50 @@ describe('tryBlobInstall root-level skills', () => {
     expect(result).not.toBeNull();
     expect(result!.skills).toHaveLength(1);
     expect(result!.skills[0]!.files).toEqual([{ path: 'SKILL.md', contents: ROOT_SKILL_MD }]);
+    expect(result!.skills[0]!.snapshotHash).not.toBe('full-repo-hash');
+  });
+
+  it('keeps explicit root skill payload files from files frontmatter', async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        okResponse({
+          sha: 'root-tree-sha',
+          tree: [
+            { path: 'SKILL.md', type: 'blob', sha: 'skill-sha' },
+            { path: 'scripts/run.js', type: 'blob', sha: 'script-sha' },
+            { path: 'scripts/dev-only.js', type: 'blob', sha: 'dev-sha' },
+            { path: 'templates/card.md', type: 'blob', sha: 'template-sha' },
+            { path: 'templates/card.txt', type: 'blob', sha: 'template-txt-sha' },
+            { path: 'config.example.json', type: 'blob', sha: 'config-sha' },
+            { path: 'packages/app/src/index.ts', type: 'blob', sha: 'package-sha' },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(textResponse(ROOT_SKILL_WITH_FILES_MD))
+      .mockResolvedValueOnce(
+        okResponse({
+          hash: 'full-repo-hash',
+          files: [
+            { path: 'SKILL.md', contents: ROOT_SKILL_WITH_FILES_MD },
+            { path: 'scripts/run.js', contents: 'run' },
+            { path: 'scripts/dev-only.js', contents: 'dev' },
+            { path: 'templates/card.md', contents: '# Card' },
+            { path: 'templates/card.txt', contents: 'Card' },
+            { path: 'config.example.json', contents: '{}' },
+            { path: 'packages/app/src/index.ts', contents: 'export {}' },
+          ],
+        })
+      );
+
+    const result = await tryBlobInstall('vercel/packaged-root');
+
+    expect(result).not.toBeNull();
+    expect(result!.skills[0]!.files.map((file) => file.path)).toEqual([
+      'SKILL.md',
+      'scripts/run.js',
+      'templates/card.md',
+      'config.example.json',
+    ]);
     expect(result!.skills[0]!.snapshotHash).not.toBe('full-repo-hash');
   });
 

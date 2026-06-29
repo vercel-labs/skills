@@ -27,6 +27,7 @@ import {
 import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
 import { parseFrontmatter } from './frontmatter.ts';
 import { parseSkillMd } from './skills.ts';
+import { createSkillFileSelector, type SkillFileSelector } from './skill-files.ts';
 
 export type InstallMode = 'symlink' | 'copy';
 
@@ -335,7 +336,7 @@ export async function installSkillForAgent(
     // For copy mode, skip canonical directory and copy directly to agent location
     if (installMode === 'copy') {
       await cleanAndCreateDirectory(agentDir);
-      await copyDirectory(skill.path, agentDir, agentType);
+      await copyDirectory(skill.path, agentDir, agentType, skill.fileIncludes);
 
       return {
         success: true,
@@ -356,7 +357,7 @@ export async function installSkillForAgent(
 
     // Symlink mode: copy to canonical location and symlink to agent location
     await cleanAndCreateDirectory(canonicalDir);
-    await copyDirectory(skill.path, canonicalDir, agentType);
+    await copyDirectory(skill.path, canonicalDir, agentType, skill.fileIncludes);
 
     // For universal agents with global install, the skill is already in the canonical
     // ~/.agents/skills directory. Skip creating a symlink to the agent-specific global dir
@@ -392,7 +393,7 @@ export async function installSkillForAgent(
     if (!symlinkCreated) {
       // Symlink failed, fall back to copy
       await cleanAndCreateDirectory(agentDir);
-      await copyDirectory(skill.path, agentDir, agentType);
+      await copyDirectory(skill.path, agentDir, agentType, skill.fileIncludes);
 
       return {
         success: true,
@@ -458,8 +459,26 @@ function stripIgnoredEveFrontmatter(raw: string): string {
   return `---\n${frontmatter}\n---\n${content.replace(/^\r?\n/u, '')}`;
 }
 
-async function copyDirectory(src: string, dest: string, agentType?: AgentType): Promise<void> {
-  await mkdir(dest, { recursive: true });
+async function copyDirectory(
+  src: string,
+  dest: string,
+  agentType?: AgentType,
+  fileIncludes?: readonly string[]
+): Promise<void> {
+  const selector = createSkillFileSelector(fileIncludes);
+  await copyDirectoryEntries(src, dest, src, selector, agentType);
+}
+
+async function copyDirectoryEntries(
+  src: string,
+  dest: string,
+  root: string,
+  selector: SkillFileSelector,
+  agentType?: AgentType
+): Promise<void> {
+  if (!selector.explicit) {
+    await mkdir(dest, { recursive: true });
+  }
 
   const entries = await readdir(src, { withFileTypes: true });
 
@@ -472,9 +491,14 @@ async function copyDirectory(src: string, dest: string, agentType?: AgentType): 
         const destPath = join(dest, entry.name);
 
         if (entry.isDirectory()) {
-          await copyDirectory(srcPath, destPath, agentType);
+          await copyDirectoryEntries(srcPath, destPath, root, selector, agentType);
         } else {
+          const relativePath = relative(root, srcPath).split(sep).join('/');
+          if (!selector.shouldInclude(relativePath)) return;
+
           try {
+            await mkdir(dirname(destPath), { recursive: true });
+
             if (agentType === 'eve' && entry.name.toLowerCase() === 'skill.md') {
               await writeFile(
                 destPath,

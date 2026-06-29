@@ -15,6 +15,8 @@ export interface RemoteSkill {
   sourceUrl: string;
   /** Any additional metadata from frontmatter */
   metadata?: Record<string, unknown>;
+  /** Explicit payload include/exclude patterns from top-level SKILL.md `files` frontmatter */
+  fileIncludes?: string[];
 }
 
 /**

@@ -14,6 +14,11 @@ import { createHash } from 'node:crypto';
 import { parseFrontmatter } from './frontmatter.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import type { Skill } from './types.ts';
+import {
+  hasExplicitSkillFileIncludes,
+  parseSkillFileIncludes,
+  selectSkillSnapshotFiles,
+} from './skill-files.ts';
 
 // ─── Types ───
 
@@ -476,6 +481,7 @@ export async function tryBlobInstall(
     content: string;
     slug: string;
     metadata?: Record<string, unknown>;
+    fileIncludes?: string[];
   }> = [];
 
   for (const { mdPath, content } of mdFetches) {
@@ -499,6 +505,7 @@ export async function tryBlobInstall(
       content,
       slug: toSkillSlug(safeName),
       metadata: data.metadata as Record<string, unknown> | undefined,
+      fileIncludes: parseSkillFileIncludes(data),
     });
   }
 
@@ -546,9 +553,10 @@ export async function tryBlobInstall(
     // dump thousands of unrelated files into .agents/skills/<name>. Keep root
     // skills to their SKILL.md unless/until the skill spec gains an explicit
     // include list for supporting files.
-    const files = folderPath
-      ? download!.files
-      : download!.files.filter((file) => file.path.toLowerCase() === 'skill.md');
+    const files =
+      folderPath || hasExplicitSkillFileIncludes(skill.fileIncludes)
+        ? selectSkillSnapshotFiles(download!.files, skill.fileIncludes)
+        : download!.files.filter((file) => file.path.toLowerCase() === 'skill.md');
 
     return {
       name: skill.name,
@@ -557,6 +565,7 @@ export async function tryBlobInstall(
       // The installer uses the files array directly.
       path: '',
       rawContent: skill.content,
+      fileIncludes: skill.fileIncludes,
       metadata: skill.metadata,
       files,
       snapshotHash:

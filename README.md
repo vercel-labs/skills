@@ -233,6 +233,26 @@ Skills let agents perform specialized tasks like:
 - Creating PRs following your team's conventions
 - Integrating with external tools (Linear, Notion, etc.)
 
+### Including Supporting Files
+
+By default, a root-level `SKILL.md` installed from a remote repository is treated as a single-file skill so the CLI does not copy an entire application repository into agent skill directories.
+
+If a skill needs supporting files, declare them explicitly in the `files` frontmatter field:
+
+```md
+---
+name: packaged-skill
+description: Demonstrates a skill that ships scripts and templates.
+files:
+  - scripts/
+  - templates/*.md
+  - config.example.json
+  - "!scripts/dev-only.js"
+---
+```
+
+`SKILL.md` is always included. Entries must be relative paths and can be exact files, directories ending in `/`, basic `*` / `**` globs, or negated patterns starting with `!`.
+
 Discover skills at **[skills.sh](https://skills.sh)**
 
 ## Supported Agents

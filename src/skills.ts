@@ -5,6 +5,7 @@ import { sanitizeMetadata } from './sanitize.ts';
 import type { Skill } from './types.ts';
 import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
 import { readLocalLock } from './local-lock.ts';
+import { parseSkillFileIncludes } from './skill-files.ts';
 
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
 
@@ -91,6 +92,7 @@ export async function parseSkillMd(
       description: sanitizeMetadata(data.description),
       path: dirname(skillMdPath),
       rawContent: content,
+      fileIncludes: parseSkillFileIncludes(data),
       metadata: data.metadata,
     };
   } catch {

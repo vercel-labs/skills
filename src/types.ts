@@ -78,6 +78,8 @@ export interface Skill {
   path: string;
   /** Raw SKILL.md content for hashing */
   rawContent?: string;
+  /** Explicit payload include/exclude patterns from top-level SKILL.md `files` frontmatter */
+  fileIncludes?: string[];
   /** Name of the plugin this skill belongs to (if any) */
   pluginName?: string;
   metadata?: Record<string, unknown>;
@@ -126,4 +128,6 @@ export interface RemoteSkill {
   sourceIdentifier: string;
   /** Any additional metadata from frontmatter */
   metadata?: Record<string, unknown>;
+  /** Explicit payload include/exclude patterns from top-level SKILL.md `files` frontmatter */
+  fileIncludes?: string[];
 }
