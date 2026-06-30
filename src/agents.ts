@@ -687,7 +687,7 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'promptscript',
     displayName: 'PromptScript',
     skillsDir: '.agents/skills',
-    globalSkillsDir: undefined,
+    globalSkillsDir: join(configHome, 'agents/skills'),
     showInUniversalPrompt: false,
     detectInstalled: async () => {
       return (
