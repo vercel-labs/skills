@@ -215,8 +215,8 @@ export async function discoverSkills(
     ...AGENT_PROJECT_SKILL_DIRS.map((dir) => join(searchPath, dir)),
   ];
 
-  // Known skill container dirs are walked one extra level deep so layouts
-  // like `skills/<category>/<skill>/SKILL.md` are discovered without
+  // Known skill container dirs are walked up to two extra levels deep so layouts
+  // like `skills/<category>/<product>/<skill>/SKILL.md` are discovered without
   // requiring `--full-depth`. The repo root (first entry) keeps its
   // existing depth-1 behavior to avoid surfacing unrelated `SKILL.md`
   // files (e.g. `examples/foo/SKILL.md`), and plugin-manifest-declared
@@ -255,12 +255,26 @@ export async function discoverSkills(
         if (foundAtChild || !walkDeep) continue;
         if (SKIP_DIRS.includes(entry.name)) continue;
 
-        // Walk one extra level for catalog layouts.
+        // Walk up to two extra levels for catalog layouts such as
+        // `skills/<category>/<product>/<skill>/SKILL.md`.
         try {
           const grandEntries = await readdir(childDir, { withFileTypes: true });
           for (const grand of grandEntries) {
             if (!grand.isDirectory() || SKIP_DIRS.includes(grand.name)) continue;
-            await tryAddSkillAt(join(childDir, grand.name));
+
+            const grandDir = join(childDir, grand.name);
+            const foundAtGrand = await tryAddSkillAt(grandDir);
+            if (foundAtGrand) continue;
+
+            try {
+              const greatGrandEntries = await readdir(grandDir, { withFileTypes: true });
+              for (const greatGrand of greatGrandEntries) {
+                if (!greatGrand.isDirectory() || SKIP_DIRS.includes(greatGrand.name)) continue;
+                await tryAddSkillAt(join(grandDir, greatGrand.name));
+              }
+            } catch {
+              // Grandchild dir unreadable; skip silently.
+            }
           }
         } catch {
           // Child dir unreadable; skip silently.

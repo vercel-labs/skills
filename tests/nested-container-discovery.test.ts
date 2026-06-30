@@ -1,7 +1,7 @@
 /**
- * Tests for bounded depth-2 discovery inside skill container directories.
+ * Tests for bounded depth-3 discovery inside skill container directories.
  *
- * Layouts like `skills/<category>/<skill>/SKILL.md` are common when a repo
+ * Layouts like `skills/<category>/<product>/<skill>/SKILL.md` are common when a repo
  * groups skills by product or category. They should be discovered by
  * `discoverSkills()` and `findSkillMdPaths()` without users having to pass
  * `--full-depth`, while keeping the flat-layout, manifest, and
@@ -133,8 +133,26 @@ describe('discoverSkills — bounded depth-2 inside skill container dirs', () =>
     expect(skills.map((s) => s.name)).toEqual(['real-skill']);
   });
 
-  it('still requires --full-depth for skills deeper than two levels in a container', async () => {
-    writeSkill(join(testDir, 'skills', 'level-1', 'level-2', 'deep-skill'), 'deep-skill');
+  it('discovers triple-nested skills under skills/<category>/<product>/<skill>/SKILL.md', async () => {
+    writeSkill(
+      join(testDir, 'skills', 'ads', 'google-mobile-ads', 'google-mobile-ads-get-started'),
+      'google-mobile-ads-get-started'
+    );
+    writeSkill(join(testDir, 'skills', 'shallow'), 'shallow-skill');
+
+    const skills = await discoverSkills(testDir);
+
+    expect(skills.map((s) => s.name).sort()).toEqual([
+      'google-mobile-ads-get-started',
+      'shallow-skill',
+    ]);
+  });
+
+  it('still requires --full-depth for skills deeper than three levels in a container', async () => {
+    writeSkill(
+      join(testDir, 'skills', 'level-1', 'level-2', 'level-3', 'deep-skill'),
+      'deep-skill'
+    );
     writeSkill(join(testDir, 'skills', 'shallow'), 'shallow-skill');
 
     const defaultSkills = await discoverSkills(testDir);
@@ -207,6 +225,24 @@ describe('findSkillMdPaths — bounded depth-2 inside skill container prefixes',
     ]);
 
     expect(findSkillMdPaths(tree)).toEqual(['skills/real-skill/SKILL.md']);
+  });
+
+  it('returns triple-nested SKILL.md paths under skills/<category>/<product>/<skill>/', () => {
+    const tree = makeTree([
+      'skills/ads/google-mobile-ads/google-mobile-ads-get-started/SKILL.md',
+      'skills/shallow-skill/SKILL.md',
+    ]);
+
+    expect(findSkillMdPaths(tree).sort()).toEqual([
+      'skills/ads/google-mobile-ads/google-mobile-ads-get-started/SKILL.md',
+      'skills/shallow-skill/SKILL.md',
+    ]);
+  });
+
+  it('does not descend past a SKILL.md found at depth 2 in a container', () => {
+    const tree = makeTree(['skills/foo/bar/SKILL.md', 'skills/foo/bar/baz/SKILL.md']);
+
+    expect(findSkillMdPaths(tree)).toEqual(['skills/foo/bar/SKILL.md']);
   });
 
   it('respects the subpath filter while applying depth-2 discovery', () => {

@@ -334,6 +334,30 @@ export function findSkillMdPaths(tree: RepoTree, subpath?: string): string[] {
           priorityResults.push(skillMd);
           seen.add(skillMd);
         }
+        continue;
+      }
+
+      // SKILL.md three levels deep under a known container prefix
+      // (e.g., "skills/<category>/<product>/<skill>/SKILL.md"). Skip when
+      // an ancestor directory already has its own SKILL.md.
+      if (
+        isContainer &&
+        parts.length === 4 &&
+        parts[3]!.toLowerCase() === 'skill.md' &&
+        !SKIP_DIRS.has(parts[0]!) &&
+        !SKIP_DIRS.has(parts[1]!) &&
+        !SKIP_DIRS.has(parts[2]!)
+      ) {
+        const parentSkillMd = `${fullPrefix}${parts[0]}/SKILL.md`.toLowerCase();
+        const grandParentSkillMd = `${fullPrefix}${parts[0]}/${parts[1]}/SKILL.md`.toLowerCase();
+        if (
+          !lowerSkillMdSet.has(parentSkillMd) &&
+          !lowerSkillMdSet.has(grandParentSkillMd) &&
+          !seen.has(skillMd)
+        ) {
+          priorityResults.push(skillMd);
+          seen.add(skillMd);
+        }
       }
     }
   }
