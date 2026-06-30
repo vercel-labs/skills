@@ -78,10 +78,15 @@ export async function parseSkillMd(
       return null;
     }
 
+    const metadata =
+      data.metadata && typeof data.metadata === 'object'
+        ? (data.metadata as Record<string, unknown>)
+        : undefined;
+
     // Skip internal skills unless:
     // 1. INSTALL_INTERNAL_SKILLS=1 is set, OR
     // 2. includeInternal option is true (e.g., when user explicitly requests a skill)
-    const isInternal = data.metadata?.internal === true;
+    const isInternal = metadata?.internal === true;
     if (isInternal && !shouldInstallInternalSkills() && !options?.includeInternal) {
       return null;
     }
@@ -91,7 +96,7 @@ export async function parseSkillMd(
       description: sanitizeMetadata(data.description),
       path: dirname(skillMdPath),
       rawContent: content,
-      metadata: data.metadata,
+      metadata,
     };
   } catch {
     return null;

@@ -238,6 +238,18 @@ export async function getProjectSkillsForUpdate(
   return skills;
 }
 
+/**
+ * Extract the skill's own folder name from a SKILL.md path.
+ * e.g. `plugins/ce/skills/ce-plan/SKILL.md` -> `ce-plan`.
+ */
+function skillFolderName(skillMdPath: string): string {
+  const parts = skillMdPath.replace(/\\/g, '/').split('/').filter(Boolean);
+  if (parts.length && parts[parts.length - 1]!.toLowerCase().endsWith('skill.md')) {
+    parts.pop();
+  }
+  return parts[parts.length - 1] ?? '';
+}
+
 export async function checkAndPromptForDeletions(
   source: string,
   allLockedForSource: string[],
@@ -246,10 +258,21 @@ export async function checkAndPromptForDeletions(
   options: UpdateCheckOptions,
   discoveredPaths: string[]
 ): Promise<string[]> {
+  // A repo can reorganize its layout (e.g. moving skills/<name> out of a
+  // plugins/<plugin>/skills/<name> tree) without deleting anything. Matching
+  // only on the exact locked path would then flag every moved skill as
+  // "deleted upstream" and offer to remove skills that still exist — data
+  // loss. Treat a skill as deleted only when no skill with the same folder
+  // name survives anywhere in the tree.
+  const discoveredFolderNames = new Set(discoveredPaths.map(skillFolderName).filter(Boolean));
+
   const deletedSkills = allLockedForSource.filter((name) => {
     const entry = lockSkills[name];
     if (!entry?.skillPath) return false;
-    return !discoveredPaths.includes(entry.skillPath);
+    if (discoveredPaths.includes(entry.skillPath)) return false;
+    const folder = skillFolderName(entry.skillPath);
+    if (folder && discoveredFolderNames.has(folder)) return false;
+    return true;
   });
 
   if (deletedSkills.length > 0) {
