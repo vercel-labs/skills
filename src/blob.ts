@@ -100,6 +100,7 @@ export function resetRepoTreeAuthState(): void {
 interface BranchFetchResult {
   tree: RepoTree | null;
   rateLimited: boolean;
+  authRetryable: boolean;
 }
 
 async function fetchTreeBranch(
@@ -130,6 +131,7 @@ async function fetchTreeBranch(
       return {
         tree: { sha: data.sha, branch, tree: data.tree },
         rateLimited: false,
+        authRetryable: false,
       };
     }
 
@@ -137,10 +139,27 @@ async function fetchTreeBranch(
     // (A bare 403 means permission denied, which is not retryable here.)
     const rateLimited =
       response.status === 403 && response.headers.get('x-ratelimit-remaining') === '0';
-    return { tree: null, rateLimited };
+    // A private repo answers 401/404 to an anonymous request (GitHub hides its
+    // existence); a token may turn that into a 200. See issue #1318.
+    const authRetryable = response.status === 401 || response.status === 404;
+    return { tree: null, rateLimited, authRetryable };
   } catch {
-    return { tree: null, rateLimited: false };
+    return { tree: null, rateLimited: false, authRetryable: false };
   }
+}
+
+async function fetchTreeWithToken(
+  ownerRepo: string,
+  branches: string[],
+  getToken: () => string | null
+): Promise<RepoTree | null> {
+  const token = getToken();
+  if (!token) return null;
+  for (const branch of branches) {
+    const result = await fetchTreeBranch(ownerRepo, branch, token);
+    if (result.tree) return result.tree;
+  }
+  return null;
 }
 
 /**
@@ -149,11 +168,13 @@ async function fetchTreeBranch(
  * Tries branches in order: ref (if specified), then main, then master.
  *
  * Authentication is lazy: by default the call goes out unauthenticated,
- * which is enough for the vast majority of users (60 req/hr per IP).
- * Only if GitHub responds with a rate-limit 403 do we ask the optional
- * `getToken` callback for a token and retry. This avoids invoking
- * `gh auth token` on every install, which corporate endpoint security
- * tools flag as suspicious credential extraction. See issue #523.
+ * which is enough for the vast majority of users (60 req/hr per IP). We only
+ * ask the optional `getToken` callback for a token and retry when the
+ * unauthenticated attempt fails in a way a token can fix: a rate-limit 403,
+ * or the 401/404 a private repo returns to anonymous requests. A bare
+ * permission-denied 403 is neither, so we never invoke `gh auth token` for it,
+ * which corporate endpoint security tools flag as suspicious credential
+ * extraction. See issues #523 and #1318.
  */
 export async function fetchRepoTree(
   ownerRepo: string,
@@ -165,17 +186,12 @@ export async function fetchRepoTree(
   // Fast path: once we've seen a rate limit in this process, don't bother
   // retrying unauth on subsequent calls. Go straight to auth.
   if (_rateLimitedThisSession && getToken) {
-    const token = getToken();
-    if (!token) return null;
-    for (const branch of branches) {
-      const result = await fetchTreeBranch(ownerRepo, branch, token);
-      if (result.tree) return result.tree;
-    }
-    return null;
+    return fetchTreeWithToken(ownerRepo, branches, getToken);
   }
 
   // First pass: unauthenticated.
   let rateLimited = false;
+  let authRetryable = false;
   for (const branch of branches) {
     const result = await fetchTreeBranch(ownerRepo, branch, null);
     if (result.tree) return result.tree;
@@ -185,20 +201,21 @@ export async function fetchRepoTree(
       rateLimited = true;
       break;
     }
+    if (result.authRetryable) {
+      // A private repo answers 401/404 to anonymous requests on every branch,
+      // so stop and retry the whole set once with a token.
+      authRetryable = true;
+      break;
+    }
   }
 
-  if (!rateLimited || !getToken) return null;
+  if (!getToken || !(rateLimited || authRetryable)) return null;
 
-  // Lazy fallback: rate limit hit and a token resolver was provided.
-  _rateLimitedThisSession = true;
-  const token = getToken();
-  if (!token) return null;
+  // Remember an IP-level rate limit so later calls skip the unauth pass.
+  // A private-repo 404 is per-repo, not per-IP, so it must not set this flag.
+  if (rateLimited) _rateLimitedThisSession = true;
 
-  for (const branch of branches) {
-    const result = await fetchTreeBranch(ownerRepo, branch, token);
-    if (result.tree) return result.tree;
-  }
-  return null;
+  return fetchTreeWithToken(ownerRepo, branches, getToken);
 }
 
 /**
