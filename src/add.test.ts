@@ -9,6 +9,7 @@ import {
   getLockSource,
   getProjectLockSourceUrl,
   formatEveInstallPromptMessage,
+  filterImplicitUnsupportedGlobalAgents,
 } from './add.ts';
 
 function countPathLinesForSkill(text: string, skillName: string): number {
@@ -156,6 +157,36 @@ description: Mixed copied destination regression test
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('✓ multi-target-skill (copied)');
     expect(countPathLinesForSkill(result.stdout, 'multi-target-skill')).toBe(2);
+  });
+
+  it('should skip global-unsupported agents for implicit global installs', () => {
+    const result = filterImplicitUnsupportedGlobalAgents(
+      ['codex', 'promptscript', 'eve'],
+      { global: true },
+      true
+    );
+
+    expect(result).toEqual(['codex']);
+  });
+
+  it('should skip global-unsupported auto-selected detected agents', () => {
+    const result = filterImplicitUnsupportedGlobalAgents(
+      ['codex', 'promptscript'],
+      { global: true, agent: ['codex', 'promptscript'], agentAutoSelected: true },
+      true
+    );
+
+    expect(result).toEqual(['codex']);
+  });
+
+  it('should preserve explicitly requested global-unsupported agents', () => {
+    const result = filterImplicitUnsupportedGlobalAgents(
+      ['promptscript'],
+      { global: true, agent: ['promptscript'] },
+      true
+    );
+
+    expect(result).toEqual(['promptscript']);
   });
 
   it('should describe Eve project installs as for the eve agent to use', () => {
