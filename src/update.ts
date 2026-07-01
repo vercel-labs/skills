@@ -40,10 +40,12 @@ export interface UpdateCheckOptions {
   yes?: boolean;
   /** Optional skill name(s) to filter on (positional args) */
   skills?: string[];
+  /** Command-line parsing errors that should stop before checking for updates */
+  errors?: string[];
 }
 
 export function parseUpdateOptions(args: string[]): UpdateCheckOptions {
-  const options: UpdateCheckOptions = {};
+  const options: UpdateCheckOptions = { errors: [] };
   const positional: string[] = [];
   for (const arg of args) {
     if (arg === '-g' || arg === '--global') {
@@ -52,6 +54,8 @@ export function parseUpdateOptions(args: string[]): UpdateCheckOptions {
       options.project = true;
     } else if (arg === '-y' || arg === '--yes') {
       options.yes = true;
+    } else if (arg.startsWith('-')) {
+      options.errors!.push(`Unknown option: ${arg}`);
     } else if (!arg.startsWith('-')) {
       positional.push(arg);
     }
@@ -633,6 +637,14 @@ export function printLegacyProjectSkills(
 
 export async function runUpdate(args: string[] = []): Promise<void> {
   const options = parseUpdateOptions(args);
+
+  if (options.errors?.length) {
+    for (const error of options.errors) {
+      console.error(error);
+    }
+    process.exit(1);
+  }
+
   const scope = await resolveUpdateScope(options);
 
   if (options.skills) {
