@@ -32,6 +32,21 @@ const noDetectedAgentEnv = {
   REPL_ID: '',
 };
 
+function isolatedAgentEnv(home: string): Record<string, string> {
+  return {
+    ...noDetectedAgentEnv,
+    APPDATA: join(home, 'appdata'),
+    AUTOHAND_HOME: join(home, '.autohand'),
+    CLAUDE_CONFIG_DIR: join(home, '.claude'),
+    CODEX_HOME: join(home, '.codex'),
+    FLATPAK_XDG_CONFIG_HOME: join(home, '.flatpak-config'),
+    HERMES_HOME: join(home, '.hermes'),
+    HOME: home,
+    VIBE_HOME: join(home, '.vibe'),
+    XDG_CONFIG_HOME: join(home, '.config'),
+  };
+}
+
 describe('add command', () => {
   let testDir: string;
 
@@ -151,6 +166,72 @@ Instructions here.
     expect(result.stdout).toContain('Done!');
     expect(result.exitCode).toBe(0);
     expect(existsSync(join(projectDir, 'agent', 'skills', 'eve-skill', 'SKILL.md'))).toBe(true);
+  });
+
+  it('should skip detected PromptScript when global install targets are implicit', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'skills', 'promptscript-global-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: promptscript-global-skill
+description: PromptScript global regression
+---
+
+# PromptScript Global Regression
+`
+    );
+
+    const projectDir = join(testDir, 'promptscript-project');
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(join(projectDir, 'promptscript.yaml'), 'name: promptscript-project\n');
+
+    const result = runCli(
+      ['add', sourceDir, '-g', '-y', '--skill', 'promptscript-global-skill'],
+      projectDir,
+      isolatedAgentEnv(projectDir)
+    );
+    const output = result.stdout + result.stderr;
+
+    expect(result.exitCode).toBe(0);
+    expect(output).not.toContain('PromptScript does not support global skill installation');
+    expect(output).not.toContain('Failed to install');
+  });
+
+  it('should not prefer detected Eve when global install targets are implicit', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'skills', 'eve-global-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: eve-global-skill
+description: Eve global regression
+---
+
+# Eve Global Regression
+`
+    );
+
+    const projectDir = join(testDir, 'eve-project');
+    mkdirSync(join(projectDir, 'agent'), { recursive: true });
+    writeFileSync(
+      join(projectDir, 'package.json'),
+      JSON.stringify({ dependencies: { eve: '^0.11.5' } })
+    );
+
+    const result = runCli(
+      ['add', sourceDir, '-g', '-y', '--skill', 'eve-global-skill'],
+      projectDir,
+      isolatedAgentEnv(projectDir)
+    );
+    const output = result.stdout + result.stderr;
+
+    expect(result.exitCode).toBe(0);
+    expect(output).not.toContain('Installing to: eve agent');
+    expect(output).not.toContain('Eve does not support global skill installation');
+    expect(output).not.toContain('Failed to install');
   });
 
   it('should filter skills by name with --skill flag', () => {
