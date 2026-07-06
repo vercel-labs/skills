@@ -60,6 +60,7 @@ export type AgentType =
   | 'qwen-code'
   | 'replit'
   | 'reasonix'
+  | 'rolecraft'
   | 'roo'
   | 'rovodev'
   | 'sarvam-code'
