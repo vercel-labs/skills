@@ -128,4 +128,73 @@ describe('source-parser', () => {
       });
     });
   });
+
+  describe('Embedded credentials (userinfo) preservation', () => {
+    it('preserves x-access-token userinfo on a plain GitHub URL', () => {
+      const result = parseSource('https://x-access-token:GHTOKEN@github.com/org/private-repo');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://x-access-token:GHTOKEN@github.com/org/private-repo.git',
+      });
+    });
+
+    it('preserves userinfo on a GitHub /tree/branch URL', () => {
+      const result = parseSource(
+        'https://x-access-token:GHTOKEN@github.com/org/private-repo/tree/main'
+      );
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://x-access-token:GHTOKEN@github.com/org/private-repo.git',
+        ref: 'main',
+      });
+    });
+
+    it('preserves userinfo on a GitHub /tree/branch/path URL', () => {
+      const result = parseSource(
+        'https://x-access-token:GHTOKEN@github.com/org/private-repo/tree/main/skills/foo'
+      );
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://x-access-token:GHTOKEN@github.com/org/private-repo.git',
+        ref: 'main',
+        subpath: 'skills/foo',
+      });
+    });
+
+    it('preserves user:pass userinfo and drops .git suffix on GitHub URL', () => {
+      const result = parseSource('https://user:pass@github.com/org/private-repo.git');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://user:pass@github.com/org/private-repo.git',
+      });
+    });
+
+    it('preserves userinfo on a gitlab.com URL', () => {
+      const result = parseSource('https://x-access-token:GLTOKEN@gitlab.com/group/private-repo');
+      expect(result).toEqual({
+        type: 'gitlab',
+        url: 'https://x-access-token:GLTOKEN@gitlab.com/group/private-repo.git',
+      });
+    });
+
+    it('preserves userinfo on a custom GitLab instance /-/tree/ URL', () => {
+      const result = parseSource(
+        'https://token:secret@git.corp.com/group/subgroup/project/-/tree/main/src'
+      );
+      expect(result).toMatchObject({
+        type: 'gitlab',
+        url: 'https://token:secret@git.corp.com/group/subgroup/project.git',
+        ref: 'main',
+        subpath: 'src',
+      });
+    });
+
+    it('leaves credential-free URLs unchanged', () => {
+      const result = parseSource('https://github.com/org/public-repo');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://github.com/org/public-repo.git',
+      });
+    });
+  });
 });
