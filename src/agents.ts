@@ -561,6 +561,18 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.rovodev'));
     },
   },
+  rolecraft: {
+    name: 'rolecraft',
+    displayName: 'RoleCraft',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents/skills'),
+    detectInstalled: async () => {
+      return (
+        existsSync(join(home, '.agents', '.skill-lock.json')) ||
+        existsSync(join(home, '.agents', 'skills'))
+      );
+    },
+  },
   roo: {
     name: 'roo',
     displayName: 'Roo Code',
