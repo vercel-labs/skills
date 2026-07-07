@@ -11,6 +11,7 @@ import { getGitHubToken } from './skill-lock.ts';
 import { discoverSkills, filterSkills, getSkillDisplayName } from './skills.ts';
 import { getOwnerRepo, parseSource } from './source-parser.ts';
 import type { AgentType, Skill } from './types.ts';
+import { createSkillFileSelector, type SkillFileSelector } from './skill-files.ts';
 import {
   wellKnownProvider,
   type WellKnownSkill,
@@ -45,6 +46,7 @@ export type UseSkill =
       directoryName: string;
       rawContent?: string;
       path: string;
+      fileIncludes?: string[];
     }
   | {
       kind: 'well-known';
@@ -172,7 +174,7 @@ export async function materializeUseSkill(skill: UseSkill): Promise<Materialized
   } else if (skill.kind === 'well-known') {
     await writeMapFiles(skillDir, skill.files);
   } else {
-    await copySkillDirectory(skill.path, skillDir);
+    await copySkillDirectory(skill.path, skillDir, skill.fileIncludes);
   }
 
   const skillMd = skill.rawContent ?? (await readFile(join(skillDir, 'SKILL.md'), 'utf-8'));
@@ -292,6 +294,7 @@ export async function runUse(
           directoryName: selected.name,
           rawContent: selected.rawContent,
           path: selected.path,
+          fileIncludes: selected.fileIncludes,
         };
       }
     }
@@ -557,8 +560,25 @@ async function writeSafeFile(
   }
 }
 
-async function copySkillDirectory(src: string, dest: string): Promise<void> {
-  await mkdir(dest, { recursive: true });
+async function copySkillDirectory(
+  src: string,
+  dest: string,
+  fileIncludes?: readonly string[]
+): Promise<void> {
+  const selector = createSkillFileSelector(fileIncludes);
+  await copySkillDirectoryEntries(src, dest, src, selector);
+}
+
+async function copySkillDirectoryEntries(
+  src: string,
+  dest: string,
+  root: string,
+  selector: SkillFileSelector
+): Promise<void> {
+  if (!selector.explicit) {
+    await mkdir(dest, { recursive: true });
+  }
+
   const entries = await readdir(src, { withFileTypes: true });
 
   await Promise.all(
@@ -570,11 +590,15 @@ async function copySkillDirectory(src: string, dest: string): Promise<void> {
         if (!isPathSafe(dest, destPath)) return;
 
         if (entry.isDirectory()) {
-          await copySkillDirectory(srcPath, destPath);
+          await copySkillDirectoryEntries(srcPath, destPath, root, selector);
           return;
         }
 
+        const relPath = relative(root, srcPath).split(sep).join('/');
+        if (!selector.shouldInclude(relPath)) return;
+
         try {
+          await mkdir(dirname(destPath), { recursive: true });
           await cp(srcPath, destPath, { dereference: true, recursive: true });
         } catch (err) {
           if (

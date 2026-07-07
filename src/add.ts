@@ -79,6 +79,7 @@ import {
   type BlobSkill,
   type BlobInstallResult,
 } from './blob.ts';
+import { hasExplicitSkillFileIncludes } from './skill-files.ts';
 import packageJson from '../package.json' with { type: 'json' };
 export function initTelemetry(version: string): void {
   setVersion(version);
@@ -1714,7 +1715,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             agent,
             { global: installGlobally, mode: installMode, eveSubagent: subagent }
           );
-        } else if (tempDir && skill.path === tempDir && skill.rawContent) {
+        } else if (
+          tempDir &&
+          skill.path === tempDir &&
+          skill.rawContent &&
+          !hasExplicitSkillFileIncludes(skill.fileIncludes)
+        ) {
           // Remote root-level SKILL.md: install the skill file, not the whole repository.
           result = await installBlobSkillForAgent(
             { installName: skill.name, files: [{ path: 'SKILL.md', contents: skill.rawContent }] },
@@ -1865,13 +1871,18 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         const skillDisplayName = getSkillDisplayName(skill);
         if (successfulSkillNames.has(skillDisplayName)) {
           try {
+            const matchingResult = successful.find((r) => r.skill === skillDisplayName);
+            const installedPath = matchingResult?.canonicalPath || matchingResult?.path;
             // For blob skills, use the snapshot hash; for disk skills, compute from files
             const computedHash =
               blobResult && 'snapshotHash' in skill
                 ? (skill as BlobSkill).snapshotHash
-                : tempDir && skill.path === tempDir && skill.rawContent
+                : tempDir &&
+                    skill.path === tempDir &&
+                    skill.rawContent &&
+                    !hasExplicitSkillFileIncludes(skill.fileIncludes)
                   ? computeSingleFileSkillHash(skill.rawContent)
-                  : await computeSkillFolderHash(skill.path);
+                  : await computeSkillFolderHash(installedPath || skill.path);
             const skillPathValue = skillFiles[skill.name];
             await addSkillToLocalLock(
               skill.name,

@@ -318,6 +318,51 @@ describe('WellKnownProvider', () => {
       expect(skills[0]!.files.has('references/README.md')).toBe(true);
     });
 
+    it('filters v0.2.0 archive payloads with files frontmatter', async () => {
+      const skillMd = `---
+name: archive-skill
+description: Archive skill.
+files:
+  - SKILL.md
+  - references/
+  - "!references/private.md"
+---
+# Archive`;
+      const archive = createTarGz({
+        'SKILL.md': skillMd,
+        'references/README.md': 'Reference',
+        'references/private.md': 'Private',
+        'scripts/run.js': 'run',
+      });
+
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+          return response({
+            $schema: SCHEMA_V2,
+            skills: [
+              {
+                name: 'archive-skill',
+                type: 'archive',
+                description: 'Archive skill.',
+                url: '/downloads/archive-skill.tar.gz',
+                digest: digest(archive),
+              },
+            ],
+          });
+        }
+        if (href === 'https://example.com/downloads/archive-skill.tar.gz') {
+          return response(archive, { headers: { 'content-type': 'application/gzip' } });
+        }
+        return response('not found', { status: 404 });
+      });
+
+      const skills = await provider.fetchAllSkills('https://example.com');
+
+      expect(skills).toHaveLength(1);
+      expect([...skills[0]!.files.keys()]).toEqual(['SKILL.md', 'references/README.md']);
+    });
+
     it('does not process unknown schemas', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(
         response({

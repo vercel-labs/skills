@@ -3,6 +3,7 @@ import { gunzipSync, inflateRawSync } from 'node:zlib';
 import { parseFrontmatter } from '../frontmatter.ts';
 import { sanitizeMetadata } from '../sanitize.ts';
 import type { HostProvider, ProviderMatch, RemoteSkill } from './types.ts';
+import { parseSkillFileIncludes, selectSkillFileMap } from '../skill-files.ts';
 
 const DISCOVERY_SCHEMA_V2 = 'https://schemas.agentskills.io/discovery/0.2.0/schema.json';
 const MAX_ARCHIVE_UNPACKED_BYTES = 50 * 1024 * 1024;
@@ -419,6 +420,7 @@ export class WellKnownProvider implements HostProvider {
       const content = await response.text();
       const { data } = parseFrontmatter(content);
       if (typeof data.name !== 'string' || typeof data.description !== 'string') return null;
+      const fileIncludes = parseSkillFileIncludes(data);
 
       const files = new Map<string, WellKnownFileContent>();
       files.set('SKILL.md', content);
@@ -450,7 +452,8 @@ export class WellKnownProvider implements HostProvider {
         installName: entry.name,
         sourceUrl: skillMdUrl,
         metadata: data.metadata,
-        files,
+        fileIncludes,
+        files: selectSkillFileMap(files, fileIncludes),
         indexEntry: entry.indexEntry,
       });
     } catch {
@@ -473,6 +476,7 @@ export class WellKnownProvider implements HostProvider {
         const content = new TextDecoder().decode(bytes);
         const { data } = parseFrontmatter(content);
         if (typeof data.name !== 'string' || typeof data.description !== 'string') return null;
+        const fileIncludes = parseSkillFileIncludes(data);
 
         const files = new Map<string, WellKnownFileContent>();
         files.set('SKILL.md', content);
@@ -484,6 +488,7 @@ export class WellKnownProvider implements HostProvider {
           installName: entry.name,
           sourceUrl: entry.artifactUrl,
           metadata: data.metadata,
+          fileIncludes,
           files,
           indexEntry: entry.indexEntry,
         });
@@ -499,6 +504,7 @@ export class WellKnownProvider implements HostProvider {
 
       const { data } = parseFrontmatter(content);
       if (typeof data.name !== 'string' || typeof data.description !== 'string') return null;
+      const fileIncludes = parseSkillFileIncludes(data);
 
       return this.createSkill({
         name: data.name,
@@ -507,7 +513,8 @@ export class WellKnownProvider implements HostProvider {
         installName: entry.name,
         sourceUrl: entry.artifactUrl,
         metadata: data.metadata,
-        files,
+        fileIncludes,
+        files: selectSkillFileMap(files, fileIncludes),
         indexEntry: entry.indexEntry,
       });
     } catch {
@@ -522,6 +529,7 @@ export class WellKnownProvider implements HostProvider {
     installName: string;
     sourceUrl: string;
     metadata: unknown;
+    fileIncludes?: string[];
     files: Map<string, WellKnownFileContent>;
     indexEntry: WellKnownSkillEntry;
   }): WellKnownSkill {
@@ -535,6 +543,7 @@ export class WellKnownProvider implements HostProvider {
         input.metadata && typeof input.metadata === 'object'
           ? (input.metadata as Record<string, unknown>)
           : undefined,
+      fileIncludes: input.fileIncludes,
       files: input.files,
       indexEntry: input.indexEntry,
     };
