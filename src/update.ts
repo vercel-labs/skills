@@ -19,6 +19,7 @@ import { removeCommand } from './remove.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
 import { agents, isUniversalAgent } from './agents.ts';
+import { parseSource } from './source-parser.ts';
 import type { AgentType } from './types.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -279,6 +280,13 @@ export async function checkAndPromptForDeletions(
     }
   }
   return deletedSkills;
+}
+
+function getProjectCloneSource(entry: LocalSkillLockEntry): string {
+  if (entry.sourceType !== 'github') {
+    return entry.source;
+  }
+  return parseSource(entry.source).url;
 }
 
 export async function updateGlobalSkills(
@@ -549,7 +557,6 @@ export async function updateProjectSkills(
 
   for (const [source, skillsForSource] of bySource) {
     const firstEntry = skillsForSource[0]!.entry;
-    const sourceUrl = firstEntry.source;
     const ref = firstEntry.ref;
 
     const allLockedForSource = Object.entries(localLock.skills)
@@ -560,6 +567,7 @@ export async function updateProjectSkills(
     let deletedSkills: string[] = [];
 
     try {
+      const sourceUrl = getProjectCloneSource(firstEntry);
       tempDir = await cloneRepo(sourceUrl, ref);
       const discovered = await discoverSkills(tempDir);
 

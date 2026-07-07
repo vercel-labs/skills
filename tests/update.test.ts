@@ -195,6 +195,33 @@ describe('Update Cleanup Unit Tests', () => {
       expect(p.confirm).not.toHaveBeenCalled();
       expect(remove.removeCommand).not.toHaveBeenCalled();
     });
+
+    it('should clone GitHub shorthand project sources with a cloneable URL', async () => {
+      vi.mocked(localLock.readLocalLock).mockResolvedValue({
+        version: 1,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            ref: 'feature/install',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            computedHash: 'abc',
+          },
+        },
+      });
+
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        { name: 'skill-a', path: '/tmp/repo/skills/skill-a', description: 'A', rawContent: '' },
+      ]);
+
+      await updateProjectSkills({ yes: true });
+
+      expect(git.cloneRepo).toHaveBeenCalledWith(
+        'https://github.com/owner/repo.git',
+        'feature/install'
+      );
+    });
   });
 
   describe('updateGlobalSkills', () => {
