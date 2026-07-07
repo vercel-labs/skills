@@ -7,6 +7,7 @@ import * as localLock from '../src/local-lock.ts';
 import * as skillLock from '../src/skill-lock.ts';
 import * as remove from '../src/remove.ts';
 import * as p from '@clack/prompts';
+import * as childProcess from 'child_process';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -120,6 +121,11 @@ describe('Update Cleanup Unit Tests', () => {
       expect(remove.removeCommand).toHaveBeenCalledWith(
         ['skill-b'],
         expect.objectContaining({ yes: true, global: false })
+      );
+      expect(childProcess.spawnSync).toHaveBeenCalledWith(
+        process.execPath,
+        expect.any(Array),
+        expect.not.objectContaining({ shell: expect.anything() })
       );
     });
 
@@ -266,6 +272,11 @@ describe('Update Cleanup Unit Tests', () => {
       expect(git.cloneRepo).toHaveBeenCalledWith('git@github.com:owner/repo.git', undefined);
       expect(localLock.computeSkillFolderHash).toHaveBeenCalledWith(
         join('/tmp/repo', 'skills/skill-a')
+      );
+      expect(childProcess.spawnSync).toHaveBeenCalledWith(
+        process.execPath,
+        expect.any(Array),
+        expect.not.objectContaining({ shell: expect.anything() })
       );
     });
   });
