@@ -337,6 +337,49 @@ export async function updateGlobalSkills(
     process.stdout.write(`\r${DIM}Checking skills from source: ${source}${RESET}\x1b[K\n`);
 
     try {
+      // Local sources: re-read the directory from disk (no clone, no network)
+      // and re-sync any skill whose folder hash changed since install.
+      if (firstEntry.sourceType === 'local') {
+        const localRoot = firstEntry.sourceUrl || source;
+        if (!existsSync(localRoot)) {
+          console.log(`  ${DIM}✗ Local source no longer exists: ${localRoot}${RESET}`);
+          continue;
+        }
+
+        const discoveredPaths = (await discoverSkills(localRoot)).map((skill) =>
+          join(relative(localRoot, skill.path), 'SKILL.md').split(sep).join('/')
+        );
+
+        const allLockedForSource = Object.entries(lock.skills)
+          .filter(([_, entry]) => entry.source === source)
+          .map(([name, _]) => name);
+
+        const deletedSkills = await checkAndPromptForDeletions(
+          source,
+          allLockedForSource,
+          lock.skills,
+          true,
+          options,
+          discoveredPaths
+        );
+
+        const deletedSkillSet = new Set(deletedSkills);
+
+        for (const { name: skillName, entry } of itemsForSource) {
+          if (deletedSkillSet.has(skillName)) continue;
+
+          const skillPath = entry.skillPath!;
+          if (!discoveredPaths.includes(skillPath)) continue;
+
+          const latestHash = await computeSkillFolderHash(join(localRoot, dirname(skillPath)));
+          if (latestHash && latestHash !== entry.skillFolderHash) {
+            updates.push({ name: skillName, source, entry });
+          }
+        }
+
+        continue;
+      }
+
       const isGitHubSource = firstEntry.sourceType === 'github';
 
       if (isGitHubSource) {
@@ -443,7 +486,6 @@ export async function updateGlobalSkills(
   for (const update of updates) {
     const safeName = sanitizeMetadata(update.name);
     console.log(`${TEXT}Updating ${safeName}...${RESET}`);
-    const installUrl = buildUpdateInstallSource(update.entry);
 
     const cliEntry = join(__dirname, '..', 'bin', 'cli.mjs');
     if (!existsSync(cliEntry)) {
@@ -453,7 +495,24 @@ export async function updateGlobalSkills(
       );
       continue;
     }
-    const result = spawnSync(process.execPath, [cliEntry, 'add', installUrl, '-g', '-y'], {
+
+    // Local sources: re-install from the directory root, filtered to this skill
+    // by name. This keeps the lock entry's source/skillPath stable (re-deriving
+    // them from the root) instead of collapsing to the skill's subfolder.
+    const isLocal = update.entry.sourceType === 'local';
+    const addArgs = isLocal
+      ? [
+          cliEntry,
+          'add',
+          update.entry.sourceUrl || update.entry.source,
+          '-g',
+          '-y',
+          '-s',
+          update.name,
+        ]
+      : [cliEntry, 'add', buildUpdateInstallSource(update.entry), '-g', '-y'];
+
+    const result = spawnSync(process.execPath, addArgs, {
       stdio: ['inherit', 'pipe', 'pipe'],
       encoding: 'utf-8',
       shell: process.platform === 'win32',
