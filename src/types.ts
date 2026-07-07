@@ -50,6 +50,7 @@ export type AgentType =
   | 'openhands'
   | 'ona'
   | 'pi'
+  | 'pool'
   | 'qoder'
   | 'qoder-cn'
   | 'qwen-code'

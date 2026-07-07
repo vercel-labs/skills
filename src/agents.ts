@@ -506,6 +506,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.pi/agent'));
     },
   },
+  pool: {
+    name: 'pool',
+    displayName: 'Pool',
+    skillsDir: '.poolside/skills',
+    globalSkillsDir: join(configHome, 'poolside/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(configHome, 'poolside'));
+    },
+  },
   qoder: {
     name: 'qoder',
     displayName: 'Qoder',
