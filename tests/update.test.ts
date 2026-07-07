@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { updateProjectSkills, updateGlobalSkills } from '../src/update.ts';
+import { parseUpdateOptions, updateProjectSkills, updateGlobalSkills } from '../src/update.ts';
 import * as git from '../src/git.ts';
 import * as skills from '../src/skills.ts';
 import * as blob from '../src/blob.ts';
@@ -267,6 +267,15 @@ describe('Update Cleanup Unit Tests', () => {
       expect(localLock.computeSkillFolderHash).toHaveBeenCalledWith(
         join('/tmp/repo', 'skills/skill-a')
       );
+    });
+  });
+});
+
+describe('parseUpdateOptions', () => {
+  it('rejects unknown flags instead of silently ignoring them', () => {
+    expect(parseUpdateOptions(['--dry-run', '-g'])).toEqual({
+      errors: ['Unknown option: --dry-run'],
+      global: true,
     });
   });
 });

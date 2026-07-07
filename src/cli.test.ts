@@ -88,6 +88,16 @@ describe('skills CLI', () => {
     });
   });
 
+  describe('update options', () => {
+    it('should reject unknown options before running update', () => {
+      const result = runCli(['update', '--dry-run', '-g']);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('Unknown option: --dry-run');
+      expect(result.stdout).not.toContain('Checking for skill updates');
+    });
+  });
+
   describe('logo display', () => {
     it('should not display logo for list command', () => {
       const output = runCliOutput(['list']);
