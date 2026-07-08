@@ -1,6 +1,7 @@
 export type AgentType =
   | 'aider-desk'
   | 'amp'
+  | 'omp'
   | 'antigravity'
   | 'antigravity-cli'
   | 'astrbot'

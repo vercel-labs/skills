@@ -14,6 +14,10 @@ const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
 const zedAppDataHome = process.env.APPDATA?.trim();
 const zedFlatpakConfigHome = process.env.FLATPAK_XDG_CONFIG_HOME?.trim();
+const ompProfile = process.env.OMP_PROFILE?.trim();
+const ompAgentDir = ompProfile
+  ? join(home, '.omp/profiles', ompProfile, 'agent')
+  : join(home, '.omp/agent');
 
 function packageJsonHasDependency(packageJsonPath: string, dependencyName: string): boolean {
   try {
@@ -62,6 +66,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(configHome, 'agents/skills'),
     detectInstalled: async () => {
       return existsSync(join(configHome, 'amp'));
+    },
+  },
+  omp: {
+    name: 'omp',
+    displayName: 'OMP',
+    skillsDir: '.omp/skills',
+    globalSkillsDir: join(ompAgentDir, 'skills'),
+    detectInstalled: async () => {
+      return existsSync(ompAgentDir);
     },
   },
   antigravity: {
