@@ -14,6 +14,7 @@ const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
 const zedAppDataHome = process.env.APPDATA?.trim();
 const zedFlatpakConfigHome = process.env.FLATPAK_XDG_CONFIG_HOME?.trim();
+const zaguanBladeAppDataHome = process.env.APPDATA?.trim();
 
 function packageJsonHasDependency(packageJsonPath: string, dependencyName: string): boolean {
   try {
@@ -43,6 +44,38 @@ export function getOpenClawGlobalSkillsDir(
     return join(homeDir, '.moltbot/skills');
   }
   return join(homeDir, '.openclaw/skills');
+}
+
+export function getZaguanBladeGlobalSkillsDir(
+  homeDir = home,
+  configDir = configHome,
+  platformName: NodeJS.Platform = process.platform,
+  appDataHome = zaguanBladeAppDataHome,
+  joinPath: typeof join = join
+) {
+  return joinPath(
+    getZaguanBladeConfigDir(homeDir, configDir, platformName, appDataHome, joinPath),
+    'skills'
+  );
+}
+
+export function getZaguanBladeConfigDir(
+  homeDir = home,
+  configDir = configHome,
+  platformName: NodeJS.Platform = process.platform,
+  appDataHome = zaguanBladeAppDataHome,
+  joinPath: typeof join = join
+) {
+  if (platformName === 'win32') {
+    const windowsConfigDir = appDataHome || joinPath(homeDir, 'AppData', 'Roaming');
+    return joinPath(windowsConfigDir, 'zblade');
+  }
+
+  if (platformName === 'darwin') {
+    return joinPath(homeDir, 'Library', 'Application Support', 'zblade');
+  }
+
+  return joinPath(configDir, 'zblade');
 }
 
 export const agents: Record<AgentType, AgentConfig> = {
@@ -645,6 +678,15 @@ export const agents: Record<AgentType, AgentConfig> = {
         (!!zedAppDataHome && existsSync(join(zedAppDataHome, 'Zed'))) ||
         (!!zedFlatpakConfigHome && existsSync(join(zedFlatpakConfigHome, 'zed')))
       );
+    },
+  },
+  zblade: {
+    name: 'zblade',
+    displayName: 'Zaguán Blade',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: getZaguanBladeGlobalSkillsDir(),
+    detectInstalled: async () => {
+      return existsSync(getZaguanBladeConfigDir());
     },
   },
   zencoder: {

@@ -15,8 +15,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { homedir } from 'os';
-import { join } from 'path';
-import { agents } from '../src/agents.ts';
+import { join, win32 } from 'path';
+import { agents, getZaguanBladeGlobalSkillsDir } from '../src/agents.ts';
 
 describe('XDG config paths', () => {
   const home = homedir();
@@ -69,6 +69,47 @@ describe('XDG config paths', () => {
       expect(agents.goose.globalSkillsDir).not.toContain('Library');
       expect(agents.goose.globalSkillsDir).not.toContain('Preferences');
       expect(agents.goose.globalSkillsDir).not.toContain('AppData');
+    });
+  });
+
+  describe('Zaguán Blade', () => {
+    it('uses ~/.config/zblade/skills for global skills', () => {
+      const expected = join(home, '.config', 'zblade', 'skills');
+      expect(getZaguanBladeGlobalSkillsDir(home, join(home, '.config'), 'linux')).toBe(expected);
+    });
+
+    it('uses ~/Library/Application Support/zblade/skills on macOS', () => {
+      const expected = join(home, 'Library', 'Application Support', 'zblade', 'skills');
+      expect(getZaguanBladeGlobalSkillsDir(home, join(home, '.config'), 'darwin')).toBe(expected);
+    });
+
+    it('uses %APPDATA%\\zblade\\skills on Windows', () => {
+      const appData = 'C:\\Users\\test\\AppData\\Roaming';
+      expect(
+        getZaguanBladeGlobalSkillsDir(
+          'C:\\Users\\test',
+          'C:\\Users\\test\\.config',
+          'win32',
+          appData,
+          win32.join
+        )
+      ).toBe('C:\\Users\\test\\AppData\\Roaming\\zblade\\skills');
+    });
+
+    it('falls back to ~/AppData/Roaming/zblade/skills on Windows without APPDATA', () => {
+      expect(
+        getZaguanBladeGlobalSkillsDir(
+          'C:\\Users\\test',
+          'C:\\Users\\test\\.config',
+          'win32',
+          undefined,
+          win32.join
+        )
+      ).toBe('C:\\Users\\test\\AppData\\Roaming\\zblade\\skills');
+    });
+
+    it('uses the universal project skills directory', () => {
+      expect(agents.zblade.skillsDir).toBe('.agents/skills');
     });
   });
 

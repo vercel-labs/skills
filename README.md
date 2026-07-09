@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [68 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [69 more](#supported-agents).
 <!-- agent-list:end -->
 
 [![skills.sh](https://skills.sh/b/vercel-labs/skills)](https://skills.sh/vercel-labs/skills)
@@ -301,6 +301,7 @@ Skills can be installed to any of these agents:
 | Trae | `trae` | `.trae/skills/` | `~/.trae/skills/` |
 | Trae CN | `trae-cn` | `.trae/skills/` | `~/.trae-cn/skills/` |
 | Windsurf | `windsurf` | `.windsurf/skills/` | `~/.codeium/windsurf/skills/` |
+| Zaguán Blade | `zblade` | `.agents/skills/` | `~/.config/zblade/skills/` |
 | Zencoder, Zenflow | `zencoder`, `zenflow` | `.zencoder/skills/` | `~/.zencoder/skills/` |
 | Neovate | `neovate` | `.neovate/skills/` | `~/.neovate/skills/` |
 | Pochi | `pochi` | `.pochi/skills/` | `~/.pochi/skills/` |

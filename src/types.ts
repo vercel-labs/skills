@@ -65,6 +65,7 @@ export type AgentType =
   | 'warp'
   | 'windsurf'
   | 'zed'
+  | 'zblade'
   | 'zencoder'
   | 'zenflow'
   | 'pochi'
