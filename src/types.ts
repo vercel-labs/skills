@@ -52,6 +52,7 @@ export type AgentType =
   | 'pi'
   | 'qoder'
   | 'qoder-cn'
+  | 'qoderwork'
   | 'qwen-code'
   | 'replit'
   | 'reasonix'

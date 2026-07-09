@@ -28,6 +28,7 @@ const AGENT_PROJECT_SKILL_DIRS = [
   '.openhands/skills',
   '.pi/skills',
   '.qoder/skills',
+  '.qoderwork/skills',
   '.roo/skills',
   '.trae/skills',
   '.windsurf/skills',
