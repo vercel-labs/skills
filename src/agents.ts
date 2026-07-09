@@ -12,6 +12,7 @@ const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude'
 const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
 const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
+const quickHome = process.env.QUICKWORK_HOME?.trim() || join(home, '.quickwork');
 const zedAppDataHome = process.env.APPDATA?.trim();
 const zedFlatpakConfigHome = process.env.FLATPAK_XDG_CONFIG_HOME?.trim();
 
@@ -53,6 +54,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.aider-desk/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.aider-desk'));
+    },
+  },
+  'amazon-quick': {
+    name: 'amazon-quick',
+    displayName: 'Amazon Quick',
+    skillsDir: '.quickwork/skills',
+    globalSkillsDir: join(quickHome, 'skills'),
+    detectInstalled: async () => {
+      return existsSync(quickHome);
     },
   },
   amp: {

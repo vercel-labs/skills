@@ -1,5 +1,6 @@
 export type AgentType =
   | 'aider-desk'
+  | 'amazon-quick'
   | 'amp'
   | 'antigravity'
   | 'antigravity-cli'

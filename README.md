@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [68 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [69 more](#supported-agents).
 <!-- agent-list:end -->
 
 [![skills.sh](https://skills.sh/b/vercel-labs/skills)](https://skills.sh/vercel-labs/skills)
@@ -243,6 +243,7 @@ Skills can be installed to any of these agents:
 | Agent | `--agent` | Project Path | Global Path |
 |-------|-----------|--------------|-------------|
 | AiderDesk | `aider-desk` | `.aider-desk/skills/` | `~/.aider-desk/skills/` |
+| Amazon Quick | `amazon-quick` | `.quickwork/skills/` | `~/.quickwork/skills/` |
 | Amp, Replit, Universal | `amp`, `replit`, `universal` | `.agents/skills/` | `~/.config/agents/skills/` |
 | Antigravity | `antigravity` | `.agents/skills/` | `~/.gemini/antigravity/skills/` |
 | Antigravity CLI | `antigravity-cli` | `.agents/skills/` | `~/.gemini/antigravity-cli/skills/` |
@@ -382,6 +383,7 @@ to also discover `SKILL.md` files outside these container directories
 - `skills/.experimental/`
 - `skills/.system/`
 - `.aider-desk/skills/`
+- `.quickwork/skills/`
 - `.agents/skills/`
 - `data/skills/`
 - `.autohand/skills/`
@@ -506,6 +508,7 @@ Telemetry is automatically disabled in CI environments.
 
 - [Agent Skills Specification](https://agentskills.io)
 - [Skills Directory](https://skills.sh)
+- [Amazon Quick Skills Documentation](https://docs.aws.amazon.com/quick/latest/userguide/skills-and-agents-desktop.html)
 - [Amp Skills Documentation](https://ampcode.com/manual#agent-skills)
 - [Antigravity Skills Documentation](https://antigravity.google/docs/skills)
 - [Factory AI / Droid Skills Documentation](https://docs.factory.ai/cli/configuration/skills)
