@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [68 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [69 more](#supported-agents).
 <!-- agent-list:end -->
 
 [![skills.sh](https://skills.sh/b/vercel-labs/skills)](https://skills.sh/vercel-labs/skills)
@@ -306,6 +306,7 @@ Skills can be installed to any of these agents:
 | Pochi | `pochi` | `.pochi/skills/` | `~/.pochi/skills/` |
 | PromptScript | `promptscript` | `.agents/skills/` | N/A (project-only) |
 | AdaL | `adal` | `.adal/skills/` | `~/.adal/skills/` |
+| ZCode | `zcode` | `.zcode/skills/` | `~/.zcode/skills/` |
 <!-- supported-agents:end -->
 
 > [!NOTE]
@@ -431,6 +432,7 @@ to also discover `SKILL.md` files outside these container directories
 - `.neovate/skills/`
 - `.pochi/skills/`
 - `.adal/skills/`
+- `.zcode/skills/`
 <!-- skill-discovery:end -->
 
 ### Plugin Manifest Discovery

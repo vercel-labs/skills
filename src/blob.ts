@@ -275,6 +275,7 @@ const PRIORITY_PREFIXES = [
   '.roo/skills/',
   '.trae/skills/',
   '.windsurf/skills/',
+  '.zcode/skills/',
   '.zencoder/skills/',
 ];
 

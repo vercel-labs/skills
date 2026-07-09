@@ -114,5 +114,12 @@ describe('XDG config paths', () => {
       const expected = join(home, '.agents', 'skills');
       expect(agents.cline.globalSkillsDir).toBe(expected);
     });
+
+    it('zcode uses ~/.zcode/skills (home-based, not XDG)', () => {
+      const expected = join(home, '.zcode', 'skills');
+      expect(agents.zcode.globalSkillsDir).toBe(expected);
+      expect(agents.zcode.skillsDir).toBe('.zcode/skills');
+      expect(agents.zcode.displayName).toBe('ZCode');
+    });
   });
 });

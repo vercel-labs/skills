@@ -705,6 +705,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.adal'));
     },
   },
+  zcode: {
+    name: 'zcode',
+    displayName: 'ZCode',
+    skillsDir: '.zcode/skills',
+    globalSkillsDir: join(home, '.zcode/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.zcode'));
+    },
+  },
   universal: {
     name: 'universal',
     displayName: 'Universal',
