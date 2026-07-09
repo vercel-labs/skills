@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, rmSync, mkdirSync, writeFileSync, readdirSync } from 'fs';
+import { existsSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli, runCliWithInput } from './test-utils.js';
@@ -265,6 +265,48 @@ This is a test skill.
 
       // Invalid directory should still be removed
       expect(existsSync(join(skillsDir, 'invalid-skill'))).toBe(true);
+    });
+  });
+
+  describe('skills-lock.json cleanup', () => {
+    beforeEach(() => {
+      createTestSkill('skill-one', 'First test skill');
+      createTestSkill('skill-two', 'Second test skill');
+
+      // Write a skills-lock.json with entries for both skills
+      const lockContent = {
+        version: 1,
+        skills: {
+          'skill-one': {
+            source: 'test/repo',
+            sourceType: 'github',
+            computedHash: 'abc123',
+          },
+          'skill-two': {
+            source: 'test/repo',
+            sourceType: 'github',
+            computedHash: 'def456',
+          },
+        },
+      };
+      writeFileSync(join(testDir, 'skills-lock.json'), JSON.stringify(lockContent, null, 2) + '\n');
+    });
+
+    it('should remove skill entry from skills-lock.json', () => {
+      const result = runCli(['remove', 'skill-one', '-y'], testDir);
+      expect(result.stdout).toContain('Successfully removed');
+
+      const lockContent = JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8'));
+      expect(lockContent.skills['skill-one']).toBeUndefined();
+      expect(lockContent.skills['skill-two']).toBeDefined();
+    });
+
+    it('should remove all skill entries from skills-lock.json with --all', () => {
+      const result = runCli(['remove', '--all', '-y'], testDir);
+      expect(result.stdout).toContain('Successfully removed');
+
+      const lockContent = JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8'));
+      expect(Object.keys(lockContent.skills)).toHaveLength(0);
     });
   });
 
