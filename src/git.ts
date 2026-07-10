@@ -98,6 +98,29 @@ function isAuthFailure(message: string): boolean {
   );
 }
 
+// Resolves a GitHub token from the environment, checking GITHUB_TOKEN then
+// GH_TOKEN — the two conventional env var names CI systems and tools already
+// set (GitHub Actions, `gh` CLI, etc.). Returns undefined when neither is set,
+// so callers can treat this as "no token available" rather than an empty string.
+function getGitHubTokenFromEnv(): string | undefined {
+  return process.env.GITHUB_TOKEN || process.env.GH_TOKEN || undefined;
+}
+
+// Builds env vars that inject `token` as an `Authorization: Basic` header for
+// any git request to https://github.com/, via git's GIT_CONFIG_COUNT/KEY/VALUE
+// mechanism (same technique `actions/checkout` uses). This authenticates the
+// clone WITHOUT ever putting the token in the URL — it never appears in argv,
+// in `git remote -v` output, in a lockfile, or in any log line that echoes the
+// URL. Prefer this over embedding a token in the URL string wherever possible.
+function buildGitHubTokenAuthEnv(token: string): NodeJS.ProcessEnv {
+  const header = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`;
+  return {
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader',
+    GIT_CONFIG_VALUE_0: header,
+  };
+}
+
 function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
   return simpleGit({
     timeout: { block: CLONE_TIMEOUT_MS },
@@ -193,8 +216,16 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
   const cloneOptions = ref ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
   const repo = parseGitHubRepoUrl(url);
 
+  // Prefer a token from the environment over whatever credentials (if any)
+  // are already embedded in `url` — CI environments commonly set
+  // GITHUB_TOKEN/GH_TOKEN without ever putting a credential in the clone URL
+  // itself (see #1246). Only applies to github.com HTTPS clones; ambient
+  // credentials/SSH/gh-CLI fallback below is unchanged for everything else.
+  const githubToken = isGitHubHttpsCloneUrl(url) ? getGitHubTokenFromEnv() : undefined;
+  const clientEnv = githubToken ? buildGitHubTokenAuthEnv(githubToken) : undefined;
+
   try {
-    await createGitClient().clone(url, tempDir, cloneOptions);
+    await createGitClient(clientEnv).clone(url, tempDir, cloneOptions);
     return tempDir;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
