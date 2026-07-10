@@ -77,6 +77,19 @@ export function isGitHubHttpsCloneUrl(url: string): boolean {
   }
 }
 
+// Only the official gitlab.com domain, matching source-parser.ts's existing
+// "only for gitlab.com, for user convenience" convention — self-hosted GitLab
+// instances aren't reliably distinguishable from arbitrary git hosts by URL
+// alone, so we don't guess at auto-injecting credentials for them.
+export function isGitLabComHttpsCloneUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' && parsed.hostname === 'gitlab.com';
+  } catch {
+    return false;
+  }
+}
+
 export function isGitHubSsoAuthError(message: string): boolean {
   const lower = message.toLowerCase();
   return (
@@ -106,19 +119,40 @@ function getGitHubTokenFromEnv(): string | undefined {
   return process.env.GITHUB_TOKEN || process.env.GH_TOKEN || undefined;
 }
 
-// Builds env vars that inject `token` as an `Authorization: Basic` header for
-// any git request to https://github.com/, via git's GIT_CONFIG_COUNT/KEY/VALUE
-// mechanism (same technique `actions/checkout` uses). This authenticates the
-// clone WITHOUT ever putting the token in the URL — it never appears in argv,
-// in `git remote -v` output, in a lockfile, or in any log line that echoes the
-// URL. Prefer this over embedding a token in the URL string wherever possible.
-function buildGitHubTokenAuthEnv(token: string): NodeJS.ProcessEnv {
-  const header = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`;
+// Resolves a GitLab token from the environment: CI_JOB_TOKEN is auto-injected
+// by every GitLab CI runner (scoped to that pipeline's project access), and
+// GITLAB_TOKEN is the conventional manual override (personal/project/group
+// access token). Returns undefined when neither is set.
+function getGitLabTokenFromEnv(): string | undefined {
+  return process.env.CI_JOB_TOKEN || process.env.GITLAB_TOKEN || undefined;
+}
+
+// Builds env vars that inject `username:token` as an `Authorization: Basic`
+// header for any git request to `originHttpsUrl`, via git's
+// GIT_CONFIG_COUNT/KEY/VALUE mechanism (same technique `actions/checkout`
+// uses). This authenticates the clone WITHOUT ever putting the token in the
+// URL — it never appears in argv, in `git remote -v` output, in a lockfile,
+// or in any log line that echoes the URL. Prefer this over embedding a token
+// in the URL string wherever possible.
+function buildTokenAuthEnv(
+  originHttpsUrl: string,
+  username: string,
+  token: string
+): NodeJS.ProcessEnv {
+  const header = `AUTHORIZATION: basic ${Buffer.from(`${username}:${token}`).toString('base64')}`;
   return {
     GIT_CONFIG_COUNT: '1',
-    GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader',
+    GIT_CONFIG_KEY_0: `http.${originHttpsUrl}/.extraheader`,
     GIT_CONFIG_VALUE_0: header,
   };
+}
+
+function maybeBuildTokenAuthEnv(
+  originHttpsUrl: string,
+  username: string,
+  token: string | undefined
+): NodeJS.ProcessEnv | undefined {
+  return token ? buildTokenAuthEnv(originHttpsUrl, username, token) : undefined;
 }
 
 function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
@@ -218,11 +252,16 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
 
   // Prefer a token from the environment over whatever credentials (if any)
   // are already embedded in `url` — CI environments commonly set
-  // GITHUB_TOKEN/GH_TOKEN without ever putting a credential in the clone URL
-  // itself (see #1246). Only applies to github.com HTTPS clones; ambient
-  // credentials/SSH/gh-CLI fallback below is unchanged for everything else.
-  const githubToken = isGitHubHttpsCloneUrl(url) ? getGitHubTokenFromEnv() : undefined;
-  const clientEnv = githubToken ? buildGitHubTokenAuthEnv(githubToken) : undefined;
+  // GITHUB_TOKEN/GH_TOKEN (or, on GitLab CI, CI_JOB_TOKEN/GITLAB_TOKEN)
+  // without ever putting a credential in the clone URL itself (see #1246).
+  // Only applies to github.com/gitlab.com HTTPS clones; ambient
+  // credentials/SSH/gh-CLI fallback below is unchanged for everything else
+  // (self-hosted GitLab, Bitbucket, and other generic git hosts).
+  const clientEnv = isGitHubHttpsCloneUrl(url)
+    ? maybeBuildTokenAuthEnv('https://github.com', 'x-access-token', getGitHubTokenFromEnv())
+    : isGitLabComHttpsCloneUrl(url)
+      ? maybeBuildTokenAuthEnv('https://gitlab.com', 'oauth2', getGitLabTokenFromEnv())
+      : undefined;
 
   try {
     await createGitClient(clientEnv).clone(url, tempDir, cloneOptions);

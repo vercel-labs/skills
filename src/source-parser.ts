@@ -369,7 +369,7 @@ export function parseSource(input: string): ParsedSource {
     if (repoPath.includes('/')) {
       return {
         type: 'gitlab',
-        url: `https://gitlab.com/${repoPath}.git`,
+        url: `https://${extractHttpAuthPrefix(input)}gitlab.com/${repoPath}.git`,
         ...(fragmentRef ? { ref: fragmentRef } : {}),
       };
     }

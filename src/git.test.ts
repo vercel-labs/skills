@@ -268,4 +268,76 @@ describe('git clone fallbacks', () => {
       expect(gitOptions.env.GIT_CONFIG_COUNT).toBeUndefined();
     });
   });
+
+  describe('CI_JOB_TOKEN / GITLAB_TOKEN auth', () => {
+    const originalCiJobToken = process.env.CI_JOB_TOKEN;
+    const originalGitlabToken = process.env.GITLAB_TOKEN;
+
+    afterEach(() => {
+      if (originalCiJobToken === undefined) delete process.env.CI_JOB_TOKEN;
+      else process.env.CI_JOB_TOKEN = originalCiJobToken;
+      if (originalGitlabToken === undefined) delete process.env.GITLAB_TOKEN;
+      else process.env.GITLAB_TOKEN = originalGitlabToken;
+    });
+
+    it('authenticates gitlab.com HTTPS clones via CI_JOB_TOKEN without touching the URL', async () => {
+      delete process.env.GITLAB_TOKEN;
+      process.env.CI_JOB_TOKEN = 'test-ci-job-token';
+      const primaryClone = vi.fn().mockResolvedValue(undefined);
+      simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+
+      const tempDir = await cloneRepo('https://gitlab.com/owner/repo.git');
+      createdDirs.push(tempDir);
+
+      expect(primaryClone).toHaveBeenCalledWith('https://gitlab.com/owner/repo.git', tempDir, [
+        '--depth',
+        '1',
+      ]);
+
+      const gitOptions = simpleGitMock.mock.calls[0]![0] as { env: NodeJS.ProcessEnv };
+      const expectedHeader = `AUTHORIZATION: basic ${Buffer.from('oauth2:test-ci-job-token').toString('base64')}`;
+      expect(gitOptions.env.GIT_CONFIG_KEY_0).toBe('http.https://gitlab.com/.extraheader');
+      expect(gitOptions.env.GIT_CONFIG_VALUE_0).toBe(expectedHeader);
+    });
+
+    it('falls back to GITLAB_TOKEN when CI_JOB_TOKEN is unset', async () => {
+      delete process.env.CI_JOB_TOKEN;
+      process.env.GITLAB_TOKEN = 'test-gitlab-token';
+      const primaryClone = vi.fn().mockResolvedValue(undefined);
+      simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+
+      const tempDir = await cloneRepo('https://gitlab.com/owner/repo.git');
+      createdDirs.push(tempDir);
+
+      const gitOptions = simpleGitMock.mock.calls[0]![0] as { env: NodeJS.ProcessEnv };
+      const expectedHeader = `AUTHORIZATION: basic ${Buffer.from('oauth2:test-gitlab-token').toString('base64')}`;
+      expect(gitOptions.env.GIT_CONFIG_VALUE_0).toBe(expectedHeader);
+    });
+
+    it('does not inject a token for self-hosted GitLab instances', async () => {
+      process.env.CI_JOB_TOKEN = 'test-ci-job-token';
+      const primaryClone = vi.fn().mockResolvedValue(undefined);
+      simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+
+      const tempDir = await cloneRepo('https://gitlab.example.com/owner/repo.git');
+      createdDirs.push(tempDir);
+
+      const gitOptions = simpleGitMock.mock.calls[0]![0] as { env: NodeJS.ProcessEnv };
+      expect(gitOptions.env.GIT_CONFIG_COUNT).toBeUndefined();
+    });
+
+    it('does not inject a GitLab token for GitHub URLs, and vice versa', async () => {
+      process.env.CI_JOB_TOKEN = 'test-ci-job-token';
+      delete process.env.GITHUB_TOKEN;
+      delete process.env.GH_TOKEN;
+      const primaryClone = vi.fn().mockResolvedValue(undefined);
+      simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+
+      const tempDir = await cloneRepo('https://github.com/Giphy/giphy-codex-skills.git');
+      createdDirs.push(tempDir);
+
+      const gitOptions = simpleGitMock.mock.calls[0]![0] as { env: NodeJS.ProcessEnv };
+      expect(gitOptions.env.GIT_CONFIG_COUNT).toBeUndefined();
+    });
+  });
 });
