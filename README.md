@@ -483,13 +483,19 @@ Ensure the repository contains valid `SKILL.md` files with both `name` and `desc
 
 Ensure you have write access to the target directory.
 
+### Private repos in CI
+
+Set `GITHUB_TOKEN` (or `GH_TOKEN`) for private GitHub repos, or `CI_JOB_TOKEN` (auto-set by GitLab CI) / `GITLAB_TOKEN` for private `gitlab.com` repos. `skills` authenticates the clone directly from the environment — no need to embed a credential in the source URL.
+
 ## Environment Variables
 
-| Variable                  | Description                                                                |
-| ------------------------- | -------------------------------------------------------------------------- |
-| `INSTALL_INTERNAL_SKILLS` | Set to `1` or `true` to show and install skills marked as `internal: true` |
-| `DISABLE_TELEMETRY`       | Set to disable anonymous usage telemetry                                   |
-| `DO_NOT_TRACK`            | Alternative way to disable telemetry                                       |
+| Variable                        | Description                                                                |
+| -------------------------------- | --------------------------------------------------------------------------- |
+| `INSTALL_INTERNAL_SKILLS`       | Set to `1` or `true` to show and install skills marked as `internal: true` |
+| `DISABLE_TELEMETRY`             | Set to disable anonymous usage telemetry                                   |
+| `DO_NOT_TRACK`                  | Alternative way to disable telemetry                                      |
+| `GITHUB_TOKEN` / `GH_TOKEN`     | Authenticates private GitHub HTTPS clones (checked in that order)          |
+| `CI_JOB_TOKEN` / `GITLAB_TOKEN` | Authenticates private `gitlab.com` HTTPS clones (checked in that order)    |
 
 ```bash
 # Install internal skills

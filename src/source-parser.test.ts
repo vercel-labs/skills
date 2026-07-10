@@ -70,6 +70,14 @@ describe('source-parser', () => {
         url: 'https://gitlab.com/owner/repo.git',
       });
     });
+
+    it('preserves embedded auth for gitlab.com URLs (#1246)', () => {
+      const result = parseSource('https://oauth2:TOKEN@gitlab.com/owner/repo');
+      expect(result).toEqual({
+        type: 'gitlab',
+        url: 'https://oauth2:TOKEN@gitlab.com/owner/repo.git',
+      });
+    });
   });
 
   describe('Existing GitHub Support', () => {
@@ -125,6 +133,35 @@ describe('source-parser', () => {
         type: 'git',
         url: 'git@github.com:owner/repo.git',
         ref: 'feature/install',
+      });
+    });
+
+    it('preserves embedded auth for plain github.com URLs (#1246)', () => {
+      const result = parseSource('https://x-access-token:TOKEN@github.com/owner/repo');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://x-access-token:TOKEN@github.com/owner/repo.git',
+      });
+    });
+
+    it('preserves embedded auth for github.com tree URLs with a subpath (#1246)', () => {
+      const result = parseSource(
+        'https://x-access-token:TOKEN@github.com/owner/repo/tree/main/path'
+      );
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://x-access-token:TOKEN@github.com/owner/repo.git',
+        ref: 'main',
+        subpath: 'path',
+      });
+    });
+
+    it('preserves embedded auth for github.com tree URLs with a branch only (#1246)', () => {
+      const result = parseSource('https://x-access-token:TOKEN@github.com/owner/repo/tree/main');
+      expect(result).toEqual({
+        type: 'github',
+        url: 'https://x-access-token:TOKEN@github.com/owner/repo.git',
+        ref: 'main',
       });
     });
   });

@@ -237,6 +237,18 @@ function appendFragmentRef(input: string, ref?: string, skillFilter?: string): s
   return `${input}#${ref}${skillFilter ? `@${skillFilter}` : ''}`;
 }
 
+// Extracts an embedded `user:pass@` (or `x-access-token:<token>@`) prefix from
+// an http(s) URL, e.g. for `https://x-access-token:TOKEN@github.com/...`
+// returns `"x-access-token:TOKEN@"`. Returns "" when no credentials are
+// embedded, so callers can splice it back into a reconstructed URL without an
+// extra branch. Callers that reconstruct a GitHub/GitLab URL from a matched
+// input MUST preserve this — otherwise embedded credentials are silently
+// dropped and the subsequent `git clone` runs unauthenticated (see #1246).
+function extractHttpAuthPrefix(input: string): string {
+  const match = input.match(/^https?:\/\/([^/@]+@)/);
+  return match ? match[1]! : '';
+}
+
 export function parseSource(input: string): ParsedSource {
   // Local path: absolute, relative, or current directory
   if (isLocalPath(input)) {
@@ -287,7 +299,7 @@ export function parseSource(input: string): ParsedSource {
     const [, owner, repo, ref, subpath] = githubTreeWithPathMatch;
     return {
       type: 'github',
-      url: `https://github.com/${owner}/${repo}.git`,
+      url: `https://${extractHttpAuthPrefix(input)}github.com/${owner}/${repo}.git`,
       ref: ref || fragmentRef,
       subpath: subpath ? sanitizeSubpath(subpath) : subpath,
     };
@@ -299,7 +311,7 @@ export function parseSource(input: string): ParsedSource {
     const [, owner, repo, ref] = githubTreeMatch;
     return {
       type: 'github',
-      url: `https://github.com/${owner}/${repo}.git`,
+      url: `https://${extractHttpAuthPrefix(input)}github.com/${owner}/${repo}.git`,
       ref: ref || fragmentRef,
     };
   }
@@ -311,7 +323,7 @@ export function parseSource(input: string): ParsedSource {
     const cleanRepo = repo!.replace(/\.git$/, '');
     return {
       type: 'github',
-      url: `https://github.com/${owner}/${cleanRepo}.git`,
+      url: `https://${extractHttpAuthPrefix(input)}github.com/${owner}/${cleanRepo}.git`,
       ...(fragmentRef ? { ref: fragmentRef } : {}),
     };
   }
@@ -357,7 +369,7 @@ export function parseSource(input: string): ParsedSource {
     if (repoPath.includes('/')) {
       return {
         type: 'gitlab',
-        url: `https://gitlab.com/${repoPath}.git`,
+        url: `https://${extractHttpAuthPrefix(input)}gitlab.com/${repoPath}.git`,
         ...(fragmentRef ? { ref: fragmentRef } : {}),
       };
     }

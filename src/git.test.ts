@@ -194,4 +194,182 @@ describe('git clone fallbacks', () => {
     );
     expect(execFileMock).not.toHaveBeenCalled();
   });
+
+  describe('GITHUB_TOKEN / GH_TOKEN auth', () => {
+    const originalGithubToken = process.env.GITHUB_TOKEN;
+    const originalGhToken = process.env.GH_TOKEN;
+
+    afterEach(() => {
+      if (originalGithubToken === undefined) delete process.env.GITHUB_TOKEN;
+      else process.env.GITHUB_TOKEN = originalGithubToken;
+      if (originalGhToken === undefined) delete process.env.GH_TOKEN;
+      else process.env.GH_TOKEN = originalGhToken;
+    });
+
+    it('authenticates GitHub HTTPS clones via GITHUB_TOKEN without touching the URL', async () => {
+      delete process.env.GH_TOKEN;
+      process.env.GITHUB_TOKEN = 'test-github-token';
+      const primaryClone = vi.fn().mockResolvedValue(undefined);
+      simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+
+      const tempDir = await cloneRepo('https://github.com/Giphy/giphy-codex-skills.git');
+      createdDirs.push(tempDir);
+
+      // The clone URL itself must stay bare — no credential in argv.
+      expect(primaryClone).toHaveBeenCalledWith(
+        'https://github.com/Giphy/giphy-codex-skills.git',
+        tempDir,
+        ['--depth', '1']
+      );
+
+      const gitOptions = simpleGitMock.mock.calls[0]![0] as { env: NodeJS.ProcessEnv };
+      const expectedHeader = `AUTHORIZATION: basic ${Buffer.from('x-access-token:test-github-token').toString('base64')}`;
+      expect(gitOptions.env.GIT_CONFIG_COUNT).toBe('1');
+      expect(gitOptions.env.GIT_CONFIG_KEY_0).toBe('http.https://github.com/.extraheader');
+      expect(gitOptions.env.GIT_CONFIG_VALUE_0).toBe(expectedHeader);
+    });
+
+    it('falls back to GH_TOKEN when GITHUB_TOKEN is unset', async () => {
+      delete process.env.GITHUB_TOKEN;
+      process.env.GH_TOKEN = 'test-gh-token';
+      const primaryClone = vi.fn().mockResolvedValue(undefined);
+      simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+
+      const tempDir = await cloneRepo('https://github.com/Giphy/giphy-codex-skills.git');
+      createdDirs.push(tempDir);
+
+      const gitOptions = simpleGitMock.mock.calls[0]![0] as { env: NodeJS.ProcessEnv };
+      const expectedHeader = `AUTHORIZATION: basic ${Buffer.from('x-access-token:test-gh-token').toString('base64')}`;
+      expect(gitOptions.env.GIT_CONFIG_VALUE_0).toBe(expectedHeader);
+    });
+
+    it('does not inject a token header for non-GitHub-HTTPS URLs even when a token is set', async () => {
+      process.env.GITHUB_TOKEN = 'test-github-token';
+      const primaryClone = vi.fn().mockResolvedValue(undefined);
+      simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+
+      const tempDir = await cloneRepo('git@github.com:Giphy/giphy-codex-skills.git');
+      createdDirs.push(tempDir);
+
+      const gitOptions = simpleGitMock.mock.calls[0]![0] as { env: NodeJS.ProcessEnv };
+      expect(gitOptions.env.GIT_CONFIG_COUNT).toBeUndefined();
+    });
+
+    it('omits the token header entirely when no token is configured', async () => {
+      delete process.env.GITHUB_TOKEN;
+      delete process.env.GH_TOKEN;
+      const primaryClone = vi.fn().mockResolvedValue(undefined);
+      simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+
+      const tempDir = await cloneRepo('https://github.com/Giphy/giphy-codex-skills.git');
+      createdDirs.push(tempDir);
+
+      const gitOptions = simpleGitMock.mock.calls[0]![0] as { env: NodeJS.ProcessEnv };
+      expect(gitOptions.env.GIT_CONFIG_COUNT).toBeUndefined();
+    });
+  });
+
+  describe('CI_JOB_TOKEN / GITLAB_TOKEN auth', () => {
+    const originalCiJobToken = process.env.CI_JOB_TOKEN;
+    const originalGitlabToken = process.env.GITLAB_TOKEN;
+    const originalCiServerUrl = process.env.CI_SERVER_URL;
+
+    afterEach(() => {
+      if (originalCiJobToken === undefined) delete process.env.CI_JOB_TOKEN;
+      else process.env.CI_JOB_TOKEN = originalCiJobToken;
+      if (originalGitlabToken === undefined) delete process.env.GITLAB_TOKEN;
+      else process.env.GITLAB_TOKEN = originalGitlabToken;
+      if (originalCiServerUrl === undefined) delete process.env.CI_SERVER_URL;
+      else process.env.CI_SERVER_URL = originalCiServerUrl;
+    });
+
+    it('authenticates gitlab.com HTTPS clones via CI_JOB_TOKEN without touching the URL', async () => {
+      delete process.env.GITLAB_TOKEN;
+      process.env.CI_JOB_TOKEN = 'test-ci-job-token';
+      const primaryClone = vi.fn().mockResolvedValue(undefined);
+      simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+
+      const tempDir = await cloneRepo('https://gitlab.com/owner/repo.git');
+      createdDirs.push(tempDir);
+
+      expect(primaryClone).toHaveBeenCalledWith('https://gitlab.com/owner/repo.git', tempDir, [
+        '--depth',
+        '1',
+      ]);
+
+      const gitOptions = simpleGitMock.mock.calls[0]![0] as { env: NodeJS.ProcessEnv };
+      const expectedHeader = `AUTHORIZATION: basic ${Buffer.from('oauth2:test-ci-job-token').toString('base64')}`;
+      expect(gitOptions.env.GIT_CONFIG_KEY_0).toBe('http.https://gitlab.com/.extraheader');
+      expect(gitOptions.env.GIT_CONFIG_VALUE_0).toBe(expectedHeader);
+    });
+
+    it('falls back to GITLAB_TOKEN when CI_JOB_TOKEN is unset', async () => {
+      delete process.env.CI_JOB_TOKEN;
+      process.env.GITLAB_TOKEN = 'test-gitlab-token';
+      const primaryClone = vi.fn().mockResolvedValue(undefined);
+      simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+
+      const tempDir = await cloneRepo('https://gitlab.com/owner/repo.git');
+      createdDirs.push(tempDir);
+
+      const gitOptions = simpleGitMock.mock.calls[0]![0] as { env: NodeJS.ProcessEnv };
+      const expectedHeader = `AUTHORIZATION: basic ${Buffer.from('oauth2:test-gitlab-token').toString('base64')}`;
+      expect(gitOptions.env.GIT_CONFIG_VALUE_0).toBe(expectedHeader);
+    });
+
+    it('does not inject a token for self-hosted GitLab instances without CI_SERVER_URL', async () => {
+      delete process.env.CI_SERVER_URL;
+      process.env.CI_JOB_TOKEN = 'test-ci-job-token';
+      const primaryClone = vi.fn().mockResolvedValue(undefined);
+      simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+
+      const tempDir = await cloneRepo('https://gitlab.example.com/owner/repo.git');
+      createdDirs.push(tempDir);
+
+      const gitOptions = simpleGitMock.mock.calls[0]![0] as { env: NodeJS.ProcessEnv };
+      expect(gitOptions.env.GIT_CONFIG_COUNT).toBeUndefined();
+    });
+
+    it('authenticates a self-hosted GitLab instance identified by CI_SERVER_URL', async () => {
+      process.env.CI_SERVER_URL = 'https://gitlab.example.com';
+      process.env.CI_JOB_TOKEN = 'test-ci-job-token';
+      const primaryClone = vi.fn().mockResolvedValue(undefined);
+      simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+
+      const tempDir = await cloneRepo('https://gitlab.example.com/owner/repo.git');
+      createdDirs.push(tempDir);
+
+      const gitOptions = simpleGitMock.mock.calls[0]![0] as { env: NodeJS.ProcessEnv };
+      const expectedHeader = `AUTHORIZATION: basic ${Buffer.from('oauth2:test-ci-job-token').toString('base64')}`;
+      expect(gitOptions.env.GIT_CONFIG_KEY_0).toBe('http.https://gitlab.example.com/.extraheader');
+      expect(gitOptions.env.GIT_CONFIG_VALUE_0).toBe(expectedHeader);
+    });
+
+    it('does not authenticate a different host even when CI_SERVER_URL is set', async () => {
+      process.env.CI_SERVER_URL = 'https://gitlab.example.com';
+      process.env.CI_JOB_TOKEN = 'test-ci-job-token';
+      const primaryClone = vi.fn().mockResolvedValue(undefined);
+      simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+
+      const tempDir = await cloneRepo('https://gitlab.com/owner/repo.git');
+      createdDirs.push(tempDir);
+
+      const gitOptions = simpleGitMock.mock.calls[0]![0] as { env: NodeJS.ProcessEnv };
+      expect(gitOptions.env.GIT_CONFIG_COUNT).toBeUndefined();
+    });
+
+    it('does not inject a GitLab token for GitHub URLs, and vice versa', async () => {
+      process.env.CI_JOB_TOKEN = 'test-ci-job-token';
+      delete process.env.GITHUB_TOKEN;
+      delete process.env.GH_TOKEN;
+      const primaryClone = vi.fn().mockResolvedValue(undefined);
+      simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+
+      const tempDir = await cloneRepo('https://github.com/Giphy/giphy-codex-skills.git');
+      createdDirs.push(tempDir);
+
+      const gitOptions = simpleGitMock.mock.calls[0]![0] as { env: NodeJS.ProcessEnv };
+      expect(gitOptions.env.GIT_CONFIG_COUNT).toBeUndefined();
+    });
+  });
 });
