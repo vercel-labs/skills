@@ -77,14 +77,22 @@ export function isGitHubHttpsCloneUrl(url: string): boolean {
   }
 }
 
-// Only the official gitlab.com domain, matching source-parser.ts's existing
-// "only for gitlab.com, for user convenience" convention — self-hosted GitLab
-// instances aren't reliably distinguishable from arbitrary git hosts by URL
-// alone, so we don't guess at auto-injecting credentials for them.
-export function isGitLabComHttpsCloneUrl(url: string): boolean {
+// Resolves which GitLab instance to authenticate against: CI_SERVER_URL is a
+// standard variable every GitLab CI runner sets to that instance's own base
+// URL (self-hosted or gitlab.com) — the exact origin CI_JOB_TOKEN is scoped
+// to. Falls back to gitlab.com for manual/non-CI usage (GITLAB_TOKEN with no
+// CI_SERVER_URL). This is how self-hosted GitLab gets covered without
+// guessing at hostnames: we trust GitLab CI's own env var, not string
+// matching on "gitlab" somewhere in the URL.
+function resolveGitLabOrigin(): string {
+  return process.env.CI_SERVER_URL || 'https://gitlab.com';
+}
+
+function isSameHttpsOrigin(url: string, originUrl: string): boolean {
   try {
     const parsed = new URL(url);
-    return parsed.protocol === 'https:' && parsed.hostname === 'gitlab.com';
+    const origin = new URL(originUrl);
+    return parsed.protocol === 'https:' && parsed.origin === origin.origin;
   } catch {
     return false;
   }
@@ -254,13 +262,18 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
   // are already embedded in `url` — CI environments commonly set
   // GITHUB_TOKEN/GH_TOKEN (or, on GitLab CI, CI_JOB_TOKEN/GITLAB_TOKEN)
   // without ever putting a credential in the clone URL itself (see #1246).
-  // Only applies to github.com/gitlab.com HTTPS clones; ambient
-  // credentials/SSH/gh-CLI fallback below is unchanged for everything else
-  // (self-hosted GitLab, Bitbucket, and other generic git hosts).
+  // GitLab is resolved against CI_SERVER_URL when set (covers self-hosted
+  // instances, since that's the exact origin CI_JOB_TOKEN is scoped to —
+  // see resolveGitLabOrigin), falling back to gitlab.com otherwise. GitHub
+  // is github.com only — no equivalent "server URL" env var exists for
+  // GitHub Enterprise in this codebase today, so self-hosted GitHub isn't
+  // covered here. Ambient credentials/SSH/gh-CLI fallback below is
+  // unchanged for everything else (Bitbucket and other generic git hosts).
+  const gitlabOrigin = resolveGitLabOrigin();
   const clientEnv = isGitHubHttpsCloneUrl(url)
     ? maybeBuildTokenAuthEnv('https://github.com', 'x-access-token', getGitHubTokenFromEnv())
-    : isGitLabComHttpsCloneUrl(url)
-      ? maybeBuildTokenAuthEnv('https://gitlab.com', 'oauth2', getGitLabTokenFromEnv())
+    : isSameHttpsOrigin(url, gitlabOrigin)
+      ? maybeBuildTokenAuthEnv(gitlabOrigin, 'oauth2', getGitLabTokenFromEnv())
       : undefined;
 
   try {

@@ -272,12 +272,15 @@ describe('git clone fallbacks', () => {
   describe('CI_JOB_TOKEN / GITLAB_TOKEN auth', () => {
     const originalCiJobToken = process.env.CI_JOB_TOKEN;
     const originalGitlabToken = process.env.GITLAB_TOKEN;
+    const originalCiServerUrl = process.env.CI_SERVER_URL;
 
     afterEach(() => {
       if (originalCiJobToken === undefined) delete process.env.CI_JOB_TOKEN;
       else process.env.CI_JOB_TOKEN = originalCiJobToken;
       if (originalGitlabToken === undefined) delete process.env.GITLAB_TOKEN;
       else process.env.GITLAB_TOKEN = originalGitlabToken;
+      if (originalCiServerUrl === undefined) delete process.env.CI_SERVER_URL;
+      else process.env.CI_SERVER_URL = originalCiServerUrl;
     });
 
     it('authenticates gitlab.com HTTPS clones via CI_JOB_TOKEN without touching the URL', async () => {
@@ -314,12 +317,41 @@ describe('git clone fallbacks', () => {
       expect(gitOptions.env.GIT_CONFIG_VALUE_0).toBe(expectedHeader);
     });
 
-    it('does not inject a token for self-hosted GitLab instances', async () => {
+    it('does not inject a token for self-hosted GitLab instances without CI_SERVER_URL', async () => {
+      delete process.env.CI_SERVER_URL;
       process.env.CI_JOB_TOKEN = 'test-ci-job-token';
       const primaryClone = vi.fn().mockResolvedValue(undefined);
       simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
 
       const tempDir = await cloneRepo('https://gitlab.example.com/owner/repo.git');
+      createdDirs.push(tempDir);
+
+      const gitOptions = simpleGitMock.mock.calls[0]![0] as { env: NodeJS.ProcessEnv };
+      expect(gitOptions.env.GIT_CONFIG_COUNT).toBeUndefined();
+    });
+
+    it('authenticates a self-hosted GitLab instance identified by CI_SERVER_URL', async () => {
+      process.env.CI_SERVER_URL = 'https://gitlab.example.com';
+      process.env.CI_JOB_TOKEN = 'test-ci-job-token';
+      const primaryClone = vi.fn().mockResolvedValue(undefined);
+      simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+
+      const tempDir = await cloneRepo('https://gitlab.example.com/owner/repo.git');
+      createdDirs.push(tempDir);
+
+      const gitOptions = simpleGitMock.mock.calls[0]![0] as { env: NodeJS.ProcessEnv };
+      const expectedHeader = `AUTHORIZATION: basic ${Buffer.from('oauth2:test-ci-job-token').toString('base64')}`;
+      expect(gitOptions.env.GIT_CONFIG_KEY_0).toBe('http.https://gitlab.example.com/.extraheader');
+      expect(gitOptions.env.GIT_CONFIG_VALUE_0).toBe(expectedHeader);
+    });
+
+    it('does not authenticate a different host even when CI_SERVER_URL is set', async () => {
+      process.env.CI_SERVER_URL = 'https://gitlab.example.com';
+      process.env.CI_JOB_TOKEN = 'test-ci-job-token';
+      const primaryClone = vi.fn().mockResolvedValue(undefined);
+      simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+
+      const tempDir = await cloneRepo('https://gitlab.com/owner/repo.git');
       createdDirs.push(tempDir);
 
       const gitOptions = simpleGitMock.mock.calls[0]![0] as { env: NodeJS.ProcessEnv };
