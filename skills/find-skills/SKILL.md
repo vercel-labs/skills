@@ -1,6 +1,11 @@
 ---
 name: find-skills
-description: Helps users discover and install agent skills when they ask questions like "how do I do X", "find a skill for X", "is there a skill that can...", or express interest in extending capabilities. This skill should be used when the user is looking for functionality that might exist as an installable skill.
+description: >
+  Use when the user explicitly asks to discover, search, compare, or install
+  agent skills, or wants an installable extension for a recurring capability.
+  Trigger for "find a skill for X", "is there a skill that can...", and "extend
+  this agent". NOT for ordinary how-to or "can you do X" requests that can be
+  completed directly without searching the skills ecosystem.
 ---
 
 # Find Skills
@@ -11,12 +16,14 @@ This skill helps you discover and install skills from the open agent skills ecos
 
 Use this skill when the user:
 
-- Asks "how do I do X" where X might be a common task with an existing skill
 - Says "find a skill for X" or "is there a skill for X"
-- Asks "can you do X" where X is a specialized capability
-- Expresses interest in extending agent capabilities
-- Wants to search for tools, templates, or workflows
-- Mentions they wish they had help with a specific domain (design, testing, deployment, etc.)
+- Explicitly asks to search or compare installable skills
+- Wants to extend the agent with a reusable capability
+- Wants installable tools, templates, or workflows from the skills ecosystem
+- Describes a recurring gap and asks whether a skill could cover it
+
+Do not trigger merely because a task is specialized. If the user asked to do the
+task and it can be completed directly, do the task.
 
 ## What is the Skills CLI?
 
@@ -41,13 +48,11 @@ When a user asks for help with something, identify:
 2. The specific task (e.g., writing tests, creating animations, reviewing PRs)
 3. Whether this is a common enough task that a skill likely exists
 
-### Step 2: Check the Leaderboard First
+### Step 2: Use the Leaderboard as a Discovery Hint
 
-Before running a CLI search, check the [skills.sh leaderboard](https://skills.sh/) to see if a well-known skill already exists for the domain. The leaderboard ranks skills by total installs, surfacing the most popular and battle-tested options.
-
-For example, top skills for web development include:
-- `vercel-labs/agent-skills` — React, Next.js, web design (100K+ installs each)
-- `anthropics/skills` — Frontend design, document processing (100K+ installs)
+The [skills.sh leaderboard](https://skills.sh/) can surface established candidates,
+but it is not a quality or safety gate. Do not exclude a better task fit merely
+because it has fewer installs.
 
 ### Step 3: Search for Skills
 
@@ -59,33 +64,45 @@ npx skills find [query] [--owner <owner>]
 
 For example:
 
-- User asks "how do I make my React app faster?" → `npx skills find react performance`
-- User asks "can you help me with PR reviews?" → `npx skills find pr review`
-- User asks "I need to create a changelog" → `npx skills find changelog`
+- User asks "find me a skill for React performance" → `npx skills find react performance`
+- User asks "compare installable PR-review skills" → `npx skills find pr review`
+- User asks "is there a reusable changelog skill?" → `npx skills find changelog`
 
 ### Step 4: Verify Quality Before Recommending
 
-**Do not recommend a skill based solely on search results.** Always verify:
+**Do not recommend a skill based solely on search results.** Inspect the actual
+package first:
 
-1. **Install count** — Prefer skills with 1K+ installs. Be cautious with anything under 100.
-2. **Source reputation** — Official sources (`vercel-labs`, `anthropics`, `microsoft`) are more trustworthy than unknown authors.
-3. **GitHub stars** — Check the source repository. A skill from a repo with <100 stars should be treated with skepticism.
+1. Read its `SKILL.md` and confirm the trigger, outcome, and NOT-for boundary fit
+   the user's recurring need.
+2. Follow every directly referenced file needed for the normal path. Verify that
+   paths exist and that required scripts, templates, dependencies, and commands
+   match the package layout.
+3. Inspect executable scripts and installation instructions for network access,
+   secret handling, external writes, destructive behavior, or user-wide changes.
+   Do not infer authority for those actions from the skill.
+4. Check whether the documented APIs and commands fit the user's current harness
+   and appear maintained. If inspection is incomplete, label the recommendation
+   unverified instead of presenting it as safe for unattended installation.
+5. Use installs, stars, publisher reputation, and leaderboard position only as
+   secondary adoption or maintenance signals after package fit and behavior.
 
 ### Step 5: Present Options to the User
 
 When you find relevant skills, present them to the user with:
 
 1. The skill name and what it does
-2. The install count and source
-3. The install command they can run
-4. A link to learn more at skills.sh
+2. What package files were inspected and any material side effects or gaps
+3. The current install count and source as secondary context
+4. The install command they can run
+5. A link to learn more at skills.sh
 
 Example response:
 
 ```
 I found a skill that might help! The "react-best-practices" skill provides
 React and Next.js performance optimization guidelines from Vercel Engineering.
-(185K installs)
+I checked its SKILL.md and normal-path references for fit and side effects.
 
 To install it:
 npx skills add vercel-labs/agent-skills@react-best-practices
@@ -140,3 +157,13 @@ I can still help you with this task directly! Would you like me to proceed?
 If this is something you do often, you could create your own skill:
 npx skills init my-xyz-skill
 ```
+
+## Gotchas
+
+- Install counts, stars, and leaderboard position are adoption signals, not proof
+  that a skill is safe, current, or suitable. Inspect the package before
+  recommending it.
+- `npx skills add ... -g -y` changes user-wide agent state without another
+  confirmation prompt. Run it only when the user explicitly asked to install.
+- A narrow failed query is not evidence that no skill exists. Try one meaningful
+  synonym or category query, then stop and offer direct help.
