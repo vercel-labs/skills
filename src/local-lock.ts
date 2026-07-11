@@ -1,6 +1,7 @@
 import { readFile, writeFile, readdir, stat } from 'fs/promises';
 import { join, relative } from 'path';
 import { createHash } from 'crypto';
+import type { SourceType } from './types';
 
 const LOCAL_LOCK_FILE = 'skills-lock.json';
 const CURRENT_VERSION = 1;
@@ -20,7 +21,7 @@ export interface LocalSkillLockEntry {
   /** Branch or tag ref used for installation */
   ref?: string;
   /** The provider/source type (e.g., "github", "node_modules", "local") */
-  sourceType: string;
+  sourceType: SourceType;
   /**
    * Path to the skill's SKILL.md within the source repo (e.g., "skills/pdf/SKILL.md").
    * Required to re-install only this skill on update — without it, an update would

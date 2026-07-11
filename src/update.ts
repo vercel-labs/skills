@@ -232,7 +232,7 @@ export async function getProjectSkillsForUpdate(
     if (entry.sourceType === 'node_modules' || entry.sourceType === 'local') {
       continue;
     }
-    skills.push({ name, source: entry.sourceUrl || entry.source, entry });
+    skills.push({ name, source: entry.source, entry });
   }
 
   return skills;
@@ -540,7 +540,7 @@ export async function updateProjectSkills(
 
   const bySource = new Map<string, typeof updatable>();
   for (const skill of updatable) {
-    const source = skill.entry.sourceUrl || skill.entry.source;
+    const source = skill.entry.source;
     const existing = bySource.get(source) || [];
     existing.push(skill);
     bySource.set(source, existing);
@@ -560,7 +560,7 @@ export async function updateProjectSkills(
     const ref = firstEntry.ref;
 
     const allLockedForSource = Object.entries(localLock.skills)
-      .filter(([_, entry]) => (entry.sourceUrl || entry.source) === source)
+      .filter(([_, entry]) => entry.source === source)
       .map(([name, _]) => name);
 
     let tempDir: string | null = null;

@@ -97,8 +97,10 @@ export interface AgentConfig {
   showInUniversalPrompt?: boolean;
 }
 
+export type SourceType = 'github' | 'gitlab' | 'git' | 'local' | 'well-known' | 'node_modules';
+
 export interface ParsedSource {
-  type: 'github' | 'gitlab' | 'git' | 'local' | 'well-known';
+  type: SourceType;
   url: string;
   subpath?: string;
   localPath?: string;

@@ -4,6 +4,7 @@ import { homedir } from 'os';
 import { createHash } from 'crypto';
 import { execSync } from 'child_process';
 import pc from 'picocolors';
+import type { SourceType } from './types.ts';
 
 const AGENTS_DIR = '.agents';
 const LOCK_FILE = '.skill-lock.json';
@@ -16,7 +17,7 @@ export interface SkillLockEntry {
   /** Normalized source identifier (e.g., "owner/repo", "mintlify/bun.com") */
   source: string;
   /** The provider/source type (e.g., "github", "mintlify", "huggingface", "local") */
-  sourceType: string;
+  sourceType: SourceType;
   /** The original URL used to install the skill (for re-fetching updates) */
   sourceUrl: string;
   /** Branch or tag ref used for installation (for ref-aware updates) */

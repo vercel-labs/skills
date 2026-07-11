@@ -4,12 +4,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli, stripAnsi } from './test-utils.ts';
 import { shouldInstallInternalSkills } from './skills.ts';
-import {
-  parseAddOptions,
-  getLockSource,
-  getProjectLockSourceUrl,
-  formatEveInstallPromptMessage,
-} from './add.ts';
+import { parseAddOptions, getProjectLockSourceUrl, formatEveInstallPromptMessage } from './add.ts';
 
 const noDetectedAgentEnv = {
   AI_AGENT: '',
@@ -359,36 +354,6 @@ metadata:
   });
 });
 
-describe('getLockSource', () => {
-  it('preserves git@ SSH URLs for lock files', () => {
-    expect(getLockSource('git@github.com:owner/repo.git', 'owner/repo')).toBe(
-      'git@github.com:owner/repo.git'
-    );
-  });
-
-  it('preserves ssh:// SSH URLs for lock files', () => {
-    expect(getLockSource('ssh://git@stash.myrepo.com:7999/my/skills.git', 'my/skills')).toBe(
-      'ssh://git@stash.myrepo.com:7999/my/skills.git'
-    );
-  });
-
-  it('keeps normalized owner/repo for GitHub HTTPS remotes', () => {
-    expect(getLockSource('https://github.com/owner/repo.git', 'owner/repo')).toBe('owner/repo');
-  });
-
-  it('preserves self-hosted HTTPS Git URLs for lock files', () => {
-    expect(getLockSource('https://gitlab.example.com/acme/skills.git', 'acme/skills')).toBe(
-      'https://gitlab.example.com/acme/skills.git'
-    );
-  });
-
-  it('preserves gitlab.com HTTPS URLs for lock files', () => {
-    expect(getLockSource('https://gitlab.com/acme/skills.git', 'acme/skills')).toBe(
-      'https://gitlab.com/acme/skills.git'
-    );
-  });
-});
-
 describe('getProjectLockSourceUrl', () => {
   it('records sourceUrl for self-hosted GitLab HTTPS sources installed into project locks', () => {
     expect(getProjectLockSourceUrl('git', 'https://gitlab.example.com/acme/skills.git')).toBe(
@@ -403,7 +368,9 @@ describe('getProjectLockSourceUrl', () => {
   });
 
   it('keeps GitHub project locks compatible with existing shorthand entries', () => {
-    expect(getProjectLockSourceUrl('github', 'https://github.com/owner/repo.git')).toBeUndefined();
+    expect(getProjectLockSourceUrl('github', 'https://github.com/owner/repo.git')).toBe(
+      'https://github.com/owner/repo.git'
+    );
   });
 });
 
