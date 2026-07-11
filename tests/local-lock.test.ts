@@ -68,11 +68,8 @@ describe('local-lock', () => {
         const conflicted = `{
   "version": 1,
   "skills": {
-<<<<<<< HEAD
     "skill-a": { "source": "org/repo-a", "sourceType": "github", "computedHash": "aaa" }
-=======
     "skill-b": { "source": "org/repo-b", "sourceType": "github", "computedHash": "bbb" }
->>>>>>> feature-branch
   }
 }`;
         await writeFile(join(dir, 'skills-lock.json'), conflicted, 'utf-8');
