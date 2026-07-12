@@ -977,9 +977,13 @@ async function handleWellKnownSkills(
       if (firstResult.mode === 'copy') {
         // Copy mode: show skill name and list all agent paths
         resultLines.push(`${pc.green('✓')} ${skillName} ${pc.dim('(copied)')}`);
+        const shortPathsSet = new Set<string>();
         for (const r of skillResults) {
           const shortPath = shortenPath(r.path, cwd);
-          resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
+          if (!shortPathsSet.has(shortPath)) {
+            shortPathsSet.add(shortPath);
+            resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
+          }
         }
       } else {
         // Symlink mode: show canonical path and universal/symlinked agents
@@ -1953,9 +1957,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           if (firstResult.mode === 'copy') {
             // Copy mode: show skill name and list all agent paths
             resultLines.push(`${pc.green('✓')} ${entry.skill} ${pc.dim('(copied)')}`);
+            const shortPathsSet = new Set<string>();
             for (const r of skillResults) {
               const shortPath = shortenPath(r.path, cwd);
-              resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
+              if (!shortPathsSet.has(shortPath)) {
+                shortPathsSet.add(shortPath);
+                resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
+              }
             }
           } else {
             // Symlink mode: show canonical path and universal/symlinked agents
