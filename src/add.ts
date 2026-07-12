@@ -766,6 +766,20 @@ async function handleWellKnownSkills(
     installGlobally = scope as boolean;
   }
 
+  // Filter out agents that don't support global installation
+  if (installGlobally) {
+    const incompatibleAgents = targetAgents.filter((a) => agents[a].globalSkillsDir === undefined);
+    if (incompatibleAgents.length > 0) {
+      const names = incompatibleAgents.map((a) => agents[a].displayName).join(', ');
+      p.log.warn(pc.yellow(`Skipping agents that don't support global installation: ${names}`));
+      targetAgents = targetAgents.filter((a) => agents[a].globalSkillsDir !== undefined);
+      if (targetAgents.length === 0) {
+        p.log.error(pc.red('No selected agents support global skill installation'));
+        process.exit(1);
+      }
+    }
+  }
+
   // Determine install mode (symlink vs copy)
   let installMode: InstallMode = options.copy ? 'copy' : 'symlink';
 
@@ -1541,6 +1555,23 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
 
       installGlobally = scope as boolean;
+    }
+
+    // Filter out agents that don't support global installation
+    if (installGlobally) {
+      const incompatibleAgents = targetAgents.filter(
+        (a) => agents[a].globalSkillsDir === undefined
+      );
+      if (incompatibleAgents.length > 0) {
+        const names = incompatibleAgents.map((a) => agents[a].displayName).join(', ');
+        p.log.warn(pc.yellow(`Skipping agents that don't support global installation: ${names}`));
+        targetAgents = targetAgents.filter((a) => agents[a].globalSkillsDir !== undefined);
+        if (targetAgents.length === 0) {
+          p.log.error(pc.red('No selected agents support global skill installation'));
+          await cleanup(tempDir);
+          process.exit(1);
+        }
+      }
     }
 
     // Determine install mode (symlink vs copy)
