@@ -568,6 +568,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.rovodev'));
     },
   },
+  spettro: {
+    name: 'spettro',
+    displayName: 'Spettro',
+    skillsDir: '.spettro/skills',
+    globalSkillsDir: join(home, '.spettro/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.spettro'));
+    },
+  },
   roo: {
     name: 'roo',
     displayName: 'Roo Code',

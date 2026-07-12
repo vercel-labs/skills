@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [69 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [70 more](#supported-agents).
 <!-- agent-list:end -->
 
 [![skills.sh](https://skills.sh/b/vercel-labs/skills)](https://skills.sh/vercel-labs/skills)
@@ -294,6 +294,7 @@ Skills can be installed to any of these agents:
 | Qwen Code | `qwen-code` | `.qwen/skills/` | `~/.qwen/skills/` |
 | Reasonix | `reasonix` | `.reasonix/skills/` | `~/.reasonix/skills/` |
 | Rovo Dev | `rovodev` | `.rovodev/skills/` | `~/.rovodev/skills/` |
+| Spettro | `spettro` | `.spettro/skills/` | `~/.spettro/skills/` |
 | Roo Code | `roo` | `.roo/skills/` | `~/.roo/skills/` |
 | Tabnine CLI | `tabnine-cli` | `.tabnine/agent/skills/` | `~/.tabnine/agent/skills/` |
 | Terramind | `terramind` | `.terramind/skills/` | `~/.terramind/skills/` |
@@ -422,6 +423,7 @@ to also discover `SKILL.md` files outside these container directories
 - `.qwen/skills/`
 - `.reasonix/skills/`
 - `.rovodev/skills/`
+- `.spettro/skills/`
 - `.roo/skills/`
 - `.tabnine/agent/skills/`
 - `.terramind/skills/`
