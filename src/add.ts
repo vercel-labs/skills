@@ -78,7 +78,6 @@ import { detectAgent, getAgentType } from './detect-agent.ts';
 import { wellKnownProvider, type WellKnownSkill } from './providers/index.ts';
 import {
   addSkillToLock,
-  fetchSkillFolderHash,
   getGitHubToken,
   isPromptDismissed,
   dismissPrompt,
