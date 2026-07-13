@@ -107,9 +107,11 @@ function showHelp(): void {
 ${BOLD}Usage:${RESET} skills <command> [options]
 
 ${BOLD}Manage Skills:${RESET}
-  add <package>        Add a skill package (alias: a)
+  add <package>        Add a skill package or pack (alias: a)
                        e.g. vercel-labs/agent-skills
                             https://github.com/vercel-labs/agent-skills
+                            skills.sh/p/<pack-id>
+                            pack:<pack-id>
   use <package>@<skill>
                        Generate a prompt for using one skill without installing it
   remove [skills]      Remove installed skills
@@ -173,6 +175,8 @@ ${BOLD}Options:${RESET}
 
 ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills add vercel-labs/agent-skills
+  ${DIM}$${RESET} skills add skills.sh/p/<pack-id>
+  ${DIM}$${RESET} skills add pack:<pack-id>
   ${DIM}$${RESET} skills use vercel-labs/agent-skills@vercel-optimize | claude
   ${DIM}$${RESET} skills use vercel-labs/agent-skills --skill vercel-optimize --agent claude-code
   ${DIM}$${RESET} skills add vercel-labs/agent-skills -g

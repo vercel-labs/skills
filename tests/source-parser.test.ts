@@ -208,6 +208,41 @@ describe('parseSource', () => {
     });
   });
 
+  describe('skills pack shorthand tests', () => {
+    it('skills.sh/p/<id> parses as a well-known source', () => {
+      const result = parseSource('skills.sh/p/frontend-pack-A1b2C3d4');
+      expect(result.type).toBe('well-known');
+      expect(result.url).toBe('https://skills.sh/p/frontend-pack-A1b2C3d4');
+    });
+
+    it('www.skills.sh/p/<id> parses as a canonical well-known source', () => {
+      const result = parseSource('www.skills.sh/p/frontend_pack-A1b2C3d4/');
+      expect(result.type).toBe('well-known');
+      expect(result.url).toBe('https://skills.sh/p/frontend_pack-A1b2C3d4');
+    });
+
+    it('pack:<id> parses as a skills.sh pack well-known source', () => {
+      const result = parseSource('pack:frontend-pack-A1b2C3d4');
+      expect(result.type).toBe('well-known');
+      expect(result.url).toBe('https://skills.sh/p/frontend-pack-A1b2C3d4');
+    });
+
+    it('https://skills.sh/p/<id> remains a well-known source', () => {
+      const result = parseSource('https://skills.sh/p/frontend-pack-A1b2C3d4');
+      expect(result.type).toBe('well-known');
+      expect(result.url).toBe('https://skills.sh/p/frontend-pack-A1b2C3d4');
+    });
+
+    it('rejects invalid pack ids', () => {
+      expect(() => parseSource('pack:')).toThrow('Invalid skills pack id');
+      expect(() => parseSource('pack:../secret')).toThrow('Invalid skills pack id');
+      expect(() => parseSource('skills.sh/p/')).toThrow('Invalid skills pack source');
+      expect(() => parseSource('skills.sh/p/frontend-pack/extra')).toThrow(
+        'Invalid skills pack source'
+      );
+    });
+  });
+
   describe('Local path tests', () => {
     it('Local path - relative with ./', () => {
       const result = parseSource('./my-skills');
@@ -315,6 +350,16 @@ describe('getOwnerRepo', () => {
 
   it('getOwnerRepo - local path returns null', () => {
     const parsed = parseSource('./my-skills');
+    expect(getOwnerRepo(parsed)).toBeNull();
+  });
+
+  it('getOwnerRepo - skills pack shorthand returns null', () => {
+    const parsed = parseSource('skills.sh/p/frontend-pack-A1b2C3d4');
+    expect(getOwnerRepo(parsed)).toBeNull();
+  });
+
+  it('getOwnerRepo - skills.sh pack URL returns null', () => {
+    const parsed = parseSource('https://www.skills.sh/p/frontend-pack-A1b2C3d4');
     expect(getOwnerRepo(parsed)).toBeNull();
   });
 

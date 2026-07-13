@@ -4,7 +4,7 @@ import type { ParsedSource } from './types.ts';
 /**
  * Extract owner/repo (or group/subgroup/repo for GitLab) from a parsed source
  * for lockfile tracking and telemetry.
- * Returns null for local paths or unparseable sources.
+ * Returns null for local paths, skills.sh pack URLs, or unparseable sources.
  * Supports any Git host with an owner/repo URL structure, including GitLab subgroups.
  */
 export function getOwnerRepo(parsed: ParsedSource): string | null {
@@ -48,6 +48,14 @@ export function getOwnerRepo(parsed: ParsedSource): string | null {
 
   try {
     const url = new URL(parsed.url);
+    if (
+      parsed.type === 'well-known' &&
+      (url.hostname === 'skills.sh' || url.hostname === 'www.skills.sh') &&
+      url.pathname.startsWith('/p/')
+    ) {
+      return null;
+    }
+
     // Get pathname, remove leading slash and trailing .git
     let path = url.pathname.slice(1);
     path = path.replace(/\.git$/, '');
@@ -144,6 +152,8 @@ const SOURCE_ALIASES: Record<string, string> = {
   'coinbase/agentWallet': 'coinbase/agentic-wallet-skills',
 };
 
+const SKILLS_PACK_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$/;
+
 interface FragmentRefResult {
   inputWithoutFragment: string;
   ref?: string;
@@ -237,6 +247,42 @@ function appendFragmentRef(input: string, ref?: string, skillFilter?: string): s
   return `${input}#${ref}${skillFilter ? `@${skillFilter}` : ''}`;
 }
 
+function assertValidSkillsPackId(packId: string): void {
+  if (!SKILLS_PACK_ID_RE.test(packId)) {
+    throw new Error(
+      `Invalid skills pack id: "${packId}". Pack ids must start with a letter or number and contain only letters, numbers, hyphens, and underscores.`
+    );
+  }
+}
+
+function normalizeSkillsPackSource(input: string): string | null {
+  const packPrefixMatch = input.match(/^pack:(.*)$/);
+  if (packPrefixMatch) {
+    const packId = packPrefixMatch[1]!.trim();
+    assertValidSkillsPackId(packId);
+    return `https://skills.sh/p/${packId}`;
+  }
+
+  const skillsShPackMatch = input.match(/^(?:www\.)?skills\.sh\/p(?:\/(.*))?$/i);
+  if (!skillsShPackMatch) {
+    return null;
+  }
+
+  const packPath = skillsShPackMatch[1];
+  if (!packPath) {
+    throw new Error('Invalid skills pack source: expected skills.sh/p/<pack-id>.');
+  }
+
+  const packIdMatch = packPath.match(/^([^/?#]+)\/?$/);
+  if (!packIdMatch) {
+    throw new Error('Invalid skills pack source: expected skills.sh/p/<pack-id>.');
+  }
+
+  const packId = packIdMatch[1]!;
+  assertValidSkillsPackId(packId);
+  return `https://skills.sh/p/${packId}`;
+}
+
 export function parseSource(input: string): ParsedSource {
   // Local path: absolute, relative, or current directory
   if (isLocalPath(input)) {
@@ -260,6 +306,14 @@ export function parseSource(input: string): ParsedSource {
   const alias = SOURCE_ALIASES[input];
   if (alias) {
     input = alias;
+  }
+
+  const skillsPackUrl = normalizeSkillsPackSource(input);
+  if (skillsPackUrl) {
+    return {
+      type: 'well-known',
+      url: skillsPackUrl,
+    };
   }
 
   // Prefix shorthand: github:owner/repo -> owner/repo (handled by existing shorthand logic)
