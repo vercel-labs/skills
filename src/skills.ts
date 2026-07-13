@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from 'fs/promises';
-import { join, basename, dirname, resolve, normalize, sep, relative } from 'path';
+import { join, basename, dirname, resolve, normalize, sep, relative, isAbsolute } from 'path';
 import { parseFrontmatter } from './frontmatter.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import type { Skill } from './types.ts';
@@ -286,6 +286,51 @@ export async function discoverSkills(
     }
   }
 
+  return skills;
+}
+
+/**
+ * Resolve skills by exact repo-relative directory path — never by name.
+ * Used by `bundle install`: a bundle manifest pins each member skill to a
+ * coordinate inside the bundle's own repo, so resolution must not depend on
+ * skill names (which can collide across repos or tiers) or on discovery
+ * heuristics. Throws when a path is unsafe or has no valid SKILL.md, which
+ * enforces co-location: a bundle may only reference skills in its own repo.
+ */
+export async function resolveSkillsByPath(basePath: string, paths: string[]): Promise<Skill[]> {
+  const skills: Skill[] = [];
+  const seenPaths = new Set<string>();
+  const missing: string[] = [];
+
+  for (const raw of paths) {
+    const rel = raw.replace(/\/+$/, '');
+    if (!rel || isAbsolute(rel) || !isSubpathSafe(basePath, rel)) {
+      throw new Error(
+        `Invalid skill path "${raw}": bundle skills must be relative paths inside the bundle's repository.`
+      );
+    }
+    if (seenPaths.has(rel)) continue;
+    seenPaths.add(rel);
+
+    const skillDir = join(basePath, rel);
+    if (!(await hasSkillMd(skillDir))) {
+      missing.push(raw);
+      continue;
+    }
+    const skill = await parseSkillMd(join(skillDir, 'SKILL.md'), { includeInternal: true });
+    if (!skill) {
+      missing.push(raw);
+      continue;
+    }
+    skills.push(skill);
+  }
+
+  if (missing.length > 0) {
+    throw new Error(
+      `No valid SKILL.md at: ${missing.join(', ')}. ` +
+        `A bundle may only reference skills co-located in its own repository.`
+    );
+  }
   return skills;
 }
 

@@ -35,6 +35,8 @@ export interface SkillLockEntry {
   updatedAt: string;
   /** Name of the plugin this skill belongs to (if any) */
   pluginName?: string;
+  /** Bundle this skill was installed as part of (if any). Set by `bundle install`; distinct from `pluginName`, which the plugin-manifest grouping owns. */
+  bundleName?: string;
 }
 
 /**
