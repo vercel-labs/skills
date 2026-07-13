@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdir, writeFile, rm, symlink } from 'fs/promises';
+import { mkdir, writeFile, rm, symlink, realpath } from 'fs/promises';
 import { join } from 'path';
-import { homedir, tmpdir } from 'os';
+import { homedir, tmpdir, platform } from 'os';
 import { listInstalledSkills } from '../src/installer.ts';
 import * as agentsModule from '../src/agents.ts';
 
@@ -116,13 +116,19 @@ ${skillData.description}
   });
 
   it('should handle global scope option', async () => {
-    // Test with global: true - verifies the function doesn't crash
-    // Note: This checks ~/.agents/skills, results depend on system state
-    const skills = await listInstalledSkills({
-      global: true,
-      cwd: testDir,
-    });
-    expect(Array.isArray(skills)).toBe(true);
+    vi.spyOn(agentsModule, 'detectInstalledAgents').mockResolvedValue([]);
+
+    try {
+      // Test with global: true while avoiding environment-dependent scans of every installed agent.
+      const skills = await listInstalledSkills({
+        global: true,
+        cwd: testDir,
+        agentFilter: [],
+      });
+      expect(Array.isArray(skills)).toBe(true);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 
   it('attributes global canonical skills to universal agents with native global dirs', async () => {
@@ -209,32 +215,142 @@ description: Skill reached through a directory symlink
 
     const agentSkillsDir = join(testDir, '.agents', 'skills');
     await mkdir(agentSkillsDir, { recursive: true });
-    await symlink(realSkillDir, join(agentSkillsDir, 'linked-skill'), 'dir');
+    await symlink(
+      realSkillDir,
+      join(agentSkillsDir, 'linked-skill'),
+      platform() === 'win32' ? 'junction' : 'dir'
+    );
 
     const skills = await listInstalledSkills({ global: false, cwd: testDir });
     expect(skills).toHaveLength(1);
     expect(skills[0]!.name).toBe('linked-skill');
   });
 
-  it('should ignore dangling symlinks without a reachable SKILL.md', async () => {
-    const agentSkillsDir = join(testDir, '.agents', 'skills');
-    await mkdir(agentSkillsDir, { recursive: true });
-    await symlink(join(testDir, 'does-not-exist'), join(agentSkillsDir, 'broken'), 'dir');
+  it.skipIf(platform() === 'win32')(
+    'should ignore dangling symlinks without a reachable SKILL.md',
+    async () => {
+      const agentSkillsDir = join(testDir, '.agents', 'skills');
+      await mkdir(agentSkillsDir, { recursive: true });
+      await symlink(join(testDir, 'does-not-exist'), join(agentSkillsDir, 'broken'), 'dir');
 
-    const skills = await listInstalledSkills({ global: false, cwd: testDir });
-    expect(skills).toEqual([]);
+      const skills = await listInstalledSkills({ global: false, cwd: testDir });
+      expect(skills).toEqual([]);
+    }
+  );
+
+  it.skipIf(platform() === 'win32')(
+    'should ignore symlinks that point to a regular file',
+    async () => {
+      const filePath = join(testDir, 'not-a-skill.md');
+      await writeFile(filePath, '# not a skill');
+
+      const agentSkillsDir = join(testDir, '.agents', 'skills');
+      await mkdir(agentSkillsDir, { recursive: true });
+      await symlink(filePath, join(agentSkillsDir, 'file-link'));
+
+      const skills = await listInstalledSkills({ global: false, cwd: testDir });
+      expect(skills).toEqual([]);
+    }
+  );
+
+  it('does not repeatedly parse the same real SKILL.md reached through multiple agent links', async () => {
+    const skillName = 'linked-canonical-skill';
+    const canonicalSkillDir = join(testDir, '.agents', 'skills', skillName);
+    const canonicalSkillMdPath = join(canonicalSkillDir, 'SKILL.md');
+    await mkdir(canonicalSkillDir, { recursive: true });
+    await writeFile(
+      canonicalSkillMdPath,
+      `---
+name: ${skillName}
+description: Skill shared through multiple agent links
+---
+
+# ${skillName}
+`
+    );
+
+    const linkType = platform() === 'win32' ? 'junction' : 'dir';
+    const claudeSkillsDir = join(testDir, '.claude', 'skills');
+    const windsurfSkillsDir = join(testDir, '.windsurf', 'skills');
+    await mkdir(claudeSkillsDir, { recursive: true });
+    await mkdir(windsurfSkillsDir, { recursive: true });
+    await symlink(canonicalSkillDir, join(claudeSkillsDir, skillName), linkType);
+    await symlink(canonicalSkillDir, join(windsurfSkillsDir, skillName), linkType);
+
+    const realCanonicalSkillMdPath = await realpath(canonicalSkillMdPath);
+    const parsedSkillMdRealPaths: string[] = [];
+
+    vi.resetModules();
+    vi.doMock('../src/agents.ts', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('../src/agents.ts')>();
+      return {
+        ...actual,
+        detectInstalledAgents: vi.fn().mockResolvedValue(['claude-code', 'windsurf']),
+      };
+    });
+    vi.doMock('../src/skills.ts', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('../src/skills.ts')>();
+      return {
+        ...actual,
+        parseSkillMd: vi.fn(async (...args: Parameters<typeof actual.parseSkillMd>) => {
+          const [skillMdPath, options] = args;
+          parsedSkillMdRealPaths.push(await realpath(skillMdPath).catch(() => skillMdPath));
+          return actual.parseSkillMd(skillMdPath, options);
+        }),
+      };
+    });
+
+    try {
+      const { listInstalledSkills: listInstalledSkillsWithMock } =
+        await import('../src/installer.ts');
+
+      const skills = await listInstalledSkillsWithMock({ global: false, cwd: testDir });
+
+      expect(skills).toHaveLength(1);
+      expect(skills[0]!.name).toBe(skillName);
+      expect(skills[0]!.agents).toEqual(expect.arrayContaining(['claude-code', 'windsurf']));
+      expect(
+        parsedSkillMdRealPaths.filter((path) => path === realCanonicalSkillMdPath)
+      ).toHaveLength(1);
+    } finally {
+      vi.doUnmock('../src/agents.ts');
+      vi.doUnmock('../src/skills.ts');
+      vi.resetModules();
+    }
   });
 
-  it('should ignore symlinks that point to a regular file', async () => {
-    const filePath = join(testDir, 'not-a-skill.md');
-    await writeFile(filePath, '# not a skill');
+  it('does not scan unrelated agent directories when an agent filter is provided', async () => {
+    vi.spyOn(agentsModule, 'detectInstalledAgents').mockResolvedValue(['codex']);
 
-    const agentSkillsDir = join(testDir, '.agents', 'skills');
-    await mkdir(agentSkillsDir, { recursive: true });
-    await symlink(filePath, join(agentSkillsDir, 'file-link'));
+    await createSkillDir(testDir, 'codex-only-skill', {
+      name: 'codex-only-skill',
+      description: 'Codex skill',
+    });
 
-    const skills = await listInstalledSkills({ global: false, cwd: testDir });
-    expect(skills).toEqual([]);
+    const unrelatedAgentSkillsDir = join(testDir, '.claude', 'skills');
+    await mkdir(join(unrelatedAgentSkillsDir, 'unrelated-skill'), { recursive: true });
+    await writeFile(
+      join(unrelatedAgentSkillsDir, 'unrelated-skill', 'SKILL.md'),
+      `---
+name: unrelated-skill
+description: Unrelated Claude skill
+---
+
+# unrelated-skill
+`
+    );
+
+    try {
+      const skills = await listInstalledSkills({
+        global: false,
+        cwd: testDir,
+        agentFilter: ['codex'],
+      });
+
+      expect(skills.map((skill) => skill.name)).toEqual(['codex-only-skill']);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 
   // Issue #225 part 2: Skills in agent-specific directories should be found
