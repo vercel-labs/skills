@@ -252,6 +252,8 @@ function runInit(args: string[]): void {
   const skillContent = `---
 name: ${skillName}
 description: A brief description of what this skill does
+# depends:
+#   - prerequisite-skill
 ---
 
 # ${skillName}

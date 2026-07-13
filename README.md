@@ -353,6 +353,27 @@ Describe the scenarios where this skill should be used.
 
 ### Optional Fields
 
+- `depends`: Array of skill names this skill depends on. Dependencies are automatically installed from the same repository before the skill itself is installed.
+
+```markdown
+---
+name: my-skill
+description: What this skill does and when to use it
+depends:
+  - prerequisite-skill
+  - another-dependency
+---
+```
+
+When a skill has dependencies, they will be automatically resolved and installed in the correct order (dependencies first).
+
+**Dependency Resolution:**
+- Dependencies are resolved recursively (if A depends on B, and B depends on C, all three are installed)
+- Dependencies are installed in order (C, then B, then A)
+- Shared dependencies are installed once
+- Circular dependencies are detected and cause installation to fail
+- Dependencies must exist in the same repository for security
+
 - `metadata.internal`: Set to `true` to hide the skill from normal discovery. Internal skills are only visible and
   installable when `INSTALL_INTERNAL_SKILLS=1` is set. Useful for work-in-progress skills or skills meant only for
   internal tooling.

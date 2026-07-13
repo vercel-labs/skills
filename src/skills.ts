@@ -87,12 +87,28 @@ export async function parseSkillMd(
       return null;
     }
 
+    // Parse depends field - must be array of strings if present
+    let depends: string[] | undefined;
+    if (data.depends) {
+      if (Array.isArray(data.depends)) {
+        // Validate all elements are strings
+        if (data.depends.every((dep) => typeof dep === 'string')) {
+          depends = data.depends as string[];
+        } else {
+          console.warn(`Skill ${data.name}: depends field must be an array of strings`);
+        }
+      } else {
+        console.warn(`Skill ${data.name}: depends field must be an array`);
+      }
+    }
+
     return {
       name: sanitizeMetadata(data.name),
       description: sanitizeMetadata(data.description),
       path: dirname(skillMdPath),
       rawContent: content,
       metadata: data.metadata,
+      depends,
     };
   } catch {
     return null;
@@ -306,4 +322,108 @@ export function filterSkills(skills: Skill[], inputNames: string[]): Skill[] {
 
     return normalizedInputs.some((input) => input === name || input === displayName);
   });
+}
+
+/**
+ * Resolves dependencies for a skill recursively, returning skills in installation order
+ * (dependencies first, then the skill itself).
+ *
+ * @param skill - The skill to resolve dependencies for
+ * @param allSkills - All available skills in the repository
+ * @param visited - Set of skill names already visited (for cycle detection)
+ * @param path - Current dependency path (for error messages)
+ * @returns Array of skills in installation order (dependencies first)
+ * @throws Error if circular dependency or missing dependency detected
+ */
+export function resolveDependencies(
+  skill: Skill,
+  allSkills: Skill[],
+  visited: Set<string> = new Set(),
+  path: string[] = []
+): Skill[] {
+  // Check for circular dependency
+  if (visited.has(skill.name)) {
+    const cycle = [...path, skill.name].join(' -> ');
+    throw new Error(`Circular dependency detected: ${cycle}`);
+  }
+
+  // Mark as visited
+  visited.add(skill.name);
+  path.push(skill.name);
+
+  // If no dependencies, return just this skill
+  if (!skill.depends || skill.depends.length === 0) {
+    return [skill];
+  }
+
+  // Resolve each dependency recursively
+  const resolved: Skill[] = [];
+  const seen = new Set<string>();
+
+  for (const depName of skill.depends) {
+    // Find dependency skill
+    const depSkill = allSkills.find((s) => s.name === depName);
+    if (!depSkill) {
+      throw new Error(
+        `Dependency "${depName}" not found for skill "${skill.name}". ` +
+          `Make sure the dependency exists in the same repository.`
+      );
+    }
+
+    // Recursively resolve dependency's dependencies
+    const depResolved = resolveDependencies(depSkill, allSkills, new Set(visited), [...path]);
+
+    // Add to resolved list (avoiding duplicates)
+    for (const s of depResolved) {
+      if (!seen.has(s.name)) {
+        resolved.push(s);
+        seen.add(s.name);
+      }
+    }
+  }
+
+  // Add the skill itself last (dependencies first)
+  if (!seen.has(skill.name)) {
+    resolved.push(skill);
+  }
+
+  return resolved;
+}
+
+/**
+ * Formats a dependency tree for display to the user.
+ *
+ * @param skill - The root skill
+ * @param resolved - Resolved dependencies in installation order
+ * @returns Formatted tree string
+ */
+export function formatDependencyTree(skill: Skill, resolved: Skill[]): string {
+  const lines: string[] = [];
+
+  function buildTree(s: Skill, indent: string, isLast: boolean): void {
+    const prefix = indent + (isLast ? '└─ ' : '├─ ');
+    lines.push(prefix + s.name);
+
+    if (s.depends && s.depends.length > 0) {
+      const newIndent = indent + (isLast ? '   ' : '│  ');
+      s.depends.forEach((depName, index) => {
+        const depSkill = resolved.find((rs) => rs.name === depName);
+        if (depSkill) {
+          buildTree(depSkill, newIndent, index === s.depends!.length - 1);
+        }
+      });
+    }
+  }
+
+  lines.push(skill.name);
+  if (skill.depends && skill.depends.length > 0) {
+    skill.depends.forEach((depName, index) => {
+      const depSkill = resolved.find((s) => s.name === depName);
+      if (depSkill) {
+        buildTree(depSkill, '', index === skill.depends!.length - 1);
+      }
+    });
+  }
+
+  return lines.join('\n');
 }

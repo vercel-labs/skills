@@ -674,3 +674,107 @@ This is a test skill for -y flag mode testing.
     expect(result.exitCode).toBe(0);
   });
 });
+
+describe('Skill dependencies integration', () => {
+  let testDir: string;
+
+  beforeEach(() => {
+    testDir = join(tmpdir(), `skills-deps-test-${Date.now()}`);
+    mkdirSync(testDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    if (existsSync(testDir)) {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should discover skills with dependencies', () => {
+    // Create skill-a with dependency on skill-b
+    const skillADir = join(testDir, 'skill-a');
+    mkdirSync(skillADir, { recursive: true });
+    writeFileSync(
+      join(skillADir, 'SKILL.md'),
+      `---
+name: skill-a
+description: Skill A
+depends:
+  - skill-b
+---
+
+# Skill A
+`
+    );
+
+    // Create skill-b (dependency)
+    const skillBDir = join(testDir, 'skill-b');
+    mkdirSync(skillBDir, { recursive: true });
+    writeFileSync(
+      join(skillBDir, 'SKILL.md'),
+      `---
+name: skill-b
+description: Skill B
+---
+
+# Skill B
+`
+    );
+
+    const result = runCli(['add', testDir, '--list'], testDir);
+    expect(result.stdout).toContain('skill-a');
+    expect(result.stdout).toContain('skill-b');
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('should handle nested dependencies', () => {
+    // Create skill-a -> skill-b -> skill-c
+    const skillADir = join(testDir, 'skill-a');
+    mkdirSync(skillADir, { recursive: true });
+    writeFileSync(
+      join(skillADir, 'SKILL.md'),
+      `---
+name: skill-a
+description: Skill A
+depends:
+  - skill-b
+---
+
+# Skill A
+`
+    );
+
+    const skillBDir = join(testDir, 'skill-b');
+    mkdirSync(skillBDir, { recursive: true });
+    writeFileSync(
+      join(skillBDir, 'SKILL.md'),
+      `---
+name: skill-b
+description: Skill B
+depends:
+  - skill-c
+---
+
+# Skill B
+`
+    );
+
+    const skillCDir = join(testDir, 'skill-c');
+    mkdirSync(skillCDir, { recursive: true });
+    writeFileSync(
+      join(skillCDir, 'SKILL.md'),
+      `---
+name: skill-c
+description: Skill C
+---
+
+# Skill C
+`
+    );
+
+    const result = runCli(['add', testDir, '--list'], testDir);
+    expect(result.stdout).toContain('skill-a');
+    expect(result.stdout).toContain('skill-b');
+    expect(result.stdout).toContain('skill-c');
+    expect(result.exitCode).toBe(0);
+  });
+});

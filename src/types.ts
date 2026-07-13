@@ -82,6 +82,8 @@ export interface Skill {
   /** Name of the plugin this skill belongs to (if any) */
   pluginName?: string;
   metadata?: Record<string, unknown>;
+  /** List of skill names this skill depends on */
+  depends?: string[];
 }
 
 export interface AgentConfig {
