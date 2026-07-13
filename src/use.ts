@@ -9,7 +9,13 @@ import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
 import { sanitizeName } from './installer.ts';
 import { getGitHubToken } from './skill-lock.ts';
 import { discoverSkills, filterSkills, getSkillDisplayName } from './skills.ts';
-import { getOwnerRepo, parseSource } from './source-parser.ts';
+import {
+  getOwnerRepo,
+  parseSource,
+  isSourceType,
+  SOURCE_TYPES,
+  type SourceType,
+} from './source-parser.ts';
 import type { AgentType, Skill } from './types.ts';
 import {
   wellKnownProvider,
@@ -23,6 +29,11 @@ export interface UseOptions {
   fullDepth?: boolean;
   dangerouslyAcceptOpenclawRisks?: boolean;
   help?: boolean;
+  /**
+   * Force the source to be interpreted as a specific type instead of
+   * auto-detecting it (`--source-type`).
+   */
+  sourceType?: SourceType;
 }
 
 export interface ParseUseOptionsResult {
@@ -100,6 +111,17 @@ export function parseUseOptions(args: string[]): ParseUseOptionsResult {
       options.fullDepth = true;
     } else if (arg === '--dangerously-accept-openclaw-risks') {
       options.dangerouslyAcceptOpenclawRisks = true;
+    } else if (arg === '--source-type') {
+      const value = args[i + 1];
+      if (value === undefined || value.startsWith('-')) {
+        errors.push(`--source-type requires a value (${SOURCE_TYPES.join(', ')})`);
+      } else if (!isSourceType(value)) {
+        errors.push(`Invalid --source-type "${value}". Valid values: ${SOURCE_TYPES.join(', ')}`);
+        i++;
+      } else {
+        options.sourceType = value;
+        i++;
+      }
     } else if (arg === '--skill' || arg === '-s') {
       const value = args[i + 1];
       if (!value || value.startsWith('-')) {
@@ -212,7 +234,7 @@ export async function runUse(
     }
 
     const source = sourceArgs[0]!;
-    const parsed = parseSource(source);
+    const parsed = parseSource(source, { sourceType: options.sourceType });
     const ownerRepoRaw = getOwnerRepo(parsed);
     const sourceOwner = ownerRepoRaw?.split('/')[0]?.toLowerCase();
 

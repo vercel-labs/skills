@@ -1,6 +1,31 @@
 import { isAbsolute, resolve } from 'path';
 import type { ParsedSource } from './types.ts';
 
+/** The set of source types that can be forced via `--source-type`. */
+export type SourceType = ParsedSource['type'];
+
+export const SOURCE_TYPES: readonly SourceType[] = [
+  'github',
+  'gitlab',
+  'azure',
+  'git',
+  'local',
+  'well-known',
+];
+
+/** Type guard for validating a user-supplied `--source-type` value. */
+export function isSourceType(value: string): value is SourceType {
+  return (SOURCE_TYPES as readonly string[]).includes(value);
+}
+
+interface ParseSourceOptions {
+  /**
+   * Force the parsed source to a specific type instead of auto-detecting it.
+   * Useful for self-hosted or otherwise unrecognized Git hosts.
+   */
+  sourceType?: SourceType;
+}
+
 /**
  * Extract owner/repo (or group/subgroup/repo for GitLab) from a parsed source
  * for lockfile tracking and telemetry.
@@ -10,6 +35,12 @@ import type { ParsedSource } from './types.ts';
 export function getOwnerRepo(parsed: ParsedSource): string | null {
   if (parsed.type === 'local') {
     return null;
+  }
+
+  // Azure DevOps URLs use an `{org}/{project}/_git/{repo}` structure, so derive
+  // a clean `org/repo` identifier rather than the raw path.
+  if (parsed.type === 'azure') {
+    return parseAzureDevOpsUrl(parsed.url)?.ownerRepo ?? null;
   }
 
   // Handle Git SSH URLs (e.g., git@gitlab.com:owner/repo.git, git@github.com:owner/repo.git)
@@ -121,6 +152,136 @@ export function sanitizeSubpath(subpath: string): string {
 }
 
 /**
+ * Whether a hostname belongs to Azure DevOps (either the modern
+ * `dev.azure.com` host or the legacy `<account>.visualstudio.com` hosts).
+ */
+function isAzureDevOpsHost(hostname: string): boolean {
+  const lower = hostname.toLowerCase();
+  return lower === 'dev.azure.com' || lower.endsWith('.visualstudio.com');
+}
+
+interface AzureDevOpsParseResult {
+  /** Normalized clone URL (query/fragment stripped). */
+  url: string;
+  /** Branch or tag resolved from `?version=GB…/GT…`. */
+  ref?: string;
+  /** Subpath resolved from `?path=…`. */
+  subpath?: string;
+  /** `org/repo` identifier for telemetry and lock tracking. */
+  ownerRepo?: string;
+}
+
+/**
+ * Parse an Azure DevOps repository URL.
+ *
+ * Recognizes:
+ *   - HTTPS: https://[user@]dev.azure.com/{org}/{project}/_git/{repo}
+ *   - Legacy HTTPS: https://{account}.visualstudio.com/[{collection}/]{project}/_git/{repo}
+ *   - SSH: git@ssh.dev.azure.com:v3/{org}/{project}/{repo}
+ *
+ * The identifying marker for HTTPS URLs is the `/_git/` path segment. Azure
+ * encodes the target folder and branch as query parameters
+ * (`?path=/dir&version=GBmain`), which are lifted into `subpath` and `ref`.
+ *
+ * Returns null when the input is not a recognizable Azure DevOps repo URL.
+ */
+function parseAzureDevOpsUrl(input: string): AzureDevOpsParseResult | null {
+  // SSH form: git@ssh.dev.azure.com:v3/{org}/{project}/{repo}
+  const sshMatch = input.match(/^git@ssh\.dev\.azure\.com:v3\/(.+)$/i);
+  if (sshMatch) {
+    const segments = sshMatch[1]!
+      .replace(/\.git$/, '')
+      .split('/')
+      .filter(Boolean);
+    // Need at least {org}/{repo}; canonical form is {org}/{project}/{repo}.
+    if (segments.length < 2) {
+      return null;
+    }
+    const org = segments[0]!;
+    const repo = segments[segments.length - 1]!;
+    return {
+      url: `git@ssh.dev.azure.com:v3/${segments.join('/')}`,
+      ownerRepo: `${org}/${repo}`,
+    };
+  }
+
+  if (!/^https?:\/\//i.test(input)) {
+    return null;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(input);
+  } catch {
+    return null;
+  }
+
+  if (!isAzureDevOpsHost(parsed.hostname)) {
+    return null;
+  }
+
+  // Keep the raw (percent-encoded) segments so the clone URL preserves any
+  // encoding in project names (e.g. spaces -> %20).
+  const encodedSegments = parsed.pathname.split('/').filter(Boolean);
+  const gitIndex = encodedSegments.findIndex((seg) => seg.toLowerCase() === '_git');
+  // Require at least one segment before `_git` (the org/project) and a repo after it.
+  if (gitIndex < 1 || gitIndex >= encodedSegments.length - 1) {
+    return null;
+  }
+
+  const repoSegment = encodedSegments[gitIndex + 1]!.replace(/\.git$/, '');
+  if (!repoSegment) {
+    return null;
+  }
+
+  const auth = parsed.username ? `${parsed.username}@` : '';
+  const pathToRepo = [...encodedSegments.slice(0, gitIndex), '_git', repoSegment].join('/');
+  const cloneUrl = `${parsed.protocol}//${auth}${parsed.host}/${pathToRepo}`;
+
+  // org is the first path segment for dev.azure.com; for *.visualstudio.com the
+  // account lives in the subdomain but the first path segment (project) is a
+  // reasonable, stable identifier for telemetry/lock purposes.
+  const org = decodeAzureComponent(encodedSegments[0]!);
+  const repo = decodeAzureComponent(repoSegment);
+
+  let ref: string | undefined;
+  const version = parsed.searchParams.get('version');
+  if (version) {
+    const prefix = version.slice(0, 2).toUpperCase();
+    const value = version.slice(2);
+    // GB = branch, GT = tag. GC (commit) is skipped: a commit SHA can't be
+    // used with `git clone --branch --depth 1`.
+    if ((prefix === 'GB' || prefix === 'GT') && value) {
+      ref = value;
+    }
+  }
+
+  let subpath: string | undefined;
+  const pathParam = parsed.searchParams.get('path');
+  if (pathParam) {
+    const trimmed = pathParam.replace(/^\/+/, '').replace(/\/+$/, '');
+    if (trimmed) {
+      subpath = sanitizeSubpath(trimmed);
+    }
+  }
+
+  return {
+    url: cloneUrl,
+    ownerRepo: `${org}/${repo}`,
+    ...(ref ? { ref } : {}),
+    ...(subpath ? { subpath } : {}),
+  };
+}
+
+function decodeAzureComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+/**
  * Check if a string represents a local file system path
  */
 function isLocalPath(input: string): boolean {
@@ -181,6 +342,11 @@ function looksLikeGitSource(input: string): boolean {
       if (parsed.hostname === 'gitlab.com') {
         return /^\/.+?\/[^/]+(?:\.git)?(?:\/-\/tree\/[^/]+(?:\/.*)?)?\/?$/.test(pathname);
       }
+
+      // Azure DevOps repo URLs are identified by the `/_git/` path segment.
+      if (isAzureDevOpsHost(parsed.hostname)) {
+        return pathname.includes('/_git/');
+      }
     } catch {
       // Fall through to generic checks below.
     }
@@ -198,7 +364,12 @@ function looksLikeGitSource(input: string): boolean {
   );
 }
 
-function parseFragmentRef(input: string): FragmentRefResult {
+/**
+ * Split an optional `#ref` / `#ref@skill` fragment from an input,
+ * unconditionally (used when the caller already knows the source is git-backed,
+ * e.g. via an explicit `--source-type`).
+ */
+function splitFragmentRef(input: string): FragmentRefResult {
   const hashIndex = input.indexOf('#');
   if (hashIndex < 0) {
     return { inputWithoutFragment: input };
@@ -206,10 +377,7 @@ function parseFragmentRef(input: string): FragmentRefResult {
 
   const inputWithoutFragment = input.slice(0, hashIndex);
   const fragment = input.slice(hashIndex + 1);
-
-  // Treat URL fragments as git refs only for git-like sources.
-  // This avoids changing behavior for generic well-known URLs.
-  if (!fragment || !looksLikeGitSource(inputWithoutFragment)) {
+  if (!fragment) {
     return { inputWithoutFragment: input };
   }
 
@@ -230,6 +398,24 @@ function parseFragmentRef(input: string): FragmentRefResult {
   };
 }
 
+function parseFragmentRef(input: string): FragmentRefResult {
+  const hashIndex = input.indexOf('#');
+  if (hashIndex < 0) {
+    return { inputWithoutFragment: input };
+  }
+
+  const inputWithoutFragment = input.slice(0, hashIndex);
+  const fragment = input.slice(hashIndex + 1);
+
+  // Treat URL fragments as git refs only for git-like sources.
+  // This avoids changing behavior for generic well-known URLs.
+  if (!fragment || !looksLikeGitSource(inputWithoutFragment)) {
+    return { inputWithoutFragment: input };
+  }
+
+  return splitFragmentRef(input);
+}
+
 function appendFragmentRef(input: string, ref?: string, skillFilter?: string): string {
   if (!ref) {
     return input;
@@ -237,7 +423,12 @@ function appendFragmentRef(input: string, ref?: string, skillFilter?: string): s
   return `${input}#${ref}${skillFilter ? `@${skillFilter}` : ''}`;
 }
 
-export function parseSource(input: string): ParsedSource {
+export function parseSource(input: string, options: ParseSourceOptions = {}): ParsedSource {
+  // An explicit `--source-type` overrides auto-detection.
+  if (options.sourceType) {
+    return parseForcedSource(input, options.sourceType);
+  }
+
   // Local path: absolute, relative, or current directory
   if (isLocalPath(input)) {
     const resolvedPath = resolve(input);
@@ -389,6 +580,21 @@ export function parseSource(input: string): ParsedSource {
     };
   }
 
+  // Azure DevOps URL: https://[user@]dev.azure.com/{org}/{project}/_git/{repo}
+  // (also *.visualstudio.com and the SSH v3 form). Identified by the `/_git/`
+  // path segment. Must be checked before the well-known fallback so these
+  // repositories aren't misread as generic well-known endpoints.
+  const azureParsed = parseAzureDevOpsUrl(input);
+  if (azureParsed) {
+    return {
+      type: 'azure',
+      url: azureParsed.url,
+      ...(azureParsed.ref || fragmentRef ? { ref: azureParsed.ref || fragmentRef } : {}),
+      ...(azureParsed.subpath ? { subpath: azureParsed.subpath } : {}),
+      ...(fragmentSkillFilter ? { skillFilter: fragmentSkillFilter } : {}),
+    };
+  }
+
   // Well-known skills: arbitrary HTTP(S) URLs that aren't GitHub/GitLab
   // This is the final fallback for URLs - we'll check for /.well-known/agent-skills/index.json
   // then fall back to /.well-known/skills/index.json
@@ -404,6 +610,63 @@ export function parseSource(input: string): ParsedSource {
     type: 'git',
     url: input,
     ...(fragmentRef ? { ref: fragmentRef } : {}),
+  };
+}
+
+/**
+ * Parse a source with an explicit, user-supplied type (`--source-type`),
+ * bypassing host-based auto-detection.
+ *
+ * For the Git-backed types we still reuse the normal parser to normalize the
+ * URL (e.g. GitHub tree paths, GitLab subgroups, Azure `?path=`/`?version=`),
+ * then stamp the requested type. When the host isn't recognized, the input is
+ * treated as a direct clone URL so unrecognized/self-hosted Git servers work.
+ */
+function parseForcedSource(input: string, type: SourceType): ParsedSource {
+  if (type === 'local') {
+    const resolvedPath = resolve(input);
+    return { type: 'local', url: resolvedPath, localPath: resolvedPath };
+  }
+
+  if (type === 'well-known') {
+    return { type: 'well-known', url: input };
+  }
+
+  // Git-backed types: peel off an optional #ref / #ref@skill fragment.
+  const { inputWithoutFragment, ref, skillFilter } = splitFragmentRef(input);
+
+  if (type === 'azure') {
+    const azure = parseAzureDevOpsUrl(inputWithoutFragment);
+    const resolvedRef = azure?.ref || ref;
+    const resolvedSubpath = azure?.subpath;
+    return {
+      type: 'azure',
+      url: azure?.url ?? inputWithoutFragment,
+      ...(resolvedRef ? { ref: resolvedRef } : {}),
+      ...(resolvedSubpath ? { subpath: resolvedSubpath } : {}),
+      ...(skillFilter ? { skillFilter } : {}),
+    };
+  }
+
+  // github / gitlab / git: reuse auto-detection to normalize the URL when it's
+  // a recognizable host, otherwise fall back to a direct clone URL.
+  const detected = parseSource(inputWithoutFragment);
+  if (detected.type !== 'local' && detected.type !== 'well-known') {
+    const resolvedRef = detected.ref ?? ref;
+    const resolvedSkill = skillFilter ?? detected.skillFilter;
+    return {
+      ...detected,
+      type,
+      ...(resolvedRef ? { ref: resolvedRef } : {}),
+      ...(resolvedSkill ? { skillFilter: resolvedSkill } : {}),
+    };
+  }
+
+  return {
+    type,
+    url: inputWithoutFragment,
+    ...(ref ? { ref } : {}),
+    ...(skillFilter ? { skillFilter } : {}),
   };
 }
 

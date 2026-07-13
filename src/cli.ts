@@ -143,11 +143,15 @@ ${BOLD}Add Options:${RESET}
   --subagent <names>     Install to Eve subagents (use 'root' for the root agent)
   --all                  Shorthand for --skill '*' --agent '*' -y
   --full-depth           Search all subdirectories even when a root SKILL.md exists
+  --source-type <type>   Force the source type instead of auto-detecting it
+                         (github, gitlab, azure, git, local, well-known)
 
 ${BOLD}Use Options:${RESET}
   -s, --skill <skill>    Specify the skill to use
   -a, --agent <agent>    Start one supported agent interactively
   --full-depth           Search all subdirectories even when a root SKILL.md exists
+  --source-type <type>   Force the source type instead of auto-detecting it
+                         (github, gitlab, azure, git, local, well-known)
   --dangerously-accept-openclaw-risks
                          Allow unverified OpenClaw community skills
 
