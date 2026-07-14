@@ -136,7 +136,12 @@
     "xdg-basedir": "^5.1.0"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22.18.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   },
   "packageManager": "pnpm@10.17.1",
   "dependencies": {
