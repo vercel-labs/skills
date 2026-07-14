@@ -142,6 +142,7 @@ function isLocalPath(input: string): boolean {
 // Source aliases: map common shorthand to canonical source
 const SOURCE_ALIASES: Record<string, string> = {
   'coinbase/agentWallet': 'coinbase/agentic-wallet-skills',
+  scandit: 'Scandit/skills',
 };
 
 interface FragmentRefResult {
