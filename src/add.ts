@@ -48,7 +48,7 @@ export function getLockSource(parsedUrl: string, normalizedSource: string | null
 export function getProjectLockSourceUrl(sourceType: string, sourceUrl: string): string | undefined {
   return sourceType === 'git' || sourceType === 'gitlab' ? sourceUrl : undefined;
 }
-import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
+import { cloneRepo, cloneRepoSparse, cleanupTempDir, GitCloneError } from './git.ts';
 import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
 import {
   installSkillForAgent,
@@ -1177,7 +1177,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       } else {
         // Blob failed — fall back to git clone
         spinner.start('Cloning repository...');
-        tempDir = await cloneRepo(parsed.url, parsed.ref);
+        tempDir = parsed.subpath
+          ? await cloneRepoSparse(parsed.url, parsed.ref, parsed.subpath)
+          : await cloneRepo(parsed.url, parsed.ref);
         spinner.stop('Repository cloned');
 
         spinner.start('Discovering skills...');
@@ -1189,7 +1191,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     } else {
       // GitLab, git URL, or --full-depth: always clone
       spinner.start('Cloning repository...');
-      tempDir = await cloneRepo(parsed.url, parsed.ref);
+      tempDir = parsed.subpath
+        ? await cloneRepoSparse(parsed.url, parsed.ref, parsed.subpath)
+        : await cloneRepo(parsed.url, parsed.ref);
       spinner.stop('Repository cloned');
 
       spinner.start('Discovering skills...');
