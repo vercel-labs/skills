@@ -166,7 +166,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   const spinner = p.spinner();
 
   // 1. Discover skills from node_modules
-  spinner.start('Scanning node_modules for skills...');
+  spinner.start('Scanning node_modules for skills…');
   const discoveredSkills = await discoverNodeModuleSkills(cwd);
 
   if (discoveredSkills.length === 0) {
@@ -242,7 +242,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     }
     targetAgents = options.agent as AgentType[];
   } else {
-    spinner.start('Loading agents...');
+    spinner.start('Loading agents…');
     const installedAgents = await detectInstalledAgents();
     const totalAgents = Object.keys(agents).length;
     spinner.stop(`${totalAgents} agents`);
@@ -343,7 +343,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   }
 
   // 5. Install skills (always project-scoped, always symlink)
-  spinner.start('Syncing skills...');
+  spinner.start('Syncing skills…');
 
   const results: Array<{
     skill: string;

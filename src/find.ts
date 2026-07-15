@@ -164,7 +164,7 @@ async function runSearchPrompt(initialQuery = '', owner?: string): Promise<Searc
     if (!query || query.length < 2) {
       lines.push(`${DIM}Start typing to search (min 2 chars)${RESET}`);
     } else if (results.length === 0 && loading) {
-      lines.push(`${DIM}Searching...${RESET}`);
+      lines.push(`${DIM}Searching…${RESET}`);
     } else if (results.length === 0) {
       lines.push(`${DIM}No skills found${RESET}`);
     } else {
@@ -179,7 +179,7 @@ async function runSearchPrompt(initialQuery = '', owner?: string): Promise<Searc
         const source = skill.source ? ` ${DIM}${skill.source}${RESET}` : '';
         const installs = formatInstalls(skill.installs);
         const installsBadge = installs ? ` ${CYAN}${installs}${RESET}` : '';
-        const loadingIndicator = loading && i === 0 ? ` ${DIM}...${RESET}` : '';
+        const loadingIndicator = loading && i === 0 ? ` ${DIM}…${RESET}` : '';
 
         lines.push(`  ${arrow} ${name}${source}${installsBadge}${loadingIndicator}`);
       }
@@ -397,7 +397,7 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
   const skillName = selected.name;
 
   console.log();
-  console.log(`${TEXT}Installing ${BOLD}${skillName}${RESET} from ${DIM}${pkg}${RESET}...`);
+  console.log(`${TEXT}Installing ${BOLD}${skillName}${RESET} from ${DIM}${pkg}${RESET}…`);
   console.log();
 
   // Run add directly since we're in the same CLI

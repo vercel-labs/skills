@@ -39,7 +39,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
   const spinner = p.spinner();
 
-  spinner.start('Scanning for installed skills...');
+  spinner.start('Scanning for installed skills…');
   const skillNamesSet = new Set<string>();
 
   const scanDir = async (dir: string) => {
@@ -156,7 +156,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     }
   }
 
-  spinner.start('Removing skills...');
+  spinner.start('Removing skills…');
 
   const results: {
     skill: string;

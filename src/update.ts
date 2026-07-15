@@ -275,7 +275,7 @@ export async function checkAndPromptForDeletions(
 
       if (confirmed && !p.isCancel(confirmed)) {
         for (const s of deletedSkills) {
-          console.log(`${DIM}Removing${RESET} ${s}...`);
+          console.log(`${DIM}Removing${RESET} ${s}…`);
           await removeCommand([s], { yes: true, global: isGlobal });
         }
       }
@@ -445,7 +445,7 @@ export async function updateGlobalSkills(
 
   for (const update of updates) {
     const safeName = sanitizeMetadata(update.name);
-    console.log(`${TEXT}Updating ${safeName}...${RESET}`);
+    console.log(`${TEXT}Updating ${safeName}…${RESET}`);
     const installUrl = buildUpdateInstallSource(update.entry);
     if (!installUrl) {
       failCount++;
@@ -538,7 +538,7 @@ export async function updateProjectSkills(
     console.log(`${TEXT}Updating for: ${targetParts.join(', ')}${RESET}`);
   }
 
-  console.log(`${TEXT}Refreshing ${updatable.length} skill(s)...${RESET}`);
+  console.log(`${TEXT}Refreshing ${updatable.length} skill(s)…${RESET}`);
   console.log();
 
   const bySource = new Map<string, typeof updatable>();
@@ -606,7 +606,7 @@ export async function updateProjectSkills(
 
     for (const skill of remainingSkills) {
       const safeName = sanitizeMetadata(skill.name);
-      console.log(`${TEXT}Updating ${safeName}...${RESET}`);
+      console.log(`${TEXT}Updating ${safeName}…${RESET}`);
       const installUrl = buildLocalUpdateSource(skill.entry);
       if (!installUrl) {
         failCount++;
@@ -676,9 +676,9 @@ export async function runUpdate(args: string[] = []): Promise<void> {
   const scope = await resolveUpdateScope(options);
 
   if (options.skills) {
-    console.log(`${TEXT}Updating ${options.skills.join(', ')}...${RESET}`);
+    console.log(`${TEXT}Updating ${options.skills.join(', ')}…${RESET}`);
   } else {
-    console.log(`${TEXT}Checking for skill updates...${RESET}`);
+    console.log(`${TEXT}Checking for skill updates…${RESET}`);
   }
   console.log();
 

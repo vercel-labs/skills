@@ -210,7 +210,7 @@ export async function searchMultiselect<T>(
             lines.push(`${S_BAR}    ${S_BULLET} ${pc.bold(item.label)}`);
           }
           if (lockedSection.hiddenCount && lockedSection.hiddenCount > 0) {
-            lines.push(`${S_BAR}    ${pc.dim(`...and ${lockedSection.hiddenCount} more`)}`);
+            lines.push(`${S_BAR}    ${pc.dim(`…and ${lockedSection.hiddenCount} more`)}`);
           }
           lines.push(`${S_BAR}`);
           lines.push(

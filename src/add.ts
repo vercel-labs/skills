@@ -88,7 +88,6 @@ import { detectAgent, getAgentType } from './detect-agent.ts';
 import { wellKnownProvider, type WellKnownSkill } from './providers/index.ts';
 import {
   addSkillToLock,
-  fetchSkillFolderHash,
   getGitHubToken,
   isPromptDismissed,
   dismissPrompt,
@@ -586,7 +585,7 @@ async function handleWellKnownSkills(
   options: AddOptions,
   spinner: ReturnType<typeof p.spinner>
 ): Promise<void> {
-  spinner.start('Discovering skills from well-known endpoint...');
+  spinner.start('Discovering skills from well-known endpoint…');
 
   // Fetch all skills from the well-known endpoint
   const skills = await wellKnownProvider.fetchAllSkills(url);
@@ -663,7 +662,7 @@ async function handleWellKnownSkills(
     const skillChoices = skills.map((s) => ({
       value: s,
       label: s.installName,
-      hint: s.description.length > 60 ? s.description.slice(0, 57) + '...' : s.description,
+      hint: s.description.length > 60 ? s.description.slice(0, 57) + '…' : s.description,
     }));
 
     const selected = await multiselect({
@@ -699,7 +698,7 @@ async function handleWellKnownSkills(
 
     targetAgents = options.agent as AgentType[];
   } else {
-    spinner.start('Loading agents...');
+    spinner.start('Loading agents…');
     const installedAgents = await detectInstalledAgents();
     const totalAgents = Object.keys(agents).length;
     spinner.stop(`${totalAgents} agents`);
@@ -874,7 +873,7 @@ async function handleWellKnownSkills(
   const sourceIdentifier = wellKnownProvider.getSourceIdentifier(url);
   const wellKnownPrivacyPromise = isSourcePrivate(sourceIdentifier).catch(() => null);
 
-  spinner.start('Installing skills...');
+  spinner.start('Installing skills…');
 
   const results: {
     skill: string;
@@ -993,9 +992,13 @@ async function handleWellKnownSkills(
       if (firstResult.mode === 'copy') {
         // Copy mode: show skill name and list all agent paths
         resultLines.push(`${pc.green('✓')} ${skillName} ${pc.dim('(copied)')}`);
+        const shortPathsSet = new Set<string>();
         for (const r of skillResults) {
           const shortPath = shortenPath(r.path, cwd);
-          resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
+          if (!shortPathsSet.has(shortPath)) {
+            shortPathsSet.add(shortPath);
+            resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
+          }
         }
       } else {
         // Symlink mode: show canonical path and universal/symlinked agents
@@ -1148,7 +1151,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     if (parsed.type === 'local') {
       // Use local path directly, no cloning needed
-      spinner.start('Validating local path...');
+      spinner.start('Validating local path…');
       if (!existsSync(parsed.localPath!)) {
         spinner.stop(pc.red('Path not found'));
         p.outro(pc.red(`Local path does not exist: ${parsed.localPath}`));
@@ -1156,7 +1159,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
       spinner.stop('Local path validated');
 
-      spinner.start('Discovering skills...');
+      spinner.start('Discovering skills…');
       skills = await discoverSkills(parsed.localPath!, parsed.subpath, {
         includeInternal,
         fullDepth: options.fullDepth,
@@ -1171,7 +1174,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       const isSelfHostedRepo =
         !!ownerRepo && Object.hasOwn(BLOB_ALLOWED_REPOS, ownerRepo.toLowerCase());
       if (ownerRepo && owner && (isSelfHostedRepo || BLOB_ALLOWED_OWNERS.includes(owner))) {
-        spinner.start('Fetching skills...');
+        spinner.start('Fetching skills…');
         blobResult = await tryBlobInstall(ownerRepo, {
           subpath: parsed.subpath,
           skillFilter: parsed.skillFilter,
@@ -1180,7 +1183,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           includeInternal,
         });
         if (!blobResult) {
-          spinner.stop(pc.dim('Falling back to clone...'));
+          spinner.stop(pc.dim('Falling back to clone…'));
         }
       }
 
@@ -1189,11 +1192,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
       } else {
         // Blob failed — fall back to git clone
-        spinner.start('Cloning repository...');
+        spinner.start('Cloning repository…');
         tempDir = await cloneRepo(parsed.url, parsed.ref);
         spinner.stop('Repository cloned');
 
-        spinner.start('Discovering skills...');
+        spinner.start('Discovering skills…');
         skills = await discoverSkills(tempDir, parsed.subpath, {
           includeInternal,
           fullDepth: options.fullDepth,
@@ -1201,11 +1204,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     } else {
       // GitLab, git URL, or --full-depth: always clone
-      spinner.start('Cloning repository...');
+      spinner.start('Cloning repository…');
       tempDir = await cloneRepo(parsed.url, parsed.ref);
       spinner.stop('Repository cloned');
 
-      spinner.start('Discovering skills...');
+      spinner.start('Discovering skills…');
       skills = await discoverSkills(tempDir, parsed.subpath, {
         includeInternal,
         fullDepth: options.fullDepth,
@@ -1336,7 +1339,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           grouped[groupName]!.push({
             value: s,
             label: getSkillDisplayName(s),
-            hint: s.description.length > 60 ? s.description.slice(0, 57) + '...' : s.description,
+            hint: s.description.length > 60 ? s.description.slice(0, 57) + '…' : s.description,
           });
         }
 
@@ -1349,7 +1352,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         const skillChoices = sortedSkills.map((s) => ({
           value: s,
           label: getSkillDisplayName(s),
-          hint: s.description.length > 60 ? s.description.slice(0, 57) + '...' : s.description,
+          hint: s.description.length > 60 ? s.description.slice(0, 57) + '…' : s.description,
         }));
 
         selected = await multiselect({
@@ -1397,7 +1400,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
       targetAgents = options.agent as AgentType[];
     } else {
-      spinner.start('Loading agents...');
+      spinner.start('Loading agents…');
       const installedAgents = await detectInstalledAgents();
       const totalAgents = Object.keys(agents).length;
       spinner.stop(`${totalAgents} agents`);
@@ -1723,7 +1726,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
-    spinner.start('Installing skills...');
+    spinner.start('Installing skills…');
 
     const results: {
       skill: string;
@@ -1969,9 +1972,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           if (firstResult.mode === 'copy') {
             // Copy mode: show skill name and list all agent paths
             resultLines.push(`${pc.green('✓')} ${entry.skill} ${pc.dim('(copied)')}`);
+            const shortPathsSet = new Set<string>();
             for (const r of skillResults) {
               const shortPath = shortenPath(r.path, cwd);
-              resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
+              if (!shortPathsSet.has(shortPath)) {
+                shortPathsSet.add(shortPath);
+                resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
+              }
             }
           } else {
             // Symlink mode: show canonical path and universal/symlinked agents
@@ -2116,7 +2123,7 @@ async function promptForFindSkills(
       }
 
       console.log();
-      p.log.step('Installing find-skills skill...');
+      p.log.step('Installing find-skills skill…');
 
       try {
         // Call runAdd directly
