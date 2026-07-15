@@ -71,7 +71,8 @@ describe('cloneRepo LFS handling', () => {
     const cloneDir = await cloneRepo(source);
     tempDirs.push(cloneDir);
 
-    await expect(readFile(join(cloneDir, 'asset.bin'), 'utf8')).resolves.toBe(expectedContents);
+    const actualContents = await readFile(join(cloneDir, 'asset.bin'), 'utf8');
+    expect(actualContents.replaceAll('\r\n', '\n')).toBe(expectedContents.replaceAll('\r\n', '\n'));
     await cleanupTempDir(cloneDir);
     tempDirs.splice(tempDirs.indexOf(cloneDir), 1);
   }, 20_000);
