@@ -6,6 +6,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 
 const DEFAULT_CLONE_TIMEOUT_MS = 300_000; // 5 minutes
+const ALLOWED_GIT_PROTOCOLS = 'https:http:ssh:git:file';
 const CLONE_TIMEOUT_MS = (() => {
   const raw = process.env.SKILLS_CLONE_TIMEOUT_MS;
   if (!raw) return DEFAULT_CLONE_TIMEOUT_MS;
@@ -98,17 +99,9 @@ function isAuthFailure(message: string): boolean {
   );
 }
 
-function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
-  return simpleGit({
+function createGitClient() {
+  const git = simpleGit({
     timeout: { block: CLONE_TIMEOUT_MS },
-    env: {
-      ...process.env,
-      GIT_TERMINAL_PROMPT: '0',
-      // When git-lfs IS installed, tell it not to download LFS content
-      // during checkout. See #952 for context and empirical impact.
-      GIT_LFS_SKIP_SMUDGE: '1',
-      ...extraEnv,
-    },
     // When git-lfs is NOT installed, GIT_LFS_SKIP_SMUDGE has no effect —
     // git sees `filter=lfs` in .gitattributes, tries to run
     // `git-lfs filter-process`, and aborts the checkout with:
@@ -135,6 +128,11 @@ function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
       allowUnsafeFilter: true,
     },
   });
+  // Command-scoped values override the user's inherited environment.
+  git.env('GIT_TERMINAL_PROMPT', '0');
+  git.env('GIT_ALLOW_PROTOCOL', ALLOWED_GIT_PROTOCOLS);
+  git.env('GIT_LFS_SKIP_SMUDGE', '1');
+  return git;
 }
 
 async function resetTempDir(dir: string): Promise<void> {
@@ -161,7 +159,11 @@ async function tryGhClone(repo: GitHubRepoInfo, tempDir: string, ref?: string): 
   const gitFlags = ref ? ['--depth=1', '--branch', ref] : ['--depth=1'];
   await execFileAsync('gh', ['repo', 'clone', cloneTarget, tempDir, '--', ...gitFlags], {
     timeout: CLONE_TIMEOUT_MS,
-    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    env: {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_ALLOW_PROTOCOL: ALLOWED_GIT_PROTOCOLS,
+    },
   });
   return true;
 }
@@ -239,9 +241,9 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
 
       try {
         await resetTempDir(tempDir);
-        await createGitClient({
-          GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes',
-        }).clone(repo.sshUrl, tempDir, cloneOptions);
+        await createGitClient()
+          .env('GIT_SSH_COMMAND', process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes')
+          .clone(repo.sshUrl, tempDir, cloneOptions);
         return tempDir;
       } catch {
         // Fall through to the targeted auth error below.
