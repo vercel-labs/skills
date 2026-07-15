@@ -35,6 +35,25 @@ swift run -c release
 First build takes a minute; later runs are fast. Quit with the menu bar
 icon → **Quit MiniLaunch** (or Ctrl-C in the terminal).
 
+## Make it a real app (Option C — recommended once it works)
+
+Options A and B are test drives: the app quits when Xcode or the terminal
+stops it. To get a permanent, double-clickable **MiniLaunch.app**:
+
+```bash
+cd MiniLaunch
+./scripts/package-app.sh
+cp -R dist/MiniLaunch.app /Applications/
+open /Applications/MiniLaunch.app
+```
+
+The script builds the app, wraps it in a proper `.app` bundle, and signs it
+for local use (no Apple account needed). To have it start automatically when
+you log in: **System Settings → General → Login Items → “+” → MiniLaunch**.
+
+> If `./scripts/package-app.sh` says "permission denied", run
+> `chmod +x scripts/package-app.sh` once and try again.
+
 ## Using it
 
 | Action | How |
