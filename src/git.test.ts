@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { rmSync } from 'fs';
+import { mkdirSync, rmSync, writeFileSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { promisify } from 'util';
 
 const simpleGitMock = vi.hoisted(() => vi.fn());
-const execFileMock = vi.hoisted(() => vi.fn());
+const execFileAsyncMock = vi.hoisted(() => vi.fn());
 
 vi.mock('simple-git', () => ({
   default: simpleGitMock,
@@ -10,18 +13,24 @@ vi.mock('simple-git', () => ({
 
 vi.mock('child_process', async () => {
   const actual = await vi.importActual<typeof import('child_process')>('child_process');
+  const execFile = vi.fn();
+  Object.defineProperty(execFile, promisify.custom, {
+    value: execFileAsyncMock,
+  });
   return {
     ...actual,
-    execFile: execFileMock,
+    execFile,
   };
 });
 
 import {
   GitCloneError,
   cloneRepo,
+  detectSshPassphrasePromptIssue,
   isGitHubHttpsCloneUrl,
   isGitHubSsoAuthError,
   parseGitHubRepoUrl,
+  parseSshCloneUrl,
 } from './git.ts';
 
 function createGitClientMock(clone: ReturnType<typeof vi.fn>) {
@@ -31,19 +40,12 @@ function createGitClientMock(clone: ReturnType<typeof vi.fn>) {
 }
 
 function mockExecFileSuccess(stdout = '', stderr = '') {
-  execFileMock.mockImplementationOnce(
-    (_file: string, _args: string[], _options: unknown, callback: (...args: unknown[]) => void) => {
-      callback(null, stdout, stderr);
-    }
-  );
+  execFileAsyncMock.mockResolvedValueOnce({ stdout, stderr });
 }
 
 function mockExecFileError(message: string) {
-  execFileMock.mockImplementationOnce(
-    (_file: string, _args: string[], _options: unknown, callback: (...args: unknown[]) => void) => {
-      const error = Object.assign(new Error(message), { code: 1 });
-      callback(error, '', message);
-    }
+  execFileAsyncMock.mockRejectedValueOnce(
+    Object.assign(new Error(message), { code: 1, stdout: '', stderr: message })
   );
 }
 
@@ -52,7 +54,14 @@ describe('git clone fallbacks', () => {
 
   beforeEach(() => {
     simpleGitMock.mockReset();
-    execFileMock.mockReset();
+    execFileAsyncMock.mockReset();
+    execFileAsyncMock.mockRejectedValue(
+      Object.assign(new Error('unexpected execFile call'), {
+        code: 1,
+        stdout: '',
+        stderr: 'unexpected execFile call',
+      })
+    );
   });
 
   afterEach(() => {
@@ -74,6 +83,20 @@ describe('git clone fallbacks', () => {
       repo: 'giphy-codex-skills',
       slug: 'Giphy/giphy-codex-skills',
       sshUrl: 'git@github.com:Giphy/giphy-codex-skills.git',
+    });
+  });
+
+  it('parses SSH clone URLs and host aliases', () => {
+    expect(parseSshCloneUrl('git@github-passphrase-giphy:Giphy/giphy-codex-skills.git')).toEqual({
+      user: 'git',
+      host: 'github-passphrase-giphy',
+    });
+
+    expect(
+      parseSshCloneUrl('ssh://git@github-passphrase-giphy/Giphy/giphy-codex-skills.git')
+    ).toEqual({
+      user: 'git',
+      host: 'github-passphrase-giphy',
     });
   });
 
@@ -128,19 +151,17 @@ describe('git clone fallbacks', () => {
     const tempDir = await cloneRepo('https://github.com/Giphy/giphy-codex-skills.git');
     createdDirs.push(tempDir);
 
-    expect(execFileMock).toHaveBeenNthCalledWith(
+    expect(execFileAsyncMock).toHaveBeenNthCalledWith(
       1,
       'gh',
       ['auth', 'status', '-h', 'github.com'],
-      expect.any(Object),
-      expect.any(Function)
+      expect.any(Object)
     );
-    expect(execFileMock).toHaveBeenNthCalledWith(
+    expect(execFileAsyncMock).toHaveBeenNthCalledWith(
       2,
       'gh',
       ['repo', 'clone', 'Giphy/giphy-codex-skills', tempDir, '--', '--depth=1'],
-      expect.any(Object),
-      expect.any(Function)
+      expect.any(Object)
     );
   });
 
@@ -201,7 +222,7 @@ describe('git clone fallbacks', () => {
     await expect(cloneRepo('https://gitlab.com/Giphy/giphy-codex-skills.git')).rejects.toThrow(
       GitCloneError
     );
-    expect(execFileMock).not.toHaveBeenCalled();
+    expect(execFileAsyncMock).not.toHaveBeenCalled();
   });
 
   it('does not try gh fallback for GitHub SSH clone URLs', async () => {
@@ -212,7 +233,64 @@ describe('git clone fallbacks', () => {
     await expect(cloneRepo('git@github.com:Giphy/giphy-codex-skills.git')).rejects.toThrow(
       GitCloneError
     );
-    expect(execFileMock).not.toHaveBeenCalled();
+    expect(execFileAsyncMock).toHaveBeenCalledWith('ssh', ['-G', 'github.com'], expect.any(Object));
+  });
+
+  it('detects passphrase-protected SSH identities that are not usable through agent', async () => {
+    const sshDir = join(tmpdir(), `skills-git-test-${Date.now()}`);
+    const identityFile = join(sshDir, 'id_rsa_github_passphrase_giphy');
+    mkdirSync(sshDir, { recursive: true });
+    writeFileSync(identityFile, 'private');
+    writeFileSync(`${identityFile}.pub`, 'public');
+    createdDirs.push(sshDir);
+
+    mockExecFileSuccess(
+      `host github-passphrase-giphy\nidentitiesonly yes\nidentityfile ${identityFile}\n`
+    );
+    mockExecFileError('incorrect passphrase supplied to decrypt private key');
+    mockExecFileError('The agent has no identities.');
+
+    await expect(
+      detectSshPassphrasePromptIssue('git@github-passphrase-giphy:Giphy/giphy-codex-skills.git')
+    ).resolves.toEqual({
+      host: 'github-passphrase-giphy',
+      identityFile,
+    });
+  });
+
+  it('fails fast with a targeted message for SSH passphrase prompt dead-ends', async () => {
+    const sshDir = join(tmpdir(), `skills-git-test-${Date.now()}`);
+    const identityFile = join(sshDir, 'id_rsa_github_passphrase_giphy');
+    mkdirSync(sshDir, { recursive: true });
+    writeFileSync(identityFile, 'private');
+    writeFileSync(`${identityFile}.pub`, 'public');
+    createdDirs.push(sshDir);
+
+    mockExecFileSuccess(
+      `host github-passphrase-giphy\nidentitiesonly yes\nidentityfile ${identityFile}\n`
+    );
+    mockExecFileError('incorrect passphrase supplied to decrypt private key');
+    mockExecFileError('The agent has no identities.');
+
+    const originalIsTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+
+    try {
+      await cloneRepo('git@github-passphrase-giphy:Giphy/giphy-codex-skills.git');
+      throw new Error('Expected cloneRepo to throw');
+    } catch (error) {
+      expect(error).toBeInstanceOf(GitCloneError);
+      expect((error as Error).message).toMatch(/requires unlocking the passphrase-protected key/);
+      expect((error as Error).message).toMatch(/cannot prompt for that passphrase/);
+      expect((error as Error).message).toMatch(/ssh-add/);
+    } finally {
+      Object.defineProperty(process.stdin, 'isTTY', {
+        value: originalIsTTY,
+        configurable: true,
+      });
+    }
+
+    expect(simpleGitMock.mock.results[0]?.value?.clone).toBeUndefined();
   });
 
   it('rejects the command-executing ext transport before invoking git', async () => {
