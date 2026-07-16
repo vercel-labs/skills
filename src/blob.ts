@@ -273,6 +273,7 @@ const PRIORITY_PREFIXES = [
   '.pi/skills/',
   '.qoder/skills/',
   '.roo/skills/',
+  '.ruler/skills/',
   '.trae/skills/',
   '.windsurf/skills/',
   '.zcode/skills/',
