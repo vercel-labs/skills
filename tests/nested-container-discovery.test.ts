@@ -217,4 +217,16 @@ describe('findSkillMdPaths — bounded depth-2 inside skill container prefixes',
 
     expect(findSkillMdPaths(tree, 'skills')).toEqual(['skills/category/in-scope/SKILL.md']);
   });
+
+  it('returns paths from an unrecognized custom container alongside a known-prefix path', () => {
+    const tree = makeTree([
+      '.claude/skills/agent-quality/SKILL.md',
+      'plugins/tfso-bank/skills/bank-account/SKILL.md',
+    ]);
+
+    expect(findSkillMdPaths(tree).sort()).toEqual([
+      '.claude/skills/agent-quality/SKILL.md',
+      'plugins/tfso-bank/skills/bank-account/SKILL.md',
+    ]);
+  });
 });
