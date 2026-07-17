@@ -289,6 +289,7 @@ Skills can be installed to any of these agents:
 | OpenHands | `openhands` | `.openhands/skills/` | `~/.openhands/skills/` |
 | Ona | `ona` | `.ona/skills/` | `~/.ona/skills/` |
 | Pi | `pi` | `.pi/skills/` | `~/.pi/agent/skills/` |
+| Pool | `pool` | `.poolside/skills/` | `~/.config/poolside/skills/` |
 | Qoder | `qoder` | `.qoder/skills/` | `~/.qoder/skills/` |
 | Qoder CN | `qoder-cn` | `.qoder/skills/` | `~/.qoder-cn/skills/` |
 | Qwen Code | `qwen-code` | `.qwen/skills/` | `~/.qwen/skills/` |
@@ -418,6 +419,7 @@ to also discover `SKILL.md` files outside these container directories
 - `.openhands/skills/`
 - `.ona/skills/`
 - `.pi/skills/`
+- `.poolside/skills/`
 - `.qoder/skills/`
 - `.qwen/skills/`
 - `.reasonix/skills/`
