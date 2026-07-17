@@ -3,7 +3,15 @@ import pc from 'picocolors';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { sep, join, dirname } from 'path';
-import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
+import {
+  parseSource,
+  getOwnerRepo,
+  parseOwnerRepo,
+  isRepoPrivate,
+  isSourceType,
+  SOURCE_TYPES,
+  type SourceType,
+} from './source-parser.ts';
 import { stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 
@@ -45,7 +53,9 @@ export function getLockSource(parsedUrl: string, normalizedSource: string | null
 }
 
 export function getProjectLockSourceUrl(sourceType: string, sourceUrl: string): string | undefined {
-  return sourceType === 'git' || sourceType === 'gitlab' ? sourceUrl : undefined;
+  return sourceType === 'git' || sourceType === 'gitlab' || sourceType === 'azure'
+    ? sourceUrl
+    : undefined;
 }
 import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
 import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
@@ -543,6 +553,12 @@ export interface AddOptions {
   all?: boolean;
   fullDepth?: boolean;
   copy?: boolean;
+  /**
+   * Force the source to be interpreted as a specific type instead of
+   * auto-detecting it (`--source-type`). Useful for self-hosted or otherwise
+   * unrecognized Git hosts.
+   */
+  sourceType?: SourceType;
   /**
    * Eve subagent targets. Each value is a subagent name; `root` (or `.`)
    * selects the root agent. Implies installing for Eve.
@@ -1086,8 +1102,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
   try {
     const spinner = p.spinner();
 
-    spinner.start('Parsing source…');
-    const parsed = parseSource(source);
+    spinner.start('Parsing source...');
+    const parsed = parseSource(source, { sourceType: options.sourceType });
     spinner.stop(
       `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
     );
@@ -2163,6 +2179,15 @@ export function parseAddOptions(args: string[]): {
       options.fullDepth = true;
     } else if (arg === '--copy') {
       options.copy = true;
+    } else if (arg === '--source-type') {
+      const value = args[++i];
+      if (value === undefined) {
+        errors.push(`--source-type requires a value (${SOURCE_TYPES.join(', ')})`);
+      } else if (!isSourceType(value)) {
+        errors.push(`Invalid --source-type "${value}". Valid values: ${SOURCE_TYPES.join(', ')}`);
+      } else {
+        options.sourceType = value;
+      }
     } else if (arg === '--subagent') {
       options.subagent = options.subagent || [];
       i++;

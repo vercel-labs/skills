@@ -40,11 +40,17 @@ npx skills add https://github.com/vercel-labs/agent-skills/tree/main/skills/web-
 # GitLab URL
 npx skills add https://gitlab.com/org/repo
 
+# Azure DevOps URL (dev.azure.com or *.visualstudio.com)
+npx skills add https://org@dev.azure.com/org/project/_git/repo
+
 # Any git URL
 npx skills add git@github.com:vercel-labs/agent-skills.git
 
 # Local path
 npx skills add ./my-local-skills
+
+# Force how a source is interpreted (for self-hosted / unrecognized hosts)
+npx skills add https://git.internal.example.com/team/repo --source-type git
 ```
 
 ### Options
@@ -58,6 +64,7 @@ npx skills add ./my-local-skills
 | `--copy`                  | Copy files instead of symlinking to agent directories                                                                                              |
 | `-y, --yes`               | Skip all confirmation prompts                                                                                                                      |
 | `--all`                   | Install all skills to all agents without prompts                                                                                                   |
+| `--source-type <type>`    | Force the source type instead of auto-detecting it (`github`, `gitlab`, `azure`, `git`, `local`, `well-known`)                                     |
 
 ### Examples
 

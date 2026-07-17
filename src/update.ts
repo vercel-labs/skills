@@ -170,6 +170,9 @@ export function getSkipReason(entry: SkillLockEntry): string {
   if (entry.sourceType === 'git') {
     return 'Git URL';
   }
+  if (entry.sourceType === 'azure') {
+    return 'Azure DevOps repo';
+  }
   if (entry.sourceType === 'well-known') {
     return 'Well-known skill';
   }

@@ -71,7 +71,8 @@ function getLocalSource(entry: LocalUpdateSourceEntry): string | null {
   // Older project locks normalized both generic Git and GitLab sources to an
   // owner/repo shorthand. Without the original URL, treating either one as a
   // source would incorrectly redirect the operation to GitHub.
-  const requiresSourceUrl = entry.sourceType === 'git' || entry.sourceType === 'gitlab';
+  const requiresSourceUrl =
+    entry.sourceType === 'git' || entry.sourceType === 'gitlab' || entry.sourceType === 'azure';
   if (requiresSourceUrl && isBareShorthand(entry.source)) {
     return null;
   }
