@@ -17,6 +17,8 @@ import { describe, it, expect } from 'vitest';
 import { homedir } from 'os';
 import { join } from 'path';
 import { agents } from '../src/agents.ts';
+import { isUniversalAgent, getUniversalAgents, getNonUniversalAgents } from '../src/agents.ts';
+import { getAgentBaseDir } from '../src/installer.ts';
 
 describe('XDG config paths', () => {
   const home = homedir();
@@ -72,16 +74,54 @@ describe('XDG config paths', () => {
     });
   });
 
+  describe('Antigravity (orchestration hub)', () => {
+    it('uses ~/.gemini/config/skills for global skills', () => {
+      const expected = join(home, '.gemini', 'config', 'skills');
+      expect(agents.antigravity.globalSkillsDir).toBe(expected);
+    });
+
+    it('is NOT universal so global installs use its own globalSkillsDir', () => {
+      expect(isUniversalAgent('antigravity')).toBe(false);
+      expect(getUniversalAgents()).not.toContain('antigravity');
+      expect(getNonUniversalAgents()).toContain('antigravity');
+      // getAgentBaseDir must honor globalSkillsDir for global installs
+      expect(getAgentBaseDir('antigravity', true)).toBe(join(home, '.gemini', 'config', 'skills'));
+    });
+
+    it('still reads workspace skills from the canonical .agents/skills dir', () => {
+      expect(agents.antigravity.skillsDir).toBe('.agents/skills');
+      expect(getAgentBaseDir('antigravity', false, '/proj')).toBe('/proj/.agents/skills');
+    });
+  });
+
+  describe('Antigravity IDE', () => {
+    it('uses ~/.gemini/antigravity-ide/skills for global skills', () => {
+      const expected = join(home, '.gemini', 'antigravity-ide', 'skills');
+      expect(agents['antigravity-ide'].globalSkillsDir).toBe(expected);
+    });
+
+    it('is NOT universal so global installs use its own globalSkillsDir', () => {
+      expect(isUniversalAgent('antigravity-ide')).toBe(false);
+      expect(getNonUniversalAgents()).toContain('antigravity-ide');
+      expect(getAgentBaseDir('antigravity-ide', true)).toBe(
+        join(home, '.gemini', 'antigravity-ide', 'skills')
+      );
+    });
+  });
+
   describe('Antigravity CLI', () => {
     it('uses ~/.gemini/antigravity-cli/skills for global skills', () => {
       const expected = join(home, '.gemini', 'antigravity-cli', 'skills');
       expect(agents['antigravity-cli'].globalSkillsDir).toBe(expected);
     });
 
-    it('uses a distinct global directory from the Antigravity IDE', () => {
-      expect(agents['antigravity-cli'].globalSkillsDir).not.toBe(
-        agents.antigravity.globalSkillsDir
-      );
+    it('uses a distinct global directory from Antigravity and Antigravity IDE', () => {
+      const dirs = new Set([
+        agents.antigravity.globalSkillsDir,
+        agents['antigravity-ide'].globalSkillsDir,
+        agents['antigravity-cli'].globalSkillsDir,
+      ]);
+      expect(dirs.size).toBe(3);
     });
   });
 
