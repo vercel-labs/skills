@@ -272,6 +272,7 @@ Skills can be installed to any of these agents:
 | Gemini CLI | `gemini-cli` | `.agents/skills/` | `~/.gemini/skills/` |
 | GitHub Copilot | `github-copilot` | `.agents/skills/` | `~/.copilot/skills/` |
 | Goose | `goose` | `.goose/skills/` | `~/.config/goose/skills/` |
+| Grok | `grok` | `.grok/skills/` | `~/.grok/skills/` |
 | Hermes Agent | `hermes-agent` | `.hermes/skills/` | `~/.hermes/skills/` |
 | inference.sh | `inference-sh` | `.inferencesh/skills/` | `~/.inferencesh/skills/` |
 | Jazz | `jazz` | `.jazz/skills/` | `~/.jazz/skills/` |
@@ -402,6 +403,7 @@ to also discover `SKILL.md` files outside these container directories
 - `agent/skills/`
 - `.forge/skills/`
 - `.goose/skills/`
+- `.grok/skills/`
 - `.hermes/skills/`
 - `.inferencesh/skills/`
 - `.jazz/skills/`

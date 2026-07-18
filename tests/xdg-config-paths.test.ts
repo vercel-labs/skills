@@ -72,6 +72,17 @@ describe('XDG config paths', () => {
     });
   });
 
+  describe('Grok', () => {
+    it('uses .grok/skills for project skills', () => {
+      expect(agents.grok.skillsDir).toBe('.grok/skills');
+    });
+
+    it('uses ~/.grok/skills for global skills', () => {
+      const expected = join(home, '.grok', 'skills');
+      expect(agents.grok.globalSkillsDir).toBe(expected);
+    });
+  });
+
   describe('Antigravity CLI', () => {
     it('uses ~/.gemini/antigravity-cli/skills for global skills', () => {
       const expected = join(home, '.gemini', 'antigravity-cli', 'skills');

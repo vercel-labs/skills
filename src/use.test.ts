@@ -198,6 +198,18 @@ describe('use command', () => {
       });
     });
 
+    it('starts Grok interactively with the prompt argument', async () => {
+      const fake = createFakeSpawn({ closeCode: 0 });
+
+      await expect(launchAgentInteractively('grok', 'prompt body', fake.spawn)).resolves.toBe(0);
+
+      expect(fake.calls[0]).toMatchObject({
+        command: 'grok',
+        args: ['prompt body'],
+        options: { stdio: 'inherit' },
+      });
+    });
+
     it('returns nonzero agent exit codes', async () => {
       const fake = createFakeSpawn({ closeCode: 37 });
 
