@@ -13,6 +13,8 @@ describe('skills CLI', () => {
       expect(output).toContain('add <package>');
       expect(output).toContain('use <package>@<skill>');
       expect(output).toContain('update');
+      expect(output).toContain('cui');
+      expect(output).toContain('CUI Options:');
       expect(output).toContain('Add Options:');
       expect(output).toContain('Use Options:');
       expect(output).toContain('-g, --global');
@@ -55,6 +57,36 @@ describe('skills CLI', () => {
       expect(output).toContain('npx skills update');
       expect(output).toContain('npx skills init');
       expect(output).toContain('skills.sh');
+    });
+  });
+
+  describe('cui command', () => {
+    it('should display CUI help', () => {
+      const output = runCliOutput(['cui', '--help']);
+      expect(output).toContain('Usage: skills cui [options]');
+      expect(output).toContain('--no-confirmation');
+    });
+
+    it('should launch the CUI with non-interactive arguments', () => {
+      const result = runCli(['cui', 'Exit']);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Goodbye.');
+    });
+
+    it('should pass through the no-confirmation option', () => {
+      const result = runCli(['cui', '--no-confirmation', 'Exit']);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Confirmation prompts are disabled');
+    });
+
+    it('should require confirmation before removing or moving skills', () => {
+      const removeResult = runCli(['cui', 'Remove skill', 'demo', 'project', 'nope']);
+      expect(removeResult.exitCode).toBe(0);
+      expect(removeResult.stdout).toContain('Remove cancelled.');
+
+      const moveResult = runCli(['cui', 'Move skill', 'demo', 'project', 'nope']);
+      expect(moveResult.exitCode).toBe(0);
+      expect(moveResult.stdout).toContain('Move cancelled.');
     });
   });
 

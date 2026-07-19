@@ -3,6 +3,7 @@ import type { AgentType } from './types.ts';
 import { agents } from './agents.ts';
 import { listInstalledSkills, type InstalledSkill } from './installer.ts';
 import { sanitizeMetadata } from './sanitize.ts';
+import { readLocalLock } from './local-lock.ts';
 import { getAllLockedSkills } from './skill-lock.ts';
 
 const RESET = '\x1b[0m';
@@ -91,20 +92,38 @@ export async function runList(args: string[]): Promise<void> {
     agentFilter,
   });
 
+  const [lockedSkills, localLock] = await Promise.all([getAllLockedSkills(), readLocalLock()]);
+
   // JSON output mode: structured, no ANSI, untruncated agent lists
   if (options.json) {
-    const jsonOutput = installedSkills.map((skill) => ({
-      name: skill.name,
-      path: skill.canonicalPath,
-      scope: skill.scope,
-      agents: skill.agents.map((a) => agents[a].displayName),
-    }));
+    const jsonOutput = installedSkills.map((skill) => {
+      const localEntry = skill.scope === 'project' ? localLock.skills[skill.name] : undefined;
+      const globalEntry = skill.scope === 'global' ? lockedSkills[skill.name] : undefined;
+      const lockEntry = localEntry ?? globalEntry;
+      return {
+        name: skill.name,
+        description: skill.description,
+        path: skill.canonicalPath,
+        scope: skill.scope,
+        agents: skill.agents.map((a) => agents[a].displayName),
+        agentIds: skill.agents,
+        source: lockEntry?.source,
+        sourceUrl: lockEntry?.sourceUrl,
+        sourceType: lockEntry?.sourceType,
+        ref: lockEntry?.ref,
+        skillPath: lockEntry?.skillPath,
+        hash: localEntry?.computedHash ?? globalEntry?.skillFolderHash,
+        hashKind: localEntry ? 'computedHash' : globalEntry ? 'skillFolderHash' : undefined,
+        pluginName: globalEntry?.pluginName,
+        installedAt: globalEntry?.installedAt,
+        updatedAt: globalEntry?.updatedAt,
+      };
+    });
     console.log(JSON.stringify(jsonOutput, null, 2));
     return;
   }
 
-  // Fetch lock entries to get plugin grouping info
-  const lockedSkills = await getAllLockedSkills();
+  // Use lock entries to get plugin grouping info
 
   const cwd = process.cwd();
   const scopeLabel = scope ? 'Global' : 'Project';

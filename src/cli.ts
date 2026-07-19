@@ -4,6 +4,7 @@ import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { basename, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
+import { runCui } from './cui/cli.ts';
 import { runFind } from './find.ts';
 import { runInstallFromLock } from './install.ts';
 import { runList } from './list.ts';
@@ -81,6 +82,9 @@ function showBanner(): void {
   console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills find ${DIM}[query]${RESET}         ${DIM}Search for skills${RESET}`
   );
+  console.log(
+    `  ${DIM}$${RESET} ${TEXT}npx skills cui${RESET}                  ${DIM}Launch guided CUI${RESET}`
+  );
   console.log();
   console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills update${RESET}               ${DIM}Update installed skills${RESET}`
@@ -115,6 +119,10 @@ ${BOLD}Manage Skills:${RESET}
   remove [skills]      Remove installed skills
   list, ls             List installed skills
   find [query]         Search for skills interactively
+  cui                  Launch the guided command-line user interface
+
+${BOLD}CUI Options:${RESET}
+  --no-confirmation     Skip confirmation prompts for destructive CUI actions
 
 ${BOLD}Find Options:${RESET}
   --owner <owner>        Search only repositories from a GitHub owner
@@ -186,6 +194,8 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills ls -a claude-code             ${DIM}# filter by agent${RESET}
   ${DIM}$${RESET} skills ls --json                      ${DIM}# JSON output${RESET}
   ${DIM}$${RESET} skills find                          ${DIM}# interactive search${RESET}
+  ${DIM}$${RESET} skills cui                           ${DIM}# guided command-line UI${RESET}
+  ${DIM}$${RESET} skills cui --no-confirmation         ${DIM}# skip destructive confirmations${RESET}
   ${DIM}$${RESET} skills find typescript               ${DIM}# search by keyword${RESET}
   ${DIM}$${RESET} skills find react --owner vercel     ${DIM}# search within an owner${RESET}
   ${DIM}$${RESET} skills update
@@ -325,6 +335,9 @@ async function main(): Promise<void> {
       if (!inAgent) showLogo();
       console.log();
       runInit(restArgs);
+      break;
+    case 'cui':
+      await runCui(restArgs);
       break;
     case 'experimental_install': {
       if (!inAgent) showLogo();
