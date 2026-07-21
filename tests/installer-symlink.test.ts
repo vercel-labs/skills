@@ -297,4 +297,52 @@ describe('installer symlink regression', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it('does not install AstrBot skills into bare data/ without AstrBot markers', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
+    const projectDir = join(root, 'project');
+    await mkdir(join(projectDir, 'data'), { recursive: true });
+
+    const skillName = 'astrbot-generic-data-skill';
+    const skillDir = await makeSkillSource(root, skillName);
+
+    try {
+      const result = await installSkillForAgent(
+        { name: skillName, description: 'test', path: skillDir },
+        'astrbot',
+        { cwd: projectDir, mode: 'symlink', global: false }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.skipped).toBe(true);
+      await expect(lstat(join(projectDir, 'data', 'skills', skillName))).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('installs AstrBot skills when data/plugins marks an AstrBot project', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
+    const projectDir = join(root, 'project');
+    await mkdir(join(projectDir, 'data', 'plugins'), { recursive: true });
+
+    const skillName = 'astrbot-marked-project-skill';
+    const skillDir = await makeSkillSource(root, skillName);
+
+    try {
+      const result = await installSkillForAgent(
+        { name: skillName, description: 'test', path: skillDir },
+        'astrbot',
+        { cwd: projectDir, mode: 'symlink', global: false }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.skipped).toBeUndefined();
+
+      const astrbotSkillDir = join(projectDir, 'data', 'skills', skillName);
+      expect((await lstat(astrbotSkillDir)).isSymbolicLink()).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

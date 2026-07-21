@@ -11,11 +11,36 @@ describe('AstrBot agent detection', () => {
     expect(isAstrBotInstalled(cwd, '/tmp/home', exists)).toBe(false);
   });
 
+  it('does not treat data/skills alone as AstrBot', () => {
+    const cwd = '/tmp/project';
+    const exists = (path: string) => path === join(cwd, 'data', 'skills');
+
+    expect(isAstrBotInstalled(cwd, '/tmp/home', exists)).toBe(false);
+  });
+
+  it('detects AstrBot from ASTRBOT_ROOT', () => {
+    const prev = process.env.ASTRBOT_ROOT;
+    process.env.ASTRBOT_ROOT = '/opt/astrbot';
+    try {
+      expect(isAstrBotInstalled('/tmp/project', '/tmp/home', () => false)).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.ASTRBOT_ROOT;
+      else process.env.ASTRBOT_ROOT = prev;
+    }
+  });
+
   it('detects AstrBot from ~/.astrbot', () => {
     const home = '/tmp/home';
     const exists = (path: string) => path === join(home, '.astrbot');
 
     expect(isAstrBotInstalled('/tmp/project', home, exists)).toBe(true);
+  });
+
+  it('detects AstrBot from cwd/astrbot', () => {
+    const cwd = '/tmp/astrbot-project';
+    const exists = (path: string) => path === join(cwd, 'astrbot');
+
+    expect(isAstrBotInstalled(cwd, '/tmp/home', exists)).toBe(true);
   });
 
   it('detects AstrBot from data/plugins', () => {
