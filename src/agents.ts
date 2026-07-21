@@ -11,6 +11,7 @@ const codexHome = process.env.CODEX_HOME?.trim() || join(home, '.codex');
 const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude');
 const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
 const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
+const grokHome = process.env.GROK_HOME?.trim() || join(home, '.grok');
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
 const zedAppDataHome = process.env.APPDATA?.trim();
 const zedFlatpakConfigHome = process.env.FLATPAK_XDG_CONFIG_HOME?.trim();
@@ -339,6 +340,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(configHome, 'goose/skills'),
     detectInstalled: async () => {
       return existsSync(join(configHome, 'goose'));
+    },
+  },
+  grok: {
+    name: 'grok',
+    displayName: 'Grok Build',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(grokHome, 'skills'),
+    detectInstalled: async () => {
+      return existsSync(grokHome);
     },
   },
   'hermes-agent': {

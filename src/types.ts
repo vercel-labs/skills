@@ -30,6 +30,7 @@ export type AgentType =
   | 'gemini-cli'
   | 'github-copilot'
   | 'goose'
+  | 'grok'
   | 'hermes-agent'
   | 'inference-sh'
   | 'iflow-cli'

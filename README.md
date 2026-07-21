@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [69 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [70 more](#supported-agents).
 <!-- agent-list:end -->
 
 [![skills.sh](https://skills.sh/b/vercel-labs/skills)](https://skills.sh/vercel-labs/skills)
@@ -272,6 +272,7 @@ Skills can be installed to any of these agents:
 | Gemini CLI | `gemini-cli` | `.agents/skills/` | `~/.gemini/skills/` |
 | GitHub Copilot | `github-copilot` | `.agents/skills/` | `~/.copilot/skills/` |
 | Goose | `goose` | `.goose/skills/` | `~/.config/goose/skills/` |
+| Grok Build | `grok` | `.agents/skills/` | `~/.grok/skills/` |
 | Hermes Agent | `hermes-agent` | `.hermes/skills/` | `~/.hermes/skills/` |
 | inference.sh | `inference-sh` | `.inferencesh/skills/` | `~/.inferencesh/skills/` |
 | Jazz | `jazz` | `.jazz/skills/` | `~/.jazz/skills/` |
