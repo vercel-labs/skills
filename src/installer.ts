@@ -21,7 +21,7 @@ import type { WellKnownSkill } from './providers/wellknown.ts';
 import {
   agents,
   detectInstalledAgents,
-  isAstrBotInstalled,
+  isAstrBotProjectInstalled,
   isUniversalAgent,
   getEveSubagents,
   EVE_SUBAGENTS_DIR,
@@ -47,7 +47,7 @@ function shouldSkipProjectAgentInstall(agentType: AgentType, cwd: string): boole
     return false;
   }
   if (agentType === 'astrbot') {
-    return !isAstrBotInstalled(cwd);
+    return !isAstrBotProjectInstalled(cwd);
   }
   const agentRootDir = join(cwd, agents[agentType].skillsDir.split('/')[0]!);
   return !existsSync(agentRootDir);

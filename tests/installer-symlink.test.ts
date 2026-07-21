@@ -321,6 +321,58 @@ describe('installer symlink regression', () => {
     }
   });
 
+  it('still skips AstrBot project install when only global AstrBot is present', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
+    const projectDir = join(root, 'project');
+    await mkdir(join(projectDir, 'data'), { recursive: true });
+
+    const skillName = 'astrbot-global-only-skill';
+    const skillDir = await makeSkillSource(root, skillName);
+    const prev = process.env.ASTRBOT_ROOT;
+    process.env.ASTRBOT_ROOT = '/opt/astrbot';
+
+    try {
+      const result = await installSkillForAgent(
+        { name: skillName, description: 'test', path: skillDir },
+        'astrbot',
+        { cwd: projectDir, mode: 'symlink', global: false }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.skipped).toBe(true);
+      await expect(lstat(join(projectDir, 'data', 'skills', skillName))).rejects.toThrow();
+    } finally {
+      if (prev === undefined) delete process.env.ASTRBOT_ROOT;
+      else process.env.ASTRBOT_ROOT = prev;
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('installs AstrBot skills when cwd/astrbot marks an AstrBot project', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
+    const projectDir = join(root, 'project');
+    await mkdir(join(projectDir, 'astrbot'), { recursive: true });
+
+    const skillName = 'astrbot-source-project-skill';
+    const skillDir = await makeSkillSource(root, skillName);
+
+    try {
+      const result = await installSkillForAgent(
+        { name: skillName, description: 'test', path: skillDir },
+        'astrbot',
+        { cwd: projectDir, mode: 'symlink', global: false }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.skipped).toBeUndefined();
+
+      const astrbotSkillDir = join(projectDir, 'data', 'skills', skillName);
+      expect((await lstat(astrbotSkillDir)).isSymbolicLink()).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('installs AstrBot skills when data/plugins marks an AstrBot project', async () => {
     const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
     const projectDir = join(root, 'project');
@@ -342,6 +394,40 @@ describe('installer symlink regression', () => {
       const astrbotSkillDir = join(projectDir, 'data', 'skills', skillName);
       expect((await lstat(astrbotSkillDir)).isSymbolicLink()).toBe(true);
     } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('skips AstrBot blob install into bare data/ even when ASTRBOT_ROOT is set', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
+    const projectDir = join(root, 'project');
+    await mkdir(join(projectDir, 'data'), { recursive: true });
+
+    const skillName = 'astrbot-blob-bare-data-skill';
+    const prev = process.env.ASTRBOT_ROOT;
+    process.env.ASTRBOT_ROOT = '/opt/astrbot';
+
+    try {
+      const result = await installBlobSkillForAgent(
+        {
+          installName: skillName,
+          files: [
+            {
+              path: 'SKILL.md',
+              contents: `---\nname: ${skillName}\ndescription: test\n---\n`,
+            },
+          ],
+        },
+        'astrbot',
+        { cwd: projectDir, mode: 'copy', global: false }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.skipped).toBe(true);
+      await expect(lstat(join(projectDir, 'data', 'skills', skillName))).rejects.toThrow();
+    } finally {
+      if (prev === undefined) delete process.env.ASTRBOT_ROOT;
+      else process.env.ASTRBOT_ROOT = prev;
       await rm(root, { recursive: true, force: true });
     }
   });
