@@ -67,6 +67,24 @@ export function isMiniMaxCodeInstalled(
   return pathExists(join(homeDir, '.minimax')) || pathExists('/Applications/MiniMax Code.app');
 }
 
+export function isAstrBotInstalled(
+  cwd = process.cwd(),
+  homeDir = home,
+  pathExists: (path: string) => boolean = existsSync
+) {
+  if (process.env.ASTRBOT_ROOT?.trim()) {
+    return true;
+  }
+  if (pathExists(join(homeDir, '.astrbot'))) {
+    return true;
+  }
+  // AstrBot source checkout or initialized instance — not a generic data/ folder.
+  if (pathExists(join(cwd, 'astrbot'))) {
+    return true;
+  }
+  return pathExists(join(cwd, 'data', 'plugins'));
+}
+
 export const agents: Record<AgentType, AgentConfig> = {
   'aider-desk': {
     name: 'aider-desk',
@@ -110,7 +128,7 @@ export const agents: Record<AgentType, AgentConfig> = {
     skillsDir: 'data/skills',
     globalSkillsDir: join(home, '.astrbot/data/skills'),
     detectInstalled: async () => {
-      return existsSync(join(process.cwd(), 'data/skills')) || existsSync(join(home, '.astrbot'));
+      return isAstrBotInstalled();
     },
   },
   'autohand-code': {
