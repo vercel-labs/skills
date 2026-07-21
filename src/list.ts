@@ -16,7 +16,10 @@ interface ListOptions {
   global?: boolean;
   agent?: string[];
   json?: boolean;
+  category?: string;
 }
+
+const UNCATEGORIZED_LABEL = 'Uncategorized';
 
 /**
  * Shortens a path for display: replaces homedir with ~ and cwd with .
@@ -59,6 +62,15 @@ export function parseListOptions(args: string[]): ListOptions {
       while (i + 1 < args.length && !args[i + 1]!.startsWith('-')) {
         options.agent.push(args[++i]!);
       }
+    } else if (arg === '-c' || arg === '--category') {
+      // Single category value; supports `--category=foo` and `--category foo`
+      const next = args[i + 1];
+      if (next !== undefined && !next.startsWith('-')) {
+        options.category = next;
+        i++;
+      }
+    } else if (arg!.startsWith('--category=')) {
+      options.category = arg!.slice('--category='.length);
     }
   }
 
@@ -86,10 +98,16 @@ export async function runList(args: string[]): Promise<void> {
     agentFilter = options.agent as AgentType[];
   }
 
-  const installedSkills = await listInstalledSkills({
+  const allInstalledSkills = await listInstalledSkills({
     global: scope,
     agentFilter,
   });
+
+  // Apply --category filter if provided (case-insensitive)
+  const categoryFilter = options.category?.toLowerCase();
+  const installedSkills = categoryFilter
+    ? allInstalledSkills.filter((s) => (s.category ?? '').toLowerCase() === categoryFilter)
+    : allInstalledSkills;
 
   // JSON output mode: structured, no ANSI, untruncated agent lists
   if (options.json) {
@@ -98,6 +116,7 @@ export async function runList(args: string[]): Promise<void> {
       path: skill.canonicalPath,
       scope: skill.scope,
       agents: skill.agents.map((a) => agents[a].displayName),
+      category: skill.category ?? null,
     }));
     console.log(JSON.stringify(jsonOutput, null, 2));
     return;
@@ -110,8 +129,16 @@ export async function runList(args: string[]): Promise<void> {
   const scopeLabel = scope ? 'Global' : 'Project';
 
   if (installedSkills.length === 0) {
-    if (options.json) {
-      console.log('[]');
+    if (categoryFilter) {
+      const availableCategories = Array.from(
+        new Set(allInstalledSkills.map((s) => s.category).filter((c): c is string => !!c))
+      ).sort();
+      console.log(
+        `${DIM}No ${scopeLabel.toLowerCase()} skills found in category "${options.category}".${RESET}`
+      );
+      if (availableCategories.length > 0) {
+        console.log(`${DIM}Available categories: ${availableCategories.join(', ')}${RESET}`);
+      }
       return;
     }
     console.log(`${DIM}No ${scopeLabel.toLowerCase()} skills found.${RESET}`);
@@ -146,6 +173,43 @@ export async function runList(args: string[]): Promise<void> {
 
   console.log(`${BOLD}${scopeLabel} Skills${RESET}`);
   console.log();
+
+  // When --category filter is active, print a flat list (all skills share the category)
+  if (categoryFilter) {
+    for (const skill of installedSkills) {
+      printSkill(skill);
+    }
+    console.log();
+    return;
+  }
+
+  // Group by category if any skill exposes one; else fall back to plugin grouping.
+  const hasCategories = installedSkills.some((s) => s.category);
+
+  if (hasCategories) {
+    const byCategory: Record<string, InstalledSkill[]> = {};
+    for (const skill of installedSkills) {
+      const key = skill.category ?? UNCATEGORIZED_LABEL;
+      if (!byCategory[key]) byCategory[key] = [];
+      byCategory[key].push(skill);
+    }
+
+    // Sort category keys alphabetically, with Uncategorized last
+    const sortedCategories = Object.keys(byCategory).sort((a, b) => {
+      if (a === UNCATEGORIZED_LABEL) return 1;
+      if (b === UNCATEGORIZED_LABEL) return -1;
+      return a.localeCompare(b);
+    });
+
+    for (const cat of sortedCategories) {
+      console.log(`${BOLD}${cat}${RESET}`);
+      for (const skill of byCategory[cat]!) {
+        printSkill(skill, true);
+      }
+      console.log();
+    }
+    return;
+  }
 
   // Group skills by plugin
   const groupedSkills: Record<string, InstalledSkill[]> = {};

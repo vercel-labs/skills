@@ -1066,6 +1066,7 @@ export interface InstalledSkill {
   canonicalPath: string;
   scope: 'project' | 'global';
   agents: AgentType[];
+  category?: string;
 }
 
 /**
@@ -1190,6 +1191,8 @@ export async function listInstalledSkills(
 
         const scopeKey = scope.global ? 'global' : 'project';
         const skillKey = `${scopeKey}:${skill.name}`;
+        const category =
+          typeof skill.metadata?.category === 'string' ? skill.metadata.category : undefined;
 
         // If scanning an agent-specific directory, attribute directly to that agent
         if (scope.agentType) {
@@ -1197,6 +1200,9 @@ export async function listInstalledSkills(
             const existing = skillsMap.get(skillKey)!;
             if (!existing.agents.includes(scope.agentType)) {
               existing.agents.push(scope.agentType);
+            }
+            if (existing.category === undefined && category !== undefined) {
+              existing.category = category;
             }
           } else {
             skillsMap.set(skillKey, {
@@ -1206,6 +1212,7 @@ export async function listInstalledSkills(
               canonicalPath: skillDir,
               scope: scopeKey,
               agents: [scope.agentType],
+              category,
             });
           }
           continue;
@@ -1290,6 +1297,9 @@ export async function listInstalledSkills(
               existing.agents.push(agent);
             }
           }
+          if (existing.category === undefined && category !== undefined) {
+            existing.category = category;
+          }
         } else {
           skillsMap.set(skillKey, {
             name: skill.name,
@@ -1298,6 +1308,7 @@ export async function listInstalledSkills(
             canonicalPath: skillDir,
             scope: scopeKey,
             agents: installedAgents,
+            category,
           });
         }
       }
