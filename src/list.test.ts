@@ -119,6 +119,7 @@ description: ${description}
       expect(Array.isArray(parsed)).toBe(true);
       expect(parsed.length).toBe(1);
       expect(parsed[0].name).toBe('json-skill');
+      expect(parsed[0].description).toBe('A skill for JSON testing');
       expect(parsed[0].path).toContain('json-skill');
       expect(parsed[0].scope).toBe('project');
       expect(Array.isArray(parsed[0].agents)).toBe(true);
@@ -152,8 +153,7 @@ description: ${description}
       const result = runCli(['list'], testDir);
       expect(result.stdout).toContain('test-skill');
       expect(result.stdout).toContain('Project Skills');
-      // Description should not be shown
-      expect(result.stdout).not.toContain('A test skill for listing');
+      expect(result.stdout).toContain('A test skill for listing');
       expect(result.exitCode).toBe(0);
     });
 
