@@ -76,6 +76,11 @@ description: ${description}
       expect(options.json).toBe(true);
     });
 
+    it('should parse --short flag', () => {
+      const options = parseListOptions(['--short']);
+      expect(options.short).toBe(true);
+    });
+
     it('should parse combined --json and -g flags', () => {
       const options = parseListOptions(['-g', '--json']);
       expect(options.global).toBe(true);
@@ -90,6 +95,32 @@ description: ${description}
   });
 
   describe('CLI integration', () => {
+    it('should show list-specific help with --help', () => {
+      const result = runCli(['list', '--help'], testDir);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Usage:');
+      expect(result.stdout).toContain('skills list [options]');
+      expect(result.stdout).toContain('List installed skills from project scope by default.');
+      expect(result.stdout).toContain('--json');
+    });
+
+    it('should show list-specific help with -h', () => {
+      const longHelp = runCli(['list', '--help'], testDir);
+      const shortHelp = runCli(['list', '-h'], testDir);
+
+      expect(shortHelp.exitCode).toBe(0);
+      expect(shortHelp.stdout).toContain('skills list [options]');
+      expect(shortHelp.stdout).toBe(longHelp.stdout);
+    });
+
+    it('should show list-specific help with help subcommand', () => {
+      const result = runCli(['list', 'help'], testDir);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('skills list [options]');
+      expect(result.stdout).toContain('Aliases:');
+      expect(result.stdout).toContain('ls');
+    });
+
     it('should run list command', () => {
       const result = runCli(['list'], testDir);
       // Empty project dir shows "No project skills found"
@@ -124,6 +155,47 @@ description: ${description}
       expect(Array.isArray(parsed[0].agents)).toBe(true);
       // No ANSI codes in JSON output
       expect(result.stdout).not.toMatch(/\x1b\[/);
+    });
+
+    it('should output concise names with --short flag', () => {
+      const skill1Dir = join(testDir, '.agents', 'skills', 'short-alpha');
+      const skill2Dir = join(testDir, '.agents', 'skills', 'short-beta');
+      mkdirSync(skill1Dir, { recursive: true });
+      mkdirSync(skill2Dir, { recursive: true });
+
+      writeFileSync(
+        join(skill1Dir, 'SKILL.md'),
+        `---\nname: short-alpha\ndescription: Alpha\n---\n# A\n`
+      );
+      writeFileSync(
+        join(skill2Dir, 'SKILL.md'),
+        `---\nname: short-beta\ndescription: Beta\n---\n# B\n`
+      );
+
+      const result = runCli(['list', '--short'], testDir);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('short-alpha');
+      expect(result.stdout).toContain('short-beta');
+      expect(result.stdout).not.toContain('Project Skills');
+      expect(result.stdout).not.toContain('.agents/skills');
+      expect(result.stdout).not.toContain('Agents:');
+    });
+
+    it('should prefer --json when --json and --short are both set', () => {
+      const skillDir = join(testDir, '.agents', 'skills', 'json-wins');
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---\nname: json-wins\ndescription: Json wins\n---\n# Json\n`
+      );
+
+      const result = runCli(['list', '--json', '--short'], testDir);
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(Array.isArray(parsed)).toBe(true);
+      expect(parsed[0].name).toBe('json-wins');
+      expect(result.stdout).not.toContain('Project Skills');
+      expect(result.stdout).not.toContain('Agents:');
     });
 
     it('should output multiple skills as JSON array', () => {
@@ -245,6 +317,8 @@ description: ${description}
       expect(result.stdout).toContain('List Options:');
       expect(result.stdout).toContain('-g, --global');
       expect(result.stdout).toContain('-a, --agent');
+      expect(result.stdout).toContain('--short');
+      expect(result.stdout).toContain('--json');
     });
 
     it('should include list examples in help', () => {

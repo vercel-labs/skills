@@ -165,6 +165,7 @@ ${BOLD}Experimental Sync Options:${RESET}
 ${BOLD}List Options:${RESET}
   -g, --global           List global skills (default: project)
   -a, --agent <agents>   Filter by specific agents
+  --short                Output concise skill names only (one per line)
   --json                 Output as JSON (machine-readable, no ANSI codes)
 
 ${BOLD}Options:${RESET}
@@ -184,6 +185,7 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills list                          ${DIM}# list project skills${RESET}
   ${DIM}$${RESET} skills ls -g                         ${DIM}# list global skills${RESET}
   ${DIM}$${RESET} skills ls -a claude-code             ${DIM}# filter by agent${RESET}
+  ${DIM}$${RESET} skills ls --short                    ${DIM}# concise output${RESET}
   ${DIM}$${RESET} skills ls --json                      ${DIM}# JSON output${RESET}
   ${DIM}$${RESET} skills find                          ${DIM}# interactive search${RESET}
   ${DIM}$${RESET} skills find typescript               ${DIM}# search by keyword${RESET}
@@ -226,6 +228,35 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills rm --agent claude-code my-skill   ${DIM}# remove from specific agent${RESET}
   ${DIM}$${RESET} skills remove --all                      ${DIM}# remove all skills${RESET}
   ${DIM}$${RESET} skills remove --skill '*' -a cursor      ${DIM}# remove all skills from cursor${RESET}
+
+Discover more skills at ${TEXT}https://skills.sh/${RESET}
+`);
+}
+
+function showListHelp(): void {
+  console.log(`
+${BOLD}Usage:${RESET} skills list [options]
+
+${BOLD}Description:${RESET}
+  List installed skills from project scope by default.
+  Use --global to list globally installed skills.
+
+${BOLD}Aliases:${RESET}
+  ls
+
+${BOLD}Options:${RESET}
+  -g, --global       List global skills instead of project skills
+  -a, --agent        Filter by specific agents (use '*' for all agents)
+  --short            Output concise skill names only (one per line)
+  --json             Output as JSON (machine-readable, no ANSI codes)
+  -h, --help         Show this help message
+
+${BOLD}Examples:${RESET}
+  ${DIM}$${RESET} skills list                         ${DIM}# list project skills${RESET}
+  ${DIM}$${RESET} skills ls -g                        ${DIM}# list global skills${RESET}
+  ${DIM}$${RESET} skills list -a claude-code cursor   ${DIM}# filter by agents${RESET}
+  ${DIM}$${RESET} skills list --short                 ${DIM}# concise output${RESET}
+  ${DIM}$${RESET} skills list --json                  ${DIM}# JSON output${RESET}
 
 Discover more skills at ${TEXT}https://skills.sh/${RESET}
 `);
@@ -373,6 +404,14 @@ async function main(): Promise<void> {
     }
     case 'list':
     case 'ls':
+      if (
+        restArgs.includes('--help') ||
+        restArgs.includes('-h') ||
+        (restArgs.length > 0 && restArgs[0] === 'help')
+      ) {
+        showListHelp();
+        break;
+      }
       await runList(restArgs);
       break;
     case 'check':

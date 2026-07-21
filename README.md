@@ -127,7 +127,20 @@ npx skills ls -g
 
 # Filter by specific agents
 npx skills ls -a claude-code -a cursor
+
+# Concise output (skill names only)
+npx skills ls --short
+
+# JSON output (takes precedence over --short)
+npx skills ls --json --short
 ```
+
+| Option         | Description                                                       |
+| -------------- | ----------------------------------------------------------------- |
+| `-g, --global` | List global skills instead of project skills                      |
+| `-a, --agent`  | Filter by specific agents                                         |
+| `--short`      | Print concise output (one skill name per line)                   |
+| `--json`       | Output JSON; when combined with `--short`, JSON output is used   |
 
 ### `skills find`
 
