@@ -1,6 +1,7 @@
-import { readFile, writeFile, readdir, stat } from 'fs/promises';
+import { readFile, writeFile, readdir, stat, rm } from 'fs/promises';
 import { join, relative } from 'path';
 import { createHash } from 'crypto';
+import { resolveLockKey } from './resolver.ts';
 
 const LOCAL_LOCK_FILE = 'skills-lock.json';
 const CURRENT_VERSION = 1;
@@ -169,18 +170,37 @@ export async function addSkillToLocalLock(
 }
 
 /**
+ * Get a skill entry from the local lock file.
+ */
+export async function getSkillFromLocalLock(
+  skillName: string,
+  cwd?: string
+): Promise<LocalSkillLockEntry | null> {
+  const lock = await readLocalLock(cwd);
+  const key = resolveLockKey(lock.skills, skillName);
+  return key === null ? null : lock.skills[key]!;
+}
+
+/**
  * Remove a skill from the local lock file.
  */
 export async function removeSkillFromLocalLock(skillName: string, cwd?: string): Promise<boolean> {
   const lock = await readLocalLock(cwd);
 
-  if (!(skillName in lock.skills)) {
+  const key = resolveLockKey(lock.skills, skillName);
+  if (key === null) {
     return false;
   }
 
-  delete lock.skills[skillName];
-  await writeLocalLock(lock, cwd);
-  return true;
+  delete lock.skills[key];
+
+  if (Object.keys(lock.skills).length === 0) {
+    await rm(getLocalLockPath(cwd), { force: true });
+    return true;
+  } else {
+    await writeLocalLock(lock, cwd);
+    return true;
+  }
 }
 
 function createEmptyLocalLock(): LocalSkillLockFile {

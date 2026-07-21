@@ -1,9 +1,10 @@
-import { readFile, writeFile, mkdir } from 'fs/promises';
+import { readFile, writeFile, mkdir, rm } from 'fs/promises';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
 import { execSync } from 'child_process';
 import pc from 'picocolors';
+import { resolveLockKey } from './resolver.ts';
 
 const AGENTS_DIR = '.agents';
 const LOCK_FILE = '.skill-lock.json';
@@ -228,12 +229,18 @@ export async function addSkillToLock(
 export async function removeSkillFromLock(skillName: string): Promise<boolean> {
   const lock = await readSkillLock();
 
-  if (!(skillName in lock.skills)) {
+  const key = resolveLockKey(lock.skills, skillName);
+  if (key === null) {
     return false;
   }
 
-  delete lock.skills[skillName];
-  await writeSkillLock(lock);
+  delete lock.skills[key];
+
+  if (Object.keys(lock.skills).length === 0) {
+    await rm(getSkillLockPath(), { force: true });
+  } else {
+    await writeSkillLock(lock);
+  }
   return true;
 }
 
@@ -242,7 +249,8 @@ export async function removeSkillFromLock(skillName: string): Promise<boolean> {
  */
 export async function getSkillFromLock(skillName: string): Promise<SkillLockEntry | null> {
   const lock = await readSkillLock();
-  return lock.skills[skillName] ?? null;
+  const key = resolveLockKey(lock.skills, skillName);
+  return key === null ? null : lock.skills[key]!;
 }
 
 /**

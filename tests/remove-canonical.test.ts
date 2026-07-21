@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { removeCommand } from '../src/remove.ts';
 import * as agentsModule from '../src/agents.ts';
+import { addSkillToLocalLock, readLocalLock } from '../src/local-lock.ts';
 
 // Mock detectInstalledAgents
 vi.mock('../src/agents.ts', async () => {
@@ -101,5 +102,61 @@ describe('removeCommand canonical protection', () => {
     // Both should be gone
     await expect(lstat(claudePath)).rejects.toThrow();
     await expect(lstat(canonicalPath)).rejects.toThrow();
+  });
+
+  it('should remove skill from local lock file on local remove', async () => {
+    const skillName = 'lock-test-skill';
+    const canonicalPath = join(tempDir, '.agents/skills', skillName);
+    const claudePath = join(tempDir, '.claude/skills', skillName);
+
+    await mkdir(canonicalPath, { recursive: true });
+    await writeFile(join(canonicalPath, 'SKILL.md'), '# Test');
+    await symlink(canonicalPath, claudePath, 'junction');
+
+    // Add skill to local lock
+    await addSkillToLocalLock(
+      skillName,
+      { source: 'org/repo', sourceType: 'github', computedHash: 'abc123' },
+      tempDir
+    );
+
+    // Verify it's in the lock
+    let lock = await readLocalLock(tempDir);
+    expect(lock.skills[skillName]).toBeDefined();
+
+    vi.mocked(agentsModule.detectInstalledAgents).mockResolvedValue(['claude-code']);
+
+    // Remove locally (not global)
+    await removeCommand([skillName], { agent: ['claude-code'], yes: true });
+
+    // Verify skill was removed from local lock
+    lock = await readLocalLock(tempDir);
+    expect(lock.skills[skillName]).toBeUndefined();
+  });
+
+  it('should not remove from local lock on global remove', async () => {
+    const skillName = 'global-lock-test';
+    const canonicalPath = join(tempDir, '.agents/skills', skillName);
+    const claudePath = join(tempDir, '.claude/skills', skillName);
+
+    await mkdir(canonicalPath, { recursive: true });
+    await writeFile(join(canonicalPath, 'SKILL.md'), '# Test');
+    await symlink(canonicalPath, claudePath, 'junction');
+
+    // Add skill to local lock
+    await addSkillToLocalLock(
+      skillName,
+      { source: 'org/repo', sourceType: 'github', computedHash: 'def456' },
+      tempDir
+    );
+
+    vi.mocked(agentsModule.detectInstalledAgents).mockResolvedValue(['claude-code']);
+
+    // Remove globally
+    await removeCommand([skillName], { agent: ['claude-code'], yes: true, global: true });
+
+    // Local lock should still have the entry
+    const lock = await readLocalLock(tempDir);
+    expect(lock.skills[skillName]).toBeDefined();
   });
 });

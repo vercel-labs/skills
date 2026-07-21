@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtemp, mkdir, rm, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile, readFile, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -7,6 +7,7 @@ import {
   writeLocalLock,
   addSkillToLocalLock,
   removeSkillFromLocalLock,
+  getSkillFromLocalLock,
   computeSkillFolderHash,
   getLocalLockPath,
 } from '../src/local-lock.ts';
@@ -68,11 +69,8 @@ describe('local-lock', () => {
         const conflicted = `{
   "version": 1,
   "skills": {
-<<<<<<< HEAD
     "skill-a": { "source": "org/repo-a", "sourceType": "github", "computedHash": "aaa" }
-=======
     "skill-b": { "source": "org/repo-b", "sourceType": "github", "computedHash": "bbb" }
->>>>>>> feature-branch
   }
 }`;
         await writeFile(join(dir, 'skills-lock.json'), conflicted, 'utf-8');
@@ -254,6 +252,37 @@ describe('local-lock', () => {
     });
   });
 
+  describe('getSkillFromLocalLock', () => {
+    it('returns the entry for an existing skill', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await addSkillToLocalLock(
+          'my-skill',
+          { source: 'org/repo', sourceType: 'github', computedHash: 'hash123' },
+          dir
+        );
+
+        const entry = await getSkillFromLocalLock('my-skill', dir);
+        expect(entry).not.toBeNull();
+        expect(entry!.source).toBe('org/repo');
+        expect(entry!.sourceType).toBe('github');
+        expect(entry!.computedHash).toBe('hash123');
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('returns null for a non-existent skill', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        const entry = await getSkillFromLocalLock('no-such-skill', dir);
+        expect(entry).toBeNull();
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe('removeSkillFromLocalLock', () => {
     it('removes an existing skill', async () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
@@ -279,6 +308,79 @@ describe('local-lock', () => {
       try {
         const removed = await removeSkillFromLocalLock('no-such-skill', dir);
         expect(removed).toBe(false);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('deletes the lock file when the last skill is removed', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await addSkillToLocalLock(
+          'only-skill',
+          { source: 'org/repo', sourceType: 'github', computedHash: 'hash' },
+          dir
+        );
+
+        const lockPath = getLocalLockPath(dir);
+
+        // File should exist before removal
+        await expect(access(lockPath)).resolves.toBeUndefined();
+
+        const removed = await removeSkillFromLocalLock('only-skill', dir);
+        expect(removed).toBe(true);
+
+        // File should no longer exist
+        await expect(access(lockPath)).rejects.toThrow();
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('keeps the lock file when other skills remain', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await addSkillToLocalLock(
+          'skill-a',
+          { source: 'org/a', sourceType: 'github', computedHash: 'aaa' },
+          dir
+        );
+        await addSkillToLocalLock(
+          'skill-b',
+          { source: 'org/b', sourceType: 'github', computedHash: 'bbb' },
+          dir
+        );
+
+        const lockPath = getLocalLockPath(dir);
+
+        const removed = await removeSkillFromLocalLock('skill-a', dir);
+        expect(removed).toBe(true);
+
+        // File should still exist with remaining skill
+        await expect(access(lockPath)).resolves.toBeUndefined();
+        const lock = await readLocalLock(dir);
+        expect(Object.keys(lock.skills)).toEqual(['skill-b']);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('removes an entry whose raw key differs from the sanitized lookup name', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await addSkillToLocalLock(
+          'My Cool Skill',
+          { source: 'org/repo', sourceType: 'github', computedHash: 'hash' },
+          dir
+        );
+
+        // The remove command derives this from the sanitized directory name.
+        const removed = await removeSkillFromLocalLock('my-cool-skill', dir);
+        expect(removed).toBe(true);
+
+        const lock = await readLocalLock(dir);
+        expect(lock.skills['My Cool Skill']).toBeUndefined();
+        expect(Object.keys(lock.skills)).toEqual([]);
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
