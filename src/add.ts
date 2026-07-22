@@ -52,6 +52,7 @@ import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
 import {
   installSkillForAgent,
   installBlobSkillForAgent,
+  createInstallSession,
   isSkillInstalled,
   getCanonicalPath,
   installWellKnownSkillForAgent,
@@ -863,10 +864,12 @@ async function handleWellKnownSkills(
   }[] = [];
 
   for (const skill of selectedSkills) {
+    const session = createInstallSession();
     for (const agent of targetAgents) {
       const result = await installWellKnownSkillForAgent(skill, agent, {
         global: installGlobally,
         mode: installMode,
+        session,
       });
       results.push({
         skill: skill.installName,
@@ -1706,6 +1709,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }[] = [];
 
     for (const skill of selectedSkills) {
+      const session = createInstallSession();
       for (const target of installTargets) {
         const { agent, subagent } = target;
         let result;
@@ -1715,7 +1719,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           result = await installBlobSkillForAgent(
             { installName: blobSkill.name, files: blobSkill.files },
             agent,
-            { global: installGlobally, mode: installMode, eveSubagent: subagent }
+            { global: installGlobally, mode: installMode, eveSubagent: subagent, session }
           );
         } else {
           // Disk-based install: copy from cloned/local directory.
@@ -1727,6 +1731,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             global: installGlobally,
             mode: installMode,
             eveSubagent: subagent,
+            session,
           });
         }
         results.push({
