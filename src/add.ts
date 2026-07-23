@@ -24,28 +24,13 @@ async function isSourcePrivate(source: string): Promise<boolean | null> {
   return isRepoPrivate(ownerRepo.owner, ownerRepo.repo);
 }
 
-export function getLockSource(parsedUrl: string, normalizedSource: string | null): string | null {
-  // Preserve SSH URLs in lock files instead of normalizing to owner/repo shorthand.
-  // When normalizedSource is used, parseSource() later resolves it to HTTPS,
-  // breaking restore for private repos that require SSH authentication.
-  const isSSH = parsedUrl.startsWith('git@') || parsedUrl.startsWith('ssh://');
-  if (isSSH) {
-    return parsedUrl;
-  }
-  if (parsedUrl.startsWith('http://') || parsedUrl.startsWith('https://')) {
-    try {
-      if (new URL(parsedUrl).hostname !== 'github.com') {
-        return parsedUrl;
-      }
-    } catch {
-      return normalizedSource;
-    }
-  }
-  return normalizedSource;
-}
-
-export function getProjectLockSourceUrl(sourceType: string, sourceUrl: string): string | undefined {
-  return sourceType === 'git' || sourceType === 'gitlab' ? sourceUrl : undefined;
+export function getProjectLockSourceUrl(
+  sourceType: SourceType,
+  sourceUrl: string
+): string | undefined {
+  return sourceType === 'git' || sourceType === 'gitlab' || sourceType === 'github'
+    ? sourceUrl
+    : undefined;
 }
 import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
 import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
@@ -84,7 +69,7 @@ import {
   saveSelectedAgents,
 } from './skill-lock.ts';
 import { addSkillToLocalLock, computeSkillFolderHash } from './local-lock.ts';
-import type { Skill, AgentType } from './types.ts';
+import type { Skill, AgentType, SourceType } from './types.ts';
 import {
   tryBlobInstall,
   BLOB_ALLOWED_REPOS,
@@ -1770,7 +1755,6 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Normalize source to owner/repo format for telemetry
     const normalizedSource = getOwnerRepo(parsed);
 
-    const lockSource = getLockSource(parsed.url, normalizedSource);
     const projectLockSourceUrl = getProjectLockSourceUrl(parsed.type, parsed.url);
 
     // Only track if we have a valid remote source and it's not a private repo.
@@ -1836,16 +1820,17 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               const hash = await computeSkillFolderHash(skillDir);
               if (hash) skillFolderHash = hash;
             }
-
-            await addSkillToLock(skill.name, {
-              source: lockSource || normalizedSource,
-              sourceType: parsed.type,
-              sourceUrl: parsed.url,
-              ref: parsed.ref,
-              skillPath: skillPathValue,
-              skillFolderHash,
-              pluginName: skill.pluginName,
-            });
+            if (normalizedSource) {
+              await addSkillToLock(skill.name, {
+                source: normalizedSource,
+                sourceType: parsed.type,
+                sourceUrl: parsed.url,
+                ref: parsed.ref,
+                skillPath: skillPathValue,
+                skillFolderHash,
+                pluginName: skill.pluginName,
+              });
+            }
           } catch {
             // Don't fail installation if lock file update fails
           }
@@ -1874,19 +1859,21 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
                 ? (skill as BlobSkill).snapshotHash
                 : await computeSkillFolderHash(skill.path);
             const skillPathValue = skillFiles[skill.name];
-            await addSkillToLocalLock(
-              skill.name,
-              {
-                source: lockSource || parsed.url,
-                ...(projectLockSourceUrl && { sourceUrl: projectLockSourceUrl }),
-                ref: parsed.ref,
-                sourceType: parsed.type,
-                ...(skillPathValue && { skillPath: skillPathValue }),
-                computedHash,
-                ...(recordSubagents && { subagents: eveSubagents }),
-              },
-              cwd
-            );
+            if (normalizedSource) {
+              await addSkillToLocalLock(
+                skill.name,
+                {
+                  source: normalizedSource,
+                  ...(projectLockSourceUrl && { sourceUrl: projectLockSourceUrl }),
+                  ref: parsed.ref,
+                  sourceType: parsed.type,
+                  ...(skillPathValue && { skillPath: skillPathValue }),
+                  computedHash,
+                  ...(recordSubagents && { subagents: eveSubagents }),
+                },
+                cwd
+              );
+            }
           } catch {
             // Don't fail installation if lock file update fails
           }
