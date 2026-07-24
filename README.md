@@ -66,7 +66,7 @@ npx skills add ./my-local-skills
 npx skills add vercel-labs/agent-skills --list
 
 # Install specific skills
-npx skills add vercel-labs/agent-skills --skill frontend-design --skill skill-creator
+npx skills add vercel-labs/agent-skills --skill web-design-guidelines --skill deploy-to-vercel
 
 # Install a skill with spaces in the name (must be quoted)
 npx skills add owner/repo --skill "Convex Best Practices"
@@ -75,7 +75,7 @@ npx skills add owner/repo --skill "Convex Best Practices"
 npx skills add vercel-labs/agent-skills -a claude-code -a opencode
 
 # Non-interactive installation (CI/CD friendly)
-npx skills add vercel-labs/agent-skills --skill frontend-design -g -a claude-code -y
+npx skills add vercel-labs/agent-skills --skill web-design-guidelines -g -a claude-code -y
 
 # Install all skills from a repo to all agents
 npx skills add vercel-labs/agent-skills --all
@@ -84,7 +84,7 @@ npx skills add vercel-labs/agent-skills --all
 npx skills add vercel-labs/agent-skills --skill '*' -a claude-code
 
 # Install specific skills to all agents
-npx skills add vercel-labs/agent-skills --agent '*' --skill frontend-design
+npx skills add vercel-labs/agent-skills --agent '*' --skill web-design-guidelines
 ```
 
 ### Installation Scope
@@ -154,7 +154,7 @@ npx skills update
 npx skills update my-skill
 
 # Update multiple specific skills
-npx skills update frontend-design web-design-guidelines
+npx skills update deploy-to-vercel web-design-guidelines
 
 # Update only global or project skills
 npx skills update -g
@@ -193,7 +193,7 @@ npx skills remove
 npx skills remove web-design-guidelines
 
 # Remove multiple skills
-npx skills remove frontend-design web-design-guidelines
+npx skills remove deploy-to-vercel web-design-guidelines
 
 # Remove from global scope
 npx skills remove --global web-design-guidelines
