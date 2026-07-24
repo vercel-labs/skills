@@ -176,6 +176,8 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   }
 
   let targetAgents: AgentType[];
+  const installedAgents = await detectInstalledAgents();
+  const explicitlyTargetedAgents = new Set(options.agent as AgentType[] | undefined);
   if (options.agent && options.agent.length > 0) {
     targetAgents = options.agent as AgentType[];
   } else {
@@ -247,6 +249,18 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
           try {
             const stats = await lstat(pathToCleanup).catch(() => null);
             if (stats) {
+              // Project-relative agent directories can overlap with source trees
+              // (notably OpenClaw's bare "skills" directory). For agents that
+              // are not installed, only remove symlinks left by a previous
+              // installation. A real directory is not known to be managed and
+              // may contain the user's source files (#1771).
+              const canRemoveRealDirectory =
+                isGlobal ||
+                installedAgents.includes(agentKey) ||
+                explicitlyTargetedAgents.has(agentKey);
+              if (!stats.isSymbolicLink() && !canRemoveRealDirectory) {
+                continue;
+              }
               await rm(pathToCleanup, { recursive: true, force: true });
             }
           } catch (err) {
@@ -261,7 +275,6 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
       // Only remove the canonical path if no other installed agents are using it.
       // This prevents breaking other agents when uninstalling from a specific agent (#287).
-      const installedAgents = await detectInstalledAgents();
       const remainingAgents = installedAgents.filter((a) => !targetAgents.includes(a));
 
       let isStillUsed = false;
