@@ -185,9 +185,17 @@ npx skills init my-skill
 
 Remove installed skills from agents.
 
+The interactive picker lists project and global skills as separate groups, so you
+can see and remove either without knowing up front which scope a skill came from.
+Pass `-p` or `-g` to restrict it to one scope.
+
 ```bash
-# Remove interactively (select from installed skills)
+# Remove interactively (project and global skills, grouped by scope)
 npx skills remove
+
+# Remove interactively from one scope only
+npx skills remove --project
+npx skills remove --global
 
 # Remove specific skill by name
 npx skills remove web-design-guidelines
@@ -214,13 +222,14 @@ npx skills remove my-skill --agent '*'
 npx skills rm my-skill
 ```
 
-| Option         | Description                                      |
-| -------------- | ------------------------------------------------ |
-| `-g, --global` | Remove from global scope (~/) instead of project |
-| `-a, --agent`  | Remove from specific agents (use `'*'` for all)  |
-| `-s, --skill`  | Specify skills to remove (use `'*'` for all)     |
-| `-y, --yes`    | Skip confirmation prompts                        |
-| `--all`        | Shorthand for `--skill '*' --agent '*' -y`       |
+| Option          | Description                                      |
+| --------------- | ------------------------------------------------ |
+| `-g, --global`  | Remove from global scope (~/) instead of project |
+| `-p, --project` | Remove from project scope only                   |
+| `-a, --agent`   | Remove from specific agents (use `'*'` for all)  |
+| `-s, --skill`   | Specify skills to remove (use `'*'` for all)     |
+| `-y, --yes`     | Skip confirmation prompts                        |
+| `--all`         | Shorthand for `--skill '*' --agent '*' -y`       |
 
 ## What are Agent Skills?
 
