@@ -43,6 +43,7 @@ package-lock.json
 .gemini/
 .github/skills/
 .opencode/
+.polytoken/
 .qoder/
 .qwen/
 .trae/
