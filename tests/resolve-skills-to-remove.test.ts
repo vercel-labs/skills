@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { resolveSkillsToRemove } from '../src/remove.ts';
+import { buildRemoveChoices, resolveRemoveTargets, resolveSkillsToRemove } from '../src/remove.ts';
 
 describe('resolveSkillsToRemove', () => {
   it('matches a plugin lock key against its sanitized on-disk folder', () => {
@@ -71,5 +71,81 @@ describe('resolveSkillsToRemove', () => {
     const lockKeys = ['ce:review', 'my-skill'];
     const result = resolveSkillsToRemove([...installed, ...lockKeys], installed, lockKeys);
     expect(new Set(result)).toEqual(new Set(['ce:review', 'my-skill']));
+  });
+
+  it('groups installed and stale skills by their exact lock source', () => {
+    expect(
+      buildRemoveChoices(['beta', 'untracked'], {
+        alpha: { source: 'mattpocock/skills', ref: 'main' },
+        beta: { source: 'mattpocock/skills', ref: 'other-ref' },
+        stale: { source: 'https://github.com/mattpocock/skills' },
+      })
+    ).toEqual([
+      { value: 'alpha', label: 'alpha', group: 'mattpocock/skills' },
+      { value: 'beta', label: 'beta', group: 'mattpocock/skills' },
+      { value: 'stale', label: 'stale', group: 'https://github.com/mattpocock/skills' },
+      { value: 'untracked', label: 'untracked', group: 'Unknown source' },
+    ]);
+  });
+
+  it('expands an exact source argument to every matching lock entry', () => {
+    expect(
+      resolveRemoveTargets(['mattpocock/skills'], ['review', 'design'], {
+        review: { source: 'mattpocock/skills' },
+        design: { source: 'mattpocock/skills', ref: 'dev' },
+        other: { source: 'MATTPOCOCK/SKILLS' },
+      })
+    ).toEqual(['design', 'review']);
+  });
+
+  it('preserves lock entries whose names sanitize to the same folder', () => {
+    const lockEntries = {
+      'foo:bar': { source: 'one' },
+      'foo-bar': { source: 'two' },
+    };
+    const choices = buildRemoveChoices(['foo-bar'], lockEntries);
+
+    expect(choices).toHaveLength(2);
+    expect(choices).toEqual(
+      expect.arrayContaining([
+        { value: 'foo:bar', label: 'foo:bar', group: 'one' },
+        { value: 'foo-bar', label: 'foo-bar', group: 'two' },
+      ])
+    );
+    expect(resolveRemoveTargets(['one'], ['foo-bar'], lockEntries)).toEqual(['foo:bar']);
+    expect(resolveRemoveTargets(['foo-bar'], ['foo-bar'], lockEntries)).toEqual(['foo-bar']);
+  });
+
+  it('gives an exact case-insensitive skill name precedence over a source', () => {
+    expect(
+      resolveRemoveTargets(['review'], ['review', 'other'], {
+        review: { source: 'review' },
+        other: { source: 'review' },
+      })
+    ).toEqual(['review']);
+  });
+
+  it('matches an exact source without normalizing shorthand or URL forms', () => {
+    expect(
+      resolveRemoveTargets(['https://github.com/mattpocock/skills'], [], {
+        shorthand: { source: 'mattpocock/skills' },
+        https: { source: 'https://github.com/mattpocock/skills' },
+      })
+    ).toEqual(['https']);
+  });
+
+  it('does not normalize a source that resembles a skill name', () => {
+    expect(
+      resolveRemoveTargets(['owner/repo'], ['owner-repo'], {
+        'owner-repo': { source: 'other/source' },
+        fromRepo: { source: 'owner/repo' },
+      })
+    ).toEqual(['fromRepo']);
+  });
+
+  it('assigns lock entries without a source to Unknown source', () => {
+    expect(buildRemoveChoices([], { unattributed: {} })).toEqual([
+      { value: 'unattributed', label: 'unattributed', group: 'Unknown source' },
+    ]);
   });
 });
