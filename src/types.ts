@@ -97,6 +97,16 @@ export interface AgentConfig {
   showInUniversalList?: boolean;
   /** Whether to display this universal agent in the interactive locked section. Defaults to true. */
   showInUniversalPrompt?: boolean;
+  /**
+   * Whether this agent shares the canonical `.agents/skills` directory for both
+   * workspace and global installs. Defaults to true when `skillsDir` is
+   * `.agents/skills`. Set to `false` for agents that read workspace skills from
+   * `.agents/skills` but keep their own global skills directory (e.g. Antigravity,
+   * which is global-installed into `~/.gemini/config/skills`). Such agents are
+   * symlinked like other non-universal agents instead of sharing the canonical
+   * global directory.
+   */
+  universal?: boolean;
 }
 
 export interface ParsedSource {

@@ -79,11 +79,16 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(configHome, 'amp'));
     },
   },
+  // Antigravity products read workspace skills from `.agents/skills` but are
+  // global-installed into the shared `~/.gemini/config/skills`, so they are not
+  // universal. The per-product `~/.gemini/<product>` paths remain valid presence
+  // probes for detection.
   antigravity: {
     name: 'antigravity',
     displayName: 'Antigravity',
     skillsDir: '.agents/skills',
-    globalSkillsDir: join(home, '.gemini/antigravity/skills'),
+    globalSkillsDir: join(home, '.gemini/config/skills'),
+    universal: false,
     detectInstalled: async () => {
       return existsSync(join(home, '.gemini/antigravity'));
     },
@@ -92,7 +97,8 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'antigravity-cli',
     displayName: 'Antigravity CLI',
     skillsDir: '.agents/skills',
-    globalSkillsDir: join(home, '.gemini/antigravity-cli/skills'),
+    globalSkillsDir: join(home, '.gemini/config/skills'),
+    universal: false,
     detectInstalled: async () => {
       return existsSync(join(home, '.gemini/antigravity-cli'));
     },
@@ -808,9 +814,7 @@ export function getEveSubagents(cwd: string = process.cwd()): string[] {
  */
 export function getUniversalAgents(): AgentType[] {
   return (Object.entries(agents) as [AgentType, AgentConfig][])
-    .filter(
-      ([_, config]) => config.skillsDir === '.agents/skills' && config.showInUniversalList !== false
-    )
+    .filter(([type, config]) => isUniversalAgent(type) && config.showInUniversalList !== false)
     .map(([type]) => type);
 }
 
@@ -821,8 +825,8 @@ export function getUniversalAgents(): AgentType[] {
 export function getVisibleUniversalAgents(): AgentType[] {
   return (Object.entries(agents) as [AgentType, AgentConfig][])
     .filter(
-      ([_, config]) =>
-        config.skillsDir === '.agents/skills' &&
+      ([type, config]) =>
+        isUniversalAgent(type) &&
         config.showInUniversalList !== false &&
         config.showInUniversalPrompt !== false
     )
@@ -835,13 +839,15 @@ export function getVisibleUniversalAgents(): AgentType[] {
  */
 export function getNonUniversalAgents(): AgentType[] {
   return (Object.entries(agents) as [AgentType, AgentConfig][])
-    .filter(([_, config]) => config.skillsDir !== '.agents/skills')
+    .filter(([type]) => !isUniversalAgent(type))
     .map(([type]) => type);
 }
 
 /**
  * Check if an agent uses the universal .agents/skills directory.
+ * An explicit `universal` flag wins; otherwise it is inferred from skillsDir.
  */
 export function isUniversalAgent(type: AgentType): boolean {
-  return agents[type].skillsDir === '.agents/skills';
+  const config = agents[type];
+  return config.universal ?? config.skillsDir === '.agents/skills';
 }
