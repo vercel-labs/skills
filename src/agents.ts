@@ -60,6 +60,13 @@ export function isKimchiInstalled(
   return pathExists(join(homeDir, '.config', 'kimchi'));
 }
 
+export function isRavenInstalled(
+  homeDir = home,
+  pathExists: (path: string) => boolean = existsSync
+) {
+  return pathExists(join(homeDir, '.raven'));
+}
+
 export function isMiniMaxCodeInstalled(
   homeDir = home,
   pathExists: (path: string) => boolean = existsSync
@@ -580,6 +587,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.qwen/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.qwen'));
+    },
+  },
+  raven: {
+    name: 'raven',
+    displayName: 'Raven',
+    skillsDir: 'skills',
+    globalSkillsDir: join(home, '.raven', 'workspace', 'skills'),
+    detectInstalled: async () => {
+      return isRavenInstalled();
     },
   },
   replit: {

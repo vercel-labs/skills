@@ -56,6 +56,7 @@ export type AgentType =
   | 'qoder'
   | 'qoder-cn'
   | 'qwen-code'
+  | 'raven'
   | 'replit'
   | 'reasonix'
   | 'roo'

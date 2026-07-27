@@ -322,6 +322,7 @@ Skills can be installed to any of these agents:
 | Qoder | `qoder` | `.qoder/skills/` | `~/.qoder/skills/` |
 | Qoder CN | `qoder-cn` | `.qoder/skills/` | `~/.qoder-cn/skills/` |
 | Qwen Code | `qwen-code` | `.qwen/skills/` | `~/.qwen/skills/` |
+| Raven | `raven` | `skills/` | `~/.raven/workspace/skills/` |
 | Reasonix | `reasonix` | `.reasonix/skills/` | `~/.reasonix/skills/` |
 | Rovo Dev | `rovodev` | `.rovodev/skills/` | `~/.rovodev/skills/` |
 | Roo Code | `roo` | `.roo/skills/` | `~/.roo/skills/` |
