@@ -226,6 +226,32 @@ describe('local-lock', () => {
         await rm(dir, { recursive: true, force: true });
       }
     });
+
+    it('stores optional sourceUrl for normalized remote sources', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await addSkillToLocalLock(
+          'gitlab-skill',
+          {
+            source: 'acme/skills',
+            sourceUrl: 'https://gitlab.example.com/acme/skills.git',
+            sourceType: 'git',
+            computedHash: 'hash123',
+          },
+          dir
+        );
+
+        const lock = await readLocalLock(dir);
+        expect(lock.skills['gitlab-skill']).toEqual({
+          source: 'acme/skills',
+          sourceUrl: 'https://gitlab.example.com/acme/skills.git',
+          sourceType: 'git',
+          computedHash: 'hash123',
+        });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('removeSkillFromLocalLock', () => {

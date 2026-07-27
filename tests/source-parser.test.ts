@@ -262,6 +262,13 @@ describe('parseSource', () => {
       expect(result.url).toBe('https://git.example.com/owner/repo.git');
       expect(result.ref).toBe('release-2026');
     });
+
+    it('Git URL - ssh scheme with #branch', () => {
+      const result = parseSource('ssh://git@git.example.com:7999/owner/repo.git#release-2026');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('ssh://git@git.example.com:7999/owner/repo.git');
+      expect(result.ref).toBe('release-2026');
+    });
   });
 });
 
@@ -402,6 +409,14 @@ describe('getOwnerRepo', () => {
     expect(getOwnerRepo(parsed)).toBe('org/team/repo');
   });
 
+  it('getOwnerRepo - SSH URL with scheme and port', () => {
+    const parsed = {
+      type: 'git',
+      url: 'ssh://git@git.company.com:7999/org/team/repo.git',
+    } as const;
+    expect(getOwnerRepo(parsed)).toBe('org/team/repo');
+  });
+
   it('getOwnerRepo - SSH URL without path (returns null)', () => {
     const parsed = { type: 'git', url: 'git@github.com:repo.git' } as const;
     expect(getOwnerRepo(parsed)).toBeNull();
@@ -413,6 +428,12 @@ describe('Source aliases', () => {
     const result = parseSource('coinbase/agentWallet');
     expect(result.type).toBe('github');
     expect(result.url).toBe('https://github.com/coinbase/agentic-wallet-skills.git');
+  });
+
+  it('resolves vercel-labs/vercel-skills to vercel-labs/agent-skills', () => {
+    const result = parseSource('vercel-labs/vercel-skills');
+    expect(result.type).toBe('github');
+    expect(result.url).toBe('https://github.com/vercel-labs/agent-skills.git');
   });
 });
 

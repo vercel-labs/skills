@@ -30,10 +30,64 @@ export interface SearchSkill {
   installs: number;
 }
 
+export interface FindOptions {
+  owner?: string;
+}
+
+export interface ParseFindOptionsResult {
+  query: string;
+  options: FindOptions;
+  errors: string[];
+}
+
+const GITHUB_OWNER_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38})$/i;
+
+export function parseFindOptions(args: string[]): ParseFindOptionsResult {
+  const queryParts: string[] = [];
+  const options: FindOptions = {};
+  const errors: string[] = [];
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (!arg) continue;
+
+    let ownerValue: string | undefined;
+    if (arg === '--owner') {
+      const value = args[i + 1];
+      if (!value || value.startsWith('-')) {
+        errors.push('--owner requires a GitHub owner');
+        continue;
+      }
+      ownerValue = value;
+      i++;
+    } else if (arg.startsWith('--owner=')) {
+      ownerValue = arg.slice('--owner='.length);
+      if (!ownerValue) {
+        errors.push('--owner requires a GitHub owner');
+        continue;
+      }
+    } else {
+      queryParts.push(arg);
+      continue;
+    }
+
+    const owner = ownerValue.trim().toLowerCase();
+    if (!GITHUB_OWNER_PATTERN.test(owner)) {
+      errors.push('--owner must be a valid GitHub owner');
+      continue;
+    }
+    options.owner = owner;
+  }
+
+  return { query: queryParts.join(' '), options, errors };
+}
+
 // Search via API
-export async function searchSkillsAPI(query: string): Promise<SearchSkill[]> {
+export async function searchSkillsAPI(query: string, owner?: string): Promise<SearchSkill[]> {
   try {
-    const url = `${SEARCH_API_BASE}/api/search?q=${encodeURIComponent(query)}&limit=10`;
+    const params = new URLSearchParams({ q: query, limit: '10' });
+    if (owner) params.set('owner', owner);
+    const url = `${SEARCH_API_BASE}/api/search?${params.toString()}`;
     const res = await fetch(url);
 
     if (!res.ok) return [];
@@ -68,7 +122,7 @@ const MOVE_UP = (n: number) => `\x1b[${n}A`;
 const MOVE_TO_COL = (n: number) => `\x1b[${n}G`;
 
 // Custom fzf-style search prompt using raw readline
-async function runSearchPrompt(initialQuery = ''): Promise<SearchSkill | null> {
+async function runSearchPrompt(initialQuery = '', owner?: string): Promise<SearchSkill | null> {
   let results: SearchSkill[] = [];
   let selectedIndex = 0;
   let query = initialQuery;
@@ -110,7 +164,7 @@ async function runSearchPrompt(initialQuery = ''): Promise<SearchSkill | null> {
     if (!query || query.length < 2) {
       lines.push(`${DIM}Start typing to search (min 2 chars)${RESET}`);
     } else if (results.length === 0 && loading) {
-      lines.push(`${DIM}Searching...${RESET}`);
+      lines.push(`${DIM}Searching…${RESET}`);
     } else if (results.length === 0) {
       lines.push(`${DIM}No skills found${RESET}`);
     } else {
@@ -125,7 +179,7 @@ async function runSearchPrompt(initialQuery = ''): Promise<SearchSkill | null> {
         const source = skill.source ? ` ${DIM}${skill.source}${RESET}` : '';
         const installs = formatInstalls(skill.installs);
         const installsBadge = installs ? ` ${CYAN}${installs}${RESET}` : '';
-        const loadingIndicator = loading && i === 0 ? ` ${DIM}...${RESET}` : '';
+        const loadingIndicator = loading && i === 0 ? ` ${DIM}…${RESET}` : '';
 
         lines.push(`  ${arrow} ${name}${source}${installsBadge}${loadingIndicator}`);
       }
@@ -169,7 +223,7 @@ async function runSearchPrompt(initialQuery = ''): Promise<SearchSkill | null> {
 
     debounceTimer = setTimeout(async () => {
       try {
-        results = await searchSkillsAPI(q);
+        results = await searchSkillsAPI(q, owner);
         selectedIndex = 0;
       } catch {
         results = [];
@@ -269,15 +323,22 @@ async function isRepoPublic(owner: string, repo: string): Promise<boolean> {
 }
 
 export async function runFind(args: string[]): Promise<void> {
-  const query = args.join(' ');
+  const { query, options: findOptions, errors } = parseFindOptions(args);
+  const owner = findOptions.owner;
   const isNonInteractive = !process.stdin.isTTY;
   const agentTip = `${DIM}Tip: if running in a coding agent, follow these steps:${RESET}
-${DIM}  1) npx skills find [query]${RESET}
+${DIM}  1) npx skills find [query] [--owner <owner>]${RESET}
 ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
+
+  if (errors.length > 0) {
+    for (const error of errors) console.error(error);
+    console.error('Usage: npx skills find <query> [--owner <owner>]');
+    return;
+  }
 
   // Non-interactive mode: just print results and exit
   if (query) {
-    const results = await searchSkillsAPI(query);
+    const results = await searchSkillsAPI(query, owner);
 
     // Track telemetry for non-interactive search
     track({
@@ -287,7 +348,8 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
     });
 
     if (results.length === 0) {
-      console.log(`${DIM}No skills found for "${query}"${RESET}`);
+      const ownerSuffix = owner ? ` from owner "${owner}"` : '';
+      console.log(`${DIM}No skills found for "${query}"${ownerSuffix}${RESET}`);
       return;
     }
 
@@ -310,11 +372,11 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
   if (isNonInteractive || (await isRunningInAgent())) {
     console.log(agentTip);
     console.log();
-    console.log(`${DIM}Usage: npx skills find <query>${RESET}`);
+    console.log(`${DIM}Usage: npx skills find <query> [--owner <owner>]${RESET}`);
     return;
   }
 
-  const selected = await runSearchPrompt();
+  const selected = await runSearchPrompt('', owner);
 
   // Track telemetry for interactive search
   track({
@@ -335,12 +397,12 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
   const skillName = selected.name;
 
   console.log();
-  console.log(`${TEXT}Installing ${BOLD}${skillName}${RESET} from ${DIM}${pkg}${RESET}...`);
+  console.log(`${TEXT}Installing ${BOLD}${skillName}${RESET} from ${DIM}${pkg}${RESET}…`);
   console.log();
 
   // Run add directly since we're in the same CLI
-  const { source, options } = parseAddOptions([pkg, '--skill', skillName]);
-  await runAdd(source, options);
+  const { source, options: addOptions } = parseAddOptions([pkg, '--skill', skillName]);
+  await runAdd(source, addOptions);
 
   console.log();
 

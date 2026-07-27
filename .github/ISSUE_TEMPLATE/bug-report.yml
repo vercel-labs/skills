@@ -59,7 +59,7 @@ body:
     attributes:
       label: Node.js Version
       description: What version of Node.js are you using?
-      placeholder: e.g., 20.10.0
+      placeholder: e.g., 22.20.0
     validations:
       required: false
 

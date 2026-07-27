@@ -9,6 +9,7 @@ import {
   detectInstalledAgents,
   agents,
   getUniversalAgents,
+  getVisibleUniversalAgents,
   getNonUniversalAgents,
 } from './agents.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
@@ -165,7 +166,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   const spinner = p.spinner();
 
   // 1. Discover skills from node_modules
-  spinner.start('Scanning node_modules for skills...');
+  spinner.start('Scanning node_modules for skills…');
   const discoveredSkills = await discoverNodeModuleSkills(cwd);
 
   if (discoveredSkills.length === 0) {
@@ -227,6 +228,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   let targetAgents: AgentType[];
   const validAgents = Object.keys(agents);
   const universalAgents = getUniversalAgents();
+  const visibleUniversalAgents = getVisibleUniversalAgents();
 
   if (options.agent?.includes('*')) {
     targetAgents = validAgents as AgentType[];
@@ -240,7 +242,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     }
     targetAgents = options.agent as AgentType[];
   } else {
-    spinner.start('Loading agents...');
+    spinner.start('Loading agents…');
     const installedAgents = await detectInstalledAgents();
     const totalAgents = Object.keys(agents).length;
     spinner.stop(`${totalAgents} agents`);
@@ -264,10 +266,11 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
           initialSelected: [],
           lockedSection: {
             title: 'Universal (.agents/skills)',
-            items: universalAgents.map((a) => ({
+            items: visibleUniversalAgents.map((a) => ({
               value: a,
               label: agents[a].displayName,
             })),
+            hiddenCount: universalAgents.length - visibleUniversalAgents.length,
           },
         });
 
@@ -301,10 +304,11 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
         initialSelected: installedAgents.filter((a) => !universalAgents.includes(a)),
         lockedSection: {
           title: 'Universal (.agents/skills)',
-          items: universalAgents.map((a) => ({
+          items: visibleUniversalAgents.map((a) => ({
             value: a,
             label: agents[a].displayName,
           })),
+          hiddenCount: universalAgents.length - visibleUniversalAgents.length,
         },
       });
 
@@ -339,7 +343,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   }
 
   // 5. Install skills (always project-scoped, always symlink)
-  spinner.start('Syncing skills...');
+  spinner.start('Syncing skills…');
 
   const results: Array<{
     skill: string;

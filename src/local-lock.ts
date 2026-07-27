@@ -15,6 +15,8 @@ const CURRENT_VERSION = 1;
 export interface LocalSkillLockEntry {
   /** Where the skill came from: npm package name, owner/repo, local path, etc. */
   source: string;
+  /** Original remote URL, when source was normalized for lock readability. */
+  sourceUrl?: string;
   /** Branch or tag ref used for installation */
   ref?: string;
   /** The provider/source type (e.g., "github", "node_modules", "local") */
@@ -33,6 +35,13 @@ export interface LocalSkillLockEntry {
    * computes the hash from actual file contents on disk.
    */
   computedHash: string;
+  /**
+   * Eve subagent targets this skill was installed into, so `update` can
+   * restore the same placement. Each entry is an Eve subagent directory name;
+   * the empty string `''` denotes the root agent (`agent/skills`). Omitted for
+   * non-Eve installs and for plain Eve root installs (treated as `['']`).
+   */
+  subagents?: string[];
 }
 
 /**

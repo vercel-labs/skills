@@ -1,9 +1,10 @@
 import { homedir } from 'os';
 import type { AgentType } from './types.ts';
 import { agents } from './agents.ts';
-import { listInstalledSkills, type InstalledSkill } from './installer.ts';
+import { listInstalledSkills, sanitizeName, type InstalledSkill } from './installer.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { getAllLockedSkills } from './skill-lock.ts';
+import { readLocalLock } from './local-lock.ts';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -16,6 +17,13 @@ interface ListOptions {
   global?: boolean;
   agent?: string[];
   json?: boolean;
+}
+
+interface ListLockEntry {
+  source: string;
+  sourceUrl?: string;
+  sourceType: string;
+  pluginName?: string;
 }
 
 /**
@@ -91,22 +99,35 @@ export async function runList(args: string[]): Promise<void> {
     agentFilter,
   });
 
+  const cwd = process.cwd();
+  // Fetch lock entries to get source and plugin grouping info for the selected scope.
+  const lockedSkills: Record<string, ListLockEntry> = scope
+    ? await getAllLockedSkills()
+    : (await readLocalLock(cwd)).skills;
+  const lockEntriesBySanitizedName = new Map(
+    Object.entries(lockedSkills).map(([name, entry]) => [sanitizeName(name), entry])
+  );
+  const getLockEntry = (skillName: string): ListLockEntry | undefined =>
+    lockedSkills[skillName] ?? lockEntriesBySanitizedName.get(sanitizeName(skillName));
+
   // JSON output mode: structured, no ANSI, untruncated agent lists
   if (options.json) {
-    const jsonOutput = installedSkills.map((skill) => ({
-      name: skill.name,
-      path: skill.canonicalPath,
-      scope: skill.scope,
-      agents: skill.agents.map((a) => agents[a].displayName),
-    }));
+    const jsonOutput = installedSkills.map((skill) => {
+      const lockEntry = getLockEntry(skill.name);
+      return {
+        name: skill.name,
+        path: skill.canonicalPath,
+        scope: skill.scope,
+        agents: skill.agents.map((a) => agents[a].displayName),
+        source: lockEntry?.source ?? null,
+        sourceUrl: lockEntry?.sourceUrl ?? null,
+        sourceType: lockEntry?.sourceType ?? null,
+      };
+    });
     console.log(JSON.stringify(jsonOutput, null, 2));
     return;
   }
 
-  // Fetch lock entries to get plugin grouping info
-  const lockedSkills = await getAllLockedSkills();
-
-  const cwd = process.cwd();
   const scopeLabel = scope ? 'Global' : 'Project';
 
   if (installedSkills.length === 0) {
@@ -123,16 +144,31 @@ export async function runList(args: string[]): Promise<void> {
     return;
   }
 
-  function printSkill(skill: InstalledSkill, indent: boolean = false): void {
+  function printSkill(
+    skill: InstalledSkill,
+    indent: boolean = false,
+    maxNameLength: number = 0,
+    maxPathLength: number = 0
+  ): void {
     const prefix = indent ? '  ' : '';
     const shortPath = shortenPath(skill.canonicalPath, cwd);
     const agentNames = skill.agents.map((a) => agents[a].displayName);
     const agentInfo =
       skill.agents.length > 0 ? formatList(agentNames) : `${YELLOW}not linked${RESET}`;
+
+    // Pad skill name and path for alignment
+    const paddedName = sanitizeMetadata(skill.name).padEnd(maxNameLength);
+    const paddedPath = shortPath.padEnd(maxPathLength);
+
+    // Determine source from lock file
+    const lockEntry = getLockEntry(skill.name);
+    const source = lockEntry?.source ?? null;
+    const sourceLabel = source ? sanitizeMetadata(source) : 'local';
+
+    console.log(`${prefix}${CYAN}${paddedName}${RESET} ${DIM}${paddedPath}${RESET}`);
     console.log(
-      `${prefix}${CYAN}${sanitizeMetadata(skill.name)}${RESET} ${DIM}${shortPath}${RESET}`
+      `${prefix}  ${DIM}Agents:${RESET} ${agentInfo}  ${DIM}Source:${RESET} ${sourceLabel}`
     );
-    console.log(`${prefix}  ${DIM}Agents:${RESET} ${agentInfo}`);
   }
 
   console.log(`${BOLD}${scopeLabel} Skills${RESET}`);
@@ -143,7 +179,7 @@ export async function runList(args: string[]): Promise<void> {
   const ungroupedSkills: InstalledSkill[] = [];
 
   for (const skill of installedSkills) {
-    const lockEntry = lockedSkills[skill.name];
+    const lockEntry = getLockEntry(skill.name);
     if (lockEntry?.pluginName) {
       const group = lockEntry.pluginName;
       if (!groupedSkills[group]) {
@@ -170,8 +206,17 @@ export async function runList(args: string[]): Promise<void> {
       console.log(`${BOLD}${title}${RESET}`);
       const skills = groupedSkills[group];
       if (skills) {
+        // Calculate max lengths for alignment within this group
+        let maxNameLength = 0;
+        let maxPathLength = 0;
         for (const skill of skills) {
-          printSkill(skill, true);
+          const nameLength = sanitizeMetadata(skill.name).length;
+          const pathLength = shortenPath(skill.canonicalPath, cwd).length;
+          if (nameLength > maxNameLength) maxNameLength = nameLength;
+          if (pathLength > maxPathLength) maxPathLength = pathLength;
+        }
+        for (const skill of skills) {
+          printSkill(skill, true, maxNameLength, maxPathLength);
         }
       }
       console.log();
@@ -180,15 +225,33 @@ export async function runList(args: string[]): Promise<void> {
     // Print ungrouped skills if any exist
     if (ungroupedSkills.length > 0) {
       console.log(`${BOLD}General${RESET}`);
+      // Calculate max lengths for alignment within ungrouped skills
+      let maxNameLength = 0;
+      let maxPathLength = 0;
       for (const skill of ungroupedSkills) {
-        printSkill(skill, true);
+        const nameLength = sanitizeMetadata(skill.name).length;
+        const pathLength = shortenPath(skill.canonicalPath, cwd).length;
+        if (nameLength > maxNameLength) maxNameLength = nameLength;
+        if (pathLength > maxPathLength) maxPathLength = pathLength;
+      }
+      for (const skill of ungroupedSkills) {
+        printSkill(skill, true, maxNameLength, maxPathLength);
       }
       console.log();
     }
   } else {
     // No groups, print flat list as before
+    // Calculate max lengths for alignment in flat list
+    let maxNameLength = 0;
+    let maxPathLength = 0;
     for (const skill of installedSkills) {
-      printSkill(skill);
+      const nameLength = sanitizeMetadata(skill.name).length;
+      const pathLength = shortenPath(skill.canonicalPath, cwd).length;
+      if (nameLength > maxNameLength) maxNameLength = nameLength;
+      if (pathLength > maxPathLength) maxPathLength = pathLength;
+    }
+    for (const skill of installedSkills) {
+      printSkill(skill, false, maxNameLength, maxPathLength);
     }
     console.log();
   }

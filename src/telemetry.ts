@@ -8,6 +8,8 @@ interface InstallTelemetryData {
   agents: string;
   global?: '1';
   skillFiles?: string; // JSON stringified { skillName: relativePath }
+  /** Caller-provided JSON attached to this install telemetry event. */
+  metadata?: string;
   /**
    * Source type for different hosts:
    * - 'github': GitHub repository (default, uses raw.githubusercontent.com)

@@ -3,6 +3,7 @@ import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
 import { execSync } from 'child_process';
+import pc from 'picocolors';
 
 const AGENTS_DIR = '.agents';
 const LOCK_FILE = '.skill-lock.json';
@@ -135,7 +136,7 @@ export function resetGhAuthWarning(): void {
  * Tries in order:
  * 1. GITHUB_TOKEN environment variable (silent)
  * 2. GH_TOKEN environment variable (silent)
- * 3. gh CLI auth token, if gh is installed. Prints a one-time warning to
+ * 3. gh CLI auth token, if gh is installed. Prints a one-time status to
  *    stderr before invoking `gh auth token`, because that subprocess call
  *    is flagged by some corporate endpoint security tooling (Defender, etc.)
  *    as credential extraction. Callers should invoke this function lazily
@@ -153,11 +154,11 @@ export function getGitHubToken(): string | null {
     return process.env.GH_TOKEN;
   }
 
-  // Last resort: spawn gh CLI. Warn the user once per process before doing so.
+  // Last resort: spawn gh CLI. Make the automatic credential check clear once
+  // per process before doing so, without suggesting the user needs to act.
   if (!_ghWarningShown) {
     process.stderr.write(
-      'warn: GitHub API rate limit reached; reading a token via `gh auth token`.\n' +
-        '      Set GITHUB_TOKEN in your environment to skip this fallback.\n'
+      `${pc.dim('│  GitHub API request limit reached; checking existing ')}${pc.cyan('gh')}${pc.dim(' authentication…\n')}`
     );
     _ghWarningShown = true;
   }
