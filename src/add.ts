@@ -6,6 +6,7 @@ import { sep, join, dirname } from 'path';
 import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
 import { stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
+import { buildHtmlCommentWarning, buildHtmlCommentWarningFromDirs } from './security.ts';
 
 // Helper to check if a value is a cancel symbol (works with both clack and our custom prompts)
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
@@ -835,6 +836,16 @@ async function handleWellKnownSkills(
 
   console.log();
   p.note(summaryLines.join('\n'), 'Installation Summary');
+
+  // Check for hidden HTML comments in SKILL.md files (well-known skills)
+  const wellKnownSkillContents = selectedSkills.map((s) => ({
+    name: s.installName,
+    rawContent: s.files?.get('SKILL.md') ?? s.files?.get('skill.md'),
+  }));
+  const wkHtmlWarningLines = buildHtmlCommentWarning(wellKnownSkillContents);
+  if (wkHtmlWarningLines.length > 0) {
+    p.note(wkHtmlWarningLines.join('\n'), 'Hidden Content Warning');
+  }
 
   if (!options.yes) {
     const confirmed = await p.confirm({ message: 'Proceed with installation?' });
@@ -1679,6 +1690,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     } catch {
       // Silently skip — security info is advisory only
+    }
+
+    // Check for hidden HTML comments in all markdown files in skill directories
+    const htmlWarningLines = await buildHtmlCommentWarningFromDirs(selectedSkills);
+    if (htmlWarningLines.length > 0) {
+      p.note(htmlWarningLines.join('\n'), 'Hidden Content Warning');
     }
 
     if (!options.yes) {
