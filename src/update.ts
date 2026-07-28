@@ -1,6 +1,6 @@
 import { spawnSync } from 'child_process';
 import { existsSync, readdirSync } from 'fs';
-import { join, dirname, relative, sep } from 'path';
+import { join, dirname, relative, sep, basename } from 'path';
 import { fileURLToPath } from 'url';
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
@@ -21,7 +21,8 @@ import { wellKnownProvider, computeWellKnownSkillDigest } from './providers/inde
 import { removeCommand } from './remove.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
-import { agents, isUniversalAgent } from './agents.ts';
+import { getEveSubagentSkillsDir, sanitizeName, stripIgnoredEveFrontmatter } from './installer.ts';
+import { agents, getEveSubagents, isUniversalAgent } from './agents.ts';
 import type { AgentType } from './types.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -41,6 +42,7 @@ export interface UpdateCheckOptions {
   global?: boolean;
   project?: boolean;
   yes?: boolean;
+  checkOnly?: boolean;
   /** Optional skill name(s) to filter on (positional args) */
   skills?: string[];
 }
@@ -115,15 +117,16 @@ export function hasProjectSkills(cwd?: string): boolean {
  * Determine the update/check scope via interactive prompt or auto-detection.
  */
 export async function resolveUpdateScope(options: UpdateCheckOptions): Promise<UpdateScope> {
+  if (options.global && options.project) {
+    return 'both';
+  }
+
   if (options.skills && options.skills.length > 0) {
     if (options.global) return 'global';
     if (options.project) return 'project';
     return 'both';
   }
 
-  if (options.global && options.project) {
-    return 'both';
-  }
   if (options.global) {
     return 'global';
   }
@@ -135,23 +138,24 @@ export async function resolveUpdateScope(options: UpdateCheckOptions): Promise<U
     return hasProjectSkills() ? 'project' : 'global';
   }
 
+  const action = options.checkOnly ? 'Check' : 'Update';
   const scope = await p.select({
-    message: 'Update scope',
+    message: `${action} scope`,
     options: [
       {
         value: 'project' as UpdateScope,
         label: 'Project',
-        hint: 'Update skills in current directory',
+        hint: `${action} skills in current directory`,
       },
       {
         value: 'global' as UpdateScope,
         label: 'Global',
-        hint: 'Update skills in home directory',
+        hint: `${action} skills in home directory`,
       },
       {
         value: 'both' as UpdateScope,
         label: 'Both',
-        hint: 'Update all skills',
+        hint: `${action} all skills`,
       },
     ],
   });
@@ -168,6 +172,62 @@ export function matchesSkillFilter(name: string, filter?: string[]): boolean {
   if (!filter || filter.length === 0) return true;
   const lower = name.toLowerCase();
   return filter.some((f) => f.toLowerCase() === lower);
+}
+
+function sourceRefKey(source: string, ref?: string): string {
+  return JSON.stringify([source, ref ?? null]);
+}
+
+function sameRef(left?: string, right?: string): boolean {
+  return (left ?? null) === (right ?? null);
+}
+
+function getInstalledProjectSkillPaths(
+  skillName: string,
+  entry: LocalSkillLockEntry,
+  cwd: string
+): Array<{ path: string; eve: boolean }> {
+  const sanitized = sanitizeName(skillName);
+  const candidates = new Map<string, { path: string; eve: boolean }>();
+
+  const add = (base: string, eve: boolean) => {
+    const path = join(base, sanitized);
+    if (existsSync(path)) {
+      candidates.set(path, { path, eve });
+    }
+  };
+
+  add(join(cwd, '.agents', 'skills'), false);
+
+  for (const [agentType, config] of Object.entries(agents)) {
+    add(join(cwd, config.skillsDir), agentType === 'eve');
+  }
+
+  const eveSubagents = new Set([
+    ...getEveSubagents(cwd),
+    ...(entry.subagents ?? []).filter((name) => name !== ''),
+  ]);
+  for (const subagent of eveSubagents) {
+    add(getEveSubagentSkillsDir(subagent, cwd), true);
+  }
+
+  return [...candidates.values()];
+}
+
+const INSTALLED_SKILL_EXCLUDES = new Set(['metadata.json']);
+const INSTALLED_SKILL_DIR_EXCLUDES = new Set(['.git', '__pycache__', '__pypackages__']);
+
+function expectedInstalledHashOptions(eve: boolean) {
+  return {
+    exclude: (name: string, isDirectory: boolean) =>
+      INSTALLED_SKILL_EXCLUDES.has(name) || (isDirectory && INSTALLED_SKILL_DIR_EXCLUDES.has(name)),
+    transform: eve
+      ? (relativePath: string, content: Buffer) =>
+          basename(relativePath).toLowerCase() === 'skill.md'
+            ? Buffer.from(stripIgnoredEveFrontmatter(content.toString('utf-8')))
+            : content
+      : undefined,
+  };
 }
 
 export interface SkippedSkill {
@@ -268,6 +328,8 @@ export async function promptDeletions(
   for (const s of deletedSkills) {
     console.log(`  ${DIM}•${RESET} ${s}`);
   }
+
+  if (options.checkOnly) return;
 
   const isNonInteractive = options.yes || !process.stdin.isTTY;
 
@@ -397,10 +459,11 @@ export async function processWellKnownUpdates(
   groups: Map<string, WellKnownUpdateItem[]>,
   isGlobal: boolean,
   options: UpdateCheckOptions
-): Promise<{ successCount: number; failCount: number; changed: boolean }> {
+): Promise<{ successCount: number; failCount: number; changed: boolean; updateCount: number }> {
   let successCount = 0;
   let failCount = 0;
   let changed = false;
+  let updateCount = 0;
 
   for (const [baseUrl, items] of groups) {
     process.stdout.write(`\r${DIM}Checking skills from source: ${baseUrl}${RESET}\x1b[K\n`);
@@ -409,6 +472,7 @@ export async function processWellKnownUpdates(
 
     if (result.status === 'error') {
       console.log(`  ${DIM}✗ Failed to check skills from ${baseUrl}${RESET}`);
+      if (options.checkOnly) failCount += items.length;
       continue;
     }
 
@@ -423,6 +487,18 @@ export async function processWellKnownUpdates(
     printNewSkills(baseUrl, result.newSkills, isGlobal);
 
     if (result.changedSkills.length === 0) continue;
+    updateCount += result.changedSkills.length;
+
+    if (options.checkOnly) {
+      console.log(
+        `${TEXT}${result.changedSkills.length} ${isGlobal ? 'global' : 'project'} update(s) available:${RESET}`
+      );
+      for (const name of result.changedSkills) {
+        console.log(`  ${TEXT}↑${RESET} ${sanitizeMetadata(name)}`);
+        console.log(`    ${DIM}source: ${sanitizeMetadata(baseUrl)}${RESET}`);
+      }
+      continue;
+    }
 
     const cliEntry = join(__dirname, '..', 'bin', 'cli.mjs');
     if (!existsSync(cliEntry)) {
@@ -472,23 +548,27 @@ export async function processWellKnownUpdates(
     }
   }
 
-  return { successCount, failCount, changed };
+  return { successCount, failCount, changed, updateCount };
 }
 
-export async function updateGlobalSkills(
-  options: UpdateCheckOptions = {}
-): Promise<{ successCount: number; failCount: number; checkedCount: number }> {
+export async function updateGlobalSkills(options: UpdateCheckOptions = {}): Promise<{
+  successCount: number;
+  failCount: number;
+  checkedCount: number;
+  updateCount: number;
+}> {
   const lock = await readSkillLock();
   const skillNames = Object.keys(lock.skills);
   let successCount = 0;
   let failCount = 0;
+  let deletedCount = 0;
 
   if (skillNames.length === 0) {
     if (!options.skills) {
       console.log(`${DIM}No global skills tracked in lock file.${RESET}`);
       console.log(`${DIM}Install skills with${RESET} ${TEXT}npx skills add <package> -g${RESET}`);
     }
-    return { successCount, failCount, checkedCount: 0 };
+    return { successCount, failCount, checkedCount: 0, updateCount: 0 };
   }
 
   const updates: Array<{ name: string; source: string; entry: SkillLockEntry }> = [];
@@ -531,19 +611,21 @@ export async function updateGlobalSkills(
     successCount: wkSuccessCount,
     failCount: wkFailCount,
     changed: wkChanged,
+    updateCount: wkUpdateCount,
   } = await processWellKnownUpdates(wellKnownGroups, true, options);
   successCount += wkSuccessCount;
   failCount += wkFailCount;
 
-  const bySource = new Map<string, typeof checkable>();
+  const bySource = new Map<string, { source: string; ref?: string; items: typeof checkable }>();
   for (const item of checkable) {
     const source = item.entry.source;
-    const existing = bySource.get(source) || [];
-    existing.push(item);
-    bySource.set(source, existing);
+    const key = sourceRefKey(source, item.entry.ref);
+    const group = bySource.get(key) || { source, ref: item.entry.ref, items: [] };
+    group.items.push(item);
+    bySource.set(key, group);
   }
 
-  for (const [source, itemsForSource] of bySource) {
+  for (const { source, ref, items: itemsForSource } of bySource.values()) {
     const firstEntry = itemsForSource[0]!.entry;
     const sourceUrl = firstEntry.sourceUrl || firstEntry.source;
     let tempDir: string | null = null;
@@ -562,7 +644,7 @@ export async function updateGlobalSkills(
             .map((entry) => entry.path);
 
           const allLockedForSource = Object.entries(lock.skills)
-            .filter(([_, entry]) => entry.source === source)
+            .filter(([_, entry]) => entry.source === source && sameRef(entry.ref, ref))
             .map(([name, _]) => name);
 
           const deletedSkills = await checkAndPromptForDeletions(
@@ -573,6 +655,7 @@ export async function updateGlobalSkills(
             options,
             discoveredPaths
           );
+          deletedCount += deletedSkills.length;
 
           const deletedSkillSet = new Set(deletedSkills);
 
@@ -599,7 +682,7 @@ export async function updateGlobalSkills(
       );
 
       const allLockedForSource = Object.entries(lock.skills)
-        .filter(([_, entry]) => entry.source === source)
+        .filter(([_, entry]) => entry.source === source && sameRef(entry.ref, ref))
         .map(([name, _]) => name);
 
       const deletedSkills = await checkAndPromptForDeletions(
@@ -610,6 +693,7 @@ export async function updateGlobalSkills(
         options,
         discoveredPaths
       );
+      deletedCount += deletedSkills.length;
 
       const deletedSkillSet = new Set(deletedSkills);
 
@@ -629,6 +713,9 @@ export async function updateGlobalSkills(
       }
     } catch (error) {
       console.log(`  ${DIM}✗ Failed to check skills from ${source}${RESET}`);
+      if (options.checkOnly) {
+        failCount += itemsForSource.length;
+      }
     } finally {
       if (tempDir) await cleanupTempDir(tempDir);
     }
@@ -644,26 +731,44 @@ export async function updateGlobalSkills(
     if (!options.skills) {
       console.log(`${DIM}No global skills to check.${RESET}`);
     }
-    return { successCount, failCount, checkedCount: 0 };
+    return { successCount, failCount, checkedCount: 0, updateCount: 0 };
   }
 
   if (checkable.length === 0 && skipped.length === 0) {
-    if (!wkChanged) {
+    if (!wkChanged && (!options.checkOnly || failCount === 0)) {
       console.log(`${TEXT}✓ All global skills are up to date${RESET}`);
     }
-    return { successCount, failCount, checkedCount };
+    return { successCount, failCount, checkedCount, updateCount: wkUpdateCount };
   }
 
   if (checkable.length === 0 && skipped.length > 0) {
     printSkippedSkills(skipped);
-    return { successCount, failCount, checkedCount };
+    return { successCount, failCount, checkedCount, updateCount: wkUpdateCount };
   }
 
   if (updates.length === 0) {
-    if (!wkChanged) {
+    if (!wkChanged && (!options.checkOnly || (failCount === 0 && deletedCount === 0))) {
       console.log(`${TEXT}✓ All global skills are up to date${RESET}`);
     }
-    return { successCount, failCount, checkedCount };
+    if (options.checkOnly) {
+      printSkippedSkills(skipped);
+    }
+    return { successCount, failCount, checkedCount, updateCount: wkUpdateCount };
+  }
+
+  if (options.checkOnly) {
+    console.log(`${TEXT}${updates.length} global update(s) available:${RESET}`);
+    for (const update of updates) {
+      console.log(`  ${TEXT}↑${RESET} ${sanitizeMetadata(update.name)}`);
+      console.log(`    ${DIM}source: ${sanitizeMetadata(update.source)}${RESET}`);
+    }
+    printSkippedSkills(skipped);
+    return {
+      successCount,
+      failCount,
+      checkedCount,
+      updateCount: updates.length + wkUpdateCount,
+    };
   }
 
   console.log(`${TEXT}Found ${updates.length} global update(s)${RESET}`);
@@ -716,24 +821,34 @@ export async function updateGlobalSkills(
   }
 
   printSkippedSkills(skipped);
-  return { successCount, failCount, checkedCount };
+  return {
+    successCount,
+    failCount,
+    checkedCount,
+    updateCount: updates.length + wkUpdateCount,
+  };
 }
 
-export async function updateProjectSkills(
-  options: UpdateCheckOptions = {}
-): Promise<{ successCount: number; failCount: number; foundCount: number }> {
+export async function updateProjectSkills(options: UpdateCheckOptions = {}): Promise<{
+  successCount: number;
+  failCount: number;
+  foundCount: number;
+  updateCount: number;
+}> {
   const projectSkills = await getProjectSkillsForUpdate(options.skills);
   let successCount = 0;
   let failCount = 0;
+  let deletedCount = 0;
+  const updates: Array<{ name: string; source: string }> = [];
 
   if (projectSkills.length === 0) {
     if (!options.skills) {
-      console.log(`${DIM}No project skills to update.${RESET}`);
+      console.log(`${DIM}No project skills to ${options.checkOnly ? 'check' : 'update'}.${RESET}`);
       console.log(
         `${DIM}Install project skills with${RESET} ${TEXT}npx skills add <package>${RESET}`
       );
     }
-    return { successCount, failCount, foundCount: 0 };
+    return { successCount, failCount, foundCount: 0, updateCount: 0 };
   }
 
   const wellKnownGroups = new Map<string, WellKnownUpdateItem[]>();
@@ -763,7 +878,7 @@ export async function updateProjectSkills(
   if (updatable.length === 0 && wellKnownCount === 0) {
     console.log(`${DIM}No project skills can be updated in place.${RESET}`);
     printLegacyProjectSkills(legacy);
-    return { successCount, failCount, foundCount: projectSkills.length };
+    return { successCount, failCount, foundCount: projectSkills.length, updateCount: 0 };
   }
 
   const cwd = process.cwd();
@@ -787,48 +902,54 @@ export async function updateProjectSkills(
   if (hasUniversal) targetParts.push('Universal');
   targetParts.push(...targetAgentNames);
 
-  if (targetParts.length > 0) {
+  if (!options.checkOnly && targetParts.length > 0) {
     console.log(`${TEXT}Updating for: ${targetParts.join(', ')}${RESET}`);
   }
 
-  console.log(`${TEXT}Refreshing ${updatable.length + wellKnownCount} skill(s)…${RESET}`);
-  console.log();
+  if (!options.checkOnly) {
+    console.log(`${TEXT}Refreshing ${updatable.length + wellKnownCount} skill(s)…${RESET}`);
+    console.log();
+  }
 
-  const { successCount: wkSuccessCount, failCount: wkFailCount } = await processWellKnownUpdates(
-    wellKnownGroups,
-    false,
-    options
-  );
+  const {
+    successCount: wkSuccessCount,
+    failCount: wkFailCount,
+    changed: wkChanged,
+    updateCount: wkUpdateCount,
+  } = await processWellKnownUpdates(wellKnownGroups, false, options);
   successCount += wkSuccessCount;
   failCount += wkFailCount;
 
-  const bySource = new Map<string, typeof updatable>();
+  const bySource = new Map<string, { source: string; ref?: string; items: typeof updatable }>();
   for (const skill of updatable) {
     const source = skill.entry.sourceUrl || skill.entry.source;
-    const existing = bySource.get(source) || [];
-    existing.push(skill);
-    bySource.set(source, existing);
+    const key = sourceRefKey(source, skill.entry.ref);
+    const group = bySource.get(key) || { source, ref: skill.entry.ref, items: [] };
+    group.items.push(skill);
+    bySource.set(key, group);
   }
 
   const localLock = await readLocalLock();
   const cliEntry = join(__dirname, '..', 'bin', 'cli.mjs');
 
-  if (updatable.length > 0 && !existsSync(cliEntry)) {
+  if (!options.checkOnly && updatable.length > 0 && !existsSync(cliEntry)) {
     console.log(`${DIM}✗ CLI entrypoint not found at ${cliEntry}${RESET}`);
     return {
       successCount,
       failCount: failCount + updatable.length,
       foundCount: projectSkills.length,
+      updateCount: wkUpdateCount,
     };
   }
 
-  for (const [source, skillsForSource] of bySource) {
+  for (const { source, ref, items: skillsForSource } of bySource.values()) {
     const firstEntry = skillsForSource[0]!.entry;
     const cloneSource = buildLocalCloneSource(firstEntry);
-    const ref = firstEntry.ref;
 
     const allLockedForSource = Object.entries(localLock.skills)
-      .filter(([_, entry]) => (entry.sourceUrl || entry.source) === source)
+      .filter(
+        ([_, entry]) => (entry.sourceUrl || entry.source) === source && sameRef(entry.ref, ref)
+      )
       .map(([name, _]) => name);
 
     let tempDir: string | null = null;
@@ -837,7 +958,7 @@ export async function updateProjectSkills(
     if (cloneSource === null) {
       failCount += skillsForSource.length;
       console.log(
-        `${DIM}✗ Cannot update ${source}: skills-lock.json is missing sourceUrl for this generic Git source${RESET}`
+        `${DIM}✗ Cannot ${options.checkOnly ? 'check' : 'update'} ${source}: skills-lock.json is missing sourceUrl for this generic Git source${RESET}`
       );
       continue;
     }
@@ -859,13 +980,68 @@ export async function updateProjectSkills(
         options,
         discoveredPaths
       );
+      deletedCount += deletedSkills.length;
+
+      if (options.checkOnly) {
+        const remainingSkills = skillsForSource.filter(
+          (skill) => !deletedSkills.includes(skill.name)
+        );
+        for (const skill of remainingSkills) {
+          try {
+            const skillPath = skill.entry.skillPath!;
+            if (!discoveredPaths.includes(skillPath)) continue;
+
+            const installedPaths = getInstalledProjectSkillPaths(skill.name, skill.entry, cwd);
+            if (installedPaths.length === 0) {
+              failCount++;
+              console.log(
+                `  ${DIM}✗ Cannot check ${sanitizeMetadata(skill.name)}: no installed copy found${RESET}`
+              );
+              continue;
+            }
+
+            const expectedHashes = new Map<boolean, string>();
+            let changed = false;
+            for (const installed of installedPaths) {
+              let expectedHash = expectedHashes.get(installed.eve);
+              if (!expectedHash) {
+                expectedHash = await computeSkillFolderHash(
+                  join(tempDir, dirname(skillPath)),
+                  expectedInstalledHashOptions(installed.eve)
+                );
+                expectedHashes.set(installed.eve, expectedHash);
+              }
+              const installedHash = await computeSkillFolderHash(installed.path);
+              if (expectedHash !== installedHash) {
+                changed = true;
+                break;
+              }
+            }
+            if (changed) {
+              updates.push({ name: skill.name, source });
+            }
+          } catch {
+            failCount++;
+            console.log(`  ${DIM}✗ Failed to check ${sanitizeMetadata(skill.name)}${RESET}`);
+          }
+        }
+      }
     } catch (error) {
-      console.log(`${DIM}✗ Failed to check for deleted skills from ${source}${RESET}`);
+      console.log(
+        `${DIM}✗ ${
+          options.checkOnly ? 'Failed to check skills' : 'Failed to check for deleted skills'
+        } from ${source}${RESET}`
+      );
+      if (options.checkOnly) {
+        failCount += skillsForSource.length;
+      }
     } finally {
       if (tempDir) {
         await cleanupTempDir(tempDir);
       }
     }
+
+    if (options.checkOnly) continue;
 
     const remainingSkills = skillsForSource.filter((s) => !deletedSkills.includes(s.name));
 
@@ -922,8 +1098,26 @@ export async function updateProjectSkills(
     }
   }
 
+  if (options.checkOnly) {
+    const totalUpdateCount = updates.length + wkUpdateCount;
+    if (!wkChanged && totalUpdateCount === 0 && failCount === 0 && deletedCount === 0) {
+      console.log(`${TEXT}✓ All project skills are up to date${RESET}`);
+    } else if (updates.length > 0) {
+      console.log(`${TEXT}${updates.length} project update(s) available:${RESET}`);
+      for (const update of updates) {
+        console.log(`  ${TEXT}↑${RESET} ${sanitizeMetadata(update.name)}`);
+        console.log(`    ${DIM}source: ${sanitizeMetadata(update.source)}${RESET}`);
+      }
+    }
+  }
+
   printLegacyProjectSkills(legacy);
-  return { successCount, failCount, foundCount: projectSkills.length };
+  return {
+    successCount,
+    failCount,
+    foundCount: projectSkills.length,
+    updateCount: updates.length + wkUpdateCount,
+  };
 }
 
 export function printLegacyProjectSkills(
@@ -947,11 +1141,16 @@ export function printLegacyProjectSkills(
   }
 }
 
-export async function runUpdate(args: string[] = []): Promise<void> {
-  const options = parseUpdateOptions(args);
+export async function runUpdate(
+  args: string[] = [],
+  mode: 'check' | 'update' = 'update'
+): Promise<void> {
+  const options = { ...parseUpdateOptions(args), checkOnly: mode === 'check' };
   const scope = await resolveUpdateScope(options);
 
-  if (options.skills) {
+  if (options.checkOnly) {
+    console.log(`${TEXT}Checking for skill updates…${RESET}`);
+  } else if (options.skills) {
     console.log(`${TEXT}Updating ${options.skills.join(', ')}…${RESET}`);
   } else {
     console.log(`${TEXT}Checking for skill updates…${RESET}`);
@@ -961,15 +1160,18 @@ export async function runUpdate(args: string[] = []): Promise<void> {
   let totalSuccess = 0;
   let totalFail = 0;
   let totalFound = 0;
+  let totalUpdates = 0;
 
   if (scope === 'global' || scope === 'both') {
     if (scope === 'both' && !options.skills) {
       console.log(`${BOLD}Global Skills${RESET}`);
     }
-    const { successCount, failCount, checkedCount } = await updateGlobalSkills(options);
+    const { successCount, failCount, checkedCount, updateCount } =
+      await updateGlobalSkills(options);
     totalSuccess += successCount;
     totalFail += failCount;
     totalFound += checkedCount;
+    totalUpdates += updateCount;
     if (scope === 'both' && !options.skills) {
       console.log();
     }
@@ -979,10 +1181,11 @@ export async function runUpdate(args: string[] = []): Promise<void> {
     if (scope === 'both' && !options.skills) {
       console.log(`${BOLD}Project Skills${RESET}`);
     }
-    const { successCount, failCount, foundCount } = await updateProjectSkills(options);
+    const { successCount, failCount, foundCount, updateCount } = await updateProjectSkills(options);
     totalSuccess += successCount;
     totalFail += failCount;
     totalFound += foundCount;
+    totalUpdates += updateCount;
   }
 
   if (options.skills && totalFound === 0) {
@@ -994,17 +1197,28 @@ export async function runUpdate(args: string[] = []): Promise<void> {
     console.log(`${TEXT}✓ Updated ${totalSuccess} skill(s)${RESET}`);
   }
   if (totalFail > 0) {
-    console.log(`${DIM}Failed to update ${totalFail} skill(s)${RESET}`);
+    console.log(
+      `${DIM}Failed to ${options.checkOnly ? 'check' : 'update'} ${totalFail} skill(s)${RESET}`
+    );
     process.exitCode = 1;
   }
 
-  track({
-    event: 'update',
-    scope,
-    skillCount: String(totalSuccess + totalFail),
-    successCount: String(totalSuccess),
-    failCount: String(totalFail),
-  });
+  if (options.checkOnly) {
+    track({
+      event: 'check',
+      scope,
+      skillCount: String(totalFound),
+      updatesAvailable: String(totalUpdates),
+    });
+  } else {
+    track({
+      event: 'update',
+      scope,
+      skillCount: String(totalSuccess + totalFail),
+      successCount: String(totalSuccess),
+      failCount: String(totalFail),
+    });
+  }
 
   console.log();
 }

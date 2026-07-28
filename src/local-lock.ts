@@ -142,9 +142,17 @@ function getPortableLocalSource(source: string, lockDir: string): string {
  * Reads all files recursively, sorts them by relative path for determinism,
  * and produces a single hash from their concatenated contents.
  */
-export async function computeSkillFolderHash(skillDir: string): Promise<string> {
+export interface SkillFolderHashOptions {
+  exclude?: (name: string, isDirectory: boolean) => boolean;
+  transform?: (relativePath: string, content: Buffer) => Buffer;
+}
+
+export async function computeSkillFolderHash(
+  skillDir: string,
+  options: SkillFolderHashOptions = {}
+): Promise<string> {
   const files: Array<{ relativePath: string; content: Buffer }> = [];
-  await collectFiles(skillDir, skillDir, files);
+  await collectFiles(skillDir, skillDir, files, options);
 
   // Sort by relative path for deterministic hashing
   files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
@@ -153,7 +161,7 @@ export async function computeSkillFolderHash(skillDir: string): Promise<string> 
   for (const file of files) {
     // Include the path in the hash so renames are detected
     hash.update(file.relativePath);
-    hash.update(file.content);
+    hash.update(options.transform?.(file.relativePath, file.content) ?? file.content);
   }
 
   return hash.digest('hex');
@@ -162,18 +170,21 @@ export async function computeSkillFolderHash(skillDir: string): Promise<string> 
 async function collectFiles(
   baseDir: string,
   currentDir: string,
-  results: Array<{ relativePath: string; content: Buffer }>
+  results: Array<{ relativePath: string; content: Buffer }>,
+  options: SkillFolderHashOptions
 ): Promise<void> {
   const entries = await readdir(currentDir, { withFileTypes: true });
 
   await Promise.all(
     entries.map(async (entry) => {
+      if (options.exclude?.(entry.name, entry.isDirectory())) return;
+
       const fullPath = join(currentDir, entry.name);
 
       if (entry.isDirectory()) {
         // Skip .git and node_modules within skill dirs
         if (entry.name === '.git' || entry.name === 'node_modules') return;
-        await collectFiles(baseDir, fullPath, results);
+        await collectFiles(baseDir, fullPath, results, options);
       } else if (entry.isFile()) {
         const content = await readFile(fullPath);
         const relativePath = relative(baseDir, fullPath).split('\\').join('/');

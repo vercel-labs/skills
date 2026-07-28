@@ -429,7 +429,7 @@ const isExcluded = (name: string, isDirectory: boolean = false): boolean => {
   return false;
 };
 
-function stripIgnoredEveFrontmatter(raw: string): string {
+export function stripIgnoredEveFrontmatter(raw: string): string {
   const { data, content } = parseFrontmatter(raw);
   const eveData: Record<string, unknown> = {};
 

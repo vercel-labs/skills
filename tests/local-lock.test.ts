@@ -387,6 +387,30 @@ describe('local-lock', () => {
       }
     });
 
+    it('can hash the representation written by an installer', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        const sourceDir = join(dir, 'source');
+        const installedDir = join(dir, 'installed');
+        await mkdir(sourceDir, { recursive: true });
+        await mkdir(installedDir, { recursive: true });
+        await writeFile(join(sourceDir, 'SKILL.md'), 'source content', 'utf-8');
+        await writeFile(join(sourceDir, 'metadata.json'), '{}', 'utf-8');
+        await writeFile(join(installedDir, 'SKILL.md'), 'installed content', 'utf-8');
+
+        const sourceHash = await computeSkillFolderHash(sourceDir, {
+          exclude: (name) => name === 'metadata.json',
+          transform: (path, content) =>
+            path === 'SKILL.md' ? Buffer.from('installed content') : content,
+        });
+        const installedHash = await computeSkillFolderHash(installedDir);
+
+        expect(sourceHash).toBe(installedHash);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
     it('changes when a file is added', async () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {

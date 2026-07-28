@@ -132,14 +132,15 @@ When installing interactively, you can choose:
 
 ## Other Commands
 
-| Command                      | Description                                   |
-| ---------------------------- | --------------------------------------------- |
-| `npx skills use <source>`    | Use one skill without installing              |
-| `npx skills list`            | List installed skills (alias: `ls`)           |
-| `npx skills find [query]`    | Search for skills interactively or by keyword |
-| `npx skills remove [skills]` | Remove installed skills from agents           |
-| `npx skills update [skills]` | Update installed skills to latest versions    |
-| `npx skills init [name]`     | Create a new SKILL.md template                |
+| Command                      | Description                                    |
+| ---------------------------- | ---------------------------------------------- |
+| `npx skills use <source>`    | Use one skill without installing               |
+| `npx skills list`            | List installed skills (alias: `ls`)            |
+| `npx skills find [query]`    | Search for skills interactively or by keyword  |
+| `npx skills remove [skills]` | Remove installed skills from agents            |
+| `npx skills check [skills]`  | Check for available updates without installing |
+| `npx skills update [skills]` | Update installed skills to latest versions     |
+| `npx skills init [name]`     | Create a new SKILL.md template                 |
 
 ### `skills list`
 
@@ -171,9 +172,19 @@ npx skills find typescript
 npx skills find react --owner vercel
 ```
 
-### `skills update`
+### `skills check` / `skills update`
 
 ```bash
+# Check for updates without modifying installed skills
+npx skills check
+
+# Check only global or project skills
+npx skills check -g
+npx skills check -p
+
+# Check both global and project skills
+npx skills check -g -p
+
 # Update all skills (interactive scope prompt)
 npx skills update
 
@@ -193,10 +204,10 @@ npx skills update -y
 
 | Option          | Description                                                               |
 | --------------- | ------------------------------------------------------------------------- |
-| `-g, --global`  | Only update global skills                                                 |
-| `-p, --project` | Only update project skills                                                |
+| `-g, --global`  | Only check or update global skills                                        |
+| `-p, --project` | Only check or update project skills                                       |
 | `-y, --yes`     | Skip scope prompt (auto-detect: project if in a project dir, else global) |
-| `[skills...]`   | Update specific skills by name instead of all                             |
+| `[skills...]`   | Check or update specific skills by name instead of all                    |
 
 ### `skills init`
 

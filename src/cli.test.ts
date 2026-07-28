@@ -12,6 +12,7 @@ describe('skills CLI', () => {
       expect(output).toContain('init [name]');
       expect(output).toContain('add <package>');
       expect(output).toContain('use <package>@<skill>');
+      expect(output).toContain('check [skills...]');
       expect(output).toContain('update');
       expect(output).toContain('Add Options:');
       expect(output).toContain('Use Options:');

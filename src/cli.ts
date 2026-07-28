@@ -120,11 +120,12 @@ ${BOLD}Find Options:${RESET}
   --owner <owner>        Search only repositories from a GitHub owner
 
 ${BOLD}Updates:${RESET}
+  check [skills...]    Check for available skill updates without installing them
   update [skills...]   Update skills to latest versions (alias: upgrade)
 
-${BOLD}Update Options:${RESET}
-  -g, --global           Update global skills only
-  -p, --project          Update project skills only
+${BOLD}Check/Update Options:${RESET}
+  -g, --global           Use global skills only
+  -p, --project          Use project skills only
   -y, --yes              Skip scope prompt (auto-detect: project if in a project, else global)
 
 ${BOLD}Project:${RESET}
@@ -391,6 +392,8 @@ async function main(): Promise<void> {
       await runList(restArgs);
       break;
     case 'check':
+      await runUpdate(restArgs, 'check');
+      break;
     case 'update':
     case 'upgrade':
       await runUpdate(restArgs);

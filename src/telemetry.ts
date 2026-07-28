@@ -38,6 +38,13 @@ interface UpdateTelemetryData {
   failCount: string;
 }
 
+interface CheckTelemetryData {
+  event: 'check';
+  scope?: string;
+  skillCount: string;
+  updatesAvailable: string;
+}
+
 interface FindTelemetryData {
   event: 'find';
   query: string;
@@ -55,6 +62,7 @@ interface SyncTelemetryData {
 type TelemetryData =
   | InstallTelemetryData
   | RemoveTelemetryData
+  | CheckTelemetryData
   | UpdateTelemetryData
   | FindTelemetryData
   | SyncTelemetryData;

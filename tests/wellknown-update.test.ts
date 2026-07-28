@@ -1,10 +1,35 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { checkWellKnownForUpdates, type WellKnownUpdateItem } from '../src/update.ts';
+import { spawnSync } from 'child_process';
+import {
+  checkWellKnownForUpdates,
+  processWellKnownUpdates,
+  updateProjectSkills,
+  type WellKnownUpdateItem,
+} from '../src/update.ts';
+import * as localLock from '../src/local-lock.ts';
+import * as remove from '../src/remove.ts';
+import * as p from '@clack/prompts';
 import {
   computeWellKnownSkillDigest,
   wellKnownProvider,
   type WellKnownSkill,
 } from '../src/providers/index.ts';
+
+vi.mock('child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('child_process')>();
+  return { ...actual, spawnSync: vi.fn() };
+});
+
+vi.mock('../src/local-lock.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/local-lock.ts')>();
+  return { ...actual, readLocalLock: vi.fn() };
+});
+
+vi.mock('../src/remove.ts');
+vi.mock('@clack/prompts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@clack/prompts')>();
+  return { ...actual, confirm: vi.fn() };
+});
 
 const BASE_URL = 'https://skills.example.com/p/testpack';
 
@@ -76,6 +101,8 @@ async function digestOf(name: string, contents = V1_CONTENTS): Promise<string> {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
+  vi.clearAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -254,5 +281,45 @@ describe('checkWellKnownForUpdates', () => {
       .map((call) => String(call[0]))
       .filter((url) => url.endsWith('/SKILL.md'));
     expect(fileCalls).toEqual([`${BASE_URL}/.well-known/skills/alpha-skill/SKILL.md`]);
+  });
+});
+
+describe('processWellKnownUpdates', () => {
+  it('reports updates without installing in check mode', async () => {
+    stubWellKnownServer(v2Index([{ name: 'alpha-skill', digest: DIGEST_A }]));
+
+    const result = await processWellKnownUpdates(
+      new Map([[BASE_URL, [{ name: 'alpha-skill', digest: DIGEST_STALE }]]]),
+      true,
+      { checkOnly: true, yes: true }
+    );
+
+    expect(result.updateCount).toBe(1);
+    expect(result.successCount).toBe(0);
+    expect(spawnSync).not.toHaveBeenCalled();
+  });
+
+  it('warns about removed project skills without mutating or reporting them as current', async () => {
+    vi.mocked(localLock.readLocalLock).mockResolvedValue({
+      version: 1,
+      skills: {
+        'alpha-skill': {
+          source: 'wellknown/skills.example.com',
+          sourceUrl: BASE_URL,
+          sourceType: 'well-known',
+          wellKnownDigest: DIGEST_A,
+        },
+      },
+    });
+    stubWellKnownServer(v2Index([]));
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const result = await updateProjectSkills({ checkOnly: true });
+
+    expect(result.updateCount).toBe(0);
+    expect(log.mock.calls.flat().join('\n')).not.toContain('All project skills are up to date');
+    expect(p.confirm).not.toHaveBeenCalled();
+    expect(remove.removeCommand).not.toHaveBeenCalled();
+    expect(spawnSync).not.toHaveBeenCalled();
   });
 });

@@ -1,14 +1,20 @@
 import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest';
 import { spawnSync } from 'child_process';
-import { updateProjectSkills, updateGlobalSkills, runUpdate } from '../src/update.ts';
+import {
+  resolveUpdateScope,
+  updateProjectSkills,
+  updateGlobalSkills,
+  runUpdate,
+} from '../src/update.ts';
 import * as git from '../src/git.ts';
 import * as skills from '../src/skills.ts';
 import * as blob from '../src/blob.ts';
 import * as localLock from '../src/local-lock.ts';
 import * as skillLock from '../src/skill-lock.ts';
 import * as remove from '../src/remove.ts';
+import * as installer from '../src/installer.ts';
 import * as p from '@clack/prompts';
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
 // Mock dependencies
@@ -18,6 +24,7 @@ vi.mock('../src/blob.ts');
 vi.mock('../src/local-lock.ts');
 vi.mock('../src/skill-lock.ts');
 vi.mock('../src/remove.ts');
+vi.mock('../src/installer.ts');
 vi.mock('@clack/prompts');
 
 // Mock fs to prevent actual file checks during test
@@ -74,6 +81,9 @@ describe('Update Cleanup Unit Tests', () => {
     vi.clearAllMocks();
     process.exitCode = undefined;
     process.env.DISABLE_TELEMETRY = '1';
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(installer.sanitizeName).mockImplementation((name) => name);
+    vi.mocked(installer.stripIgnoredEveFrontmatter).mockImplementation((content) => content);
     // Default mock for isTTY
     Object.defineProperty(process.stdin, 'isTTY', {
       value: true,
@@ -86,6 +96,122 @@ describe('Update Cleanup Unit Tests', () => {
   });
 
   describe('updateProjectSkills', () => {
+    it('reports project updates without reinstalling skills in check mode', async () => {
+      vi.mocked(localLock.readLocalLock).mockResolvedValue({
+        version: 1,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            computedHash: 'old-hash',
+          },
+        },
+      });
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        { name: 'skill-a', path: '/tmp/repo/skills/skill-a', description: 'A', rawContent: '' },
+      ]);
+      vi.mocked(localLock.computeSkillFolderHash)
+        .mockResolvedValueOnce('new-hash')
+        .mockResolvedValueOnce('old-hash');
+
+      const result = await updateProjectSkills({ checkOnly: true, yes: true });
+
+      expect(result.updateCount).toBe(1);
+      expect(git.cloneRepo).toHaveBeenCalledWith('https://github.com/owner/repo.git', undefined);
+      expect(localLock.computeSkillFolderHash).toHaveBeenCalledWith(
+        join('/tmp/repo', 'skills/skill-a'),
+        expect.any(Object)
+      );
+      expect(localLock.computeSkillFolderHash).toHaveBeenCalledWith(
+        join(process.cwd(), '.agents/skills/skill-a')
+      );
+      expect(spawnSync).not.toHaveBeenCalled();
+      expect(remove.removeCommand).not.toHaveBeenCalled();
+
+      vi.mocked(localLock.computeSkillFolderHash).mockReset().mockResolvedValue('same-hash');
+      const upToDateResult = await updateProjectSkills({ checkOnly: true, yes: true });
+      expect(upToDateResult.updateCount).toBe(0);
+    });
+
+    it('checks every copied project installation', async () => {
+      const canonicalPath = join(process.cwd(), '.agents/skills/skill-a');
+      const claudePath = join(process.cwd(), '.claude/skills/skill-a');
+      vi.mocked(existsSync).mockImplementation(
+        (path) =>
+          path === canonicalPath ||
+          path === claudePath ||
+          (typeof path === 'string' && path.endsWith('/bin/cli.mjs'))
+      );
+      vi.mocked(localLock.readLocalLock).mockResolvedValue({
+        version: 1,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            computedHash: 'installed-hash',
+          },
+        },
+      });
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        { name: 'skill-a', path: '/tmp/repo/skills/skill-a', description: 'A', rawContent: '' },
+      ]);
+      vi.mocked(localLock.computeSkillFolderHash)
+        .mockResolvedValueOnce('remote-hash')
+        .mockResolvedValueOnce('remote-hash')
+        .mockResolvedValueOnce('changed-copy-hash');
+
+      const result = await updateProjectSkills({ checkOnly: true, yes: true });
+
+      expect(result.updateCount).toBe(1);
+      expect(localLock.computeSkillFolderHash).toHaveBeenCalledWith(canonicalPath);
+      expect(localLock.computeSkillFolderHash).toHaveBeenCalledWith(claudePath);
+    });
+
+    it('checks separate refs from the same project source independently', async () => {
+      vi.mocked(localLock.readLocalLock).mockResolvedValue({
+        version: 1,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            ref: 'main',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            computedHash: 'same-hash',
+          },
+          'skill-b': {
+            source: 'owner/repo',
+            ref: 'beta',
+            skillPath: 'skills/skill-b/SKILL.md',
+            sourceType: 'github',
+            computedHash: 'same-hash',
+          },
+        },
+      });
+      vi.mocked(git.cloneRepo).mockImplementation(async (_source, ref) => `/tmp/repo-${ref}`);
+      vi.mocked(skills.discoverSkills).mockImplementation(async (path) => {
+        const name = path.endsWith('main') ? 'skill-a' : 'skill-b';
+        return [
+          {
+            name,
+            path: join(path, 'skills', name),
+            description: name,
+            rawContent: '',
+          },
+        ];
+      });
+      vi.mocked(localLock.computeSkillFolderHash).mockResolvedValue('same-hash');
+
+      const result = await updateProjectSkills({ checkOnly: true, yes: true });
+
+      expect(result.updateCount).toBe(0);
+      expect(git.cloneRepo).toHaveBeenCalledWith('https://github.com/owner/repo.git', 'main');
+      expect(git.cloneRepo).toHaveBeenCalledWith('https://github.com/owner/repo.git', 'beta');
+    });
+
     it('should prompt to remove deleted skill on update', async () => {
       // Mock local lock with 2 skills from same source
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
@@ -364,6 +490,146 @@ describe('Update Cleanup Unit Tests', () => {
   });
 
   describe('updateGlobalSkills', () => {
+    it('checks separate refs from the same global source independently', async () => {
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            ref: 'main',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            skillFolderHash: 'hash-a',
+            installedAt: '',
+            updatedAt: '',
+          },
+          'skill-b': {
+            source: 'owner/repo',
+            ref: 'beta',
+            skillPath: 'skills/skill-b/SKILL.md',
+            sourceType: 'github',
+            skillFolderHash: 'hash-b',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+      vi.mocked(blob.fetchRepoTree).mockImplementation(async (_source, ref) => {
+        const name = ref === 'main' ? 'skill-a' : 'skill-b';
+        return {
+          sha: `root-${ref}`,
+          branch: ref!,
+          tree: [
+            { path: `skills/${name}/SKILL.md`, type: 'blob', sha: `blob-${ref}` },
+            { path: `skills/${name}`, type: 'tree', sha: `hash-${name.slice(-1)}` },
+          ],
+        };
+      });
+      vi.mocked(blob.getSkillFolderHashFromTree).mockImplementation((_tree, skillPath) =>
+        skillPath.includes('skill-a') ? 'hash-a' : 'hash-b'
+      );
+
+      const result = await updateGlobalSkills({ checkOnly: true, yes: true });
+
+      expect(result.updateCount).toBe(0);
+      expect(blob.fetchRepoTree).toHaveBeenCalledWith(
+        'owner/repo',
+        'main',
+        skillLock.getGitHubToken
+      );
+      expect(blob.fetchRepoTree).toHaveBeenCalledWith(
+        'owner/repo',
+        'beta',
+        skillLock.getGitHubToken
+      );
+    });
+
+    it('reports global updates without reinstalling skills in check mode', async () => {
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            sourceUrl: 'https://github.com/owner/repo.git',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            skillFolderHash: 'old-hash',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+      vi.mocked(blob.fetchRepoTree).mockResolvedValue({
+        sha: 'rootsha',
+        branch: 'main',
+        tree: [
+          { path: 'skills/skill-a/SKILL.md', type: 'blob', sha: 'skill-md-sha' },
+          { path: 'skills/skill-a', type: 'tree', sha: 'new-hash' },
+        ],
+      });
+      vi.mocked(blob.getSkillFolderHashFromTree).mockReturnValue('new-hash');
+
+      const result = await updateGlobalSkills({ checkOnly: true, yes: true });
+
+      expect(result.updateCount).toBe(1);
+      expect(spawnSync).not.toHaveBeenCalled();
+      expect(remove.removeCommand).not.toHaveBeenCalled();
+    });
+
+    it('does not remove skills deleted upstream in check mode', async () => {
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            sourceUrl: 'https://github.com/owner/repo.git',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            skillFolderHash: 'old-hash',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+      vi.mocked(blob.fetchRepoTree).mockResolvedValue({
+        sha: 'rootsha',
+        branch: 'main',
+        tree: [],
+      });
+      vi.mocked(p.confirm).mockResolvedValue(true);
+
+      await updateGlobalSkills({ checkOnly: true });
+
+      expect(p.confirm).not.toHaveBeenCalled();
+      expect(remove.removeCommand).not.toHaveBeenCalled();
+      expect(spawnSync).not.toHaveBeenCalled();
+    });
+
+    it('reports a failed remote check when the API and clone fallback both fail', async () => {
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            sourceUrl: 'https://github.com/owner/repo.git',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            skillFolderHash: 'old-hash',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+      vi.mocked(blob.fetchRepoTree).mockResolvedValue(null);
+      vi.mocked(git.cloneRepo).mockRejectedValueOnce(new Error('clone failed'));
+
+      const result = await updateGlobalSkills({ checkOnly: true, yes: true });
+
+      expect(result.failCount).toBe(1);
+      expect(result.updateCount).toBe(0);
+      expect(spawnSync).not.toHaveBeenCalled();
+    });
+
     it('should prompt to remove deleted skill on global update', async () => {
       // Mock readSkillLock
       vi.mocked(skillLock.readSkillLock).mockResolvedValue({
@@ -787,6 +1053,16 @@ describe('Update Cleanup Unit Tests', () => {
   });
 
   describe('runUpdate exit status', () => {
+    it('respects both explicit scopes when filtering by skill name', async () => {
+      await expect(
+        resolveUpdateScope({
+          global: true,
+          project: true,
+          skills: ['skill-a'],
+        })
+      ).resolves.toBe('both');
+    });
+
     beforeEach(() => {
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
         version: 1,
@@ -819,6 +1095,68 @@ describe('Update Cleanup Unit Tests', () => {
 
       await runUpdate(['--project', '--yes']);
 
+      expect(process.exitCode).toBeUndefined();
+    });
+
+    it('checks both project and global scopes without applying updates', async () => {
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'global-skill': {
+            source: 'owner/global',
+            sourceUrl: 'https://github.com/owner/global.git',
+            skillPath: 'skills/global-skill/SKILL.md',
+            sourceType: 'github',
+            skillFolderHash: 'old-global-hash',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+      vi.mocked(localLock.readLocalLock).mockResolvedValue({
+        version: 1,
+        skills: {
+          'project-skill': {
+            source: 'owner/project',
+            skillPath: 'skills/project-skill/SKILL.md',
+            sourceType: 'github',
+            computedHash: 'old-project-hash',
+          },
+        },
+      });
+      vi.mocked(blob.fetchRepoTree).mockResolvedValue({
+        sha: 'rootsha',
+        branch: 'main',
+        tree: [
+          {
+            path: 'skills/global-skill/SKILL.md',
+            type: 'blob',
+            sha: 'global-skill-md-sha',
+          },
+          { path: 'skills/global-skill', type: 'tree', sha: 'new-global-hash' },
+        ],
+      });
+      vi.mocked(blob.getSkillFolderHashFromTree).mockReturnValue('new-global-hash');
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/project-repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        {
+          name: 'project-skill',
+          path: '/tmp/project-repo/skills/project-skill',
+          description: 'Project skill',
+          rawContent: '',
+        },
+      ]);
+      vi.mocked(localLock.computeSkillFolderHash)
+        .mockResolvedValueOnce('new-project-hash')
+        .mockResolvedValueOnce('old-project-hash');
+
+      await runUpdate(['--global', '--project', '--yes'], 'check');
+
+      expect(skillLock.readSkillLock).toHaveBeenCalled();
+      expect(localLock.readLocalLock).toHaveBeenCalled();
+      expect(spawnSync).not.toHaveBeenCalled();
+      expect(remove.removeCommand).not.toHaveBeenCalled();
+      expect(p.confirm).not.toHaveBeenCalled();
       expect(process.exitCode).toBeUndefined();
     });
   });
