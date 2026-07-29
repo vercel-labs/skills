@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { existsSync, rmSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, lstatSync, rmSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli, stripAnsi } from './test-utils.ts';
@@ -257,6 +257,48 @@ description: Test
   it('should restore from lock file with experimental_install', () => {
     const result = runCli(['experimental_install'], testDir);
     expect(result.stdout).toContain('No project skills found in skills-lock.json');
+  });
+
+  it('should restore to selected agents using copy mode with experimental_install', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'restore-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: restore-skill
+description: Restore test skill
+---
+
+# Restore Skill
+`
+    );
+    writeFileSync(
+      join(testDir, 'skills-lock.json'),
+      JSON.stringify({
+        version: 1,
+        skills: {
+          'restore-skill': {
+            source: sourceDir,
+            sourceType: 'local',
+            computedHash: 'test',
+          },
+        },
+      })
+    );
+    const result = runCli(
+      ['experimental_install', '--agent', 'claude-code', 'openclaw', '--copy'],
+      testDir
+    );
+
+    expect(result.exitCode).toBe(0);
+    for (const agentDir of [
+      join(testDir, '.claude', 'skills', 'restore-skill'),
+      join(testDir, 'skills', 'restore-skill'),
+    ]) {
+      expect(existsSync(join(agentDir, 'SKILL.md'))).toBe(true);
+      expect(lstatSync(agentDir).isSymbolicLink()).toBe(false);
+    }
   });
 
   describe('internal skills', () => {
