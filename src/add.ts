@@ -6,6 +6,54 @@ import { sep, join, dirname } from 'path';
 import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
 import { stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
+import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
+import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
+import {
+  installSkillForAgent,
+  installBlobSkillForAgent,
+  isSkillInstalled,
+  getCanonicalPath,
+  installWellKnownSkillForAgent,
+  type InstallMode,
+} from './installer.ts';
+import {
+  detectInstalledAgents,
+  agents,
+  getUniversalAgents,
+  getVisibleUniversalAgents,
+  getNonUniversalAgents,
+  isUniversalAgent,
+  getEveSubagents,
+} from './agents.ts';
+import {
+  track,
+  setVersion,
+  fetchAuditData,
+  type AuditResponse,
+  type PartnerAudit,
+} from './telemetry.ts';
+import { detectAgent, getAgentType } from './detect-agent.ts';
+import { wellKnownProvider, type WellKnownSkill } from './providers/index.ts';
+import { downloadSource } from './download-source.ts';
+import {
+  addSkillToLock,
+  getGitHubToken,
+  isPromptDismissed,
+  dismissPrompt,
+  getLastSelectedAgents,
+  saveSelectedAgents,
+} from './skill-lock.ts';
+import { addSkillToLocalLock, computeSkillFolderHash } from './local-lock.ts';
+import type { Skill, AgentType } from './types.ts';
+import {
+  tryBlobInstall,
+  BLOB_ALLOWED_REPOS,
+  getSkillFolderHashFromTree,
+  fetchRepoTree,
+  type BlobSkill,
+  type BlobInstallResult,
+} from './blob.ts';
+import packageJson from '../package.json' with { type: 'json' };
 
 // Helper to check if a value is a cancel symbol (works with both clack and our custom prompts)
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
@@ -47,53 +95,6 @@ export function getLockSource(parsedUrl: string, normalizedSource: string | null
 export function getProjectLockSourceUrl(sourceType: string, sourceUrl: string): string | undefined {
   return sourceType === 'git' || sourceType === 'gitlab' ? sourceUrl : undefined;
 }
-import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
-import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
-import {
-  installSkillForAgent,
-  installBlobSkillForAgent,
-  isSkillInstalled,
-  getCanonicalPath,
-  installWellKnownSkillForAgent,
-  type InstallMode,
-} from './installer.ts';
-import {
-  detectInstalledAgents,
-  agents,
-  getUniversalAgents,
-  getVisibleUniversalAgents,
-  getNonUniversalAgents,
-  isUniversalAgent,
-  getEveSubagents,
-} from './agents.ts';
-import {
-  track,
-  setVersion,
-  fetchAuditData,
-  type AuditResponse,
-  type PartnerAudit,
-} from './telemetry.ts';
-import { detectAgent, getAgentType } from './detect-agent.ts';
-import { wellKnownProvider, type WellKnownSkill } from './providers/index.ts';
-import {
-  addSkillToLock,
-  getGitHubToken,
-  isPromptDismissed,
-  dismissPrompt,
-  getLastSelectedAgents,
-  saveSelectedAgents,
-} from './skill-lock.ts';
-import { addSkillToLocalLock, computeSkillFolderHash } from './local-lock.ts';
-import type { Skill, AgentType } from './types.ts';
-import {
-  tryBlobInstall,
-  BLOB_ALLOWED_REPOS,
-  getSkillFolderHashFromTree,
-  fetchRepoTree,
-  type BlobSkill,
-  type BlobInstallResult,
-} from './blob.ts';
-import packageJson from '../package.json' with { type: 'json' };
 export function initTelemetry(version: string): void {
   setVersion(version);
 }
@@ -560,20 +561,15 @@ async function handleWellKnownSkills(
   url: string,
   options: AddOptions,
   spinner: ReturnType<typeof p.spinner>
-): Promise<void> {
-  spinner.start('Discovering skills from well-known endpoint…');
+): Promise<boolean> {
+  spinner.start('Discovering skills from well-known endpoint...');
 
   // Fetch all skills from the well-known endpoint
-  const skills = await wellKnownProvider.fetchAllSkills(url);
+  const skills = await wellKnownProvider.fetchAllSkills(url).catch(() => []);
 
   if (skills.length === 0) {
-    spinner.stop(pc.red('No skills found'));
-    p.outro(
-      pc.red(
-        'No skills found at this URL. Make sure the server has a /.well-known/agent-skills/index.json or /.well-known/skills/index.json file.'
-      )
-    );
-    process.exit(1);
+    spinner.stop(pc.dim('No well-known skills found; trying direct download...'));
+    return false;
   }
 
   spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
@@ -898,6 +894,7 @@ async function handleWellKnownSkills(
       agents: targetAgents.join(','),
       ...(installGlobally && { global: '1' }),
       skillFiles: JSON.stringify(skillFiles),
+      installUrl: url,
       metadata: options.metadata,
       sourceType: 'well-known',
     });
@@ -1017,6 +1014,7 @@ async function handleWellKnownSkills(
 
   // Prompt for find-skills after successful install
   await promptForFindSkills(options, targetAgents);
+  return true;
 }
 
 export async function runAdd(args: string[], options: AddOptions = {}): Promise<void> {
@@ -1088,6 +1086,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     spinner.start('Parsing source…');
     const parsed = parseSource(source);
+    let directDownload = parsed.type === 'download';
     spinner.stop(
       `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
     );
@@ -1095,7 +1094,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Kick off the repo privacy check early so it runs in parallel with
     // cloning/discovering/installing. The result is only needed later for
     // telemetry gating — it should never block user-visible output.
-    const ownerRepoRaw = getOwnerRepo(parsed);
+    const ownerRepoRaw =
+      parsed.type === 'well-known' || parsed.type === 'download' ? null : getOwnerRepo(parsed);
     const repoPrivacyPromise: Promise<boolean | null> = (() => {
       // The privacy endpoint below is GitHub.com-specific. In particular, do
       // not send GitHub Enterprise repository names to the public API.
@@ -1106,10 +1106,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       return isRepoPrivate(ownerRepo.owner, ownerRepo.repo).catch(() => null);
     })();
 
-    // Handle well-known skills from arbitrary URLs
+    // Handle arbitrary URLs by trying well-known discovery first, then
+    // falling back to a direct SKILL.md/archive download.
     if (parsed.type === 'well-known') {
-      await handleWellKnownSkills(source, parsed.url, options, spinner);
-      return;
+      const handled = await handleWellKnownSkills(source, parsed.url, options, spinner);
+      if (handled) return;
+      directDownload = true;
     }
 
     // If skillFilter is present from @skill syntax (e.g., owner/repo@skill-name),
@@ -1140,6 +1142,17 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
       spinner.start('Discovering skills…');
       skills = await discoverSkills(parsed.localPath!, parsed.subpath, {
+        includeInternal,
+        fullDepth: options.fullDepth,
+      });
+    } else if (parsed.type === 'well-known' || parsed.type === 'download') {
+      spinner.start('Downloading source...');
+      const downloaded = await downloadSource(parsed.url);
+      tempDir = downloaded.tempDir;
+      spinner.stop(`Downloaded ${downloaded.kind === 'skill-md' ? 'SKILL.md file' : 'archive'}`);
+
+      spinner.start('Discovering skills...');
+      skills = await discoverSkills(downloaded.rootDir, parsed.subpath, {
         includeInternal,
         fullDepth: options.fullDepth,
       });
@@ -1768,10 +1781,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     // Normalize source to owner/repo format for telemetry
-    const normalizedSource = getOwnerRepo(parsed);
+    const normalizedSource = directDownload ? null : getOwnerRepo(parsed);
 
-    const lockSource = getLockSource(parsed.url, normalizedSource);
-    const projectLockSourceUrl = getProjectLockSourceUrl(parsed.type, parsed.url);
+    const lockSource = directDownload ? null : getLockSource(parsed.url, normalizedSource);
+    const projectLockSourceUrl = directDownload
+      ? undefined
+      : getProjectLockSourceUrl(parsed.type, parsed.url);
 
     // Only track if we have a valid remote source and it's not a private repo.
     // repoPrivacyPromise was started early (right after parsing) so it has
@@ -1854,7 +1869,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     // Add to local lock file for project-scoped installs
-    if (successful.length > 0 && !installGlobally) {
+    if (successful.length > 0 && !installGlobally && !directDownload) {
       const successfulSkillNames = new Set(successful.map((r) => r.skill));
       // Record Eve subagent placement (root = '') so `update` can restore it.
       // Only meaningful when Eve is among the targets and a non-root subagent

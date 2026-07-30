@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { gunzipSync, inflateRawSync } from 'node:zlib';
+import { gunzipSync } from 'node:zlib';
+import { readZipArchive } from '../archive.ts';
 import { parseFrontmatter } from '../frontmatter.ts';
 import { sanitizeMetadata } from '../sanitize.ts';
 import type { HostProvider, ProviderMatch, RemoteSkill } from './types.ts';
@@ -7,6 +8,7 @@ import type { HostProvider, ProviderMatch, RemoteSkill } from './types.ts';
 const DISCOVERY_SCHEMA_V2 = 'https://schemas.agentskills.io/discovery/0.2.0/schema.json';
 const MAX_ARCHIVE_UNPACKED_BYTES = 50 * 1024 * 1024;
 const MAX_ARCHIVE_FILES = 1000;
+const DISCOVERY_TIMEOUT_MS = 10_000;
 
 /**
  * Legacy index.json structure for well-known skills.
@@ -159,6 +161,7 @@ export class WellKnownProvider implements HostProvider {
     try {
       const parsed = new URL(baseUrl);
       const basePath = parsed.pathname.replace(/\/$/, '');
+      const signal = AbortSignal.timeout(DISCOVERY_TIMEOUT_MS);
 
       const urlsToTry: Array<{
         indexUrl: string;
@@ -192,7 +195,7 @@ export class WellKnownProvider implements HostProvider {
 
       for (const { indexUrl, baseUrl: resolvedBase, wellKnownPath } of urlsToTry) {
         try {
-          const response = await fetch(indexUrl);
+          const response = await fetch(indexUrl, { signal });
           if (!response.ok) continue;
 
           const rawIndex = (await response.json()) as unknown;
@@ -570,7 +573,12 @@ export class WellKnownProvider implements HostProvider {
     contentType: string
   ): Map<string, WellKnownFileContent> {
     if (this.isZipArchive(bytes, artifactUrl, contentType)) {
-      return this.extractZip(bytes);
+      return new Map<string, WellKnownFileContent>(
+        readZipArchive(bytes, {
+          maxExtractedBytes: MAX_ARCHIVE_UNPACKED_BYTES,
+          maxEntries: MAX_ARCHIVE_FILES,
+        })
+      );
     }
 
     if (this.isTarGzArchive(bytes, artifactUrl, contentType)) {
@@ -674,83 +682,6 @@ export class WellKnownProvider implements HostProvider {
     const slice = buffer.subarray(offset, offset + length);
     const nul = slice.indexOf(0);
     return new TextDecoder().decode(nul >= 0 ? slice.subarray(0, nul) : slice);
-  }
-
-  private extractZip(bytes: Uint8Array): Map<string, WellKnownFileContent> {
-    const buffer = Buffer.from(bytes);
-    const eocdOffset = this.findZipEndOfCentralDirectory(buffer);
-    if (eocdOffset < 0) throw new Error('Invalid zip archive');
-
-    const totalEntries = buffer.readUInt16LE(eocdOffset + 10);
-    const centralDirectoryOffset = buffer.readUInt32LE(eocdOffset + 16);
-    const files = new Map<string, WellKnownFileContent>();
-    const runningTotal = { bytes: 0 };
-    let offset = centralDirectoryOffset;
-
-    for (let i = 0; i < totalEntries; i++) {
-      if (buffer.readUInt32LE(offset) !== 0x02014b50) throw new Error('Invalid zip directory');
-
-      const flags = buffer.readUInt16LE(offset + 8);
-      const method = buffer.readUInt16LE(offset + 10);
-      const compressedSize = buffer.readUInt32LE(offset + 20);
-      const uncompressedSize = buffer.readUInt32LE(offset + 24);
-      const fileNameLength = buffer.readUInt16LE(offset + 28);
-      const extraLength = buffer.readUInt16LE(offset + 30);
-      const commentLength = buffer.readUInt16LE(offset + 32);
-      const externalAttributes = buffer.readUInt32LE(offset + 38);
-      const localHeaderOffset = buffer.readUInt32LE(offset + 42);
-      const nameStart = offset + 46;
-      const rawName = buffer.subarray(nameStart, nameStart + fileNameLength);
-      const fileName = new TextDecoder(flags & 0x800 ? 'utf-8' : undefined).decode(rawName);
-
-      offset = nameStart + fileNameLength + extraLength + commentLength;
-
-      // Directories are allowed but not installed as files.
-      if (fileName.endsWith('/')) continue;
-
-      // Reject encrypted entries, symlinks, and hard links. ZIP external attributes store
-      // POSIX mode bits in the upper 16 bits for common UNIX-producing tools.
-      if (flags & 0x1) throw new Error('Encrypted zip entries are not supported');
-      const unixMode = externalAttributes >>> 16;
-      const fileType = unixMode & 0o170000;
-      if (fileType === 0o120000 || fileType === 0o10000) {
-        throw new Error('Archive links are not supported');
-      }
-
-      if (buffer.readUInt32LE(localHeaderOffset) !== 0x04034b50) {
-        throw new Error('Invalid zip local header');
-      }
-      const localFileNameLength = buffer.readUInt16LE(localHeaderOffset + 26);
-      const localExtraLength = buffer.readUInt16LE(localHeaderOffset + 28);
-      const dataStart = localHeaderOffset + 30 + localFileNameLength + localExtraLength;
-      const compressed = buffer.subarray(dataStart, dataStart + compressedSize);
-
-      let content: Buffer;
-      if (method === 0) {
-        content = compressed;
-      } else if (method === 8) {
-        content = inflateRawSync(compressed);
-      } else {
-        throw new Error(`Unsupported zip compression method: ${method}`);
-      }
-
-      if (content.byteLength !== uncompressedSize) {
-        throw new Error('Zip entry size mismatch');
-      }
-
-      this.addArchiveFile(files, fileName, new Uint8Array(content), runningTotal);
-    }
-
-    if (!files.has('SKILL.md')) throw new Error('Archive missing root SKILL.md');
-    return files;
-  }
-
-  private findZipEndOfCentralDirectory(buffer: Buffer): number {
-    const minOffset = Math.max(0, buffer.length - 0xffff - 22);
-    for (let offset = buffer.length - 22; offset >= minOffset; offset--) {
-      if (buffer.readUInt32LE(offset) === 0x06054b50) return offset;
-    }
-    return -1;
   }
 
   /**

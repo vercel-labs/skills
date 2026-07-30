@@ -85,7 +85,12 @@ npx skills add vercel-labs/agent-skills --skill '*' -a claude-code
 
 # Install specific skills to all agents
 npx skills add vercel-labs/agent-skills --agent '*' --skill frontend-design
+
+# Install from a direct SKILL.md or archive download URL
+npx skills add https://example.com/download/my-skill
 ```
+
+Direct download URLs are tried after well-known discovery. They may point to a single valid `SKILL.md` file or a `.zip`, `.tar`, `.tar.gz`, or `.tgz` archive; the URL does not need to include a file extension. Downloads are limited to 10 MiB, extracted content to 25 MiB, and archives to 1000 files by default. Override with `SKILLS_DOWNLOAD_MAX_BYTES`, `SKILLS_EXTRACT_MAX_BYTES`, and `SKILLS_EXTRACT_MAX_FILES` when you trust the source.
 
 ### Installation Scope
 
