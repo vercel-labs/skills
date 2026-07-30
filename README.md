@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [70 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [71 more](#supported-agents).
 <!-- agent-list:end -->
 
 [![skills.sh](https://skills.sh/b/vercel-labs/skills)](https://skills.sh/vercel-labs/skills)
@@ -249,8 +249,7 @@ Skills can be installed to any of these agents:
 |-------|-----------|--------------|-------------|
 | AiderDesk | `aider-desk` | `.aider-desk/skills/` | `~/.aider-desk/skills/` |
 | Amp, Replit, Universal | `amp`, `replit`, `universal` | `.agents/skills/` | `~/.config/agents/skills/` |
-| Antigravity | `antigravity` | `.agents/skills/` | `~/.gemini/antigravity/skills/` |
-| Antigravity CLI | `antigravity-cli` | `.agents/skills/` | `~/.gemini/antigravity-cli/skills/` |
+| Antigravity, Antigravity CLI | `antigravity`, `antigravity-cli` | `.agents/skills/` | `~/.gemini/config/skills/` |
 | AstrBot | `astrbot` | `data/skills/` | `~/.astrbot/data/skills/` |
 | Autohand Code CLI | `autohand-code` | `.autohand/skills/` | `~/.autohand/skills/` |
 | Augment | `augment` | `.augment/skills/` | `~/.augment/skills/` |
