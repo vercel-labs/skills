@@ -1118,6 +1118,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     let skills: Skill[];
     let blobResult: BlobInstallResult | null = null;
+    let packRevision: string | undefined;
 
     if (parsed.type === 'pack') {
       spinner.start('Fetching pack...');
@@ -1127,6 +1128,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         p.outro(pc.red('Pack not found or expired/revoked'));
         process.exit(1);
       }
+      packRevision = snapshot.revision ?? '';
       const packSkills = packSnapshotToBlobSkills(snapshot);
       blobResult = { skills: packSkills, tree: { sha: '', branch: '', tree: [] } };
       skills = packSkills;
@@ -1842,7 +1844,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             let skillFolderHash = '';
             const skillPathValue = skillFiles[skill.name];
 
-            if (blobResult && skillPathValue) {
+            if (
+              parsed.type === 'pack' &&
+              'snapshotHash' in skill &&
+              (skill as BlobSkill).snapshotHash
+            ) {
+              skillFolderHash = (skill as BlobSkill).snapshotHash;
+            } else if (blobResult && skillPathValue) {
               const hash = getSkillFolderHashFromTree(blobResult.tree, skillPathValue);
               if (hash) skillFolderHash = hash;
             } else if (parsed.type === 'github' && skillPathValue && cachedTree) {
@@ -1862,6 +1870,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               skillPath: skillPathValue,
               skillFolderHash,
               pluginName: skill.pluginName,
+              ...(parsed.type === 'pack' && packRevision !== undefined
+                ? { packRevision }
+                : {}),
             });
           } catch {
             // Don't fail installation if lock file update fails
@@ -1902,6 +1913,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
                 ...(skillPathValue && { skillPath: skillPathValue }),
                 computedHash,
                 ...(recordSubagents && { subagents: eveSubagents }),
+                ...(parsed.type === 'pack' && packRevision !== undefined
+                  ? { packRevision }
+                  : {}),
               },
               cwd
             );

@@ -20,6 +20,10 @@ export interface PackSnapshotSkill {
 export interface PackSnapshot {
   id: string;
   createdAt: string;
+  updatedAt?: string;
+  revision?: string;
+  name?: string;
+  description?: string;
   sourceType: 'folder' | 'zip' | 'github';
   sourceLabel: string;
   skills: PackSnapshotSkill[];

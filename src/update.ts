@@ -15,6 +15,12 @@ import {
 import { cloneRepo, cleanupTempDir } from './git.ts';
 import { discoverSkills } from './skills.ts';
 import { fetchRepoTree, findSkillMdPaths, getSkillFolderHashFromTree } from './blob.ts';
+import {
+  fetchPackSnapshot,
+  packSnapshotToBlobSkills,
+  parsePackId,
+  type PackSnapshot,
+} from './pack.ts';
 import { removeCommand } from './remove.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
@@ -173,6 +179,9 @@ export function getSkipReason(entry: SkillLockEntry): string {
   if (entry.sourceType === 'well-known') {
     return 'Well-known skill';
   }
+  if (entry.sourceType === 'pack') {
+    return 'Pack snapshot';
+  }
   if (!entry.skillFolderHash) {
     return 'Private or deleted repo';
   }
@@ -238,6 +247,39 @@ export async function getProjectSkillsForUpdate(
   return skills;
 }
 
+export async function promptForDeletions(
+  deletedSkills: string[],
+  isGlobal: boolean,
+  options: UpdateCheckOptions,
+  header: string
+): Promise<void> {
+  if (deletedSkills.length === 0) return;
+
+  console.log();
+  console.log(header);
+  for (const s of deletedSkills) {
+    console.log(`  ${DIM}•${RESET} ${s}`);
+  }
+
+  const isNonInteractive = options.yes || !process.stdin.isTTY;
+
+  if (isNonInteractive) {
+    console.log(`${DIM}Skipping deletion in non-interactive mode.${RESET}`);
+    return;
+  }
+
+  const confirmed = await p.confirm({
+    message: `Would you like to remove the local copies of these deleted skills?`,
+  });
+
+  if (confirmed && !p.isCancel(confirmed)) {
+    for (const s of deletedSkills) {
+      console.log(`${DIM}Removing${RESET} ${s}...`);
+      await removeCommand([s], { yes: true, global: isGlobal });
+    }
+  }
+}
+
 export async function checkAndPromptForDeletions(
   source: string,
   allLockedForSource: string[],
@@ -252,33 +294,190 @@ export async function checkAndPromptForDeletions(
     return !discoveredPaths.includes(entry.skillPath);
   });
 
-  if (deletedSkills.length > 0) {
-    console.log();
-    console.log(
-      `${DIM}Warning:${RESET} The following skills from ${DIM}${source}${RESET} appear to have been deleted upstream:`
-    );
-    for (const s of deletedSkills) {
-      console.log(`  ${DIM}•${RESET} ${s}`);
-    }
+  await promptForDeletions(
+    deletedSkills,
+    isGlobal,
+    options,
+    `${DIM}Warning:${RESET} The following skills from ${DIM}${source}${RESET} appear to have been deleted upstream:`
+  );
+  return deletedSkills;
+}
 
-    const isNonInteractive = options.yes || !process.stdin.isTTY;
+export interface PackUpdateItem {
+  name: string;
+  hash: string;
+  packRevision?: string;
+  subagents?: string[];
+}
 
-    if (isNonInteractive) {
-      console.log(`${DIM}Skipping deletion in non-interactive mode.${RESET}`);
-    } else {
-      const confirmed = await p.confirm({
-        message: `Would you like to remove the local copies of these deleted skills?`,
-      });
+export type PackCheckResult =
+  | { status: 'error' }
+  | { status: 'not-found' }
+  | { status: 'current' }
+  | {
+      status: 'changed';
+      snapshot: PackSnapshot;
+      changedSkills: string[];
+      newSkills: string[];
+      removedSkills: string[];
+    };
 
-      if (confirmed && !p.isCancel(confirmed)) {
-        for (const s of deletedSkills) {
-          console.log(`${DIM}Removing${RESET} ${s}...`);
-          await removeCommand([s], { yes: true, global: isGlobal });
-        }
-      }
+export async function checkPackForUpdates(
+  packId: string,
+  items: PackUpdateItem[]
+): Promise<PackCheckResult> {
+  let snapshot: PackSnapshot | null;
+  try {
+    snapshot = await fetchPackSnapshot(packId);
+  } catch {
+    return { status: 'error' };
+  }
+  if (!snapshot) return { status: 'not-found' };
+
+  const lockRevisions = new Set(items.map((item) => item.packRevision || ''));
+  if (
+    snapshot.revision &&
+    lockRevisions.size === 1 &&
+    lockRevisions.has(snapshot.revision)
+  ) {
+    return { status: 'current' };
+  }
+
+  const remoteSkills = packSnapshotToBlobSkills(snapshot);
+  const remoteByName = new Map(remoteSkills.map((skill) => [skill.name, skill]));
+  const localNames = new Set(items.map((item) => item.name));
+
+  const changedSkills: string[] = [];
+  const newSkills: string[] = [];
+  const removedSkills: string[] = [];
+
+  for (const item of items) {
+    const remote = remoteByName.get(item.name);
+    if (!remote) {
+      removedSkills.push(item.name);
+    } else if (!item.hash || remote.snapshotHash !== item.hash) {
+      changedSkills.push(item.name);
     }
   }
-  return deletedSkills;
+  for (const remote of remoteSkills) {
+    if (!localNames.has(remote.name)) {
+      newSkills.push(remote.name);
+    }
+  }
+
+  if (changedSkills.length + newSkills.length + removedSkills.length === 0) {
+    return { status: 'current' };
+  }
+
+  return { status: 'changed', snapshot, changedSkills, newSkills, removedSkills };
+}
+
+export function groupPackItems(
+  entries: Array<{ sourceUrl: string; item: PackUpdateItem }>
+): Map<string, PackUpdateItem[]> {
+  const groups = new Map<string, PackUpdateItem[]>();
+  for (const entry of entries) {
+    const packId = parsePackId(entry.sourceUrl);
+    if (!packId) continue;
+    const group = groups.get(packId) || [];
+    group.push(entry.item);
+    groups.set(packId, group);
+  }
+  return groups;
+}
+
+export async function processPackUpdates(
+  packGroups: Map<string, PackUpdateItem[]>,
+  isGlobal: boolean,
+  options: UpdateCheckOptions
+): Promise<{ successCount: number; failCount: number; changed: boolean }> {
+  let successCount = 0;
+  let failCount = 0;
+  let changed = false;
+
+  for (const [packId, items] of packGroups) {
+    const packUrl = `https://skills.sh/p/${packId}`;
+    process.stdout.write(`\r${DIM}Checking pack: ${packId}${RESET}\x1b[K\n`);
+
+    const result = await checkPackForUpdates(packId, items);
+
+    if (result.status === 'error') {
+      console.log(`  ${DIM}✗ Failed to check pack ${packId}${RESET}`);
+      continue;
+    }
+
+    if (result.status === 'not-found') {
+      changed = true;
+      await promptForDeletions(
+        items.map((item) => item.name),
+        isGlobal,
+        options,
+        `${DIM}Warning:${RESET} Pack ${DIM}${packUrl}${RESET} was revoked or deleted upstream. Locally installed skills from it:`
+      );
+      continue;
+    }
+
+    if (result.status === 'current') continue;
+
+    changed = true;
+
+    await promptForDeletions(
+      result.removedSkills,
+      isGlobal,
+      options,
+      `${DIM}Warning:${RESET} The following skills were removed from pack ${DIM}${packUrl}${RESET}:`
+    );
+
+    const installNames = [...result.changedSkills, ...result.newSkills];
+    if (installNames.length === 0) continue;
+
+    console.log(
+      `${TEXT}Updating pack ${packId} (${installNames.map(sanitizeMetadata).join(', ')})...${RESET}`
+    );
+
+    const cliEntry = join(__dirname, '..', 'bin', 'cli.mjs');
+    if (!existsSync(cliEntry)) {
+      failCount += installNames.length;
+      console.log(
+        `  ${DIM}✗ Failed to update pack ${packId}: CLI entrypoint not found at ${cliEntry}${RESET}`
+      );
+      continue;
+    }
+
+    const subagentTargets = Array.from(
+      new Set(items.flatMap((item) => item.subagents ?? []))
+    );
+    const subagentArgs =
+      !isGlobal && subagentTargets.length > 0
+        ? ['--subagent', ...subagentTargets.map((s) => (s === '' ? 'root' : s))]
+        : [];
+
+    const spawnArgs = [
+      cliEntry,
+      'add',
+      packUrl,
+      ...(isGlobal ? ['-g'] : []),
+      ...subagentArgs,
+      '-y',
+    ];
+    const spawnResult = spawnSync(process.execPath, spawnArgs, {
+      stdio: ['inherit', 'pipe', 'pipe'],
+      encoding: 'utf-8',
+      shell: process.platform === 'win32',
+    });
+
+    if (spawnResult.status === 0) {
+      successCount += installNames.length;
+      for (const name of installNames) {
+        console.log(`  ${TEXT}✓${RESET} Updated ${sanitizeMetadata(name)}`);
+      }
+    } else {
+      failCount += installNames.length;
+      console.log(`  ${DIM}✗ Failed to update pack ${packId}${RESET}`);
+    }
+  }
+
+  return { successCount, failCount, changed };
 }
 
 export async function updateGlobalSkills(
@@ -300,12 +499,28 @@ export async function updateGlobalSkills(
   const updates: Array<{ name: string; source: string; entry: SkillLockEntry }> = [];
   const skipped: SkippedSkill[] = [];
   const checkable: Array<{ name: string; entry: SkillLockEntry }> = [];
+  const packEntries: Array<{ sourceUrl: string; item: PackUpdateItem }> = [];
 
   for (const skillName of skillNames) {
     if (!matchesSkillFilter(skillName, options.skills)) continue;
 
     const entry = lock.skills[skillName];
     if (!entry) continue;
+
+    if (
+      entry.sourceType === 'pack' &&
+      parsePackId(entry.sourceUrl || entry.source)
+    ) {
+      packEntries.push({
+        sourceUrl: entry.sourceUrl || entry.source,
+        item: {
+          name: skillName,
+          hash: entry.skillFolderHash,
+          packRevision: entry.packRevision,
+        },
+      });
+      continue;
+    }
 
     if (!entry.skillFolderHash || !entry.skillPath) {
       skipped.push({
@@ -320,6 +535,15 @@ export async function updateGlobalSkills(
 
     checkable.push({ name: skillName, entry });
   }
+
+  const packGroups = groupPackItems(packEntries);
+  const {
+    successCount: packSuccessCount,
+    failCount: packFailCount,
+    changed: packChanged,
+  } = await processPackUpdates(packGroups, true, options);
+  successCount += packSuccessCount;
+  failCount += packFailCount;
 
   const bySource = new Map<string, typeof checkable>();
   for (const item of checkable) {
@@ -418,22 +642,28 @@ export async function updateGlobalSkills(
     process.stdout.write('\r\x1b[K');
   }
 
-  const checkedCount = checkable.length + skipped.length;
+  const checkedCount = checkable.length + skipped.length + packEntries.length;
 
-  if (checkable.length === 0 && skipped.length === 0) {
+  if (checkable.length === 0 && skipped.length === 0 && packEntries.length === 0) {
     if (!options.skills) {
       console.log(`${DIM}No global skills to check.${RESET}`);
     }
     return { successCount, failCount, checkedCount: 0 };
   }
 
-  if (checkable.length === 0 && skipped.length > 0) {
+  if (checkable.length === 0 && updates.length === 0) {
+    if (!packChanged && packEntries.length > 0 && skipped.length === 0) {
+      console.log(`${TEXT}✓ All global skills are up to date${RESET}`);
+    }
     printSkippedSkills(skipped);
     return { successCount, failCount, checkedCount };
   }
 
   if (updates.length === 0) {
-    console.log(`${TEXT}✓ All global skills are up to date${RESET}`);
+    if (!packChanged) {
+      console.log(`${TEXT}✓ All global skills are up to date${RESET}`);
+    }
+    printSkippedSkills(skipped);
     return { successCount, failCount, checkedCount };
   }
 
@@ -489,10 +719,16 @@ export async function updateProjectSkills(
     return { successCount, failCount, foundCount: 0 };
   }
 
-  const updatable = projectSkills.filter((s) => s.entry.skillPath);
-  const legacy = projectSkills.filter((s) => !s.entry.skillPath);
+  const packProjectSkills = projectSkills.filter(
+    (s) => s.entry.sourceType === 'pack' && parsePackId(s.entry.source)
+  );
+  const packProjectNames = new Set(packProjectSkills.map((s) => s.name));
+  const nonPackSkills = projectSkills.filter((s) => !packProjectNames.has(s.name));
 
-  if (updatable.length === 0) {
+  const updatable = nonPackSkills.filter((s) => s.entry.skillPath);
+  const legacy = nonPackSkills.filter((s) => !s.entry.skillPath);
+
+  if (updatable.length === 0 && packProjectSkills.length === 0) {
     console.log(`${DIM}No project skills can be updated in place.${RESET}`);
     printLegacyProjectSkills(legacy);
     return { successCount, failCount, foundCount: projectSkills.length };
@@ -523,8 +759,28 @@ export async function updateProjectSkills(
     console.log(`${TEXT}Updating for: ${targetParts.join(', ')}${RESET}`);
   }
 
-  console.log(`${TEXT}Refreshing ${updatable.length} skill(s)...${RESET}`);
+  console.log(
+    `${TEXT}Refreshing ${updatable.length + packProjectSkills.length} skill(s)...${RESET}`
+  );
   console.log();
+
+  const packGroups = groupPackItems(
+    packProjectSkills.map((s) => ({
+      sourceUrl: s.entry.source,
+      item: {
+        name: s.name,
+        hash: s.entry.computedHash,
+        packRevision: s.entry.packRevision,
+        subagents: s.entry.subagents,
+      },
+    }))
+  );
+  const {
+    successCount: packSuccessCount,
+    failCount: packFailCount,
+  } = await processPackUpdates(packGroups, false, options);
+  successCount += packSuccessCount;
+  failCount += packFailCount;
 
   const bySource = new Map<string, typeof updatable>();
   for (const skill of updatable) {
@@ -537,9 +793,13 @@ export async function updateProjectSkills(
   const localLock = await readLocalLock();
   const cliEntry = join(__dirname, '..', 'bin', 'cli.mjs');
 
-  if (!existsSync(cliEntry)) {
+  if (updatable.length > 0 && !existsSync(cliEntry)) {
     console.log(`${DIM}✗ CLI entrypoint not found at ${cliEntry}${RESET}`);
-    return { successCount, failCount: updatable.length, foundCount: projectSkills.length };
+    return {
+      successCount,
+      failCount: failCount + updatable.length,
+      foundCount: projectSkills.length,
+    };
   }
 
   for (const [source, skillsForSource] of bySource) {
