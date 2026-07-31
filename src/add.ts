@@ -1870,9 +1870,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               skillPath: skillPathValue,
               skillFolderHash,
               pluginName: skill.pluginName,
-              ...(parsed.type === 'pack' && packRevision !== undefined
-                ? { packRevision }
-                : {}),
+              ...(parsed.type === 'pack' && packRevision !== undefined ? { packRevision } : {}),
             });
           } catch {
             // Don't fail installation if lock file update fails
@@ -1913,9 +1911,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
                 ...(skillPathValue && { skillPath: skillPathValue }),
                 computedHash,
                 ...(recordSubagents && { subagents: eveSubagents }),
-                ...(parsed.type === 'pack' && packRevision !== undefined
-                  ? { packRevision }
-                  : {}),
+                ...(parsed.type === 'pack' && packRevision !== undefined ? { packRevision } : {}),
               },
               cwd
             );

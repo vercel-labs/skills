@@ -335,11 +335,7 @@ export async function checkPackForUpdates(
   if (!snapshot) return { status: 'not-found' };
 
   const lockRevisions = new Set(items.map((item) => item.packRevision || ''));
-  if (
-    snapshot.revision &&
-    lockRevisions.size === 1 &&
-    lockRevisions.has(snapshot.revision)
-  ) {
+  if (snapshot.revision && lockRevisions.size === 1 && lockRevisions.has(snapshot.revision)) {
     return { status: 'current' };
   }
 
@@ -444,9 +440,7 @@ export async function processPackUpdates(
       continue;
     }
 
-    const subagentTargets = Array.from(
-      new Set(items.flatMap((item) => item.subagents ?? []))
-    );
+    const subagentTargets = Array.from(new Set(items.flatMap((item) => item.subagents ?? [])));
     const subagentArgs =
       !isGlobal && subagentTargets.length > 0
         ? ['--subagent', ...subagentTargets.map((s) => (s === '' ? 'root' : s))]
@@ -507,10 +501,7 @@ export async function updateGlobalSkills(
     const entry = lock.skills[skillName];
     if (!entry) continue;
 
-    if (
-      entry.sourceType === 'pack' &&
-      parsePackId(entry.sourceUrl || entry.source)
-    ) {
+    if (entry.sourceType === 'pack' && parsePackId(entry.sourceUrl || entry.source)) {
       packEntries.push({
         sourceUrl: entry.sourceUrl || entry.source,
         item: {
@@ -775,10 +766,11 @@ export async function updateProjectSkills(
       },
     }))
   );
-  const {
-    successCount: packSuccessCount,
-    failCount: packFailCount,
-  } = await processPackUpdates(packGroups, false, options);
+  const { successCount: packSuccessCount, failCount: packFailCount } = await processPackUpdates(
+    packGroups,
+    false,
+    options
+  );
   successCount += packSuccessCount;
   failCount += packFailCount;
 
