@@ -60,8 +60,11 @@ export function isPackSource(source: string): boolean {
 }
 
 export class PackNotFoundError extends Error {
-  constructor(public packId: string) {
+  packId: string;
+
+  constructor(packId: string) {
     super(`Pack not found or expired/revoked: ${packId}`);
+    this.packId = packId;
     this.name = 'PackNotFoundError';
   }
 }
