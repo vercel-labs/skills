@@ -243,7 +243,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
 
   try {
     await createGitClient().clone(url, tempDir, cloneOptions);
-    return tempDir;
+    return await syncCloneToApiHead(tempDir, url, ref, repo);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const isTimeout = errorMessage.includes('block timeout') || errorMessage.includes('timed out');
@@ -269,7 +269,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
       try {
         await resetTempDir(tempDir);
         if (await tryGhClone(repo, tempDir, ref)) {
-          return tempDir;
+          return await syncCloneToApiHead(tempDir, url, ref, repo);
         }
       } catch {
         // Fall through to SSH retry.
@@ -282,7 +282,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
           tempDir,
           cloneOptions
         );
-        return tempDir;
+        return await syncCloneToApiHead(tempDir, url, ref, repo);
       } catch {
         // Fall through to the targeted auth error below.
       }
@@ -296,6 +296,70 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
 
     throw new GitCloneError(`Failed to clone ${url}: ${errorMessage}`, url, false, false);
   }
+}
+
+/**
+ * Cross-check a shallow default-branch clone against the GitHub API's
+ * default-branch HEAD SHA. GitHub's git-upload-pack endpoint can advertise a
+ * stale refs/heads/<default> while the REST API (and raw.githubusercontent)
+ * already expose a newer HEAD, which makes skills that exist only on the
+ * newer commit invisible to discovery. When the SHAs differ, fetch and check
+ * out the API-reported HEAD (detached) so discovery runs against the
+ * authoritative tree.
+ *
+ * Skipped when the user pinned an explicit ref (--branch). Fully non-fatal:
+ * any failure leaves the original clone untouched.
+ */
+async function syncCloneToApiHead(
+  tempDir: string,
+  url: string,
+  ref: string | undefined,
+  repo: GitHubRepoInfo | null
+): Promise<string> {
+  if (ref) return tempDir; // Honor an explicit --branch ref
+  if (!repo) return tempDir; // Only github.com repos have an API to cross-check
+  try {
+    const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+    const headers: Record<string, string> = {
+      Accept: 'application/vnd.github.v3+json',
+      'User-Agent': 'skills-cli',
+    };
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const host = repo.sshUrl.match(/^git@([^:]+):/)?.[1] ?? 'github.com';
+    // GitHub Enterprise (GH_HOST) serves its REST API under /api/v3.
+    const apiBase =
+      host.toLowerCase() === 'github.com' ? 'https://api.github.com' : `https://${host}/api/v3`;
+
+    const repoRes = await fetch(`${apiBase}/repos/${repo.owner}/${repo.repo}`, {
+      headers,
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!repoRes.ok) return tempDir;
+    const { default_branch: defaultBranch } = (await repoRes.json()) as {
+      default_branch?: string;
+    };
+    if (!defaultBranch) return tempDir;
+
+    const branchRes = await fetch(
+      `${apiBase}/repos/${repo.owner}/${repo.repo}/branches/${encodeURIComponent(defaultBranch)}`,
+      { headers, signal: AbortSignal.timeout(10_000) }
+    );
+    if (!branchRes.ok) return tempDir;
+    const apiSha = ((await branchRes.json()) as { commit?: { sha?: string } }).commit?.sha;
+    if (!apiSha) return tempDir;
+
+    const git = createGitClient();
+    await git.cwd(tempDir);
+    const clonedHead = String(await git.raw(['rev-parse', 'HEAD'])).trim();
+    if (clonedHead === apiSha) return tempDir;
+
+    await git.raw(['fetch', '--depth', '1', 'origin', apiSha]);
+    await git.raw(['checkout', '--quiet', apiSha]);
+  } catch {
+    // Non-fatal: keep the original clone
+  }
+  return tempDir;
 }
 
 export async function cleanupTempDir(dir: string): Promise<void> {
