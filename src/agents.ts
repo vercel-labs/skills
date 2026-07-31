@@ -68,12 +68,11 @@ export function isMiniMaxCodeInstalled(
 }
 
 export function isDeerFlowInstalled(
-  homeDir = home,
+  _homeDir = home,
   pathExists: (path: string) => boolean = existsSync,
   cwd: string = process.cwd()
 ) {
   return (
-    pathExists(join(homeDir, '.deer-flow')) ||
     pathExists(join(cwd, '.deer-flow')) ||
     // Repo checkouts: require the harness package alongside the skills layout
     // so generic `skills/<category>` taxonomies in other projects don't match.

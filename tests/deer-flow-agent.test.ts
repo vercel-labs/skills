@@ -44,11 +44,11 @@ describe('DeerFlow agent support', () => {
     expect(agent?.globalSkillsDir).toBeUndefined();
   });
 
-  it('detects DeerFlow from its home directory', () => {
+  it('does not detect DeerFlow from its home directory outside a DeerFlow project', () => {
     const home = '/tmp/home';
     const exists = (path: string) => path === join(home, '.deer-flow');
 
-    expect(getDetector()?.(home, exists, '/tmp/nowhere')).toBe(true);
+    expect(getDetector()?.(home, exists, '/tmp/unrelated-project')).toBe(false);
   });
 
   it('detects DeerFlow from a project-local .deer-flow state directory', () => {
