@@ -67,6 +67,13 @@ export function isMiniMaxCodeInstalled(
   return pathExists(join(homeDir, '.minimax')) || pathExists('/Applications/MiniMax Code.app');
 }
 
+export function isExplytInstalled(
+  homeDir = home,
+  pathExists: (path: string) => boolean = existsSync
+) {
+  return pathExists(join(homeDir, '.explyt'));
+}
+
 export const agents: Record<AgentType, AgentConfig> = {
   'aider-desk': {
     name: 'aider-desk',
@@ -308,6 +315,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return (
         existsSync(join(cwd, 'agent')) && packageJsonHasDependency(join(cwd, 'package.json'), 'eve')
       );
+    },
+  },
+  explyt: {
+    name: 'explyt',
+    displayName: 'Explyt',
+    skillsDir: '.explyt/skills',
+    globalSkillsDir: join(home, '.explyt/skills'),
+    detectInstalled: async () => {
+      return isExplytInstalled();
     },
   },
   firebender: {

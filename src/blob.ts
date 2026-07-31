@@ -260,6 +260,7 @@ const PRIORITY_PREFIXES = [
   '.codex/skills/',
   '.commandcode/skills/',
   '.continue/skills/',
+  '.explyt/skills/',
   '.github/skills/',
   '.goose/skills/',
   '.grok/skills/',
