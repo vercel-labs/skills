@@ -24,6 +24,7 @@ const AGENT_PROJECT_SKILL_DIRS = [
   '.kilocode/skills',
   '.kimchi/skills',
   '.kiro/skills',
+  '.minimax/skills',
   '.mux/skills',
   '.neovate/skills',
   '.opencode/skills',

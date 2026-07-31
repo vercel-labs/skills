@@ -268,6 +268,7 @@ const PRIORITY_PREFIXES = [
   '.kilocode/skills/',
   '.kimchi/skills/',
   '.kiro/skills/',
+  '.minimax/skills/',
   '.mux/skills/',
   '.neovate/skills/',
   '.opencode/skills/',

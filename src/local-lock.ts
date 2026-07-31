@@ -42,6 +42,7 @@ export interface LocalSkillLockEntry {
    * non-Eve installs and for plain Eve root installs (treated as `['']`).
    */
   subagents?: string[];
+  wellKnownDigest?: string;
 }
 
 /**

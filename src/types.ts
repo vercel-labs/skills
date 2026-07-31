@@ -44,6 +44,7 @@ export type AgentType =
   | 'lingma'
   | 'loaf'
   | 'mcpjam'
+  | 'minimax-code'
   | 'mistral-vibe'
   | 'moxby'
   | 'mux'
@@ -100,7 +101,7 @@ export interface AgentConfig {
 }
 
 export interface ParsedSource {
-  type: 'github' | 'gitlab' | 'git' | 'local' | 'well-known';
+  type: 'github' | 'gitlab' | 'git' | 'local' | 'well-known' | 'download';
   url: string;
   subpath?: string;
   localPath?: string;

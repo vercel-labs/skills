@@ -16,6 +16,7 @@ import {
 import { cloneRepo, cleanupTempDir } from './git.ts';
 import { discoverSkills } from './skills.ts';
 import { fetchRepoTree, getSkillFolderHashFromTree } from './blob.ts';
+import { wellKnownProvider, computeWellKnownSkillDigest } from './providers/index.ts';
 import { removeCommand } from './remove.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
@@ -239,6 +240,41 @@ export async function getProjectSkillsForUpdate(
   return skills;
 }
 
+export async function promptDeletions(
+  source: string,
+  deletedSkills: string[],
+  isGlobal: boolean,
+  options: UpdateCheckOptions
+): Promise<void> {
+  if (deletedSkills.length === 0) return;
+
+  console.log();
+  console.log(
+    `${DIM}Warning:${RESET} The following skills from ${DIM}${source}${RESET} appear to have been deleted upstream:`
+  );
+  for (const s of deletedSkills) {
+    console.log(`  ${DIM}•${RESET} ${s}`);
+  }
+
+  const isNonInteractive = options.yes || !process.stdin.isTTY;
+
+  if (isNonInteractive) {
+    console.log(`${DIM}Skipping deletion in non-interactive mode.${RESET}`);
+    return;
+  }
+
+  const confirmed = await p.confirm({
+    message: `Would you like to remove the local copies of these deleted skills?`,
+  });
+
+  if (confirmed && !p.isCancel(confirmed)) {
+    for (const s of deletedSkills) {
+      console.log(`${DIM}Removing${RESET} ${s}…`);
+      await removeCommand([s], { yes: true, global: isGlobal });
+    }
+  }
+}
+
 export async function checkAndPromptForDeletions(
   source: string,
   allLockedForSource: string[],
@@ -253,33 +289,177 @@ export async function checkAndPromptForDeletions(
     return !discoveredPaths.includes(entry.skillPath);
   });
 
-  if (deletedSkills.length > 0) {
-    console.log();
-    console.log(
-      `${DIM}Warning:${RESET} The following skills from ${DIM}${source}${RESET} appear to have been deleted upstream:`
-    );
-    for (const s of deletedSkills) {
-      console.log(`  ${DIM}•${RESET} ${s}`);
-    }
+  await promptDeletions(source, deletedSkills, isGlobal, options);
+  return deletedSkills;
+}
 
-    const isNonInteractive = options.yes || !process.stdin.isTTY;
+export interface WellKnownUpdateItem {
+  name: string;
+  digest: string;
+  subagents?: string[];
+}
 
-    if (isNonInteractive) {
-      console.log(`${DIM}Skipping deletion in non-interactive mode.${RESET}`);
+export type WellKnownCheckResult =
+  | { status: 'error' }
+  | { status: 'current'; newSkills: string[] }
+  | {
+      status: 'changed';
+      changedSkills: string[];
+      removedSkills: string[];
+      newSkills: string[];
+    };
+
+export async function checkWellKnownForUpdates(
+  baseUrl: string,
+  items: WellKnownUpdateItem[]
+): Promise<WellKnownCheckResult> {
+  let indexResult: Awaited<ReturnType<typeof wellKnownProvider.fetchIndex>>;
+  try {
+    indexResult = await wellKnownProvider.fetchIndex(baseUrl, { updateCheck: true });
+  } catch {
+    return { status: 'error' };
+  }
+  if (!indexResult) return { status: 'error' };
+
+  const byName = new Map(indexResult.entries.map((entry) => [entry.name, entry]));
+  const removedSkills = items.filter((item) => !byName.has(item.name)).map((item) => item.name);
+  const localNames = new Set(items.map((item) => item.name));
+  const newSkills = indexResult.entries
+    .map((entry) => entry.name)
+    .filter((name) => !localNames.has(name));
+  const changedSkills: string[] = [];
+  const needsContentCheck: WellKnownUpdateItem[] = [];
+
+  for (const item of items) {
+    const entry = byName.get(item.name);
+    if (!entry) continue;
+    if (entry.version === '0.2.0') {
+      if (!item.digest || entry.digest !== item.digest) {
+        changedSkills.push(item.name);
+      }
     } else {
-      const confirmed = await p.confirm({
-        message: `Would you like to remove the local copies of these deleted skills?`,
-      });
+      needsContentCheck.push(item);
+    }
+  }
 
-      if (confirmed && !p.isCancel(confirmed)) {
-        for (const s of deletedSkills) {
-          console.log(`${DIM}Removing${RESET} ${s}…`);
-          await removeCommand([s], { yes: true, global: isGlobal });
-        }
+  if (needsContentCheck.length > 0) {
+    const tracked = new Set(needsContentCheck.map((item) => item.name));
+    const skills = (
+      await Promise.all(
+        indexResult.entries
+          .filter((entry) => tracked.has(entry.name))
+          .map((entry) => wellKnownProvider.fetchSkillByEntry(entry).catch(() => null))
+      )
+    ).filter((skill): skill is NonNullable<typeof skill> => skill !== null);
+    if (skills.length === 0) return { status: 'error' };
+    const digests = new Map(
+      skills.map((skill) => [skill.installName, computeWellKnownSkillDigest(skill)])
+    );
+    for (const item of needsContentCheck) {
+      const digest = digests.get(item.name);
+      if (!digest || !item.digest || digest !== item.digest) {
+        changedSkills.push(item.name);
       }
     }
   }
-  return deletedSkills;
+
+  if (changedSkills.length === 0 && removedSkills.length === 0) {
+    return { status: 'current', newSkills };
+  }
+  return { status: 'changed', changedSkills, removedSkills, newSkills };
+}
+
+function printNewSkills(baseUrl: string, newSkills: string[], isGlobal: boolean): void {
+  if (newSkills.length === 0) return;
+  const names = newSkills.map(sanitizeMetadata);
+  console.log(
+    `  ${DIM}${newSkills.length} new skill(s) available from this source:${RESET} ${names.join(', ')}`
+  );
+  console.log(
+    `    ${DIM}To install: ${TEXT}npx skills add ${baseUrl} --skill ${names.join(' ')}${isGlobal ? ' -g' : ''}${RESET}`
+  );
+}
+
+export async function processWellKnownUpdates(
+  groups: Map<string, WellKnownUpdateItem[]>,
+  isGlobal: boolean,
+  options: UpdateCheckOptions
+): Promise<{ successCount: number; failCount: number; changed: boolean }> {
+  let successCount = 0;
+  let failCount = 0;
+  let changed = false;
+
+  for (const [baseUrl, items] of groups) {
+    process.stdout.write(`\r${DIM}Checking skills from source: ${baseUrl}${RESET}\x1b[K\n`);
+
+    const result = await checkWellKnownForUpdates(baseUrl, items);
+
+    if (result.status === 'error') {
+      console.log(`  ${DIM}✗ Failed to check skills from ${baseUrl}${RESET}`);
+      continue;
+    }
+
+    if (result.status === 'current') {
+      printNewSkills(baseUrl, result.newSkills, isGlobal);
+      continue;
+    }
+
+    changed = true;
+
+    await promptDeletions(baseUrl, result.removedSkills, isGlobal, options);
+    printNewSkills(baseUrl, result.newSkills, isGlobal);
+
+    if (result.changedSkills.length === 0) continue;
+
+    const cliEntry = join(__dirname, '..', 'bin', 'cli.mjs');
+    if (!existsSync(cliEntry)) {
+      failCount += result.changedSkills.length;
+      console.log(`  ${DIM}✗ CLI entrypoint not found at ${cliEntry}${RESET}`);
+      continue;
+    }
+
+    const itemByName = new Map(items.map((item) => [item.name, item]));
+
+    for (const name of result.changedSkills) {
+      const safeName = sanitizeMetadata(name);
+      console.log(`${TEXT}Updating ${safeName}…${RESET}`);
+
+      const subagents = itemByName.get(name)?.subagents;
+      const subagentArgs =
+        !isGlobal && subagents?.length
+          ? ['--subagent', ...subagents.map((s) => (s === '' ? 'root' : s))]
+          : [];
+
+      const spawnResult = spawnSync(
+        process.execPath,
+        [
+          cliEntry,
+          'add',
+          baseUrl,
+          '--skill',
+          name,
+          ...subagentArgs,
+          ...(isGlobal ? ['-g'] : []),
+          '-y',
+        ],
+        {
+          stdio: ['inherit', 'pipe', 'pipe'],
+          encoding: 'utf-8',
+          shell: false,
+        }
+      );
+
+      if (spawnResult.status === 0) {
+        successCount++;
+        console.log(`  ${TEXT}✓${RESET} Updated ${safeName}`);
+      } else {
+        failCount++;
+        console.log(`  ${DIM}✗ Failed to update ${safeName}${RESET}`);
+      }
+    }
+  }
+
+  return { successCount, failCount, changed };
 }
 
 export async function updateGlobalSkills(
@@ -301,12 +481,20 @@ export async function updateGlobalSkills(
   const updates: Array<{ name: string; source: string; entry: SkillLockEntry }> = [];
   const skipped: SkippedSkill[] = [];
   const checkable: Array<{ name: string; entry: SkillLockEntry }> = [];
+  const wellKnownGroups = new Map<string, WellKnownUpdateItem[]>();
 
   for (const skillName of skillNames) {
     if (!matchesSkillFilter(skillName, options.skills)) continue;
 
     const entry = lock.skills[skillName];
     if (!entry) continue;
+
+    if (entry.sourceType === 'well-known' && entry.sourceBaseUrl && entry.wellKnownDigest) {
+      const group = wellKnownGroups.get(entry.sourceBaseUrl) || [];
+      group.push({ name: skillName, digest: entry.wellKnownDigest });
+      wellKnownGroups.set(entry.sourceBaseUrl, group);
+      continue;
+    }
 
     if (!entry.skillFolderHash || !entry.skillPath) {
       skipped.push({
@@ -321,6 +509,18 @@ export async function updateGlobalSkills(
 
     checkable.push({ name: skillName, entry });
   }
+
+  const wellKnownCount = Array.from(wellKnownGroups.values()).reduce(
+    (sum, items) => sum + items.length,
+    0
+  );
+  const {
+    successCount: wkSuccessCount,
+    failCount: wkFailCount,
+    changed: wkChanged,
+  } = await processWellKnownUpdates(wellKnownGroups, true, options);
+  successCount += wkSuccessCount;
+  failCount += wkFailCount;
 
   const bySource = new Map<string, typeof checkable>();
   for (const item of checkable) {
@@ -423,13 +623,20 @@ export async function updateGlobalSkills(
     process.stdout.write('\r\x1b[K');
   }
 
-  const checkedCount = checkable.length + skipped.length;
+  const checkedCount = checkable.length + skipped.length + wellKnownCount;
 
-  if (checkable.length === 0 && skipped.length === 0) {
+  if (checkable.length === 0 && skipped.length === 0 && wellKnownCount === 0) {
     if (!options.skills) {
       console.log(`${DIM}No global skills to check.${RESET}`);
     }
     return { successCount, failCount, checkedCount: 0 };
+  }
+
+  if (checkable.length === 0 && skipped.length === 0) {
+    if (!wkChanged) {
+      console.log(`${TEXT}✓ All global skills are up to date${RESET}`);
+    }
+    return { successCount, failCount, checkedCount };
   }
 
   if (checkable.length === 0 && skipped.length > 0) {
@@ -438,7 +645,9 @@ export async function updateGlobalSkills(
   }
 
   if (updates.length === 0) {
-    console.log(`${TEXT}✓ All global skills are up to date${RESET}`);
+    if (!wkChanged) {
+      console.log(`${TEXT}✓ All global skills are up to date${RESET}`);
+    }
     return { successCount, failCount, checkedCount };
   }
 
@@ -511,10 +720,31 @@ export async function updateProjectSkills(
     return { successCount, failCount, foundCount: 0 };
   }
 
-  const updatable = projectSkills.filter((s) => s.entry.skillPath);
-  const legacy = projectSkills.filter((s) => !s.entry.skillPath);
+  const wellKnownGroups = new Map<string, WellKnownUpdateItem[]>();
+  const nonWellKnown: typeof projectSkills = [];
+  for (const skill of projectSkills) {
+    const { entry } = skill;
+    if (entry.sourceType === 'well-known' && entry.sourceUrl && entry.wellKnownDigest) {
+      const group = wellKnownGroups.get(entry.sourceUrl) || [];
+      group.push({
+        name: skill.name,
+        digest: entry.wellKnownDigest,
+        subagents: entry.subagents,
+      });
+      wellKnownGroups.set(entry.sourceUrl, group);
+    } else {
+      nonWellKnown.push(skill);
+    }
+  }
+  const wellKnownCount = Array.from(wellKnownGroups.values()).reduce(
+    (sum, items) => sum + items.length,
+    0
+  );
 
-  if (updatable.length === 0) {
+  const updatable = nonWellKnown.filter((s) => s.entry.skillPath);
+  const legacy = nonWellKnown.filter((s) => !s.entry.skillPath);
+
+  if (updatable.length === 0 && wellKnownCount === 0) {
     console.log(`${DIM}No project skills can be updated in place.${RESET}`);
     printLegacyProjectSkills(legacy);
     return { successCount, failCount, foundCount: projectSkills.length };
@@ -545,8 +775,16 @@ export async function updateProjectSkills(
     console.log(`${TEXT}Updating for: ${targetParts.join(', ')}${RESET}`);
   }
 
-  console.log(`${TEXT}Refreshing ${updatable.length} skill(s)…${RESET}`);
+  console.log(`${TEXT}Refreshing ${updatable.length + wellKnownCount} skill(s)…${RESET}`);
   console.log();
+
+  const { successCount: wkSuccessCount, failCount: wkFailCount } = await processWellKnownUpdates(
+    wellKnownGroups,
+    false,
+    options
+  );
+  successCount += wkSuccessCount;
+  failCount += wkFailCount;
 
   const bySource = new Map<string, typeof updatable>();
   for (const skill of updatable) {
@@ -559,9 +797,13 @@ export async function updateProjectSkills(
   const localLock = await readLocalLock();
   const cliEntry = join(__dirname, '..', 'bin', 'cli.mjs');
 
-  if (!existsSync(cliEntry)) {
+  if (updatable.length > 0 && !existsSync(cliEntry)) {
     console.log(`${DIM}✗ CLI entrypoint not found at ${cliEntry}${RESET}`);
-    return { successCount, failCount: updatable.length, foundCount: projectSkills.length };
+    return {
+      successCount,
+      failCount: failCount + updatable.length,
+      foundCount: projectSkills.length,
+    };
   }
 
   for (const [source, skillsForSource] of bySource) {
