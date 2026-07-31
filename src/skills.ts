@@ -29,6 +29,7 @@ const AGENT_PROJECT_SKILL_DIRS = [
   '.neovate/skills',
   '.opencode/skills',
   '.openhands/skills',
+  '.omp/skills',
   '.pi/skills',
   '.qoder/skills',
   '.roo/skills',
