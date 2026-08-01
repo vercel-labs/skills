@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { rmSync } from 'fs';
+import { existsSync, rmSync } from 'fs';
+import { join } from 'path';
 
 const simpleGitMock = vi.hoisted(() => vi.fn());
 const execFileMock = vi.hoisted(() => vi.fn());
@@ -24,13 +25,35 @@ import {
   parseGitHubRepoUrl,
 } from './git.ts';
 
-function createGitClientMock(clone: ReturnType<typeof vi.fn>) {
-  const client = {
+interface GitClientMock {
+  clone: ReturnType<typeof vi.fn>;
+  env: ReturnType<typeof vi.fn>;
+  cwd: ReturnType<typeof vi.fn>;
+  raw: ReturnType<typeof vi.fn>;
+}
+
+function createGitClientMock(clone: ReturnType<typeof vi.fn>): GitClientMock {
+  const client: GitClientMock = {
     clone,
     env: vi.fn(),
+    cwd: vi.fn(),
+    raw: vi.fn(),
   };
   client.env.mockReturnValue(client);
+  client.cwd.mockResolvedValue(client);
   return client;
+}
+
+function mockJsonResponse(body: unknown, ok = true) {
+  return { ok, json: () => Promise.resolve(body) };
+}
+
+function mockApiHeadResponses(defaultBranch: string, sha: string) {
+  const fetchMock = vi.fn();
+  fetchMock.mockResolvedValueOnce(mockJsonResponse({ default_branch: defaultBranch }));
+  fetchMock.mockResolvedValueOnce(mockJsonResponse({ commit: { sha } }));
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
 }
 
 function mockExecFileSuccess(stdout = '', stderr = '') {
@@ -60,6 +83,7 @@ describe('git clone fallbacks', () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
     for (const dir of createdDirs.splice(0)) {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -302,5 +326,103 @@ describe('git clone fallbacks', () => {
 
     expect(simpleGitMock).not.toHaveBeenCalled();
     expect(execFileMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('clone HEAD sync against the GitHub API', () => {
+  const createdDirs: string[] = [];
+  const staleSha = '3883889000000000000000000000000000000000';
+  const apiSha = '3c75e1f800000000000000000000000000000000';
+
+  beforeEach(() => {
+    simpleGitMock.mockReset();
+    execFileMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    for (const dir of createdDirs.splice(0)) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('fetches and checks out the API HEAD when upload-pack advertised a stale ref', async () => {
+    const clone = vi.fn().mockResolvedValue(undefined);
+    const syncClient = createGitClientMock(vi.fn());
+    syncClient.raw.mockResolvedValueOnce(`${staleSha}\n`);
+    simpleGitMock.mockReturnValueOnce(createGitClientMock(clone)).mockReturnValueOnce(syncClient);
+    const fetchMock = mockApiHeadResponses('main', apiSha);
+
+    const tempDir = await cloneRepo('https://github.com/kunchenguid/lavish-axi.git');
+    createdDirs.push(tempDir);
+
+    expect(syncClient.raw).toHaveBeenNthCalledWith(1, ['rev-parse', 'HEAD']);
+    expect(syncClient.raw).toHaveBeenNthCalledWith(2, ['fetch', '--depth', '1', 'origin', apiSha]);
+    expect(syncClient.raw).toHaveBeenNthCalledWith(3, ['checkout', '--quiet', apiSha]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]![0]).toBe('https://api.github.com/repos/kunchenguid/lavish-axi');
+    expect(fetchMock.mock.calls[1]![0]).toBe(
+      'https://api.github.com/repos/kunchenguid/lavish-axi/branches/main'
+    );
+  });
+
+  it('leaves the clone untouched when the API HEAD matches the clone', async () => {
+    const clone = vi.fn().mockResolvedValue(undefined);
+    const syncClient = createGitClientMock(vi.fn());
+    syncClient.raw.mockResolvedValueOnce(`${apiSha}\n`);
+    simpleGitMock.mockReturnValueOnce(createGitClientMock(clone)).mockReturnValueOnce(syncClient);
+    mockApiHeadResponses('main', apiSha);
+
+    const tempDir = await cloneRepo('https://github.com/kunchenguid/lavish-axi.git');
+    createdDirs.push(tempDir);
+
+    expect(syncClient.raw).toHaveBeenCalledTimes(1);
+    expect(syncClient.raw).toHaveBeenCalledWith(['rev-parse', 'HEAD']);
+  });
+
+  it('honors an explicit ref without consulting the API', async () => {
+    const clone = vi.fn().mockResolvedValue(undefined);
+    simpleGitMock.mockReturnValueOnce(createGitClientMock(clone));
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const tempDir = await cloneRepo('https://github.com/kunchenguid/lavish-axi.git', 'v1.0.0');
+    createdDirs.push(tempDir);
+
+    expect(clone).toHaveBeenCalledWith('https://github.com/kunchenguid/lavish-axi.git', tempDir, [
+      '--depth',
+      '1',
+      '--branch',
+      'v1.0.0',
+    ]);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(simpleGitMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips the API cross-check for non-GitHub clone URLs', async () => {
+    const clone = vi.fn().mockResolvedValue(undefined);
+    simpleGitMock.mockReturnValueOnce(createGitClientMock(clone));
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const tempDir = await cloneRepo('https://gitlab.com/Giphy/giphy-codex-skills.git');
+    createdDirs.push(tempDir);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(simpleGitMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the original clone when the API request fails', async () => {
+    const clone = vi.fn().mockResolvedValue(undefined);
+    simpleGitMock.mockReturnValueOnce(createGitClientMock(clone));
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')));
+
+    const tempDir = await cloneRepo('https://github.com/kunchenguid/lavish-axi.git');
+    createdDirs.push(tempDir);
+
+    expect(existsSync(tempDir)).toBe(true); // original clone dir preserved
+    expect(existsSync(join(tempDir, '.git'))).toBe(false); // clone is mocked, nothing synced
+    expect(simpleGitMock).toHaveBeenCalledTimes(1);
   });
 });
