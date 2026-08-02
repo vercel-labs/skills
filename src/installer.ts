@@ -1185,7 +1185,10 @@ export async function listInstalledSkills(
         }
 
         // Parse the skill
-        const skill = await parseSkillMd(skillMdPath);
+        const skill = await parseSkillMd(skillMdPath, {
+          // Eve derives packaged skill names from their directory path.
+          fallbackName: scope.agentType === 'eve' ? entry.name : undefined,
+        });
         if (!skill) {
           continue;
         }

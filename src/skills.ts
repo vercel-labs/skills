@@ -75,7 +75,11 @@ function warnSkippedSkill(skillMdPath: string, reason: string): void {
 
 export async function parseSkillMd(
   skillMdPath: string,
-  options?: { includeInternal?: boolean }
+  options?: {
+    includeInternal?: boolean;
+    /** Agent-specific formats such as Eve may derive the name from the path. */
+    fallbackName?: string;
+  }
 ): Promise<Skill | null> {
   let content: string;
   try {
@@ -93,19 +97,21 @@ export async function parseSkillMd(
     return null;
   }
 
-  if (!data.name || !data.description) {
+  const name = data.name ?? options?.fallbackName;
+
+  if (!name || !data.description) {
     const missing: string[] = [];
-    if (!data.name) missing.push('name');
+    if (!name) missing.push('name');
     if (!data.description) missing.push('description');
     warnSkippedSkill(skillMdPath, `missing required frontmatter field(s): ${missing.join(', ')}`);
     return null;
   }
 
   // Ensure name and description are strings (YAML can parse numbers, booleans, etc.)
-  if (typeof data.name !== 'string' || typeof data.description !== 'string') {
+  if (typeof name !== 'string' || typeof data.description !== 'string') {
     warnSkippedSkill(
       skillMdPath,
-      `frontmatter "name" and "description" must be strings (got ${typeof data.name} and ${typeof data.description})`
+      `frontmatter "name" and "description" must be strings (got ${typeof name} and ${typeof data.description})`
     );
     return null;
   }
@@ -120,7 +126,7 @@ export async function parseSkillMd(
   }
 
   return {
-    name: sanitizeMetadata(data.name),
+    name: sanitizeMetadata(name),
     description: sanitizeMetadata(data.description),
     path: dirname(skillMdPath),
     rawContent: content,

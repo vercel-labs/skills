@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -115,6 +115,39 @@ describe('Eve agent support', () => {
       expect(installed).toContain('description: "Blob skill"');
       expect(installed).not.toContain('name:');
     } finally {
+      await rm(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('lists packaged Eve skills using the directory name when name is omitted', async () => {
+    const previousCwd = process.cwd();
+    const projectDir = await makeEveProject();
+    const skillDir = join(projectDir, 'agent', 'skills', 'directory-named-skill');
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(
+      join(skillDir, 'SKILL.md'),
+      '---\ndescription: A skill discovered by Eve\n---\n# Eve skill\n',
+      'utf-8'
+    );
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      process.chdir(projectDir);
+      const listed = await listInstalledSkills({ cwd: projectDir, global: false });
+
+      expect(listed).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: 'directory-named-skill',
+            description: 'A skill discovered by Eve',
+            agents: ['eve'],
+          }),
+        ])
+      );
+      expect(warning).not.toHaveBeenCalled();
+    } finally {
+      warning.mockRestore();
+      process.chdir(previousCwd);
       await rm(projectDir, { recursive: true, force: true });
     }
   });
