@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { spawnSync } from 'child_process';
-import { updateProjectSkills, updateGlobalSkills, runUpdate } from '../src/update.ts';
+import {
+  parseUpdateOptions,
+  updateProjectSkills,
+  updateGlobalSkills,
+  runUpdate,
+} from '../src/update.ts';
 import * as git from '../src/git.ts';
 import * as skills from '../src/skills.ts';
 import * as blob from '../src/blob.ts';
@@ -78,6 +83,16 @@ describe('Update Cleanup Unit Tests', () => {
     Object.defineProperty(process.stdin, 'isTTY', {
       value: true,
       configurable: true,
+    });
+  });
+
+  describe('parseUpdateOptions', () => {
+    it('treats --repair as a global repair request', () => {
+      expect(parseUpdateOptions(['--repair', 'skill-a'])).toEqual({
+        global: true,
+        repair: true,
+        skills: ['skill-a'],
+      });
     });
   });
 
@@ -327,6 +342,33 @@ describe('Update Cleanup Unit Tests', () => {
   });
 
   describe('updateGlobalSkills', () => {
+    it('reinstalls a GitHub skill when repair is requested even if its hash is current', async () => {
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            skillFolderHash: 'same-hash',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+      await updateGlobalSkills({ repair: true, yes: true });
+
+      expect(blob.fetchRepoTree).not.toHaveBeenCalled();
+      const installCall = vi
+        .mocked(spawnSync)
+        .mock.calls.find((call) => Array.isArray(call[1]) && call[1].includes('add'));
+      expect(installCall).toBeDefined();
+      const [, argv] = installCall!;
+      expect(argv).toEqual(
+        expect.arrayContaining(['add', 'owner/repo/skills/skill-a', '-g', '-y'])
+      );
+    });
+
     it('should prompt to remove deleted skill on global update', async () => {
       // Mock readSkillLock
       vi.mocked(skillLock.readSkillLock).mockResolvedValue({

@@ -167,6 +167,9 @@ npx skills update -p
 
 # Non-interactive (auto-detects scope: project if in a project, else global)
 npx skills update -y
+
+# Repair global repository skills even when their upstream hash is unchanged
+npx skills update --global --repair
 ```
 
 | Option          | Description                                                               |
@@ -174,6 +177,7 @@ npx skills update -y
 | `-g, --global`  | Only update global skills                                                 |
 | `-p, --project` | Only update project skills                                                |
 | `-y, --yes`     | Skip scope prompt (auto-detect: project if in a project dir, else global) |
+| `--repair`      | Reinstall global repository skills even when no upstream update is found  |
 | `[skills...]`   | Update specific skills by name instead of all                             |
 
 ### `skills init`
