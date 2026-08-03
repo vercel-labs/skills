@@ -593,19 +593,6 @@ describe('parseAddOptions', () => {
   });
 });
 
-describe('obsolete OpenClaw risk bypass flag', () => {
-  it('should not expose the obsolete OpenClaw risk bypass flag', () => {
-    const result = parseAddOptions([
-      'openclaw/skills',
-      '--dangerously-accept-openclaw-risks',
-      '-y',
-    ]);
-    expect(result.source).toEqual(['openclaw/skills']);
-    expect(result.options).not.toHaveProperty('dangerouslyAcceptOpenclawRisks');
-    expect(result.options.yes).toBe(true);
-  });
-});
-
 describe('find-skills prompt with -y flag', () => {
   let testDir: string;
 

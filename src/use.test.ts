@@ -80,6 +80,13 @@ describe('use command', () => {
       expect(result.errors).toContain('Unknown option: --wat');
     });
 
+    it('parses OpenClaw sources like other GitHub owners', () => {
+      const result = parseUseOptions(['openclaw/skills@demo']);
+
+      expect(result.source).toEqual(['openclaw/skills@demo']);
+      expect(result.errors).toEqual([]);
+    });
+
     it('parses --agent and -a values', () => {
       const longFlag = parseUseOptions(['vercel-labs/agent-skills', '--agent', 'claude-code']);
       const shortFlag = parseUseOptions(['vercel-labs/agent-skills', '-a', 'codex']);
@@ -368,13 +375,6 @@ describe('use command', () => {
       const result = runCli(['run', testDir], testDir);
 
       expect(result.stdout).toContain('Unknown command: run');
-    });
-
-    it('blocks OpenClaw sources before network access unless explicitly accepted', () => {
-      const result = runCli(['use', 'openclaw/example@demo'], testDir);
-
-      expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain('OpenClaw skills are unverified');
     });
   });
 });
