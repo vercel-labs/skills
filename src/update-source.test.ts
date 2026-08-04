@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  buildLocalCloneSource,
   buildLocalUpdateSource,
   buildUpdateInstallSource,
   formatSourceInput,
@@ -7,6 +8,38 @@ import {
 } from './update-source.ts';
 
 describe('update-source', () => {
+  describe('buildLocalCloneSource', () => {
+    it('expands GitHub shorthand to a cloneable URL', () => {
+      expect(buildLocalCloneSource({ source: 'owner/repo', sourceType: 'github' })).toBe(
+        'https://github.com/owner/repo.git'
+      );
+    });
+
+    it('preserves an explicit sourceUrl', () => {
+      expect(
+        buildLocalCloneSource({
+          source: 'owner/repo',
+          sourceUrl: 'https://github.com/owner/repo.git',
+          sourceType: 'github',
+        })
+      ).toBe('https://github.com/owner/repo.git');
+    });
+
+    it('preserves non-GitHub clone URLs', () => {
+      expect(
+        buildLocalCloneSource({
+          source: 'acme/skills',
+          sourceUrl: 'https://gitlab.example.com/acme/skills.git',
+          sourceType: 'git',
+        })
+      ).toBe('https://gitlab.example.com/acme/skills.git');
+    });
+
+    it('fails closed for a generic Git shorthand without sourceUrl', () => {
+      expect(buildLocalCloneSource({ source: 'acme/skills', sourceType: 'git' })).toBeNull();
+    });
+  });
+
   describe('formatSourceInput', () => {
     it('appends ref fragment when provided', () => {
       expect(formatSourceInput('https://github.com/owner/repo.git', 'feature/install')).toBe(

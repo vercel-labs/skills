@@ -272,7 +272,7 @@ describe('Update Cleanup Unit Tests', () => {
       expect(argv).toContain('--full-depth');
     });
 
-    it('keeps GitHub project updates path-targeted without full-depth discovery', async () => {
+    it('normalizes GitHub shorthand for deletion checks and keeps updates path-targeted', async () => {
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
         version: 1,
         skills: {
@@ -296,6 +296,7 @@ describe('Update Cleanup Unit Tests', () => {
 
       await updateProjectSkills({ yes: true });
 
+      expect(git.cloneRepo).toHaveBeenCalledWith('https://github.com/owner/repo.git', undefined);
       const installCall = vi
         .mocked(spawnSync)
         .mock.calls.find((call) => Array.isArray(call[1]) && call[1].includes('add'));

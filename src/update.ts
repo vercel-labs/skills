@@ -11,6 +11,7 @@ import {
   formatSourceInput,
   buildUpdateInstallSource,
   buildLocalUpdateSource,
+  buildLocalCloneSource,
   shouldUseFullDepthForUpdate,
 } from './update-source.ts';
 import { cloneRepo, cleanupTempDir } from './git.ts';
@@ -808,7 +809,7 @@ export async function updateProjectSkills(
 
   for (const [source, skillsForSource] of bySource) {
     const firstEntry = skillsForSource[0]!.entry;
-    const sourceUrl = firstEntry.sourceUrl || firstEntry.source;
+    const cloneSource = buildLocalCloneSource(firstEntry);
     const ref = firstEntry.ref;
 
     const allLockedForSource = Object.entries(localLock.skills)
@@ -818,7 +819,7 @@ export async function updateProjectSkills(
     let tempDir: string | null = null;
     let deletedSkills: string[] = [];
 
-    if (buildLocalUpdateSource(firstEntry) === null) {
+    if (cloneSource === null) {
       failCount += skillsForSource.length;
       console.log(
         `${DIM}✗ Cannot update ${source}: skills-lock.json is missing sourceUrl for this generic Git source${RESET}`
@@ -827,7 +828,7 @@ export async function updateProjectSkills(
     }
 
     try {
-      tempDir = await cloneRepo(sourceUrl, ref);
+      tempDir = await cloneRepo(cloneSource, ref);
       const discovered = await discoverSkills(tempDir, undefined, { fullDepth: true });
 
       const discoveredPaths = discovered.map((s) => {
