@@ -27,6 +27,7 @@ import {
 } from './agents.ts';
 import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
 import { parseFrontmatter } from './frontmatter.ts';
+import { stringify } from 'yaml';
 import { parseSkillMd } from './skills.ts';
 
 export type InstallMode = 'symlink' | 'copy';
@@ -433,21 +434,23 @@ function stripIgnoredEveFrontmatter(raw: string): string {
   const { data, content } = parseFrontmatter(raw);
   const eveData: Record<string, unknown> = {};
 
+  if (typeof data.name === 'string') {
+    eveData.name = data.name;
+  }
   if (typeof data.description === 'string') {
     eveData.description = data.description;
   }
   if (typeof data.license === 'string') {
     eveData.license = data.license;
   }
+  if (data.compatibility !== undefined) {
+    eveData.compatibility = data.compatibility;
+  }
+  if (typeof data.version === 'string' || typeof data.version === 'number') {
+    eveData.version = data.version;
+  }
   if (data.metadata && typeof data.metadata === 'object' && !Array.isArray(data.metadata)) {
-    const metadata = Object.fromEntries(
-      Object.entries(data.metadata).filter(
-        (entry): entry is [string, string] => typeof entry[1] === 'string'
-      )
-    );
-    if (Object.keys(metadata).length > 0) {
-      eveData.metadata = metadata;
-    }
+    eveData.metadata = data.metadata;
   }
 
   const keys = Object.keys(eveData);
@@ -455,7 +458,8 @@ function stripIgnoredEveFrontmatter(raw: string): string {
     return content.replace(/^\r?\n/u, '');
   }
 
-  const frontmatter = keys.map((key) => `${key}: ${JSON.stringify(eveData[key])}`).join('\n');
+  // Real nested YAML, not inline JSON
+  const frontmatter = stringify(eveData).trimEnd();
   return `---\n${frontmatter}\n---\n${content.replace(/^\r?\n/u, '')}`;
 }
 
