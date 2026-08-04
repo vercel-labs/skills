@@ -1,5 +1,5 @@
 /**
- * Tests for bounded depth-2 discovery inside skill container directories.
+ * Tests for bounded depth-3 discovery inside skill container directories.
  *
  * Layouts like `skills/<category>/<skill>/SKILL.md` are common when a repo
  * groups skills by product or category. They should be discovered by
@@ -34,7 +34,7 @@ function makeTree(paths: string[]): RepoTree {
   return { sha: 'root-sha', branch: 'main', tree: entries };
 }
 
-describe('discoverSkills — bounded depth-2 inside skill container dirs', () => {
+describe('discoverSkills — bounded depth-3 inside skill container dirs', () => {
   let testDir: string;
 
   beforeEach(() => {
@@ -133,8 +133,11 @@ describe('discoverSkills — bounded depth-2 inside skill container dirs', () =>
     expect(skills.map((s) => s.name)).toEqual(['real-skill']);
   });
 
-  it('still requires --full-depth for skills deeper than two levels in a container', async () => {
-    writeSkill(join(testDir, 'skills', 'level-1', 'level-2', 'deep-skill'), 'deep-skill');
+  it('still requires --full-depth for skills deeper than three levels in a container', async () => {
+    writeSkill(
+      join(testDir, 'skills', 'level-1', 'level-2', 'level-3', 'deep-skill'),
+      'deep-skill'
+    );
     writeSkill(join(testDir, 'skills', 'shallow'), 'shallow-skill');
 
     const defaultSkills = await discoverSkills(testDir);
@@ -155,7 +158,7 @@ describe('discoverSkills — bounded depth-2 inside skill container dirs', () =>
   });
 });
 
-describe('findSkillMdPaths — bounded depth-2 inside skill container prefixes', () => {
+describe('findSkillMdPaths — bounded depth-3 inside skill container prefixes', () => {
   it('returns nested SKILL.md paths under skills/<category>/<skill>/', () => {
     const tree = makeTree([
       'skills/product-a/skill-one/SKILL.md',
@@ -176,6 +179,18 @@ describe('findSkillMdPaths — bounded depth-2 inside skill container prefixes',
     expect(findSkillMdPaths(tree).sort()).toEqual([
       'skills/category/nested-skill/SKILL.md',
       'skills/flat-skill/SKILL.md',
+    ]);
+  });
+
+  it('returns skills nested under two category levels', () => {
+    const tree = makeTree([
+      'skills/core-skills/amazon-bedrock/SKILL.md',
+      'skills/specialized-skills/database-skills/amazon-dynamodb/SKILL.md',
+    ]);
+
+    expect(findSkillMdPaths(tree).sort()).toEqual([
+      'skills/core-skills/amazon-bedrock/SKILL.md',
+      'skills/specialized-skills/database-skills/amazon-dynamodb/SKILL.md',
     ]);
   });
 

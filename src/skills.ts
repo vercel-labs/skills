@@ -5,6 +5,7 @@ import { sanitizeMetadata, stripTerminalEscapes } from './sanitize.ts';
 import type { Skill } from './types.ts';
 import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
 import { readLocalLock } from './local-lock.ts';
+import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
 
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
 
@@ -253,8 +254,8 @@ export async function discoverSkills(
     ...AGENT_PROJECT_SKILL_DIRS.map((dir) => join(searchPath, dir)),
   ];
 
-  // Known skill container dirs are walked one extra level deep so layouts
-  // like `skills/<category>/<skill>/SKILL.md` are discovered without
+  // Known skill container dirs are walked up to three levels deep so layouts
+  // like `skills/<category>/<category>/<skill>/SKILL.md` are discovered without
   // requiring `--full-depth`. The repo root (first entry) keeps its
   // existing depth-1 behavior to avoid surfacing unrelated `SKILL.md`
   // files (e.g. `examples/foo/SKILL.md`), and plugin-manifest-declared
@@ -275,9 +276,7 @@ export async function discoverSkills(
     return true;
   };
 
-  for (const dir of prioritySearchDirs) {
-    const walkDeep = deepContainerDirs.has(dir);
-
+  const walkSkillDirs = async (dir: string, maxDepth: number, depth = 1): Promise<void> => {
     try {
       const entries = await readdir(dir, { withFileTypes: true });
 
@@ -287,26 +286,20 @@ export async function discoverSkills(
         const childDir = join(dir, entry.name);
         const foundAtChild = await tryAddSkillAt(childDir);
 
-        // Don't descend past a discovered SKILL.md (matches the existing
-        // flat-layout semantics) and don't go deeper inside non-container
-        // priority dirs.
-        if (foundAtChild || !walkDeep) continue;
-        if (SKIP_DIRS.includes(entry.name)) continue;
+        // Preserve flat-layout semantics by stopping below a discovered
+        // skill, and never descend through ignored directories.
+        if (foundAtChild || depth >= maxDepth || SKIP_DIRS.includes(entry.name)) continue;
 
-        // Walk one extra level for catalog layouts.
-        try {
-          const grandEntries = await readdir(childDir, { withFileTypes: true });
-          for (const grand of grandEntries) {
-            if (!grand.isDirectory() || SKIP_DIRS.includes(grand.name)) continue;
-            await tryAddSkillAt(join(childDir, grand.name));
-          }
-        } catch {
-          // Child dir unreadable; skip silently.
-        }
+        await walkSkillDirs(childDir, maxDepth, depth + 1);
       }
     } catch {
-      // Directory doesn't exist
+      // Directory doesn't exist or is unreadable; skip silently.
     }
+  };
+
+  for (const dir of prioritySearchDirs) {
+    const walkDeep = deepContainerDirs.has(dir);
+    await walkSkillDirs(dir, walkDeep ? DEFAULT_SKILL_CONTAINER_DEPTH : 1);
   }
 
   // Fall back to recursive search if nothing found, or if fullDepth is set
