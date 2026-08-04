@@ -5,6 +5,7 @@ import { listInstalledSkills, sanitizeName, type InstalledSkill } from './instal
 import { sanitizeMetadata } from './sanitize.ts';
 import { getAllLockedSkills } from './skill-lock.ts';
 import { readLocalLock } from './local-lock.ts';
+import { t } from './messages.ts';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -86,8 +87,12 @@ export async function runList(args: string[]): Promise<void> {
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 
     if (invalidAgents.length > 0) {
-      console.log(`${YELLOW}Invalid agents: ${invalidAgents.join(', ')}${RESET}`);
-      console.log(`${DIM}Valid agents: ${validAgents.join(', ')}${RESET}`);
+      console.log(
+        `${YELLOW}${t('Invalid agents: {agents}', { agents: invalidAgents.join(', ') })}${RESET}`
+      );
+      console.log(
+        `${DIM}${t('Valid agents: {agents}', { agents: validAgents.join(', ') })}${RESET}`
+      );
       process.exit(1);
     }
 
@@ -128,18 +133,18 @@ export async function runList(args: string[]): Promise<void> {
     return;
   }
 
-  const scopeLabel = scope ? 'Global' : 'Project';
-
   if (installedSkills.length === 0) {
     if (options.json) {
       console.log('[]');
       return;
     }
-    console.log(`${DIM}No ${scopeLabel.toLowerCase()} skills found.${RESET}`);
+    console.log(
+      `${DIM}${t('No {scope} skills found.', { scope: scope ? t('global') : t('project') })}${RESET}`
+    );
     if (scope) {
-      console.log(`${DIM}Try listing project skills without -g${RESET}`);
+      console.log(`${DIM}${t('Try listing project skills without -g')}${RESET}`);
     } else {
-      console.log(`${DIM}Try listing global skills with -g${RESET}`);
+      console.log(`${DIM}${t('Try listing global skills with -g')}${RESET}`);
     }
     return;
   }
@@ -167,11 +172,11 @@ export async function runList(args: string[]): Promise<void> {
 
     console.log(`${prefix}${CYAN}${paddedName}${RESET} ${DIM}${paddedPath}${RESET}`);
     console.log(
-      `${prefix}  ${DIM}Agents:${RESET} ${agentInfo}  ${DIM}Source:${RESET} ${sourceLabel}`
+      `${prefix}  ${DIM}${t('Agents:')}${RESET} ${agentInfo}  ${DIM}${t('Source:')}${RESET} ${sourceLabel}`
     );
   }
 
-  console.log(`${BOLD}${scopeLabel} Skills${RESET}`);
+  console.log(`${BOLD}${t(scope ? 'Global Skills' : 'Project Skills')}${RESET}`);
   console.log();
 
   // Group skills by plugin
@@ -224,7 +229,7 @@ export async function runList(args: string[]): Promise<void> {
 
     // Print ungrouped skills if any exist
     if (ungroupedSkills.length > 0) {
-      console.log(`${BOLD}General${RESET}`);
+      console.log(`${BOLD}${t('General')}${RESET}`);
       // Calculate max lengths for alignment within ungrouped skills
       let maxNameLength = 0;
       let maxPathLength = 0;

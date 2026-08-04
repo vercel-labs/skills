@@ -15,6 +15,7 @@ export type AgentType =
   | 'codemaker'
   | 'codestudio'
   | 'codex'
+  | 'comate'
   | 'command-code'
   | 'continue'
   | 'cortex'

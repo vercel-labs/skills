@@ -5,6 +5,7 @@ import { runAdd } from './add.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { getUniversalAgents } from './agents.ts';
 import { buildLocalUpdateSource } from './update-source.ts';
+import { t } from './messages.ts';
 
 /**
  * Install all skills from the local skills-lock.json.
@@ -21,9 +22,12 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
   const skillEntries = Object.entries(lock.skills);
 
   if (skillEntries.length === 0) {
-    p.log.warn('No project skills found in skills-lock.json');
+    p.log.warn(t('No project skills found in skills-lock.json'));
     p.log.info(
-      `Add project-level skills with ${pc.cyan('npx skills add <package>')} (without ${pc.cyan('-g')})`
+      t('Add project-level skills with {cmd} (without {flag})', {
+        cmd: pc.cyan('npx skills add <package>'),
+        flag: pc.cyan('-g'),
+      })
     );
     return;
   }
@@ -44,7 +48,12 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
     const installSource = buildLocalUpdateSource(entry);
     if (!installSource) {
       p.log.error(
-        `Cannot restore ${pc.cyan(skillName)}: skills-lock.json is missing sourceUrl for this generic Git source`
+        t(
+          'Cannot restore {name}: skills-lock.json is missing sourceUrl for this generic Git source',
+          {
+            name: pc.cyan(skillName),
+          }
+        )
       );
       continue;
     }
@@ -62,7 +71,10 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
   const remoteCount = skillEntries.length - nodeModuleSkills.length;
   if (remoteCount > 0) {
     p.log.info(
-      `Restoring ${pc.cyan(String(remoteCount))} skill${remoteCount !== 1 ? 's' : ''} from skills-lock.json into ${pc.dim('.agents/skills/')}`
+      t('Restoring {count} skill(s) from skills-lock.json into {dir}', {
+        count: pc.cyan(String(remoteCount)),
+        dir: pc.dim('.agents/skills/'),
+      })
     );
   }
 
@@ -76,7 +88,10 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
       });
     } catch (error) {
       p.log.error(
-        `Failed to install from ${pc.cyan(source)}: ${error instanceof Error ? error.message : 'Unknown error'}`
+        t('Failed to install from {source}: {error}', {
+          source: pc.cyan(source),
+          error: error instanceof Error ? error.message : t('Unknown error'),
+        })
       );
     }
   }
@@ -84,14 +99,18 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
   // Handle node_modules skills via sync
   if (nodeModuleSkills.length > 0) {
     p.log.info(
-      `${pc.cyan(String(nodeModuleSkills.length))} skill${nodeModuleSkills.length !== 1 ? 's' : ''} from node_modules`
+      t('{count} skill(s) from node_modules', {
+        count: pc.cyan(String(nodeModuleSkills.length)),
+      })
     );
     try {
       const { options: syncOptions } = parseSyncOptions(args);
       await runSync(args, { ...syncOptions, yes: true, agent: universalAgentNames });
     } catch (error) {
       p.log.error(
-        `Failed to sync node_modules skills: ${error instanceof Error ? error.message : 'Unknown error'}`
+        t('Failed to sync node_modules skills: {error}', {
+          error: error instanceof Error ? error.message : t('Unknown error'),
+        })
       );
     }
   }

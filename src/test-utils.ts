@@ -40,7 +40,9 @@ function createCliTestEnvironment(overrides?: Record<string, string>): NodeJS.Pr
     )
   );
 
-  return { ...env, ...overrides };
+  // Pin the CLI language to English so test assertions on output text are
+  // deterministic regardless of the host locale.
+  return { ...env, SKILLS_LANG: 'en', ...overrides };
 }
 
 export function stripAnsi(str: string): string {

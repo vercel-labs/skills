@@ -5,6 +5,7 @@ import { sanitizeMetadata, stripTerminalEscapes } from './sanitize.ts';
 import type { Skill } from './types.ts';
 import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
 import { readLocalLock } from './local-lock.ts';
+import { t } from './messages.ts';
 
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
 
@@ -70,7 +71,12 @@ async function hasSkillMd(dir: string): Promise<boolean> {
 }
 
 function warnSkippedSkill(skillMdPath: string, reason: string): void {
-  console.warn(`⚠ Skipped ${sanitizeMetadata(skillMdPath)} — ${stripTerminalEscapes(reason)}`);
+  console.warn(
+    t('⚠ Skipped {path} — {reason}', {
+      path: sanitizeMetadata(skillMdPath),
+      reason: stripTerminalEscapes(reason),
+    })
+  );
 }
 
 export async function parseSkillMd(

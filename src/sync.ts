@@ -17,6 +17,7 @@ import { addSkillToLocalLock, computeSkillFolderHash, readLocalLock } from './lo
 import type { Skill, AgentType } from './types.ts';
 import { track } from './telemetry.ts';
 import { detectAgent, getAgentType } from './detect-agent.ts';
+import { t } from './messages.ts';
 
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
 
@@ -159,29 +160,33 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     p.log.info(
       pc.bgCyan(pc.black(pc.bold(` ${agentResult.agent.name} `))) +
         ' ' +
-        'Agent detected — installing non-interactively'
+        t('Agent detected — installing non-interactively')
     );
   }
 
   const spinner = p.spinner();
 
   // 1. Discover skills from node_modules
-  spinner.start('Scanning node_modules for skills…');
+  spinner.start(t('Scanning node_modules for skills…'));
   const discoveredSkills = await discoverNodeModuleSkills(cwd);
 
   if (discoveredSkills.length === 0) {
-    spinner.stop(pc.yellow('No skills found'));
-    p.outro(pc.dim('No SKILL.md files found in node_modules.'));
+    spinner.stop(pc.yellow(t('No skills found')));
+    p.outro(pc.dim(t('No SKILL.md files found in node_modules.')));
     return;
   }
 
   spinner.stop(
-    `Found ${pc.green(String(discoveredSkills.length))} skill${discoveredSkills.length > 1 ? 's' : ''} in node_modules`
+    t('Found {count} skill(s) in node_modules', {
+      count: pc.green(String(discoveredSkills.length)),
+    })
   );
 
   // Show discovered skills
   for (const skill of discoveredSkills) {
-    p.log.info(`${pc.cyan(skill.name)} ${pc.dim(`from ${skill.packageName}`)}`);
+    p.log.info(
+      `${pc.cyan(skill.name)} ${pc.dim(t('from {package}', { package: skill.packageName }))}`
+    );
     if (skill.description) {
       p.log.message(pc.dim(`  ${skill.description}`));
     }
@@ -194,7 +199,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
 
   if (options.force) {
     toInstall.push(...discoveredSkills);
-    p.log.info(pc.dim('Force mode: reinstalling all skills'));
+    p.log.info(pc.dim(t('Force mode: reinstalling all skills')));
   } else {
     for (const skill of discoveredSkills) {
       const existingEntry = localLock.skills[skill.name];
@@ -210,19 +215,17 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     }
 
     if (upToDate.length > 0) {
-      p.log.info(
-        pc.dim(`${upToDate.length} skill${upToDate.length !== 1 ? 's' : ''} already up to date`)
-      );
+      p.log.info(pc.dim(t('{count} skill(s) already up to date', { count: upToDate.length })));
     }
 
     if (toInstall.length === 0) {
       console.log();
-      p.outro(pc.green('All skills are up to date.'));
+      p.outro(pc.green(t('All skills are up to date.')));
       return;
     }
   }
 
-  p.log.info(`${toInstall.length} skill${toInstall.length !== 1 ? 's' : ''} to install/update`);
+  p.log.info(t('{count} skill(s) to install/update', { count: toInstall.length }));
 
   // 3. Select agents
   let targetAgents: AgentType[];
@@ -232,25 +235,25 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
 
   if (options.agent?.includes('*')) {
     targetAgents = validAgents as AgentType[];
-    p.log.info(`Installing to all ${targetAgents.length} agents`);
+    p.log.info(t('Installing to all {count} agents', { count: targetAgents.length }));
   } else if (options.agent && options.agent.length > 0) {
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
     if (invalidAgents.length > 0) {
-      p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
-      p.log.info(`Valid agents: ${validAgents.join(', ')}`);
+      p.log.error(t('Invalid agents: {agents}', { agents: invalidAgents.join(', ') }));
+      p.log.info(t('Valid agents: {agents}', { agents: validAgents.join(', ') }));
       process.exit(1);
     }
     targetAgents = options.agent as AgentType[];
   } else {
-    spinner.start('Loading agents…');
+    spinner.start(t('Loading agents…'));
     const installedAgents = await detectInstalledAgents();
     const totalAgents = Object.keys(agents).length;
-    spinner.stop(`${totalAgents} agents`);
+    spinner.stop(t('{count} agents', { count: totalAgents }));
 
     if (installedAgents.length === 0) {
       if (options.yes) {
         targetAgents = universalAgents;
-        p.log.info('Installing to universal agents');
+        p.log.info(t('Installing to universal agents'));
       } else {
         const otherAgents = getNonUniversalAgents();
 
@@ -275,7 +278,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
         });
 
         if (isCancelled(selected)) {
-          p.cancel('Sync cancelled');
+          p.cancel(t('Sync cancelled'));
           process.exit(0);
         }
 
@@ -299,11 +302,11 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
       }));
 
       const selected = await searchMultiselect({
-        message: 'Which agents do you want to install to?',
+        message: t('Which agents do you want to install to?'),
         items: otherChoices,
         initialSelected: installedAgents.filter((a) => !universalAgents.includes(a)),
         lockedSection: {
-          title: 'Universal (.agents/skills)',
+          title: t('Universal (.agents/skills)'),
           items: visibleUniversalAgents.map((a) => ({
             value: a,
             label: agents[a].displayName,
@@ -313,7 +316,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
       });
 
       if (isCancelled(selected)) {
-        p.cancel('Sync cancelled');
+        p.cancel(t('Sync cancelled'));
         process.exit(0);
       }
 
@@ -331,19 +334,19 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   }
 
   console.log();
-  p.note(summaryLines.join('\n'), 'Sync Summary');
+  p.note(summaryLines.join('\n'), t('Sync Summary'));
 
   if (!options.yes) {
-    const confirmed = await p.confirm({ message: 'Proceed with sync?' });
+    const confirmed = await p.confirm({ message: t('Proceed with sync?') });
 
     if (p.isCancel(confirmed) || !confirmed) {
-      p.cancel('Sync cancelled');
+      p.cancel(t('Sync cancelled'));
       process.exit(0);
     }
   }
 
   // 5. Install skills (always project-scoped, always symlink)
-  spinner.start('Syncing skills…');
+  spinner.start(t('Syncing skills…'));
 
   const results: Array<{
     skill: string;
@@ -425,13 +428,13 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     }
 
     const skillCount = bySkill.size;
-    const title = pc.green(`Synced ${skillCount} skill${skillCount !== 1 ? 's' : ''}`);
+    const title = pc.green(t('Synced {count} skill(s)', { count: skillCount }));
     p.note(resultLines.join('\n'), title);
   }
 
   if (failed.length > 0) {
     console.log();
-    p.log.error(pc.red(`Failed to install ${failed.length}`));
+    p.log.error(pc.red(t('Failed to install {count}', { count: failed.length })));
     for (const r of failed) {
       p.log.message(`  ${pc.red('✗')} ${r.skill} → ${r.agent}: ${pc.dim(r.error)}`);
     }
@@ -447,7 +450,8 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
 
   console.log();
   p.outro(
-    pc.green('Done!') + pc.dim('  Review skills before use; they run with full agent permissions.')
+    pc.green(t('Done!')) +
+      pc.dim(`  ${t('Review skills before use; they run with full agent permissions.')}`)
   );
 }
 

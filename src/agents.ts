@@ -216,6 +216,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(codexHome) || existsSync('/etc/codex');
     },
   },
+  comate: {
+    name: 'comate',
+    displayName: 'Comate',
+    skillsDir: '.comate/skills',
+    globalSkillsDir: join(home, '.comate/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.comate'));
+    },
+  },
   'command-code': {
     name: 'command-code',
     displayName: 'Command Code',

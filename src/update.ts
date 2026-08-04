@@ -22,6 +22,7 @@ import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
 import { agents, isUniversalAgent } from './agents.ts';
 import type { AgentType } from './types.ts';
+import { t } from './messages.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -123,28 +124,28 @@ export async function resolveUpdateScope(options: UpdateCheckOptions): Promise<U
   }
 
   const scope = await p.select({
-    message: 'Update scope',
+    message: t('Update scope'),
     options: [
       {
         value: 'project' as UpdateScope,
-        label: 'Project',
-        hint: 'Update skills in current directory',
+        label: t('Project'),
+        hint: t('Update skills in current directory'),
       },
       {
         value: 'global' as UpdateScope,
-        label: 'Global',
-        hint: 'Update skills in home directory',
+        label: t('Global'),
+        hint: t('Update skills in home directory'),
       },
       {
         value: 'both' as UpdateScope,
-        label: 'Both',
-        hint: 'Update all skills',
+        label: t('Both'),
+        hint: t('Update all skills'),
       },
     ],
   });
 
   if (p.isCancel(scope)) {
-    p.cancel('Cancelled');
+    p.cancel(t('Cancelled'));
     process.exit(0);
   }
 
@@ -167,21 +168,21 @@ export interface SkippedSkill {
 
 export function getSkipReason(entry: SkillLockEntry): string {
   if (entry.sourceType === 'local') {
-    return 'Local path';
+    return t('Local path');
   }
   if (entry.sourceType === 'git') {
-    return 'Git URL';
+    return t('Git URL');
   }
   if (entry.sourceType === 'well-known') {
-    return 'Well-known skill';
+    return t('Well-known skill');
   }
   if (!entry.skillFolderHash) {
-    return 'Private or deleted repo';
+    return t('Private or deleted repo');
   }
   if (!entry.skillPath) {
-    return 'No skill path recorded';
+    return t('No skill path recorded');
   }
-  return 'No version tracking';
+  return t('No version tracking');
 }
 
 export function getInstallSource(skill: SkippedSkill): string {
@@ -198,7 +199,9 @@ export function getInstallSource(skill: SkippedSkill): string {
 export function printSkippedSkills(skipped: SkippedSkill[]): void {
   if (skipped.length === 0) return;
   console.log();
-  console.log(`${DIM}${skipped.length} skill(s) cannot be checked automatically:${RESET}`);
+  console.log(
+    `${DIM}${t('{count} skill(s) cannot be checked automatically:', { count: skipped.length })}${RESET}`
+  );
 
   const grouped = new Map<string, SkippedSkill[]>();
   for (const skill of skipped) {
@@ -219,7 +222,7 @@ export function printSkippedSkills(skipped: SkippedSkill[]): void {
       const names = skills.map((s) => sanitizeMetadata(s.name)).join(', ');
       console.log(`  ${TEXT}•${RESET} ${names} ${DIM}(${reason})${RESET}`);
     }
-    console.log(`    ${DIM}To update: ${TEXT}npx skills add ${source} -g -y${RESET}`);
+    console.log(`    ${DIM}${t('To update:')} ${TEXT}npx skills add ${source} -g -y${RESET}`);
   }
 }
 
@@ -250,7 +253,7 @@ export async function promptDeletions(
 
   console.log();
   console.log(
-    `${DIM}Warning:${RESET} The following skills from ${DIM}${source}${RESET} appear to have been deleted upstream:`
+    `${DIM}${t('Warning:')}${RESET} ${t('The following skills from {source} appear to have been deleted upstream:', { source })}`
   );
   for (const s of deletedSkills) {
     console.log(`  ${DIM}•${RESET} ${s}`);
@@ -259,17 +262,17 @@ export async function promptDeletions(
   const isNonInteractive = options.yes || !process.stdin.isTTY;
 
   if (isNonInteractive) {
-    console.log(`${DIM}Skipping deletion in non-interactive mode.${RESET}`);
+    console.log(`${DIM}${t('Skipping deletion in non-interactive mode.')}${RESET}`);
     return;
   }
 
   const confirmed = await p.confirm({
-    message: `Would you like to remove the local copies of these deleted skills?`,
+    message: t('Would you like to remove the local copies of these deleted skills?'),
   });
 
   if (confirmed && !p.isCancel(confirmed)) {
     for (const s of deletedSkills) {
-      console.log(`${DIM}Removing${RESET} ${s}…`);
+      console.log(`${DIM}${t('Removing')}${RESET} ${s}…`);
       await removeCommand([s], { yes: true, global: isGlobal });
     }
   }
@@ -373,10 +376,10 @@ function printNewSkills(baseUrl: string, newSkills: string[], isGlobal: boolean)
   if (newSkills.length === 0) return;
   const names = newSkills.map(sanitizeMetadata);
   console.log(
-    `  ${DIM}${newSkills.length} new skill(s) available from this source:${RESET} ${names.join(', ')}`
+    `  ${DIM}${t('{count} new skill(s) available from this source:', { count: newSkills.length })}${RESET} ${names.join(', ')}`
   );
   console.log(
-    `    ${DIM}To install: ${TEXT}npx skills add ${baseUrl} --skill ${names.join(' ')}${isGlobal ? ' -g' : ''}${RESET}`
+    `    ${DIM}${t('To install:')} ${TEXT}npx skills add ${baseUrl} --skill ${names.join(' ')}${isGlobal ? ' -g' : ''}${RESET}`
   );
 }
 
@@ -390,12 +393,16 @@ export async function processWellKnownUpdates(
   let changed = false;
 
   for (const [baseUrl, items] of groups) {
-    process.stdout.write(`\r${DIM}Checking skills from source: ${baseUrl}${RESET}\x1b[K\n`);
+    process.stdout.write(
+      `\r${DIM}${t('Checking skills from source: {source}', { source: baseUrl })}${RESET}\x1b[K\n`
+    );
 
     const result = await checkWellKnownForUpdates(baseUrl, items);
 
     if (result.status === 'error') {
-      console.log(`  ${DIM}✗ Failed to check skills from ${baseUrl}${RESET}`);
+      console.log(
+        `  ${DIM}✗ ${t('Failed to check skills from {source}', { source: baseUrl })}${RESET}`
+      );
       continue;
     }
 
@@ -414,7 +421,9 @@ export async function processWellKnownUpdates(
     const cliEntry = join(__dirname, '..', 'bin', 'cli.mjs');
     if (!existsSync(cliEntry)) {
       failCount += result.changedSkills.length;
-      console.log(`  ${DIM}✗ CLI entrypoint not found at ${cliEntry}${RESET}`);
+      console.log(
+        `  ${DIM}✗ ${t('CLI entrypoint not found at {path}', { path: cliEntry })}${RESET}`
+      );
       continue;
     }
 
@@ -422,7 +431,7 @@ export async function processWellKnownUpdates(
 
     for (const name of result.changedSkills) {
       const safeName = sanitizeMetadata(name);
-      console.log(`${TEXT}Updating ${safeName}…${RESET}`);
+      console.log(`${TEXT}${t('Updating {name}…', { name: safeName })}${RESET}`);
 
       const subagents = itemByName.get(name)?.subagents;
       const subagentArgs =
@@ -451,10 +460,10 @@ export async function processWellKnownUpdates(
 
       if (spawnResult.status === 0) {
         successCount++;
-        console.log(`  ${TEXT}✓${RESET} Updated ${safeName}`);
+        console.log(`  ${TEXT}✓${RESET} ${t('Updated {name}', { name: safeName })}`);
       } else {
         failCount++;
-        console.log(`  ${DIM}✗ Failed to update ${safeName}${RESET}`);
+        console.log(`  ${DIM}✗ ${t('Failed to update {name}', { name: safeName })}${RESET}`);
       }
     }
   }
@@ -472,8 +481,10 @@ export async function updateGlobalSkills(
 
   if (skillNames.length === 0) {
     if (!options.skills) {
-      console.log(`${DIM}No global skills tracked in lock file.${RESET}`);
-      console.log(`${DIM}Install skills with${RESET} ${TEXT}npx skills add <package> -g${RESET}`);
+      console.log(`${DIM}${t('No global skills tracked in lock file.')}${RESET}`);
+      console.log(
+        `${DIM}${t('Install skills with')}${RESET} ${TEXT}npx skills add <package> -g${RESET}`
+      );
     }
     return { successCount, failCount, checkedCount: 0 };
   }
@@ -535,7 +546,9 @@ export async function updateGlobalSkills(
     const sourceUrl = firstEntry.sourceUrl || firstEntry.source;
     let tempDir: string | null = null;
 
-    process.stdout.write(`\r${DIM}Checking skills from source: ${source}${RESET}\x1b[K\n`);
+    process.stdout.write(
+      `\r${DIM}${t('Checking skills from source: {source}', { source })}${RESET}\x1b[K\n`
+    );
 
     try {
       const isGitHubSource = firstEntry.sourceType === 'github';
@@ -544,7 +557,7 @@ export async function updateGlobalSkills(
         const tree = await fetchRepoTree(source, firstEntry.ref, getGitHubToken);
 
         if (!tree) {
-          console.log(`  ${DIM}✗ Failed to fetch tree for ${source}${RESET}`);
+          console.log(`  ${DIM}✗ ${t('Failed to fetch tree for {source}', { source })}${RESET}`);
           continue;
         }
 
@@ -613,7 +626,7 @@ export async function updateGlobalSkills(
         }
       }
     } catch (error) {
-      console.log(`  ${DIM}✗ Failed to check skills from ${source}${RESET}`);
+      console.log(`  ${DIM}✗ ${t('Failed to check skills from {source}', { source })}${RESET}`);
     } finally {
       if (tempDir) await cleanupTempDir(tempDir);
     }
@@ -627,14 +640,14 @@ export async function updateGlobalSkills(
 
   if (checkable.length === 0 && skipped.length === 0 && wellKnownCount === 0) {
     if (!options.skills) {
-      console.log(`${DIM}No global skills to check.${RESET}`);
+      console.log(`${DIM}${t('No global skills to check.')}${RESET}`);
     }
     return { successCount, failCount, checkedCount: 0 };
   }
 
   if (checkable.length === 0 && skipped.length === 0) {
     if (!wkChanged) {
-      console.log(`${TEXT}✓ All global skills are up to date${RESET}`);
+      console.log(`${TEXT}✓ ${t('All global skills are up to date')}${RESET}`);
     }
     return { successCount, failCount, checkedCount };
   }
@@ -646,22 +659,22 @@ export async function updateGlobalSkills(
 
   if (updates.length === 0) {
     if (!wkChanged) {
-      console.log(`${TEXT}✓ All global skills are up to date${RESET}`);
+      console.log(`${TEXT}✓ ${t('All global skills are up to date')}${RESET}`);
     }
     return { successCount, failCount, checkedCount };
   }
 
-  console.log(`${TEXT}Found ${updates.length} global update(s)${RESET}`);
+  console.log(`${TEXT}${t('Found {count} global update(s)', { count: updates.length })}${RESET}`);
   console.log();
 
   for (const update of updates) {
     const safeName = sanitizeMetadata(update.name);
-    console.log(`${TEXT}Updating ${safeName}…${RESET}`);
+    console.log(`${TEXT}${t('Updating {name}…', { name: safeName })}${RESET}`);
     const installUrl = buildUpdateInstallSource(update.entry);
     if (!installUrl) {
       failCount++;
       console.log(
-        `  ${DIM}✗ Cannot update ${safeName}: lock file is missing sourceUrl for this generic Git source${RESET}`
+        `  ${DIM}✗ ${t('Cannot update {name}: lock file is missing sourceUrl for this generic Git source', { name: safeName })}${RESET}`
       );
       continue;
     }
@@ -670,7 +683,7 @@ export async function updateGlobalSkills(
     if (!existsSync(cliEntry)) {
       failCount++;
       console.log(
-        `  ${DIM}✗ Failed to update ${safeName}: CLI entrypoint not found at ${cliEntry}${RESET}`
+        `  ${DIM}✗ ${t('Failed to update {name}: CLI entrypoint not found at {path}', { name: safeName, path: cliEntry })}${RESET}`
       );
       continue;
     }
@@ -692,10 +705,10 @@ export async function updateGlobalSkills(
 
     if (result.status === 0) {
       successCount++;
-      console.log(`  ${TEXT}✓${RESET} Updated ${safeName}`);
+      console.log(`  ${TEXT}✓${RESET} ${t('Updated {name}', { name: safeName })}`);
     } else {
       failCount++;
-      console.log(`  ${DIM}✗ Failed to update ${safeName}${RESET}`);
+      console.log(`  ${DIM}✗ ${t('Failed to update {name}', { name: safeName })}${RESET}`);
     }
   }
 
@@ -712,9 +725,9 @@ export async function updateProjectSkills(
 
   if (projectSkills.length === 0) {
     if (!options.skills) {
-      console.log(`${DIM}No project skills to update.${RESET}`);
+      console.log(`${DIM}${t('No project skills to update.')}${RESET}`);
       console.log(
-        `${DIM}Install project skills with${RESET} ${TEXT}npx skills add <package>${RESET}`
+        `${DIM}${t('Install project skills with')}${RESET} ${TEXT}npx skills add <package>${RESET}`
       );
     }
     return { successCount, failCount, foundCount: 0 };
@@ -745,7 +758,7 @@ export async function updateProjectSkills(
   const legacy = nonWellKnown.filter((s) => !s.entry.skillPath);
 
   if (updatable.length === 0 && wellKnownCount === 0) {
-    console.log(`${DIM}No project skills can be updated in place.${RESET}`);
+    console.log(`${DIM}${t('No project skills can be updated in place.')}${RESET}`);
     printLegacyProjectSkills(legacy);
     return { successCount, failCount, foundCount: projectSkills.length };
   }
@@ -772,10 +785,14 @@ export async function updateProjectSkills(
   targetParts.push(...targetAgentNames);
 
   if (targetParts.length > 0) {
-    console.log(`${TEXT}Updating for: ${targetParts.join(', ')}${RESET}`);
+    console.log(
+      `${TEXT}${t('Updating for: {agents}', { agents: targetParts.join(', ') })}${RESET}`
+    );
   }
 
-  console.log(`${TEXT}Refreshing ${updatable.length + wellKnownCount} skill(s)…${RESET}`);
+  console.log(
+    `${TEXT}${t('Refreshing {count} skill(s)…', { count: updatable.length + wellKnownCount })}${RESET}`
+  );
   console.log();
 
   const { successCount: wkSuccessCount, failCount: wkFailCount } = await processWellKnownUpdates(
@@ -798,7 +815,7 @@ export async function updateProjectSkills(
   const cliEntry = join(__dirname, '..', 'bin', 'cli.mjs');
 
   if (updatable.length > 0 && !existsSync(cliEntry)) {
-    console.log(`${DIM}✗ CLI entrypoint not found at ${cliEntry}${RESET}`);
+    console.log(`  ${DIM}✗ ${t('CLI entrypoint not found at {path}', { path: cliEntry })}${RESET}`);
     return {
       successCount,
       failCount: failCount + updatable.length,
@@ -821,7 +838,7 @@ export async function updateProjectSkills(
     if (buildLocalUpdateSource(firstEntry) === null) {
       failCount += skillsForSource.length;
       console.log(
-        `${DIM}✗ Cannot update ${source}: skills-lock.json is missing sourceUrl for this generic Git source${RESET}`
+        `  ${DIM}✗ ${t('Cannot update {source}: skills-lock.json is missing sourceUrl for this generic Git source', { source })}${RESET}`
       );
       continue;
     }
@@ -844,7 +861,9 @@ export async function updateProjectSkills(
         discoveredPaths
       );
     } catch (error) {
-      console.log(`${DIM}✗ Failed to check for deleted skills from ${source}${RESET}`);
+      console.log(
+        `  ${DIM}✗ ${t('Failed to check for deleted skills from {source}', { source })}${RESET}`
+      );
     } finally {
       if (tempDir) {
         await cleanupTempDir(tempDir);
@@ -855,12 +874,12 @@ export async function updateProjectSkills(
 
     for (const skill of remainingSkills) {
       const safeName = sanitizeMetadata(skill.name);
-      console.log(`${TEXT}Updating ${safeName}…${RESET}`);
+      console.log(`${TEXT}${t('Updating {name}…', { name: safeName })}${RESET}`);
       const installUrl = buildLocalUpdateSource(skill.entry);
       if (!installUrl) {
         failCount++;
         console.log(
-          `  ${DIM}✗ Cannot update ${safeName}: skills-lock.json is missing sourceUrl for this generic Git source${RESET}`
+          `  ${DIM}✗ ${t('Cannot update {name}: skills-lock.json is missing sourceUrl for this generic Git source', { name: safeName })}${RESET}`
         );
         continue;
       }
@@ -897,10 +916,10 @@ export async function updateProjectSkills(
 
       if (result.status === 0) {
         successCount++;
-        console.log(`  ${TEXT}✓${RESET} Updated ${safeName}`);
+        console.log(`  ${TEXT}✓${RESET} ${t('Updated {name}', { name: safeName })}`);
       } else {
         failCount++;
-        console.log(`  ${DIM}✗ Failed to update ${safeName}${RESET}`);
+        console.log(`  ${DIM}✗ ${t('Failed to update {name}', { name: safeName })}${RESET}`);
       }
     }
   }
@@ -915,16 +934,16 @@ export function printLegacyProjectSkills(
   if (legacy.length === 0) return;
   console.log();
   console.log(
-    `${DIM}${legacy.length} project skill(s) cannot be updated automatically (installed before skillPath tracking):${RESET}`
+    `${DIM}${t('{count} project skill(s) cannot be updated automatically (installed before skillPath tracking):', { count: legacy.length })}${RESET}`
   );
   for (const skill of legacy) {
     const reinstall = buildLocalUpdateSource(skill.entry);
     console.log(`  ${TEXT}•${RESET} ${sanitizeMetadata(skill.name)}`);
     if (reinstall) {
-      console.log(`    ${DIM}To refresh: ${TEXT}npx skills add ${reinstall} -y${RESET}`);
+      console.log(`    ${DIM}${t('To refresh:')} ${TEXT}npx skills add ${reinstall} -y${RESET}`);
     } else {
       console.log(
-        `    ${DIM}To refresh: reinstall using the original full Git URL; this lock entry only has an ambiguous shorthand.${RESET}`
+        `    ${DIM}${t('To refresh: reinstall using the original full Git URL; this lock entry only has an ambiguous shorthand.')}${RESET}`
       );
     }
   }
@@ -935,9 +954,9 @@ export async function runUpdate(args: string[] = []): Promise<void> {
   const scope = await resolveUpdateScope(options);
 
   if (options.skills) {
-    console.log(`${TEXT}Updating ${options.skills.join(', ')}…${RESET}`);
+    console.log(`${TEXT}${t('Updating {skills}…', { skills: options.skills.join(', ') })}${RESET}`);
   } else {
-    console.log(`${TEXT}Checking for skill updates…${RESET}`);
+    console.log(`${TEXT}${t('Checking for skill updates…')}${RESET}`);
   }
   console.log();
 
@@ -947,7 +966,7 @@ export async function runUpdate(args: string[] = []): Promise<void> {
 
   if (scope === 'global' || scope === 'both') {
     if (scope === 'both' && !options.skills) {
-      console.log(`${BOLD}Global Skills${RESET}`);
+      console.log(`${BOLD}${t('Global Skills')}${RESET}`);
     }
     const { successCount, failCount, checkedCount } = await updateGlobalSkills(options);
     totalSuccess += successCount;
@@ -960,7 +979,7 @@ export async function runUpdate(args: string[] = []): Promise<void> {
 
   if (scope === 'project' || scope === 'both') {
     if (scope === 'both' && !options.skills) {
-      console.log(`${BOLD}Project Skills${RESET}`);
+      console.log(`${BOLD}${t('Project Skills')}${RESET}`);
     }
     const { successCount, failCount, foundCount } = await updateProjectSkills(options);
     totalSuccess += successCount;
@@ -969,15 +988,17 @@ export async function runUpdate(args: string[] = []): Promise<void> {
   }
 
   if (options.skills && totalFound === 0) {
-    console.log(`${DIM}No installed skills found matching: ${options.skills.join(', ')}${RESET}`);
+    console.log(
+      `${DIM}${t('No installed skills found matching: {skills}', { skills: options.skills.join(', ') })}${RESET}`
+    );
   }
 
   console.log();
   if (totalSuccess > 0) {
-    console.log(`${TEXT}✓ Updated ${totalSuccess} skill(s)${RESET}`);
+    console.log(`${TEXT}✓ ${t('Updated {count} skill(s)', { count: totalSuccess })}${RESET}`);
   }
   if (totalFail > 0) {
-    console.log(`${DIM}Failed to update ${totalFail} skill(s)${RESET}`);
+    console.log(`${DIM}${t('Failed to update {count} skill(s)', { count: totalFail })}${RESET}`);
     process.exitCode = 1;
   }
 

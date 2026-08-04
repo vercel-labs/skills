@@ -8,6 +8,7 @@ import { detectAgent } from './detect-agent.ts';
 import { removeSkillFromLock, getSkillFromLock, readSkillLock } from './skill-lock.ts';
 import { readLocalLock, removeSkillFromLocalLock } from './local-lock.ts';
 import type { AgentType } from './types.ts';
+import { t } from './messages.ts';
 import {
   getInstallPath,
   getCanonicalPath,
@@ -66,7 +67,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     p.log.info(
       pc.bgCyan(pc.black(pc.bold(` ${agentResult.agent.name} `))) +
         ' ' +
-        'Agent detected — removing non-interactively'
+        t('Agent detected — removing non-interactively')
     );
   }
 
@@ -88,7 +89,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
       }
     } catch (err) {
       if (err instanceof Error && (err as { code?: string }).code !== 'ENOENT') {
-        p.log.warn(`Could not scan directory ${dir}: ${err.message}`);
+        p.log.warn(t('Could not scan directory {dir}: {error}', { dir, error: err.message }));
       }
     }
   };
@@ -128,7 +129,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
       : [];
 
   if (installedSkills.length === 0 && resolvedRequestedSkills.length === 0) {
-    p.outro(pc.yellow('No skills found to remove.'));
+    p.outro(pc.yellow(t('No skills found to remove.')));
     return;
   }
 
@@ -138,8 +139,8 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 
     if (invalidAgents.length > 0) {
-      p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
-      p.log.info(`Valid agents: ${validAgents.join(', ')}`);
+      p.log.error(t('Invalid agents: {agents}', { agents: invalidAgents.join(', ') }));
+      p.log.info(t('Valid agents: {agents}', { agents: validAgents.join(', ') }));
       process.exit(1);
     }
   }
@@ -152,7 +153,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     selectedSkills = resolvedRequestedSkills;
 
     if (selectedSkills.length === 0) {
-      p.log.error(`No matching skills found for: ${skillNames.join(', ')}`);
+      p.log.error(t('No matching skills found for: {skills}', { skills: skillNames.join(', ') }));
       return;
     }
   } else {
@@ -162,13 +163,13 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     }));
 
     const selected = await p.multiselect({
-      message: `Select skills to remove ${pc.dim('(space to toggle)')}`,
+      message: `${t('Select skills to remove')} ${pc.dim(t('(space to toggle)'))}`,
       options: choices,
       required: true,
     });
 
     if (p.isCancel(selected)) {
-      p.cancel('Removal cancelled');
+      p.cancel(t('Removal cancelled'));
       process.exit(0);
     }
 
@@ -182,28 +183,30 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     // When removing, we should target all known agents to ensure
     // ghost symlinks are cleaned up, even if the agent is not detected.
     targetAgents = Object.keys(agents) as AgentType[];
-    spinner.stop(`Targeting ${targetAgents.length} potential agent(s)`);
+    spinner.stop(t('Targeting {count} potential agent(s)', { count: targetAgents.length }));
   }
 
   if (!options.yes) {
     console.log();
-    p.log.info('Skills to remove:');
+    p.log.info(t('Skills to remove:'));
     for (const skill of selectedSkills) {
       p.log.message(`  ${pc.red('•')} ${skill}`);
     }
     console.log();
 
     const confirmed = await p.confirm({
-      message: `Are you sure you want to uninstall ${selectedSkills.length} skill(s)?`,
+      message: t('Are you sure you want to uninstall {count} skill(s)?', {
+        count: selectedSkills.length,
+      }),
     });
 
     if (p.isCancel(confirmed) || !confirmed) {
-      p.cancel('Removal cancelled');
+      p.cancel(t('Removal cancelled'));
       process.exit(0);
     }
   }
 
-  spinner.start('Removing skills…');
+  spinner.start(t('Removing skills…'));
 
   const results: {
     skill: string;
@@ -251,9 +254,10 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
             }
           } catch (err) {
             p.log.warn(
-              `Could not remove skill from ${agent.displayName}: ${
-                err instanceof Error ? err.message : String(err)
-              }`
+              t('Could not remove skill from {agent}: {error}', {
+                agent: agent.displayName,
+                error: err instanceof Error ? err.message : String(err),
+              })
             );
           }
         }
@@ -339,18 +343,20 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   }
 
   if (successful.length > 0) {
-    p.log.success(pc.green(`Successfully removed ${successful.length} skill(s)`));
+    p.log.success(
+      pc.green(t('Successfully removed {count} skill(s)', { count: successful.length }))
+    );
   }
 
   if (failed.length > 0) {
-    p.log.error(pc.red(`Failed to remove ${failed.length} skill(s)`));
+    p.log.error(pc.red(t('Failed to remove {count} skill(s)', { count: failed.length })));
     for (const r of failed) {
       p.log.message(`  ${pc.red('✗')} ${r.skill}: ${r.error}`);
     }
   }
 
   console.log();
-  p.outro(pc.green('Done!'));
+  p.outro(pc.green(t('Done!')));
 }
 
 /**

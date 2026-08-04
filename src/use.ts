@@ -12,6 +12,7 @@ import { discoverSkills, filterSkills, getSkillDisplayName } from './skills.ts';
 import { getOwnerRepo, parseSource } from './source-parser.ts';
 import type { AgentType, Skill } from './types.ts';
 import { downloadSource } from './download-source.ts';
+import { t } from './messages.ts';
 import {
   wellKnownProvider,
   type WellKnownSkill,
@@ -163,7 +164,7 @@ export async function materializeUseSkill(skill: UseSkill): Promise<Materialized
   const skillDir = join(tempRoot, sanitizeName(skill.directoryName || skill.name));
 
   if (!isPathSafe(tempRoot, skillDir)) {
-    throw new Error('Invalid skill name: potential path traversal detected');
+    throw new Error(t('Invalid skill name: potential path traversal detected'));
   }
 
   await mkdir(skillDir, { recursive: true });
@@ -200,11 +201,16 @@ export async function runUse(
     }
 
     if (sourceArgs.length === 0) {
-      fail(`Missing required argument: source\n\n${getUseHelp()}`);
+      fail(`${t('Missing required argument: source')}\n\n${getUseHelp()}`);
     }
 
     if (sourceArgs.length > 1) {
-      fail(`Expected one source, received ${sourceArgs.length}: ${sourceArgs.join(', ')}`);
+      fail(
+        t('Expected one source, received {count}: {skills}', {
+          count: sourceArgs.length,
+          skills: sourceArgs.join(', '),
+        })
+      );
     }
 
     const useAgent = options.agent?.[0] as AgentType | undefined;
@@ -220,9 +226,11 @@ export async function runUse(
     if (sourceOwner === 'openclaw' && !options.dangerouslyAcceptOpenclawRisks) {
       fail(
         [
-          'OpenClaw skills are unverified community submissions.',
-          'Skills run with full agent permissions and could be malicious.',
-          `If you understand the risks, re-run with: skills use ${source} --dangerously-accept-openclaw-risks`,
+          t('OpenClaw skills are unverified community submissions.'),
+          t('Skills run with full agent permissions and could be malicious.'),
+          t('If you understand the risks, re-run with: {cmd}', {
+            cmd: `skills use ${source} --dangerously-accept-openclaw-risks`,
+          }),
         ].join('\n')
       );
     }
@@ -265,7 +273,7 @@ export async function runUse(
         });
       } else if (parsed.type === 'local') {
         if (!existsSync(parsed.localPath!)) {
-          fail(`Local path does not exist: ${parsed.localPath}`);
+          fail(t('Local path does not exist: {path}', { path: parsed.localPath! }));
         }
         skills = await discoverSkills(parsed.localPath!, parsed.subpath, {
           includeInternal,
@@ -395,19 +403,19 @@ function spawnAgent(command: string, args: string[]): AgentProcess {
 }
 
 function getUseHelp(): string {
-  return `Usage: skills use <source>[@<skill>] [options]
+  return `${t('Usage:')} skills use <source>[@<skill>] [options]
 
-Generate a prompt for using one skill without installing it.
+${t('Generate a prompt for using one skill without installing it.')}
 
-Options:
-  -s, --skill <skill>   Select the skill to use
-  -a, --agent <agent>   Start one supported agent interactively (${SUPPORTED_USE_AGENTS.join(', ')})
-  --full-depth          Search nested directories like skills add --full-depth
+${t('Options:')}
+  -s, --skill <skill>   ${t('Select the skill to use')}
+  -a, --agent <agent>   ${t('Start one supported agent interactively')} (${SUPPORTED_USE_AGENTS.join(', ')})
+  --full-depth          ${t('Search nested directories like skills add --full-depth')}
   --dangerously-accept-openclaw-risks
-                         Allow unverified OpenClaw community skills
-  -h, --help            Show this help message
+                         ${t('Allow unverified OpenClaw community skills')}
+  -h, --help            ${t('Show this help message')}
 
-Examples:
+${t('Examples:')}
   skills use vercel-labs/agent-skills@web-design-guidelines | claude
   skills use vercel-labs/agent-skills --skill web-design-guidelines --agent claude-code
   skills use vercel-labs/agent-skills@web-design-guidelines --agent codex`;
@@ -417,7 +425,13 @@ function resolveSelector(sourceSelector?: string, optionSelector?: string): stri
   if (sourceSelector && optionSelector) {
     if (sourceSelector.toLowerCase() !== optionSelector.toLowerCase()) {
       throw new UseCommandError(
-        `Conflicting skill selectors: source selects "${sourceSelector}" but --skill selects "${optionSelector}". Provide one selector.`
+        t(
+          'Conflicting skill selectors: source selects "{source}" but --skill selects "{option}". Provide one selector.',
+          {
+            source: sourceSelector,
+            option: optionSelector,
+          }
+        )
       );
     }
     return optionSelector;
@@ -429,7 +443,7 @@ function resolveSelector(sourceSelector?: string, optionSelector?: string): stri
 function selectSkill(skills: Skill[], selector: string | undefined, source: string): Skill {
   if (skills.length === 0) {
     throw new UseCommandError(
-      'No valid skills found. Skills require a SKILL.md with name and description.'
+      t('No valid skills found. Skills require a SKILL.md with name and description.')
     );
   }
 
@@ -443,7 +457,9 @@ function selectSkill(skills: Skill[], selector: string | undefined, source: stri
     throw new UseCommandError(formatNoMatchError(selector, skills.map(getSkillDisplayName)));
   }
   if (selected.length > 1) {
-    throw new UseCommandError(`Skill selector "${selector}" matched multiple skills.`);
+    throw new UseCommandError(
+      t('Skill selector "{selector}" matched multiple skills.', { selector })
+    );
   }
 
   return selected[0]!;
@@ -456,7 +472,9 @@ function selectWellKnownSkill(
 ): UseSkill {
   if (skills.length === 0) {
     throw new UseCommandError(
-      'No skills found at this URL. Make sure the server has a /.well-known/agent-skills/index.json or /.well-known/skills/index.json file.'
+      t(
+        'No skills found at this URL. Make sure the server has a /.well-known/agent-skills/index.json or /.well-known/skills/index.json file.'
+      )
     );
   }
 
@@ -486,7 +504,9 @@ function selectWellKnownSkill(
       );
     }
     if (selected.length > 1) {
-      throw new UseCommandError(`Skill selector "${selector}" matched multiple skills.`);
+      throw new UseCommandError(
+        t('Skill selector "{selector}" matched multiple skills.', { selector })
+      );
     }
   }
 
@@ -502,17 +522,17 @@ function selectWellKnownSkill(
 
 function formatMultipleSkillsError(source: string, names: string[]): string {
   return [
-    'This source contains multiple skills. Specify exactly one skill:',
+    t('This source contains multiple skills. Specify exactly one skill:'),
     ...names.map((name) => `  - ${name}`),
     '',
-    `Examples:\n  skills use ${source}@${names[0] ?? '<skill>'}\n  skills use ${source} --skill ${names[0] ?? '<skill>'}`,
+    `${t('Examples:')}\n  skills use ${source}@${names[0] ?? '<skill>'}\n  skills use ${source} --skill ${names[0] ?? '<skill>'}`,
   ].join('\n');
 }
 
 function formatNoMatchError(selector: string, names: string[]): string {
   return [
-    `No matching skill found for: ${selector}`,
-    'Available skills:',
+    t('No matching skill found for: {selector}', { selector }),
+    t('Available skills:'),
     ...names.map((name) => `  - ${name}`),
   ].join('\n');
 }
@@ -543,8 +563,10 @@ function validateUseAgentOption(agentValues: string[] | undefined): string[] {
 
 function formatUnsupportedAgentError(agent: AgentType): string {
   return [
-    `Running ${agents[agent].displayName} is not supported yet.`,
-    `Supported agents for skills use --agent: ${SUPPORTED_USE_AGENTS.join(', ')}`,
+    t('Running {agent} is not supported yet.', { agent: agents[agent].displayName }),
+    t('Supported agents for skills use --agent: {agents}', {
+      agents: SUPPORTED_USE_AGENTS.join(', '),
+    }),
   ].join('\n');
 }
 
@@ -608,7 +630,7 @@ async function copySkillDirectory(src: string, dest: string): Promise<void> {
             (err as NodeJS.ErrnoException).code === 'ENOENT' &&
             entry.isSymbolicLink()
           ) {
-            console.error(`Skipping broken symlink: ${srcPath}`);
+            console.error(t('Skipping broken symlink: {path}', { path: srcPath }));
             return;
           }
           throw err;

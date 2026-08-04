@@ -13,6 +13,7 @@ import { flushTelemetry } from './telemetry.ts';
 import { isRunningInAgent } from './detect-agent.ts';
 import { runUpdate } from './update.ts';
 import { runUse, parseUseOptions } from './use.ts';
+import { t } from './messages.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -64,114 +65,114 @@ function showLogo(): void {
 function showBanner(): void {
   showLogo();
   console.log();
-  console.log(`${DIM}The open agent skills ecosystem${RESET}`);
+  console.log(`${DIM}${t('The open agent skills ecosystem')}${RESET}`);
   console.log();
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills add ${DIM}<package>${RESET}        ${DIM}Add a new skill${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}npx skills add ${DIM}<package>${RESET}        ${DIM}${t('Add a new skill')}${RESET}`
   );
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills use ${DIM}<package>@<skill>${RESET} ${DIM}Use a skill without installing${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}npx skills use ${DIM}<package>@<skill>${RESET} ${DIM}${t('Use a skill without installing')}${RESET}`
   );
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills remove${RESET}               ${DIM}Remove installed skills${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}npx skills remove${RESET}               ${DIM}${t('Remove installed skills')}${RESET}`
   );
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills list${RESET}                 ${DIM}List installed skills${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}npx skills list${RESET}                 ${DIM}${t('List installed skills')}${RESET}`
   );
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills find ${DIM}[query]${RESET}         ${DIM}Search for skills${RESET}`
-  );
-  console.log();
-  console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills update${RESET}               ${DIM}Update installed skills${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}npx skills find ${DIM}[query]${RESET}         ${DIM}${t('Search for skills')}${RESET}`
   );
   console.log();
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills experimental_install${RESET} ${DIM}Restore from skills-lock.json${RESET}`
-  );
-  console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills init ${DIM}[name]${RESET}          ${DIM}Create a new skill${RESET}`
-  );
-  console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills experimental_sync${RESET}    ${DIM}Sync skills from node_modules${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}npx skills update${RESET}               ${DIM}${t('Update installed skills')}${RESET}`
   );
   console.log();
-  console.log(`${DIM}try:${RESET} npx skills add vercel-labs/agent-skills`);
+  console.log(
+    `  ${DIM}$${RESET} ${TEXT}npx skills experimental_install${RESET} ${DIM}${t('Restore from skills-lock.json')}${RESET}`
+  );
+  console.log(
+    `  ${DIM}$${RESET} ${TEXT}npx skills init ${DIM}[name]${RESET}          ${DIM}${t('Create a new skill')}${RESET}`
+  );
+  console.log(
+    `  ${DIM}$${RESET} ${TEXT}npx skills experimental_sync${RESET}    ${DIM}${t('Sync skills from node_modules')}${RESET}`
+  );
   console.log();
-  console.log(`Discover more skills at ${TEXT}https://skills.sh/${RESET}`);
+  console.log(`${DIM}${t('try:')}${RESET} npx skills add vercel-labs/agent-skills`);
+  console.log();
+  console.log(`${t('Discover more skills at')} ${TEXT}https://skills.sh/${RESET}`);
   console.log();
 }
 
 function showHelp(): void {
   console.log(`
-${BOLD}Usage:${RESET} skills <command> [options]
+${BOLD}${t('Usage')}:${RESET} skills <command> [options]
 
-${BOLD}Manage Skills:${RESET}
-  add <package>        Add a skill package (alias: a)
+${BOLD}${t('Manage Skills:')}${RESET}
+  add <package>        ${t('Add a skill package (alias: a)')}
                        e.g. vercel-labs/agent-skills
                             https://github.com/vercel-labs/agent-skills
   use <package>@<skill>
-                       Generate a prompt for using one skill without installing it
-  remove [skills]      Remove installed skills
-  list, ls             List installed skills
-  find [query]         Search for skills interactively
+                       ${t('Generate a prompt for using one skill without installing it')}
+  remove [skills]      ${t('Remove installed skills')}
+  list, ls             ${t('List installed skills')}
+  find [query]         ${t('Search for skills interactively')}
 
-${BOLD}Find Options:${RESET}
-  --owner <owner>        Search only repositories from a GitHub owner
+${BOLD}${t('Find Options:')}${RESET}
+  --owner <owner>        ${t('Search only repositories from a GitHub owner')}
 
-${BOLD}Updates:${RESET}
-  update [skills...]   Update skills to latest versions (alias: upgrade)
+${BOLD}${t('Updates:')}${RESET}
+  update [skills...]   ${t('Update skills to latest versions (alias: upgrade)')}
 
-${BOLD}Update Options:${RESET}
-  -g, --global           Update global skills only
-  -p, --project          Update project skills only
-  -y, --yes              Skip scope prompt (auto-detect: project if in a project, else global)
+${BOLD}${t('Update Options:')}${RESET}
+  -g, --global           ${t('Update global skills only')}
+  -p, --project          ${t('Update project skills only')}
+  -y, --yes              ${t('Skip scope prompt (auto-detect: project if in a project, else global)')}
 
-${BOLD}Project:${RESET}
-  experimental_install Restore skills from skills-lock.json
-  init [name]          Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)
-  experimental_sync    Sync skills from node_modules into agent directories
+${BOLD}${t('Project:')}${RESET}
+  experimental_install ${t('Restore skills from skills-lock.json')}
+  init [name]          ${t('Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)')}
+  experimental_sync    ${t('Sync skills from node_modules into agent directories')}
 
-${BOLD}Add Options:${RESET}
-  -g, --global           Install skill globally (user-level) instead of project-level
-  -a, --agent <agents>   Specify agents to install to (use '*' for all agents)
-  -s, --skill <skills>   Specify skill names to install (use '*' for all skills)
-  -l, --list             List available skills in the repository without installing
-  -y, --yes              Skip confirmation prompts
-  --copy                 Copy files instead of symlinking to agent directories
-  --metadata <json>      Attach valid JSON to the install telemetry event
-  --subagent <names>     Install to Eve subagents (use 'root' for the root agent)
-  --all                  Shorthand for --skill '*' --agent '*' -y
-  --full-depth           Search all subdirectories even when a root SKILL.md exists
+${BOLD}${t('Add Options:')}${RESET}
+  -g, --global           ${t('Install skill globally (user-level) instead of project-level')}
+  -a, --agent <agents>   ${t("Specify agents to install to (use '*' for all agents)")}
+  -s, --skill <skills>   ${t("Specify skill names to install (use '*' for all skills)")}
+  -l, --list             ${t('List available skills in the repository without installing')}
+  -y, --yes              ${t('Skip confirmation prompts')}
+  --copy                 ${t('Copy files instead of symlinking to agent directories')}
+  --metadata <json>      ${t('Attach valid JSON to the install telemetry event')}
+  --subagent <names>     ${t("Install to Eve subagents (use 'root' for the root agent)")}
+  --all                  ${t("Shorthand for --skill '*' --agent '*' -y")}
+  --full-depth           ${t('Search all subdirectories even when a root SKILL.md exists')}
 
-${BOLD}Use Options:${RESET}
-  -s, --skill <skill>    Specify the skill to use
-  -a, --agent <agent>    Start one supported agent interactively
-  --full-depth           Search all subdirectories even when a root SKILL.md exists
+${BOLD}${t('Use Options:')}${RESET}
+  -s, --skill <skill>    ${t('Specify the skill to use')}
+  -a, --agent <agent>    ${t('Start one supported agent interactively')}
+  --full-depth           ${t('Search all subdirectories even when a root SKILL.md exists')}
   --dangerously-accept-openclaw-risks
-                         Allow unverified OpenClaw community skills
+                         ${t('Allow unverified OpenClaw community skills')}
 
-${BOLD}Remove Options:${RESET}
-  -g, --global           Remove from global scope
-  -a, --agent <agents>   Remove from specific agents (use '*' for all agents)
-  -s, --skill <skills>   Specify skills to remove (use '*' for all skills)
-  -y, --yes              Skip confirmation prompts
-  --all                  Shorthand for --skill '*' --agent '*' -y
-  
-${BOLD}Experimental Sync Options:${RESET}
-  -a, --agent <agents>   Specify agents to install to (use '*' for all agents)
-  -y, --yes              Skip confirmation prompts
+${BOLD}${t('Remove Options:')}${RESET}
+  -g, --global           ${t('Remove from global scope')}
+  -a, --agent <agents>   ${t("Remove from specific agents (use '*' for all agents)")}
+  -s, --skill <skills>   ${t("Specify skills to remove (use '*' for all skills)")}
+  -y, --yes              ${t('Skip confirmation prompts')}
+  --all                  ${t("Shorthand for --skill '*' --agent '*' -y")}
 
-${BOLD}List Options:${RESET}
-  -g, --global           List global skills (default: project)
-  -a, --agent <agents>   Filter by specific agents
-  --json                 Output as JSON (machine-readable, no ANSI codes)
+${BOLD}${t('Experimental Sync Options:')}${RESET}
+  -a, --agent <agents>   ${t("Specify agents to install to (use '*' for all agents)")}
+  -y, --yes              ${t('Skip confirmation prompts')}
 
-${BOLD}Options:${RESET}
-  --help, -h        Show this help message
-  --version, -v     Show version number
+${BOLD}${t('List Options:')}${RESET}
+  -g, --global           ${t('List global skills (default: project)')}
+  -a, --agent <agents>   ${t('Filter by specific agents')}
+  --json                 ${t('Output as JSON (machine-readable, no ANSI codes)')}
 
-${BOLD}Examples:${RESET}
+${BOLD}${t('Options:')}${RESET}
+  --help, -h        ${t('Show this help message')}
+  --version, -v     ${t('Show version number')}
+
+${BOLD}${t('Examples:')}${RESET}
   ${DIM}$${RESET} skills add vercel-labs/agent-skills
   ${DIM}$${RESET} skills use vercel-labs/agent-skills@vercel-optimize | claude
   ${DIM}$${RESET} skills use vercel-labs/agent-skills --skill vercel-optimize --agent claude-code
@@ -189,45 +190,44 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills find typescript               ${DIM}# search by keyword${RESET}
   ${DIM}$${RESET} skills find react --owner vercel     ${DIM}# search within an owner${RESET}
   ${DIM}$${RESET} skills update
-  ${DIM}$${RESET} skills update my-skill             ${DIM}# update a single skill${RESET}
-  ${DIM}$${RESET} skills update -g                    ${DIM}# update global skills only${RESET}
-  ${DIM}$${RESET} skills experimental_install            ${DIM}# restore from skills-lock.json${RESET}
+  ${DIM}$${RESET} skills update my-skill             ${DIM}# ${t('update a single skill')}${RESET}
+  ${DIM}$${RESET} skills update -g                    ${DIM}# ${t('update global skills only')}${RESET}
+  ${DIM}$${RESET} skills experimental_install            ${DIM}# ${t('restore from skills-lock.json')}${RESET}
   ${DIM}$${RESET} skills init my-skill
-  ${DIM}$${RESET} skills experimental_sync              ${DIM}# sync from node_modules${RESET}
-  ${DIM}$${RESET} skills experimental_sync -y           ${DIM}# sync without prompts${RESET}
+  ${DIM}$${RESET} skills experimental_sync              ${DIM}# ${t('sync from node_modules')}${RESET}
+  ${DIM}$${RESET} skills experimental_sync -y           ${DIM}# ${t('sync without prompts')}${RESET}
 
-Discover more skills at ${TEXT}https://skills.sh/${RESET}
+${t('Discover more skills at')} ${TEXT}https://skills.sh/${RESET}
 `);
 }
 
 function showRemoveHelp(): void {
   console.log(`
-${BOLD}Usage:${RESET} skills remove [skills...] [options]
+${BOLD}${t('Usage')}:${RESET} skills remove [skills...] [options]
 
-${BOLD}Description:${RESET}
-  Remove installed skills from agents. If no skill names are provided,
-  an interactive selection menu will be shown.
+${BOLD}${t('Description')}:${RESET}
+  ${t('Remove installed skills from agents. If no skill names are provided, an interactive selection menu will be shown.')}
 
-${BOLD}Arguments:${RESET}
-  skills            Optional skill names to remove (space-separated)
+${BOLD}${t('Arguments:')}${RESET}
+  skills            ${t('Optional skill names to remove (space-separated)')}
 
-${BOLD}Options:${RESET}
-  -g, --global       Remove from global scope (~/) instead of project scope
-  -a, --agent        Remove from specific agents (use '*' for all agents)
-  -s, --skill        Specify skills to remove (use '*' for all skills)
-  -y, --yes          Skip confirmation prompts
-  --all              Shorthand for --skill '*' --agent '*' -y
+${BOLD}${t('Options:')}${RESET}
+  -g, --global       ${t('Remove from global scope (~/) instead of project scope')}
+  -a, --agent        ${t("Remove from specific agents (use '*' for all agents)")}
+  -s, --skill        ${t("Specify skills to remove (use '*' for all skills)")}
+  -y, --yes          ${t('Skip confirmation prompts')}
+  --all              ${t("Shorthand for --skill '*' --agent '*' -y")}
 
-${BOLD}Examples:${RESET}
-  ${DIM}$${RESET} skills remove                           ${DIM}# interactive selection${RESET}
-  ${DIM}$${RESET} skills remove my-skill                   ${DIM}# remove specific skill${RESET}
-  ${DIM}$${RESET} skills remove skill1 skill2 -y           ${DIM}# remove multiple skills${RESET}
-  ${DIM}$${RESET} skills remove --global my-skill          ${DIM}# remove from global scope${RESET}
-  ${DIM}$${RESET} skills rm --agent claude-code my-skill   ${DIM}# remove from specific agent${RESET}
-  ${DIM}$${RESET} skills remove --all                      ${DIM}# remove all skills${RESET}
-  ${DIM}$${RESET} skills remove --skill '*' -a cursor      ${DIM}# remove all skills from cursor${RESET}
+${BOLD}${t('Examples:')}${RESET}
+  ${DIM}$${RESET} skills remove                           ${DIM}# ${t('interactive selection')}${RESET}
+  ${DIM}$${RESET} skills remove my-skill                   ${DIM}# ${t('remove specific skill')}${RESET}
+  ${DIM}$${RESET} skills remove skill1 skill2 -y           ${DIM}# ${t('remove multiple skills')}${RESET}
+  ${DIM}$${RESET} skills remove --global my-skill          ${DIM}# ${t('remove from global scope')}${RESET}
+  ${DIM}$${RESET} skills rm --agent claude-code my-skill   ${DIM}# ${t('remove from specific agent')}${RESET}
+  ${DIM}$${RESET} skills remove --all                      ${DIM}# ${t('remove all skills')}${RESET}
+  ${DIM}$${RESET} skills remove --skill '*' -a cursor      ${DIM}# ${t('remove all skills from cursor')}${RESET}
 
-Discover more skills at ${TEXT}https://skills.sh/${RESET}
+${t('Discover more skills at')} ${TEXT}https://skills.sh/${RESET}
 `);
 }
 
@@ -241,7 +241,7 @@ function runInit(args: string[]): void {
   const displayPath = hasName ? `${skillName}/SKILL.md` : 'SKILL.md';
 
   if (existsSync(skillFile)) {
-    console.log(`${TEXT}Skill already exists at ${DIM}${displayPath}${RESET}`);
+    console.log(`${TEXT}${t('Skill already exists at {path}', { path: displayPath })}${RESET}`);
     return;
   }
 
@@ -271,26 +271,28 @@ Describe when this skill should be used.
 
   writeFileSync(skillFile, skillContent);
 
-  console.log(`${TEXT}Initialized skill: ${DIM}${skillName}${RESET}`);
+  console.log(`${TEXT}${t('Initialized skill: {name}', { name: skillName })}${RESET}`);
   console.log();
-  console.log(`${DIM}Created:${RESET}`);
+  console.log(`${DIM}${t('Created:')}${RESET}`);
   console.log(`  ${displayPath}`);
   console.log();
-  console.log(`${DIM}Next steps:${RESET}`);
-  console.log(`  1. Edit ${TEXT}${displayPath}${RESET} to define your skill instructions`);
+  console.log(`${DIM}${t('Next steps:')}${RESET}`);
+  console.log(`  1. ${t('Edit {path} to define your skill instructions', { path: displayPath })}`);
   console.log(
-    `  2. Update the ${TEXT}name${RESET} and ${TEXT}description${RESET} in the frontmatter`
+    `  2. ${t('Update the {name} and {description} in the frontmatter', { name: 'name', description: 'description' })}`
   );
   console.log();
-  console.log(`${DIM}Publishing:${RESET}`);
+  console.log(`${DIM}${t('Publishing:')}${RESET}`);
   console.log(
-    `  ${DIM}GitHub:${RESET}  Push to a repo, then ${TEXT}npx skills add <owner>/<repo>${RESET}`
+    `  ${DIM}${t('GitHub:')}${RESET}  ${t('Push to a repo, then')} ${TEXT}npx skills add <owner>/<repo>${RESET}`
   );
   console.log(
-    `  ${DIM}URL:${RESET}     Host the file, then ${TEXT}npx skills add https://example.com/${displayPath}${RESET}`
+    `  ${DIM}${t('URL:')}${RESET}     ${t('Host the file, then')} ${TEXT}npx skills add https://example.com/${displayPath}${RESET}`
   );
   console.log();
-  console.log(`Browse existing skills for inspiration at ${TEXT}https://skills.sh/${RESET}`);
+  console.log(
+    `${t('Browse existing skills for inspiration at')} ${TEXT}https://skills.sh/${RESET}`
+  );
   console.log();
 }
 
@@ -357,7 +359,7 @@ async function main(): Promise<void> {
       if (!inAgent) showLogo();
       const { source: addSource, options: addOpts, errors } = parseAddOptions(restArgs);
       if (errors.length > 0) {
-        for (const error of errors) console.error(`Error: ${error}`);
+        for (const error of errors) console.error(t('Error: {message}', { message: error }));
         process.exitCode = 1;
         break;
       }
@@ -405,8 +407,8 @@ async function main(): Promise<void> {
       break;
 
     default:
-      console.log(`Unknown command: ${command}`);
-      console.log(`Run ${BOLD}skills --help${RESET} for usage.`);
+      console.log(t('Unknown command: {command}', { command: command! }));
+      console.log(t('Run {cmd} for usage.', { cmd: `${BOLD}skills --help${RESET}` }));
       process.exitCode = 1;
   }
 }

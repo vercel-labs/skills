@@ -4,6 +4,7 @@ import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
 import { isRepoPrivate } from './source-parser.ts';
 import { isRunningInAgent } from './detect-agent.ts';
+import { t } from './messages.ts';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -18,9 +19,13 @@ const SEARCH_API_BASE = process.env.SKILLS_API_URL || 'https://skills.sh';
 
 function formatInstalls(count: number): string {
   if (!count || count <= 0) return '';
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1).replace(/\.0$/, '')}M installs`;
-  if (count >= 1_000) return `${(count / 1_000).toFixed(1).replace(/\.0$/, '')}K installs`;
-  return `${count} install${count === 1 ? '' : 's'}`;
+  const num =
+    count >= 1_000_000
+      ? `${(count / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
+      : count >= 1_000
+        ? `${(count / 1_000).toFixed(1).replace(/\.0$/, '')}K`
+        : String(count);
+  return `${num} ${count === 1 ? t('install') : t('installs')}`;
 }
 
 export interface SearchSkill {
@@ -55,7 +60,7 @@ export function parseFindOptions(args: string[]): ParseFindOptionsResult {
     if (arg === '--owner') {
       const value = args[i + 1];
       if (!value || value.startsWith('-')) {
-        errors.push('--owner requires a GitHub owner');
+        errors.push(t('--owner requires a GitHub owner'));
         continue;
       }
       ownerValue = value;
@@ -63,7 +68,7 @@ export function parseFindOptions(args: string[]): ParseFindOptionsResult {
     } else if (arg.startsWith('--owner=')) {
       ownerValue = arg.slice('--owner='.length);
       if (!ownerValue) {
-        errors.push('--owner requires a GitHub owner');
+        errors.push(t('--owner requires a GitHub owner'));
         continue;
       }
     } else {
@@ -73,7 +78,7 @@ export function parseFindOptions(args: string[]): ParseFindOptionsResult {
 
     const owner = ownerValue.trim().toLowerCase();
     if (!GITHUB_OWNER_PATTERN.test(owner)) {
-      errors.push('--owner must be a valid GitHub owner');
+      errors.push(t('--owner must be a valid GitHub owner'));
       continue;
     }
     options.owner = owner;
@@ -157,16 +162,16 @@ async function runSearchPrompt(initialQuery = '', owner?: string): Promise<Searc
 
     // Search input line with cursor
     const cursor = `${BOLD}_${RESET}`;
-    lines.push(`${TEXT}Search skills:${RESET} ${query}${cursor}`);
+    lines.push(`${TEXT}${t('Search skills:')}${RESET} ${query}${cursor}`);
     lines.push('');
 
     // Results - keep showing existing results while loading new ones
     if (!query || query.length < 2) {
-      lines.push(`${DIM}Start typing to search (min 2 chars)${RESET}`);
+      lines.push(`${DIM}${t('Start typing to search (min 2 chars)')}${RESET}`);
     } else if (results.length === 0 && loading) {
-      lines.push(`${DIM}Searching…${RESET}`);
+      lines.push(`${DIM}${t('Searching…')}${RESET}`);
     } else if (results.length === 0) {
-      lines.push(`${DIM}No skills found${RESET}`);
+      lines.push(`${DIM}${t('No skills found')}${RESET}`);
     } else {
       const maxVisible = 8;
       const visible = results.slice(0, maxVisible);
@@ -186,7 +191,7 @@ async function runSearchPrompt(initialQuery = '', owner?: string): Promise<Searc
     }
 
     lines.push('');
-    lines.push(`${DIM}up/down navigate | enter select | esc cancel${RESET}`);
+    lines.push(`${DIM}${t('up/down navigate | enter select | esc cancel')}${RESET}`);
 
     // Write each line
     for (const line of lines) {
@@ -326,13 +331,13 @@ export async function runFind(args: string[]): Promise<void> {
   const { query, options: findOptions, errors } = parseFindOptions(args);
   const owner = findOptions.owner;
   const isNonInteractive = !process.stdin.isTTY;
-  const agentTip = `${DIM}Tip: if running in a coding agent, follow these steps:${RESET}
+  const agentTip = `${DIM}${t('Tip: if running in a coding agent, follow these steps:')}${RESET}
 ${DIM}  1) npx skills find [query] [--owner <owner>]${RESET}
 ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
 
   if (errors.length > 0) {
     for (const error of errors) console.error(error);
-    console.error('Usage: npx skills find <query> [--owner <owner>]');
+    console.error(t('Usage: npx skills find <query> [--owner <owner>]'));
     return;
   }
 
@@ -348,12 +353,12 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
     });
 
     if (results.length === 0) {
-      const ownerSuffix = owner ? ` from owner "${owner}"` : '';
-      console.log(`${DIM}No skills found for "${query}"${ownerSuffix}${RESET}`);
+      const ownerSuffix = owner ? ` ${t('from owner "{owner}"', { owner })}` : '';
+      console.log(`${DIM}${t('No skills found for "{query}"', { query })}${ownerSuffix}${RESET}`);
       return;
     }
 
-    console.log(`${DIM}Install with${RESET} npx skills add <owner/repo@skill>`);
+    console.log(`${DIM}${t('Install with')}${RESET} npx skills add <owner/repo@skill>`);
     console.log();
 
     for (const skill of results.slice(0, 6)) {
@@ -372,7 +377,7 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
   if (isNonInteractive || (await isRunningInAgent())) {
     console.log(agentTip);
     console.log();
-    console.log(`${DIM}Usage: npx skills find <query> [--owner <owner>]${RESET}`);
+    console.log(`${DIM}${t('Usage: npx skills find <query> [--owner <owner>]')}${RESET}`);
     return;
   }
 
@@ -387,7 +392,7 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
   });
 
   if (!selected) {
-    console.log(`${DIM}Search cancelled${RESET}`);
+    console.log(`${DIM}${t('Search cancelled')}${RESET}`);
     console.log();
     return;
   }
@@ -397,7 +402,9 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
   const skillName = selected.name;
 
   console.log();
-  console.log(`${TEXT}Installing ${BOLD}${skillName}${RESET} from ${DIM}${pkg}${RESET}…`);
+  console.log(
+    `${TEXT}${t('Installing {name} from {pkg}…', { name: `${BOLD}${skillName}${RESET}`, pkg: `${DIM}${pkg}${RESET}` })}${RESET}`
+  );
   console.log();
 
   // Run add directly since we're in the same CLI
@@ -409,10 +416,10 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
   const info = getOwnerRepoFromString(pkg);
   if (info && (await isRepoPublic(info.owner, info.repo))) {
     console.log(
-      `${DIM}View the skill at${RESET} ${TEXT}https://skills.sh/${selected.slug}${RESET}`
+      `${DIM}${t('View the skill at')}${RESET} ${TEXT}https://skills.sh/${selected.slug}${RESET}`
     );
   } else {
-    console.log(`${DIM}Discover more skills at${RESET} ${TEXT}https://skills.sh${RESET}`);
+    console.log(`${DIM}${t('Discover more skills at')}${RESET} ${TEXT}https://skills.sh${RESET}`);
   }
 
   console.log();

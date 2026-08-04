@@ -26,6 +26,7 @@ import {
   EVE_SUBAGENTS_DIR,
 } from './agents.ts';
 import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
+import { t } from './messages.ts';
 import { parseFrontmatter } from './frontmatter.ts';
 import { parseSkillMd } from './skills.ts';
 
@@ -503,7 +504,7 @@ async function copyDirectory(src: string, dest: string, agentType?: AgentType): 
               (err as NodeJS.ErrnoException).code === 'ENOENT' &&
               entry.isSymbolicLink()
             ) {
-              console.warn(`Skipping broken symlink: ${srcPath}`);
+              console.warn(t('Skipping broken symlink: {path}', { path: srcPath }));
             } else {
               throw err;
             }

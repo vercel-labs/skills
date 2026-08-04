@@ -1,10 +1,10 @@
 {
-  "name": "skills",
-  "version": "1.5.21",
-  "description": "The open agent skills ecosystem",
+  "name": "company-skills",
+  "version": "0.1.0",
+  "description": "The open agent skills ecosystem (Comate/Chinese friendly CLI)",
   "type": "module",
   "bin": {
-    "skills": "./bin/cli.mjs",
+    "company-skills": "./bin/cli.mjs",
     "add-skill": "./bin/cli.mjs"
   },
   "files": [
@@ -52,6 +52,7 @@
     "codemaker",
     "codestudio",
     "codex",
+    "comate",
     "command-code",
     "continue",
     "cortex",

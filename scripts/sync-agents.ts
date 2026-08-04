@@ -12,11 +12,11 @@ const PACKAGE_PATH = join(ROOT, 'package.json');
 function generateAgentList(): string {
   const agentList = Object.values(agents);
   const count = agentList.length;
-  return `Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [${count - 4} more](#supported-agents).`;
+  return `支持 **OpenCode**、**Claude Code**、**Codex**、**Cursor** 等 [${count} 个智能体](#支持的智能体)。`;
 }
 
 function generateAgentNames(): string {
-  return 'Target specific agents (e.g., `claude-code`, `codex`). See [Supported Agents](#supported-agents)';
+  return '指定目标智能体（如 `claude-code`、`codex`）。参见 [支持的智能体](#支持的智能体)';
 }
 
 function generateAvailableAgentsTable(): string {
@@ -49,14 +49,14 @@ function generateAvailableAgentsTable(): string {
   const rows = Array.from(pathGroups.values()).map((group) => {
     const globalPath = group.globalSkillsDir
       ? `\`${group.globalSkillsDir.replace(homedir(), '~')}/\``
-      : 'N/A (project-only)';
+      : 'N/A (仅项目级)';
     const names = group.displayNames.join(', ');
     const keys = group.keys.map((k) => `\`${k}\``).join(', ');
     return `| ${names} | ${keys} | \`${group.skillsDir}/\` | ${globalPath} |`;
   });
   return [
-    '| Agent | `--agent` | Project Path | Global Path |',
-    '|-------|-----------|--------------|-------------|',
+    '| 智能体 | `--agent` | 项目路径 | 全局路径 |',
+    '|--------|-----------|----------|----------|',
     ...rows,
   ].join('\n');
 }
