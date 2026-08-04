@@ -40,6 +40,8 @@ export interface UpdateCheckOptions {
   global?: boolean;
   project?: boolean;
   yes?: boolean;
+  /** Reinstall global repository skills even when their upstream hash is current. */
+  repair?: boolean;
   /** Optional skill name(s) to filter on (positional args) */
   skills?: string[];
 }
@@ -54,6 +56,9 @@ export function parseUpdateOptions(args: string[]): UpdateCheckOptions {
       options.project = true;
     } else if (arg === '-y' || arg === '--yes') {
       options.yes = true;
+    } else if (arg === '--repair') {
+      options.repair = true;
+      options.global = true;
     } else if (!arg.startsWith('-')) {
       positional.push(arg);
     }
@@ -535,7 +540,15 @@ export async function updateGlobalSkills(
     const sourceUrl = firstEntry.sourceUrl || firstEntry.source;
     let tempDir: string | null = null;
 
-    process.stdout.write(`\r${DIM}Checking skills from source: ${source}${RESET}\x1b[K\n`);
+    const sourceAction = options.repair ? 'Repairing' : 'Checking';
+    process.stdout.write(`\r${DIM}${sourceAction} skills from source: ${source}${RESET}\x1b[K\n`);
+
+    if (options.repair) {
+      for (const { name, entry } of itemsForSource) {
+        updates.push({ name, source, entry });
+      }
+      continue;
+    }
 
     try {
       const isGitHubSource = firstEntry.sourceType === 'github';

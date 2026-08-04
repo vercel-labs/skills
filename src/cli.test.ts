@@ -20,6 +20,7 @@ describe('skills CLI', () => {
       expect(output).toContain('-s, --skill');
       expect(output).toContain('-l, --list');
       expect(output).toContain('-y, --yes');
+      expect(output).toContain('--repair');
       expect(output).toContain('--all');
     });
 
