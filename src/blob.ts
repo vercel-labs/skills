@@ -14,6 +14,7 @@ import { createHash } from 'node:crypto';
 import { parseFrontmatter } from './frontmatter.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import type { Skill } from './types.ts';
+import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
 
 // ─── Types ───
 
@@ -302,7 +303,7 @@ export function findSkillMdPaths(tree: RepoTree, subpath?: string): string[] {
   if (filtered.length === 0) return [];
 
   // Check priority directories first (same order as discoverSkills).
-  // Non-root prefixes also accept depth-2 paths so the blob fast path stays
+  // Non-root prefixes also accept paths up to depth 3 so the blob fast path stays
   // in sync with the on-disk walk's catalog-layout discovery.
   const priorityResults: string[] = [];
   const seen = new Set<string>();
@@ -339,19 +340,24 @@ export function findSkillMdPaths(tree: RepoTree, subpath?: string): string[] {
         continue;
       }
 
-      // SKILL.md two levels deep under a known container prefix
-      // (e.g., "skills/<category>/<skill>/SKILL.md"). Skip if the parent
-      // child dir already has its own SKILL.md (no descent past), or if
+      // SKILL.md two or three levels deep under a known container prefix
+      // (e.g., "skills/<category>/<category>/<skill>/SKILL.md"). Skip if an
+      // ancestor dir already has its own SKILL.md (no descent past), or if
       // any path segment is an ignored directory.
+      const skillDirs = parts.slice(0, -1);
+      const hasAncestorSkill = skillDirs.slice(0, -1).some((_, index) => {
+        const ancestorPath = skillDirs.slice(0, index + 1).join('/');
+        return lowerSkillMdSet.has(`${fullPrefix}${ancestorPath}/SKILL.md`.toLowerCase());
+      });
       if (
         isContainer &&
-        parts.length === 3 &&
-        parts[2]!.toLowerCase() === 'skill.md' &&
-        !SKIP_DIRS.has(parts[0]!) &&
-        !SKIP_DIRS.has(parts[1]!)
+        parts.length >= 3 &&
+        parts.length <= DEFAULT_SKILL_CONTAINER_DEPTH + 1 &&
+        parts.at(-1)!.toLowerCase() === 'skill.md' &&
+        skillDirs.every((part) => !SKIP_DIRS.has(part)) &&
+        !hasAncestorSkill
       ) {
-        const parentSkillMd = `${fullPrefix}${parts[0]}/SKILL.md`.toLowerCase();
-        if (!lowerSkillMdSet.has(parentSkillMd) && !seen.has(skillMd)) {
+        if (!seen.has(skillMd)) {
           priorityResults.push(skillMd);
           seen.add(skillMd);
         }
