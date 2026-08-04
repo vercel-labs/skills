@@ -81,6 +81,18 @@ describe('git clone fallbacks', () => {
     });
   });
 
+  it('recognizes the configured GitHub Enterprise host', () => {
+    vi.stubEnv('GH_HOST', 'github.example.com');
+
+    expect(parseGitHubRepoUrl('https://github.example.com/acme/agent-skills.git')).toEqual({
+      owner: 'acme',
+      repo: 'agent-skills',
+      slug: 'acme/agent-skills',
+      sshUrl: 'git@github.example.com:acme/agent-skills.git',
+    });
+    expect(isGitHubHttpsCloneUrl('https://github.example.com/acme/agent-skills.git')).toBe(true);
+  });
+
   it('detects GitHub SAML SSO clone failures', () => {
     expect(
       isGitHubSsoAuthError("remote: The 'Giphy' organization has enabled or enforced SAML SSO.")
@@ -177,6 +189,33 @@ describe('git clone fallbacks', () => {
       2,
       'gh',
       ['repo', 'clone', 'Giphy/giphy-codex-skills', tempDir, '--', '--depth=1'],
+      expect.any(Object),
+      expect.any(Function)
+    );
+  });
+
+  it('uses the enterprise host for gh authentication fallback', async () => {
+    vi.stubEnv('GH_HOST', 'github.example.com');
+    const primaryClone = vi.fn().mockRejectedValue(new Error('fatal: Authentication failed'));
+
+    simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+    mockExecFileSuccess('Git operations protocol: https\n');
+    mockExecFileSuccess();
+
+    const tempDir = await cloneRepo('https://github.example.com/acme/agent-skills.git');
+    createdDirs.push(tempDir);
+
+    expect(execFileMock).toHaveBeenNthCalledWith(
+      1,
+      'gh',
+      ['auth', 'status', '-h', 'github.example.com'],
+      expect.any(Object),
+      expect.any(Function)
+    );
+    expect(execFileMock).toHaveBeenNthCalledWith(
+      2,
+      'gh',
+      ['repo', 'clone', 'acme/agent-skills', tempDir, '--', '--depth=1'],
       expect.any(Object),
       expect.any(Function)
     );

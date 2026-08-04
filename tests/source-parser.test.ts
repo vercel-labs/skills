@@ -145,6 +145,25 @@ describe('parseSource', () => {
     });
   });
 
+  describe('Generic URL tests', () => {
+    it('generic HTTP URL is parsed as well-known with direct download fallback', () => {
+      const result = parseSource('https://internal.example.com/download?id=123');
+      expect(result.type).toBe('well-known');
+      expect(result.url).toBe('https://internal.example.com/download?id=123');
+    });
+
+    it.each([
+      'https://raw.githubusercontent.com/acme/skills/main/SKILL.md',
+      'https://github.com/acme/skills/releases/download/v1/skills.tgz',
+      'https://github.com/acme/skills/archive/refs/heads/main.zip',
+      'https://gitlab.com/acme/skills/-/archive/main/skills-main.tar.gz',
+    ])('parses hosted artifact URL as a direct download: %s', (url) => {
+      const result = parseSource(url);
+      expect(result.type).toBe('download');
+      expect(result.url).toBe(url);
+    });
+  });
+
   describe('GitHub shorthand tests', () => {
     it('GitHub shorthand - owner/repo', () => {
       const result = parseSource('owner/repo');

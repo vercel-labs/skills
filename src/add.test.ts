@@ -223,6 +223,53 @@ description: Second skill
     expect(result.stdout).toContain('skill-one');
   });
 
+  it('finds a selected skill nested under two category levels when shallower skills exist', () => {
+    const sourceDir = join(testDir, 'source');
+    const shallowSkillDir = join(sourceDir, 'skills', 'core-skills', 'amazon-bedrock');
+    mkdirSync(shallowSkillDir, { recursive: true });
+    writeFileSync(
+      join(shallowSkillDir, 'SKILL.md'),
+      `---
+name: amazon-bedrock
+description: Amazon Bedrock skill
+---
+# Amazon Bedrock
+`
+    );
+
+    const skillDir = join(
+      sourceDir,
+      'skills',
+      'specialized-skills',
+      'database-skills',
+      'amazon-dynamodb'
+    );
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: amazon-dynamodb
+description: Amazon DynamoDB skill
+---
+# Amazon DynamoDB
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    mkdirSync(projectDir, { recursive: true });
+
+    const result = runCli(
+      ['add', sourceDir, '--skill', 'amazon-dynamodb', '--agent', 'codex', '--copy', '-y'],
+      projectDir
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Selected 1 skill: amazon-dynamodb');
+    expect(existsSync(join(projectDir, '.agents', 'skills', 'amazon-dynamodb', 'SKILL.md'))).toBe(
+      true
+    );
+  });
+
   it('should show error for invalid agent name', () => {
     // Create a test skill
     const skillDir = join(testDir, 'test-skill');

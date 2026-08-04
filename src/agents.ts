@@ -12,6 +12,7 @@ const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude'
 const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
 const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
+const grokHome = process.env.GROK_HOME?.trim() || join(home, '.grok');
 const zedAppDataHome = process.env.APPDATA?.trim();
 const zedFlatpakConfigHome = process.env.FLATPAK_XDG_CONFIG_HOME?.trim();
 
@@ -50,6 +51,20 @@ export function isZCodeInstalled(
   pathExists: (path: string) => boolean = existsSync
 ) {
   return pathExists(join(homeDir, '.zcode')) || pathExists('/Applications/ZCode.app');
+}
+
+export function isKimchiInstalled(
+  homeDir = home,
+  pathExists: (path: string) => boolean = existsSync
+) {
+  return pathExists(join(homeDir, '.config', 'kimchi'));
+}
+
+export function isMiniMaxCodeInstalled(
+  homeDir = home,
+  pathExists: (path: string) => boolean = existsSync
+) {
+  return pathExists(join(homeDir, '.minimax')) || pathExists('/Applications/MiniMax Code.app');
 }
 
 export const agents: Record<AgentType, AgentConfig> = {
@@ -341,6 +356,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(configHome, 'goose'));
     },
   },
+  grok: {
+    name: 'grok',
+    displayName: 'Grok Build',
+    skillsDir: '.grok/skills',
+    globalSkillsDir: join(grokHome, 'skills'),
+    detectInstalled: async () => {
+      return existsSync(grokHome);
+    },
+  },
   'hermes-agent': {
     name: 'hermes-agent',
     displayName: 'Hermes Agent',
@@ -393,6 +417,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.kilocode/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.kilocode'));
+    },
+  },
+  kimchi: {
+    name: 'kimchi',
+    displayName: 'Kimchi',
+    skillsDir: '.kimchi/skills',
+    globalSkillsDir: join(home, '.config', 'kimchi', 'harness', 'skills'),
+    detectInstalled: async () => {
+      return isKimchiInstalled();
     },
   },
   'kimi-code-cli': {
@@ -448,6 +481,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.mcpjam/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.mcpjam'));
+    },
+  },
+  'minimax-code': {
+    name: 'minimax-code',
+    displayName: 'MiniMax Code',
+    skillsDir: '.minimax/skills',
+    globalSkillsDir: join(home, '.minimax/skills'),
+    detectInstalled: async () => {
+      return isMiniMaxCodeInstalled();
     },
   },
   'mistral-vibe': {

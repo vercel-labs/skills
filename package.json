@@ -1,6 +1,6 @@
 {
   "name": "skills",
-  "version": "1.5.19",
+  "version": "1.5.21",
   "description": "The open agent skills ecosystem",
   "type": "module",
   "bin": {
@@ -67,18 +67,21 @@
     "gemini-cli",
     "github-copilot",
     "goose",
+    "grok",
     "hermes-agent",
     "inference-sh",
     "jazz",
     "junie",
     "iflow-cli",
     "kilo",
+    "kimchi",
     "kimi-code-cli",
     "kiro-cli",
     "kode",
     "lingma",
     "loaf",
     "mcpjam",
+    "minimax-code",
     "mistral-vibe",
     "moxby",
     "mux",
@@ -140,6 +143,7 @@
   },
   "packageManager": "pnpm@10.17.1",
   "dependencies": {
+    "tar": "^7.5.20",
     "yaml": "^2.8.3"
   }
 }

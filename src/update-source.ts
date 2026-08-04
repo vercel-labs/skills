@@ -42,12 +42,12 @@ function deriveSkillFolder(skillPath: string): string {
  * Whether a skill folder can be safely appended to the given source as a
  * subpath. Only true for sources the source-parser can resolve as a
  * GitHub/GitLab tree URL — owner/repo shorthand or an HTTPS URL on those
- * hosts. Full SSH URLs (`git@host:owner/repo.git`) and generic Git URLs
+ * hosts. Full SSH URLs (`git@host:owner/repo.git` or `ssh://...`) and generic Git URLs
  * (anything ending in `.git`, or hosts other than github.com/gitlab.com)
  * cannot have a subpath appended without producing an unclonable URL.
  */
 function supportsAppendedSubpath(source: string): boolean {
-  if (source.startsWith('git@')) return false;
+  if (source.startsWith('git@') || source.startsWith('ssh://')) return false;
   if (source.endsWith('.git')) return false;
   if (source.startsWith('http://') || source.startsWith('https://')) {
     try {
@@ -76,6 +76,27 @@ function getLocalSource(entry: LocalUpdateSourceEntry): string | null {
     return null;
   }
   return entry.source;
+}
+
+/** Build a cloneable repository URL for project update source checks. */
+export function buildLocalCloneSource(entry: LocalUpdateSourceEntry): string | null {
+  const source = getLocalSource(entry);
+  if (!source) {
+    return null;
+  }
+  if (entry.sourceType === 'github' && isBareShorthand(source)) {
+    return `https://github.com/${source.replace(/\.git$/, '')}.git`;
+  }
+  return source;
+}
+
+export function shouldUseFullDepthForUpdate(entry: LocalUpdateSourceEntry): boolean {
+  if (!entry.skillPath) return false;
+
+  const source =
+    entry.sourceType && entry.sourceType !== 'github' ? getLocalSource(entry) : entry.source;
+
+  return source !== null && !supportsAppendedSubpath(source);
 }
 
 function appendFolderAndRef(source: string, skillPath: string, ref?: string): string {

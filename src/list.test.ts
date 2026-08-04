@@ -126,6 +126,34 @@ description: ${description}
       expect(result.stdout).not.toMatch(/\x1b\[/);
     });
 
+    it('should report project skill provenance from skills-lock.json', () => {
+      createTestSkill(testDir, 'project-skill', 'A tracked project skill');
+      writeFileSync(
+        join(testDir, 'skills-lock.json'),
+        JSON.stringify({
+          version: 1,
+          skills: {
+            'project-skill': {
+              source: 'owner/project-skills',
+              sourceUrl: 'https://github.com/owner/project-skills',
+              sourceType: 'github',
+              computedHash: 'project-hash',
+            },
+          },
+        })
+      );
+
+      const result = runCli(['list', '--json'], testDir);
+      const [skill] = JSON.parse(result.stdout.trim());
+
+      expect(skill).toMatchObject({
+        source: 'owner/project-skills',
+        sourceUrl: 'https://github.com/owner/project-skills',
+        sourceType: 'github',
+      });
+      expect(skill).not.toHaveProperty('origin');
+    });
+
     it('should output multiple skills as JSON array', () => {
       createTestSkill(testDir, 'skill-alpha', 'Alpha');
       createTestSkill(testDir, 'skill-beta', 'Beta');
@@ -157,6 +185,51 @@ description: ${description}
       expect(result.exitCode).toBe(0);
     });
 
+    it('should show a tracked project skill source in human output', () => {
+      createTestSkill(testDir, 'tracked-skill', 'A tracked project skill');
+      writeFileSync(
+        join(testDir, 'skills-lock.json'),
+        JSON.stringify({
+          version: 1,
+          skills: {
+            'tracked-skill': {
+              source: 'owner/project-skills',
+              sourceType: 'github',
+              computedHash: 'project-hash',
+            },
+          },
+        })
+      );
+
+      const result = runCli(['list'], testDir);
+
+      expect(result.stdout).toContain('Source:');
+      expect(result.stdout).toContain('owner/project-skills');
+      expect(result.stdout).not.toContain('Origin:');
+    });
+
+    it('should keep untrusted source metadata on one output line', () => {
+      createTestSkill(testDir, 'tracked-skill', 'A tracked project skill');
+      writeFileSync(
+        join(testDir, 'skills-lock.json'),
+        JSON.stringify({
+          version: 1,
+          skills: {
+            'tracked-skill': {
+              source: 'owner/\nFORGED',
+              sourceType: 'github',
+              computedHash: 'project-hash',
+            },
+          },
+        })
+      );
+
+      const result = runCli(['list'], testDir);
+
+      expect(result.stdout).toContain('Source: owner/ FORGED');
+      expect(result.stdout).not.toContain('\nFORGED');
+    });
+
     it('should list multiple skills', () => {
       createTestSkill(testDir, 'skill-one', 'First skill');
       createTestSkill(testDir, 'skill-two', 'Second skill');
@@ -179,6 +252,39 @@ description: ${description}
       expect(result.stdout).not.toContain('project-skill');
       expect(result.stdout).toContain('global-skill');
       expect(result.stdout).toContain('Global Skills');
+    });
+
+    it('should report global provenance when a lock key differs from its folder name', () => {
+      const testHome = join(testDir, 'home');
+      createTestSkill(testHome, 'ce-review', 'A tracked global plugin skill');
+      const lockDir = join(testHome, '.local', 'state', 'skills');
+      mkdirSync(lockDir, { recursive: true });
+      writeFileSync(
+        join(lockDir, '.skill-lock.json'),
+        JSON.stringify({
+          version: 3,
+          skills: {
+            'ce:review': {
+              source: 'everyinc/compound-engineering-plugin',
+              sourceUrl: 'https://github.com/everyinc/compound-engineering-plugin',
+              sourceType: 'github',
+              skillFolderHash: 'global-hash',
+              installedAt: '2026-07-01T00:00:00.000Z',
+              updatedAt: '2026-07-01T00:00:00.000Z',
+            },
+          },
+        })
+      );
+
+      const result = runCli(['list', '-g', '--json'], testDir, { HOME: testHome });
+      const [skill] = JSON.parse(result.stdout.trim());
+
+      expect(skill).toMatchObject({
+        name: 'ce-review',
+        source: 'everyinc/compound-engineering-plugin',
+        sourceUrl: 'https://github.com/everyinc/compound-engineering-plugin',
+        sourceType: 'github',
+      });
     });
 
     it('should show error for invalid agent filter', () => {

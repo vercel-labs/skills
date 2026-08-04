@@ -312,6 +312,25 @@ async function main(): Promise<void> {
   const command = args[0];
   const restArgs = args.slice(1);
 
+  // Subcommand --help / -h must short-circuit before dispatch so that running
+  // e.g. `skills update --help` prints help instead of executing the update
+  // flow. Without this pre-check, every subcommand handler that doesn't
+  // inspect `--help` itself ends up running its side-effecting work.
+  if (
+    command !== '--help' &&
+    command !== '-h' &&
+    command !== '--version' &&
+    command !== '-v' &&
+    (restArgs.includes('--help') || restArgs.includes('-h'))
+  ) {
+    if (command === 'remove' || command === 'rm' || command === 'r') {
+      showRemoveHelp();
+    } else {
+      showHelp();
+    }
+    return;
+  }
+
   switch (command) {
     case 'find':
     case 'search':
@@ -356,15 +375,11 @@ async function main(): Promise<void> {
     }
     case 'remove':
     case 'rm':
-    case 'r':
-      // Check for --help or -h flag
-      if (restArgs.includes('--help') || restArgs.includes('-h')) {
-        showRemoveHelp();
-        break;
-      }
+    case 'r': {
       const { skills, options: removeOptions } = parseRemoveOptions(restArgs);
       await removeCommand(skills, removeOptions);
       break;
+    }
     case 'experimental_sync': {
       if (!inAgent) showLogo();
       const { options: syncOptions } = parseSyncOptions(restArgs);
@@ -392,6 +407,7 @@ async function main(): Promise<void> {
     default:
       console.log(`Unknown command: ${command}`);
       console.log(`Run ${BOLD}skills --help${RESET} for usage.`);
+      process.exitCode = 1;
   }
 }
 

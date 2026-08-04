@@ -1,9 +1,10 @@
 import { homedir } from 'os';
 import type { AgentType } from './types.ts';
 import { agents } from './agents.ts';
-import { listInstalledSkills, type InstalledSkill } from './installer.ts';
+import { listInstalledSkills, sanitizeName, type InstalledSkill } from './installer.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { getAllLockedSkills } from './skill-lock.ts';
+import { readLocalLock } from './local-lock.ts';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -16,6 +17,13 @@ interface ListOptions {
   global?: boolean;
   agent?: string[];
   json?: boolean;
+}
+
+interface ListLockEntry {
+  source: string;
+  sourceUrl?: string;
+  sourceType: string;
+  pluginName?: string;
 }
 
 /**
@@ -91,22 +99,35 @@ export async function runList(args: string[]): Promise<void> {
     agentFilter,
   });
 
+  const cwd = process.cwd();
+  // Fetch lock entries to get source and plugin grouping info for the selected scope.
+  const lockedSkills: Record<string, ListLockEntry> = scope
+    ? await getAllLockedSkills()
+    : (await readLocalLock(cwd)).skills;
+  const lockEntriesBySanitizedName = new Map(
+    Object.entries(lockedSkills).map(([name, entry]) => [sanitizeName(name), entry])
+  );
+  const getLockEntry = (skillName: string): ListLockEntry | undefined =>
+    lockedSkills[skillName] ?? lockEntriesBySanitizedName.get(sanitizeName(skillName));
+
   // JSON output mode: structured, no ANSI, untruncated agent lists
   if (options.json) {
-    const jsonOutput = installedSkills.map((skill) => ({
-      name: skill.name,
-      path: skill.canonicalPath,
-      scope: skill.scope,
-      agents: skill.agents.map((a) => agents[a].displayName),
-    }));
+    const jsonOutput = installedSkills.map((skill) => {
+      const lockEntry = getLockEntry(skill.name);
+      return {
+        name: skill.name,
+        path: skill.canonicalPath,
+        scope: skill.scope,
+        agents: skill.agents.map((a) => agents[a].displayName),
+        source: lockEntry?.source ?? null,
+        sourceUrl: lockEntry?.sourceUrl ?? null,
+        sourceType: lockEntry?.sourceType ?? null,
+      };
+    });
     console.log(JSON.stringify(jsonOutput, null, 2));
     return;
   }
 
-  // Fetch lock entries to get plugin grouping info
-  const lockedSkills = await getAllLockedSkills();
-
-  const cwd = process.cwd();
   const scopeLabel = scope ? 'Global' : 'Project';
 
   if (installedSkills.length === 0) {
@@ -139,8 +160,14 @@ export async function runList(args: string[]): Promise<void> {
     const paddedName = sanitizeMetadata(skill.name).padEnd(maxNameLength);
     const paddedPath = shortPath.padEnd(maxPathLength);
 
+    // Determine source from lock file
+    const lockEntry = getLockEntry(skill.name);
+    const source = lockEntry?.source ?? null;
+    const sourceLabel = source ? sanitizeMetadata(source) : 'local';
+
+    console.log(`${prefix}${CYAN}${paddedName}${RESET} ${DIM}${paddedPath}${RESET}`);
     console.log(
-      `${prefix}${CYAN}${paddedName}${RESET} ${DIM}${paddedPath}${RESET} ${DIM}Agents:${RESET} ${agentInfo}`
+      `${prefix}  ${DIM}Agents:${RESET} ${agentInfo}  ${DIM}Source:${RESET} ${sourceLabel}`
     );
   }
 
@@ -152,7 +179,7 @@ export async function runList(args: string[]): Promise<void> {
   const ungroupedSkills: InstalledSkill[] = [];
 
   for (const skill of installedSkills) {
-    const lockEntry = lockedSkills[skill.name];
+    const lockEntry = getLockEntry(skill.name);
     if (lockEntry?.pluginName) {
       const group = lockEntry.pluginName;
       if (!groupedSkills[group]) {
