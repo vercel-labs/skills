@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [72 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [73 more](#supported-agents).
 <!-- agent-list:end -->
 
 [![skills.sh](https://skills.sh/b/vercel-labs/skills)](https://skills.sh/vercel-labs/skills)
@@ -251,6 +251,7 @@ Skills can be installed to any of these agents:
 | Amp, Replit, Universal | `amp`, `replit`, `universal` | `.agents/skills/` | `~/.config/agents/skills/` |
 | Antigravity | `antigravity` | `.agents/skills/` | `~/.gemini/antigravity/skills/` |
 | Antigravity CLI | `antigravity-cli` | `.agents/skills/` | `~/.gemini/antigravity-cli/skills/` |
+| Aster | `aster` | `.aster/skills/` | `~/.local/share/aster/skills/` |
 | AstrBot | `astrbot` | `data/skills/` | `~/.astrbot/data/skills/` |
 | Autohand Code CLI | `autohand-code` | `.autohand/skills/` | `~/.autohand/skills/` |
 | Augment | `augment` | `.augment/skills/` | `~/.augment/skills/` |
@@ -393,6 +394,7 @@ discover `SKILL.md` files outside these container directories (e.g. under
 - `skills/.system/`
 - `.aider-desk/skills/`
 - `.agents/skills/`
+- `.aster/skills/`
 - `data/skills/`
 - `.autohand/skills/`
 - `.augment/skills/`
