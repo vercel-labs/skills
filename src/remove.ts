@@ -135,12 +135,19 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   // Validate agent options BEFORE prompting for skill selection
   if (options.agent && options.agent.length > 0) {
     const validAgents = Object.keys(agents);
-    const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 
-    if (invalidAgents.length > 0) {
-      p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
-      p.log.info(`Valid agents: ${validAgents.join(', ')}`);
-      process.exit(1);
+    if (options.agent.includes('*')) {
+      // '*' selects every agent, matching `skills add --agent '*'`. Expanding it
+      // here keeps it out of the name check below, which would reject it.
+      options.agent = validAgents;
+    } else {
+      const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
+
+      if (invalidAgents.length > 0) {
+        p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
+        p.log.info(`Valid agents: ${validAgents.join(', ')}`);
+        process.exit(1);
+      }
     }
   }
 
