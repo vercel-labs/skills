@@ -275,6 +275,7 @@ const PRIORITY_PREFIXES = [
   '.opencode/skills/',
   '.openhands/skills/',
   '.pi/skills/',
+  '.posit/assistant/skills/',
   '.qoder/skills/',
   '.roo/skills/',
   '.trae/skills/',
