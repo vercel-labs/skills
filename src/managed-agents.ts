@@ -3,7 +3,7 @@ import { existsSync } from 'fs';
 import { readFile, readdir, stat } from 'fs/promises';
 import { homedir } from 'os';
 import { join } from 'path';
-import { sanitizeName } from './installer.ts';
+import { sanitizeName, EXCLUDE_FILES, EXCLUDE_DIRS } from './installer.ts';
 
 /**
  * Claude Managed Agents support.
@@ -26,6 +26,8 @@ import { sanitizeName } from './installer.ts';
 const SKILLS_BETA = 'skills-2025-10-02';
 const OAUTH_BETA = 'oauth-2025-04-20';
 const ANTHROPIC_VERSION = '2023-06-01';
+const FETCH_TIMEOUT_MS = 30000;
+const ANT_CLI_TIMEOUT_MS = 10000;
 
 export interface AnthropicAuth {
   /** Credential headers (x-api-key or Authorization, plus workspace binding). */
@@ -113,6 +115,9 @@ function readAntCliCredentials(): AnthropicAuth | null {
     const output = execFileSync('ant', ['auth', 'print-credentials'], {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
+      // Don't hang the CLI on an ant binary that prompts or stalls on a
+      // token refresh; the credentials-file fallback still gets a chance.
+      timeout: ANT_CLI_TIMEOUT_MS,
     });
     const credentials = JSON.parse(output) as AntCredentials;
     return authFromOAuthToken(credentials, 'ant CLI');
@@ -161,9 +166,6 @@ export interface SkillUploadFile {
   path: string;
   content: string | Uint8Array;
 }
-
-const EXCLUDE_FILES = new Set(['metadata.json']);
-const EXCLUDE_DIRS = new Set(['.git', '__pycache__', '__pypackages__']);
 
 /**
  * Collect a skill directory's files for upload, applying the same exclusion
@@ -278,7 +280,10 @@ async function findSkillByDisplayTitle(
     const params = new URLSearchParams({ beta: 'true', source: 'custom', limit: '100' });
     if (afterId) params.set('after_id', afterId);
 
-    const response = await fetch(`${getApiBaseUrl()}/v1/skills?${params}`, { headers });
+    const response = await fetch(`${getApiBaseUrl()}/v1/skills?${params}`, {
+      headers,
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
     if (!response.ok) {
       throw new ManagedAgentsApiError(
         response.status,
@@ -324,6 +329,7 @@ export async function uploadSkillToManagedAgents(
     method: 'POST',
     headers,
     body: buildSkillForm(directory, skill.name, skill.files),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
 
   if (createResponse.ok) {
@@ -351,6 +357,7 @@ export async function uploadSkillToManagedAgents(
       method: 'POST',
       headers,
       body: buildSkillForm(directory, null, skill.files),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     }
   );
 

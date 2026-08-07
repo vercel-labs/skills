@@ -2,7 +2,7 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { readdir, rm, lstat } from 'fs/promises';
 import { join } from 'path';
-import { agents, detectInstalledAgents, getEveSubagents } from './agents.ts';
+import { agents, detectInstalledAgents, getEveSubagents, isVirtualAgent } from './agents.ts';
 import { track } from './telemetry.ts';
 import { detectAgent } from './detect-agent.ts';
 import { removeSkillFromLock, getSkillFromLock, readSkillLock } from './skill-lock.ts';
@@ -178,6 +178,21 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   let targetAgents: AgentType[];
   if (options.agent && options.agent.length > 0) {
     targetAgents = options.agent as AgentType[];
+
+    // Virtual agents have no local files; their skills live in the user's
+    // Anthropic organization and are not deleted by this command. Say so
+    // instead of reporting a successful no-op removal.
+    const virtualRequested = targetAgents.filter((a) => isVirtualAgent(a));
+    if (virtualRequested.length > 0) {
+      targetAgents = targetAgents.filter((a) => !isVirtualAgent(a));
+      p.log.warn(
+        `${virtualRequested.map((a) => agents[a].displayName).join(', ')} skills are managed through the Anthropic API and are not removed by this command.`
+      );
+      if (targetAgents.length === 0) {
+        p.outro(pc.yellow('Nothing to remove.'));
+        return;
+      }
+    }
   } else {
     // When removing, we should target all known agents to ensure
     // ghost symlinks are cleaned up, even if the agent is not detected.

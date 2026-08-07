@@ -436,8 +436,8 @@ export async function installSkillForAgent(
   }
 }
 
-const EXCLUDE_FILES = new Set(['metadata.json']);
-const EXCLUDE_DIRS = new Set(['.git', '__pycache__', '__pypackages__']);
+export const EXCLUDE_FILES = new Set(['metadata.json']);
+export const EXCLUDE_DIRS = new Set(['.git', '__pycache__', '__pypackages__']);
 
 const isExcluded = (name: string, isDirectory: boolean = false): boolean => {
   if (EXCLUDE_FILES.has(name)) return true;

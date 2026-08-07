@@ -389,6 +389,17 @@ function ensureUniversalAgents(targetAgents: AgentType[]): AgentType[] {
 }
 
 /**
+ * Expand `--agent '*'` to all filesystem agents, keeping any virtual agents
+ * the user listed explicitly alongside the wildcard.
+ */
+function expandWildcardAgents(requested: string[]): AgentType[] {
+  const explicitVirtual = requested.filter(
+    (a): a is AgentType => a !== '*' && a in agents && isVirtualAgent(a as AgentType)
+  );
+  return [...new Set([...getWildcardAgents(), ...explicitVirtual])];
+}
+
+/**
  * Resolve Anthropic API credentials when any selected target is a virtual
  * (API upload) agent. Prints guidance and returns null when no credential is
  * available; callers should abort the install in that case.
@@ -474,6 +485,11 @@ function printManagedUploadOutcomes(outcomes: ManagedUploadOutcome[]): void {
     p.log.error(pc.red(`Failed to upload ${failed.length} to Claude Managed Agents`));
     for (const o of failed) {
       p.log.message(`  ${pc.red('✗')} ${o.skill}: ${pc.dim(o.error)}`);
+    }
+    // The upload was explicitly requested; if nothing reached the API, make
+    // that visible to scripts via the exit code.
+    if (successful.length === 0) {
+      process.exitCode = 1;
     }
   }
 }
@@ -793,8 +809,8 @@ async function handleWellKnownSkills(
 
   if (options.agent?.includes('*')) {
     // --agent '*' selects all filesystem agents; virtual agents (API uploads)
-    // must be requested explicitly.
-    targetAgents = getWildcardAgents();
+    // are included only when listed explicitly alongside the wildcard.
+    targetAgents = expandWildcardAgents(options.agent);
     p.log.info(`Installing to all ${targetAgents.length} agents`);
   } else if (options.agent && options.agent.length > 0) {
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
@@ -1033,8 +1049,10 @@ async function handleWellKnownSkills(
   let uploadOutcomes: ManagedUploadOutcome[] = [];
   if (managedAgentsAuth) {
     uploadOutcomes = await uploadSkillsToManagedAgents(
+      // installName is the unique identifier for well-known skills; frontmatter
+      // names may collide across entries.
       selectedSkills.map((skill) => ({
-        name: skill.name,
+        name: skill.installName,
         files: Array.from(skill.files, ([path, content]) => ({ path, content })),
       })),
       managedAgentsAuth
@@ -1539,8 +1557,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     if (options.agent?.includes('*')) {
       // --agent '*' selects all filesystem agents; virtual agents (API
-      // uploads) must be requested explicitly.
-      targetAgents = getWildcardAgents();
+      // uploads) are included only when listed explicitly alongside the
+      // wildcard.
+      targetAgents = expandWildcardAgents(options.agent);
       p.log.info(`Installing to all ${targetAgents.length} agents`);
     } else if (options.agent && options.agent.length > 0) {
       const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));

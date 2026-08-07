@@ -243,6 +243,13 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
       p.log.info(`Valid agents: ${validAgents.join(', ')}`);
       process.exit(1);
     }
+    const virtualRequested = options.agent.filter((a) => isVirtualAgent(a as AgentType));
+    if (virtualRequested.length > 0) {
+      p.log.error(
+        `${virtualRequested.join(', ')} is not supported by experimental_sync; use \`skills add\` to upload skills`
+      );
+      process.exit(1);
+    }
     targetAgents = options.agent as AgentType[];
   } else {
     spinner.start('Loading agents…');
