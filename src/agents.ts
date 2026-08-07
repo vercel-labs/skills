@@ -149,6 +149,19 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(claudeHome);
     },
   },
+  'claude-managed-agents': {
+    name: 'claude-managed-agents',
+    displayName: 'Claude Managed Agents',
+    // Placeholder path; never written to. Skills for this target are uploaded
+    // to the Anthropic Skills API (see managed-agents.ts).
+    skillsDir: '.claude-managed-agents/skills',
+    globalSkillsDir: undefined,
+    virtual: true,
+    installHint: 'Uploads to the Anthropic Skills API',
+    // Uploading to the user's Anthropic organization must be an explicit
+    // choice, so this target is never auto-detected.
+    detectInstalled: async () => false,
+  },
   openclaw: {
     name: 'openclaw',
     displayName: 'OpenClaw',
@@ -860,4 +873,20 @@ export function getNonUniversalAgents(): AgentType[] {
  */
 export function isUniversalAgent(type: AgentType): boolean {
   return agents[type].skillsDir === '.agents/skills';
+}
+
+/**
+ * Check if an agent is virtual (no filesystem skills directory; skills are
+ * delivered through a dedicated integration such as an API upload).
+ */
+export function isVirtualAgent(type: AgentType): boolean {
+  return agents[type].virtual === true;
+}
+
+/**
+ * Agent types that install to the filesystem. Virtual agents (API-backed
+ * targets) are excluded; they must be requested explicitly by name.
+ */
+export function getWildcardAgents(): AgentType[] {
+  return (Object.keys(agents) as AgentType[]).filter((type) => !isVirtualAgent(type));
 }

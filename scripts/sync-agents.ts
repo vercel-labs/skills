@@ -31,7 +31,13 @@ function generateAvailableAgentsTable(): string {
     }
   >();
 
+  const virtualRows: string[] = [];
+
   for (const [key, a] of Object.entries(agents)) {
+    if (a.virtual) {
+      virtualRows.push(`| ${a.displayName} | \`${key}\` | ${a.installHint} | ${a.installHint} |`);
+      continue;
+    }
     const pathKey = `${a.skillsDir}|${a.globalSkillsDir}`;
     if (!pathGroups.has(pathKey)) {
       pathGroups.set(pathKey, {
@@ -58,6 +64,7 @@ function generateAvailableAgentsTable(): string {
     '| Agent | `--agent` | Project Path | Global Path |',
     '|-------|-----------|--------------|-------------|',
     ...rows,
+    ...virtualRows,
   ].join('\n');
 }
 
@@ -70,7 +77,13 @@ function generateSkillDiscoveryPaths(): string {
     '- `skills/.system/`',
   ];
 
-  const agentPaths = [...new Set(Object.values(agents).map((a) => a.skillsDir))]
+  const agentPaths = [
+    ...new Set(
+      Object.values(agents)
+        .filter((a) => !a.virtual)
+        .map((a) => a.skillsDir)
+    ),
+  ]
     .filter((p) => p !== 'skills') // Filter out the standard `skills/` path
     .map((p) => `- \`${p}/\``);
 

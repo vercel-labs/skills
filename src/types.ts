@@ -8,6 +8,7 @@ export type AgentType =
   | 'augment'
   | 'bob'
   | 'claude-code'
+  | 'claude-managed-agents'
   | 'openclaw'
   | 'cline'
   | 'codearts-agent'
@@ -98,6 +99,15 @@ export interface AgentConfig {
   showInUniversalList?: boolean;
   /** Whether to display this universal agent in the interactive locked section. Defaults to true. */
   showInUniversalPrompt?: boolean;
+  /**
+   * Virtual agents have no filesystem skills directory; skills are delivered
+   * through a dedicated integration (e.g. an API upload) instead of a copy or
+   * symlink. Virtual agents are never auto-detected, are excluded from
+   * `--agent '*'` expansion, and must be selected explicitly.
+   */
+  virtual?: boolean;
+  /** Hint shown in interactive agent selection instead of a skills directory. */
+  installHint?: string;
 }
 
 export interface ParsedSource {

@@ -41,6 +41,16 @@ interface InstallResult {
   error?: string;
 }
 
+function virtualAgentInstallError(agentType: AgentType, mode?: InstallMode): InstallResult {
+  const agent = agents[agentType];
+  return {
+    success: false,
+    path: '',
+    mode: mode ?? 'symlink',
+    error: `${agent.displayName} skills are uploaded through the Anthropic API and cannot be installed to a directory`,
+  };
+}
+
 /**
  * Sanitizes a filename/directory name to prevent path traversal attacks
  * and ensures it follows kebab-case convention
@@ -271,6 +281,12 @@ export async function installSkillForAgent(
   const isGlobal = options.global ?? false;
   const cwd = options.cwd || process.cwd();
   const eveSubagent = options.eveSubagent;
+
+  // Virtual agents have no filesystem install; their skills are delivered
+  // through a dedicated integration (see managed-agents.ts).
+  if (agent.virtual) {
+    return virtualAgentInstallError(agentType, options.mode);
+  }
 
   // Check if agent supports global installation
   if (isGlobal && agent.globalSkillsDir === undefined) {
@@ -624,6 +640,12 @@ export async function installRemoteSkillForAgent(
   const installMode = options.mode ?? 'symlink';
   const eveSubagent = options.eveSubagent;
 
+  // Virtual agents have no filesystem install; their skills are delivered
+  // through a dedicated integration (see managed-agents.ts).
+  if (agent.virtual) {
+    return virtualAgentInstallError(agentType, options.mode);
+  }
+
   // Check if agent supports global installation
   if (isGlobal && agent.globalSkillsDir === undefined) {
     return {
@@ -764,6 +786,12 @@ export async function installWellKnownSkillForAgent(
   const cwd = options.cwd || process.cwd();
   const installMode = options.mode ?? 'symlink';
   const eveSubagent = options.eveSubagent;
+
+  // Virtual agents have no filesystem install; their skills are delivered
+  // through a dedicated integration (see managed-agents.ts).
+  if (agent.virtual) {
+    return virtualAgentInstallError(agentType, options.mode);
+  }
 
   // Check if agent supports global installation
   if (isGlobal && agent.globalSkillsDir === undefined) {
@@ -910,6 +938,10 @@ export async function installBlobSkillForAgent(
   const cwd = options.cwd || process.cwd();
   const installMode = options.mode ?? 'symlink';
   const eveSubagent = options.eveSubagent;
+
+  if (agent.virtual) {
+    return virtualAgentInstallError(agentType, options.mode);
+  }
 
   if (isGlobal && agent.globalSkillsDir === undefined) {
     return {
