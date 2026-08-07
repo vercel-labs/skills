@@ -23,8 +23,18 @@ import {
   getVisibleUniversalAgents,
   getNonUniversalAgents,
   isUniversalAgent,
+  isVirtualAgent,
+  getWildcardAgents,
   getEveSubagents,
 } from './agents.ts';
+import {
+  resolveAnthropicAuth,
+  uploadSkillToManagedAgents,
+  collectSkillFiles,
+  MANAGED_AGENTS_AUTH_GUIDANCE,
+  type AnthropicAuth,
+  type SkillUploadFile,
+} from './managed-agents.ts';
 import {
   track,
   setVersion,
@@ -229,25 +239,29 @@ export function formatEveInstallPromptMessage(skills: Skill[]): string {
 }
 
 /**
- * Splits agents into universal and non-universal (symlinked) groups.
- * Returns display names for each group.
+ * Splits agents into universal, non-universal (symlinked), and virtual
+ * (API upload) groups. Returns display names for each group.
  */
 function splitAgentsByType(agentTypes: AgentType[]): {
   universal: string[];
   symlinked: string[];
+  virtual: string[];
 } {
   const universal: string[] = [];
   const symlinked: string[] = [];
+  const virtual: string[] = [];
 
   for (const a of agentTypes) {
-    if (isUniversalAgent(a)) {
+    if (isVirtualAgent(a)) {
+      virtual.push(agents[a].displayName);
+    } else if (isUniversalAgent(a)) {
       universal.push(agents[a].displayName);
     } else {
       symlinked.push(agents[a].displayName);
     }
   }
 
-  return { universal, symlinked };
+  return { universal, symlinked, virtual };
 }
 
 /**
@@ -255,7 +269,7 @@ function splitAgentsByType(agentTypes: AgentType[]): {
  */
 function buildAgentSummaryLines(targetAgents: AgentType[], installMode: InstallMode): string[] {
   const lines: string[] = [];
-  const { universal, symlinked } = splitAgentsByType(targetAgents);
+  const { universal, symlinked, virtual } = splitAgentsByType(targetAgents);
 
   if (installMode === 'symlink') {
     if (universal.length > 0) {
@@ -265,9 +279,17 @@ function buildAgentSummaryLines(targetAgents: AgentType[], installMode: InstallM
       lines.push(`  ${pc.dim('symlink →')} ${formatList(symlinked)}`);
     }
   } else {
-    // Copy mode - all agents get copies
-    const allNames = targetAgents.map((a) => agents[a].displayName);
-    lines.push(`  ${pc.dim('copy →')} ${formatList(allNames)}`);
+    // Copy mode - all filesystem agents get copies
+    const allNames = targetAgents
+      .filter((a) => !isVirtualAgent(a))
+      .map((a) => agents[a].displayName);
+    if (allNames.length > 0) {
+      lines.push(`  ${pc.dim('copy →')} ${formatList(allNames)}`);
+    }
+  }
+
+  if (virtual.length > 0) {
+    lines.push(`  ${pc.dim('upload →')} ${formatList(virtual)}`);
   }
 
   return lines;
@@ -323,7 +345,7 @@ function buildTargetSummaryLines(targets: InstallTarget[], installMode: InstallM
   const lines: string[] = [];
   const rootAgents = targets.filter((t) => !t.subagent).map((t) => t.agent);
   const subagentNames = targets.filter((t) => t.subagent).map(targetDisplayName);
-  const { universal, symlinked } = splitAgentsByType(rootAgents);
+  const { universal, symlinked, virtual } = splitAgentsByType(rootAgents);
 
   if (installMode === 'symlink') {
     if (universal.length > 0) {
@@ -336,8 +358,14 @@ function buildTargetSummaryLines(targets: InstallTarget[], installMode: InstallM
       lines.push(`  ${pc.dim('copy →')} ${formatList(subagentNames)}`);
     }
   } else {
-    const allNames = targets.map(targetDisplayName);
-    lines.push(`  ${pc.dim('copy →')} ${formatList(allNames)}`);
+    const allNames = targets.filter((t) => !isVirtualAgent(t.agent)).map(targetDisplayName);
+    if (allNames.length > 0) {
+      lines.push(`  ${pc.dim('copy →')} ${formatList(allNames)}`);
+    }
+  }
+
+  if (virtual.length > 0) {
+    lines.push(`  ${pc.dim('upload →')} ${formatList(virtual)}`);
   }
 
   return lines;
@@ -358,6 +386,96 @@ function ensureUniversalAgents(targetAgents: AgentType[]): AgentType[] {
   }
 
   return result;
+}
+
+/**
+ * Resolve Anthropic API credentials when any selected target is a virtual
+ * (API upload) agent. Prints guidance and returns null when no credential is
+ * available; callers should abort the install in that case.
+ */
+async function resolveManagedAgentsAuth(
+  targetAgents: AgentType[],
+  spinner: ReturnType<typeof p.spinner>
+): Promise<{ auth: AnthropicAuth | null; required: boolean }> {
+  if (!targetAgents.some((a) => isVirtualAgent(a))) {
+    return { auth: null, required: false };
+  }
+
+  spinner.start('Checking Anthropic credentials…');
+  const auth = await resolveAnthropicAuth();
+  if (!auth) {
+    spinner.stop(pc.red('No Anthropic credentials found'));
+    p.log.error('Claude Managed Agents requires Anthropic API credentials.');
+    p.log.message(pc.dim(`  ${MANAGED_AGENTS_AUTH_GUIDANCE}`));
+    return { auth: null, required: true };
+  }
+  spinner.stop(`Anthropic credentials: ${pc.cyan(auth.source)}`);
+  return { auth, required: true };
+}
+
+interface ManagedUploadOutcome {
+  skill: string;
+  success: boolean;
+  skillId?: string;
+  version?: string;
+  action?: 'created' | 'updated';
+  error?: string;
+}
+
+/**
+ * Upload skills to the Anthropic Skills API for the Claude Managed Agents
+ * target. Uploads happen one skill at a time; a failure on one skill doesn't
+ * stop the rest.
+ */
+async function uploadSkillsToManagedAgents(
+  skills: Array<{ name: string; files: SkillUploadFile[] }>,
+  auth: AnthropicAuth
+): Promise<ManagedUploadOutcome[]> {
+  const outcomes: ManagedUploadOutcome[] = [];
+  for (const skill of skills) {
+    try {
+      const result = await uploadSkillToManagedAgents(skill, auth);
+      outcomes.push({ skill: skill.name, success: true, ...result });
+    } catch (error) {
+      outcomes.push({
+        skill: skill.name,
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+  return outcomes;
+}
+
+/**
+ * Render upload outcomes for the Claude Managed Agents target.
+ */
+function printManagedUploadOutcomes(outcomes: ManagedUploadOutcome[]): void {
+  if (outcomes.length === 0) return;
+
+  const successful = outcomes.filter((o) => o.success);
+  const failed = outcomes.filter((o) => !o.success);
+
+  if (successful.length > 0) {
+    const lines = successful.map((o) => {
+      const label = o.action === 'updated' ? 'new version' : 'created';
+      return `${pc.green('✓')} ${o.skill} ${pc.dim(`(${label}: ${o.skillId})`)}`;
+    });
+    p.note(
+      lines.join('\n'),
+      pc.green(
+        `Uploaded ${successful.length} skill${successful.length !== 1 ? 's' : ''} to Claude Managed Agents`
+      )
+    );
+  }
+
+  if (failed.length > 0) {
+    console.log();
+    p.log.error(pc.red(`Failed to upload ${failed.length} to Claude Managed Agents`));
+    for (const o of failed) {
+      p.log.message(`  ${pc.red('✗')} ${o.skill}: ${pc.dim(o.error)}`);
+    }
+  }
 }
 
 /**
@@ -475,8 +593,10 @@ export async function promptForAgents(
 async function selectAgentsInteractive(options: {
   global?: boolean;
 }): Promise<AgentType[] | symbol> {
-  // Filter out agents that don't support global installation when --global is used
-  const supportsGlobalFilter = (a: AgentType) => !options.global || agents[a].globalSkillsDir;
+  // Filter out agents that don't support global installation when --global is used.
+  // Virtual agents (API uploads) are scope-independent, so they always remain.
+  const supportsGlobalFilter = (a: AgentType) =>
+    !options.global || agents[a].globalSkillsDir || isVirtualAgent(a);
 
   const universalAgents = getUniversalAgents().filter(supportsGlobalFilter);
   const visibleUniversalAgents = getVisibleUniversalAgents().filter(supportsGlobalFilter);
@@ -498,7 +618,8 @@ async function selectAgentsInteractive(options: {
   const otherChoices = otherAgents.map((a) => ({
     value: a,
     label: agents[a].displayName,
-    hint: options.global ? agents[a].globalSkillsDir! : agents[a].skillsDir,
+    hint:
+      agents[a].installHint ?? (options.global ? agents[a].globalSkillsDir! : agents[a].skillsDir),
   }));
 
   // Get last selected agents (filter to only non-universal ones for initial selection)
@@ -671,8 +792,9 @@ async function handleWellKnownSkills(
   const validAgents = Object.keys(agents);
 
   if (options.agent?.includes('*')) {
-    // --agent '*' selects all agents
-    targetAgents = validAgents as AgentType[];
+    // --agent '*' selects all filesystem agents; virtual agents (API uploads)
+    // must be requested explicitly.
+    targetAgents = getWildcardAgents();
     p.log.info(`Installing to all ${targetAgents.length} agents`);
   } else if (options.agent && options.agent.length > 0) {
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
@@ -692,7 +814,8 @@ async function handleWellKnownSkills(
 
     if (installedAgents.length === 0) {
       if (options.yes) {
-        targetAgents = validAgents as AgentType[];
+        // Covers filesystem agents only; virtual agents need an explicit -a.
+        targetAgents = getWildcardAgents();
         p.log.info('Installing to all agents');
       } else {
         p.log.info('Select agents to install skills to');
@@ -738,6 +861,15 @@ async function handleWellKnownSkills(
     }
   }
 
+  // Resolve API credentials up front when Claude Managed Agents is targeted,
+  // so a missing login fails before anything is installed.
+  const { auth: managedAgentsAuth, required: managedAgentsRequired } =
+    await resolveManagedAgentsAuth(targetAgents, spinner);
+  if (managedAgentsRequired && !managedAgentsAuth) {
+    p.outro(pc.red('Installation failed'));
+    process.exit(1);
+  }
+
   let installGlobally = options.global ?? false;
 
   // Check if any selected agents support global installation
@@ -773,7 +905,10 @@ async function handleWellKnownSkills(
 
   // Only prompt for install mode when there are multiple unique target directories.
   // When all selected agents share the same skillsDir, symlink vs copy is meaningless.
-  const uniqueDirs = new Set(targetAgents.map((a) => agents[a].skillsDir));
+  // Virtual agents have no target directory and don't participate in the choice.
+  const uniqueDirs = new Set(
+    targetAgents.filter((a) => !isVirtualAgent(a)).map((a) => agents[a].skillsDir)
+  );
 
   if (!options.copy && !options.yes && uniqueDirs.size > 1) {
     const modeChoice = await p.select({
@@ -823,12 +958,19 @@ async function handleWellKnownSkills(
     overwriteStatus.get(skillName)!.set(agent, installed);
   }
 
+  const allVirtualTargets = targetAgents.every((a) => isVirtualAgent(a));
+
   for (const skill of selectedSkills) {
     if (summaryLines.length > 0) summaryLines.push('');
 
-    const canonicalPath = getCanonicalPath(skill.installName, { global: installGlobally });
-    const shortCanonical = shortenPath(canonicalPath, cwd);
-    summaryLines.push(`${pc.cyan(shortCanonical)}`);
+    // API-only installs have no local path to show
+    if (allVirtualTargets) {
+      summaryLines.push(`${pc.cyan(skill.installName)}`);
+    } else {
+      const canonicalPath = getCanonicalPath(skill.installName, { global: installGlobally });
+      const shortCanonical = shortenPath(canonicalPath, cwd);
+      summaryLines.push(`${pc.cyan(shortCanonical)}`);
+    }
     summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
     if (skill.files.size > 1) {
       summaryLines.push(`  ${pc.dim('files:')} ${skill.files.size}`);
@@ -875,6 +1017,7 @@ async function handleWellKnownSkills(
 
   for (const skill of selectedSkills) {
     for (const agent of targetAgents) {
+      if (isVirtualAgent(agent)) continue;
       const result = await installWellKnownSkillForAgent(skill, agent, {
         global: installGlobally,
         mode: installMode,
@@ -885,6 +1028,17 @@ async function handleWellKnownSkills(
         ...result,
       });
     }
+  }
+
+  let uploadOutcomes: ManagedUploadOutcome[] = [];
+  if (managedAgentsAuth) {
+    uploadOutcomes = await uploadSkillsToManagedAgents(
+      selectedSkills.map((skill) => ({
+        name: skill.name,
+        files: Array.from(skill.files, ([path, content]) => ({ path, content })),
+      })),
+      managedAgentsAuth
+    );
   }
 
   spinner.stop('Installation complete');
@@ -1025,6 +1179,8 @@ async function handleWellKnownSkills(
       p.log.message(`  ${pc.red('✗')} ${r.skill} → ${r.agent}: ${pc.dim(r.error)}`);
     }
   }
+
+  printManagedUploadOutcomes(uploadOutcomes);
 
   console.log();
   p.outro(
@@ -1382,8 +1538,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     const validAgents = Object.keys(agents);
 
     if (options.agent?.includes('*')) {
-      // --agent '*' selects all agents
-      targetAgents = validAgents as AgentType[];
+      // --agent '*' selects all filesystem agents; virtual agents (API
+      // uploads) must be requested explicitly.
+      targetAgents = getWildcardAgents();
       p.log.info(`Installing to all ${targetAgents.length} agents`);
     } else if (options.agent && options.agent.length > 0) {
       const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
@@ -1432,7 +1589,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         }
       } else if (installedAgents.length === 0) {
         if (options.yes) {
-          targetAgents = validAgents as AgentType[];
+          // Covers filesystem agents only; virtual agents need an explicit -a.
+          targetAgents = getWildcardAgents();
           p.log.info('Installing to all agents');
         } else {
           p.log.info('Select agents to install skills to');
@@ -1526,6 +1684,16 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
+    // Resolve API credentials up front when Claude Managed Agents is targeted,
+    // so a missing login fails before anything is installed.
+    const { auth: managedAgentsAuth, required: managedAgentsRequired } =
+      await resolveManagedAgentsAuth(targetAgents, spinner);
+    if (managedAgentsRequired && !managedAgentsAuth) {
+      await cleanup(tempDir);
+      p.outro(pc.red('Installation failed'));
+      process.exit(1);
+    }
+
     const installTargets = buildInstallTargets(targetAgents, eveSubagentTargets);
 
     let installGlobally = options.global ?? false;
@@ -1568,9 +1736,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // never meaningful when every target is Eve.
     const allEve = installTargets.every((t) => t.agent === 'eve');
     const uniqueDirs = new Set(
-      installTargets.map((t) =>
-        t.subagent ? `eve:subagent:${t.subagent}` : agents[t.agent].skillsDir
-      )
+      installTargets
+        .filter((t) => !isVirtualAgent(t.agent))
+        .map((t) => (t.subagent ? `eve:subagent:${t.subagent}` : agents[t.agent].skillsDir))
     );
 
     if (!options.copy && !options.yes && uniqueDirs.size > 1 && !allEve) {
@@ -1640,20 +1808,26 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     // Helper to print summary lines for a list of skills
+    const allVirtualTargets = installTargets.every((t) => isVirtualAgent(t.agent));
     const printSkillSummary = (skills: Skill[]) => {
       for (const skill of skills) {
         if (summaryLines.length > 0) summaryLines.push('');
 
-        const canonicalPath =
-          installTargets.length === 1
-            ? getCanonicalPath(skill.name, {
-                global: installGlobally,
-                agent: installTargets[0]!.agent,
-                eveSubagent: installTargets[0]!.subagent,
-              })
-            : getCanonicalPath(skill.name, { global: installGlobally });
-        const shortCanonical = shortenPath(canonicalPath, cwd);
-        summaryLines.push(`${pc.cyan(shortCanonical)}`);
+        // API-only installs have no local path to show
+        if (allVirtualTargets) {
+          summaryLines.push(`${pc.cyan(getSkillDisplayName(skill))}`);
+        } else {
+          const canonicalPath =
+            installTargets.length === 1
+              ? getCanonicalPath(skill.name, {
+                  global: installGlobally,
+                  agent: installTargets[0]!.agent,
+                  eveSubagent: installTargets[0]!.subagent,
+                })
+              : getCanonicalPath(skill.name, { global: installGlobally });
+          const shortCanonical = shortenPath(canonicalPath, cwd);
+          summaryLines.push(`${pc.cyan(shortCanonical)}`);
+        }
         summaryLines.push(...buildTargetSummaryLines(installTargets, installMode));
 
         const skillOverwrites = overwriteStatus.get(skill.name);
@@ -1740,6 +1914,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     for (const skill of selectedSkills) {
       for (const target of installTargets) {
         const { agent, subagent } = target;
+        // Virtual agents are handled by the API upload pass below.
+        if (isVirtualAgent(agent)) continue;
         let result;
         if (blobResult && 'files' in skill) {
           // Blob-based install: write files from snapshot
@@ -1768,6 +1944,32 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           ...result,
         });
       }
+    }
+
+    // API upload pass for Claude Managed Agents.
+    const uploadOutcomes: ManagedUploadOutcome[] = [];
+    if (managedAgentsAuth) {
+      const uploads: Array<{ name: string; files: SkillUploadFile[] }> = [];
+      for (const skill of selectedSkills) {
+        try {
+          if (blobResult && 'files' in skill) {
+            const blobSkill = skill as BlobSkill;
+            uploads.push({
+              name: skill.name,
+              files: blobSkill.files.map((f) => ({ path: f.path, content: f.contents })),
+            });
+          } else {
+            uploads.push({ name: skill.name, files: await collectSkillFiles(skill.path) });
+          }
+        } catch (error) {
+          uploadOutcomes.push({
+            skill: skill.name,
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+        }
+      }
+      uploadOutcomes.push(...(await uploadSkillsToManagedAgents(uploads, managedAgentsAuth)));
     }
 
     spinner.stop('Installation complete');
@@ -2030,6 +2232,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         p.log.message(`  ${pc.red('✗')} ${r.skill} → ${r.agent}: ${pc.dim(r.error)}`);
       }
     }
+
+    printManagedUploadOutcomes(uploadOutcomes);
 
     console.log();
     p.outro(

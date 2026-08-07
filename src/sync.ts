@@ -11,6 +11,8 @@ import {
   getUniversalAgents,
   getVisibleUniversalAgents,
   getNonUniversalAgents,
+  getWildcardAgents,
+  isVirtualAgent,
 } from './agents.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 import { addSkillToLocalLock, computeSkillFolderHash, readLocalLock } from './local-lock.ts';
@@ -231,7 +233,8 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   const visibleUniversalAgents = getVisibleUniversalAgents();
 
   if (options.agent?.includes('*')) {
-    targetAgents = validAgents as AgentType[];
+    // Covers filesystem agents only; virtual agents need an explicit -a.
+    targetAgents = getWildcardAgents();
     p.log.info(`Installing to all ${targetAgents.length} agents`);
   } else if (options.agent && options.agent.length > 0) {
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
@@ -252,7 +255,8 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
         targetAgents = universalAgents;
         p.log.info('Installing to universal agents');
       } else {
-        const otherAgents = getNonUniversalAgents();
+        // Virtual agents (API uploads) aren't sync targets.
+        const otherAgents = getNonUniversalAgents().filter((a) => !isVirtualAgent(a));
 
         const otherChoices = otherAgents.map((a) => ({
           value: a,
