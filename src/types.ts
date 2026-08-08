@@ -85,6 +85,12 @@ export interface Skill {
   /** Name of the plugin this skill belongs to (if any) */
   pluginName?: string;
   metadata?: Record<string, unknown>;
+  /**
+   * When true, the skill is hidden from the agent's system prompt.
+   * Users must explicitly invoke it via /skill:name.
+   * Defined by the Agent Skills specification.
+   */
+  disableModelInvocation?: boolean;
 }
 
 export interface AgentConfig {

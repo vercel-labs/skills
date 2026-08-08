@@ -383,3 +383,92 @@ metadata: ${metadata}
     expect(result?.metadata).toBeUndefined();
   });
 });
+
+describe('parseSkillMd disable-model-invocation', () => {
+  let testDir: string;
+
+  beforeEach(() => {
+    testDir = join(tmpdir(), `skills-dmi-test-${Date.now()}`);
+    mkdirSync(testDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(testDir, { recursive: true, force: true });
+  });
+
+  it('sets disableModelInvocation to true when frontmatter field is true', async () => {
+    const skillPath = join(testDir, 'SKILL.md');
+    writeFileSync(
+      skillPath,
+      `---
+name: hidden-skill
+description: A hidden skill
+disable-model-invocation: true
+---
+
+# Hidden Skill
+`
+    );
+    const result = await parseSkillMd(skillPath);
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe('hidden-skill');
+    expect(result!.disableModelInvocation).toBe(true);
+  });
+
+  it('sets disableModelInvocation to false when field is not present', async () => {
+    const skillPath = join(testDir, 'SKILL.md');
+    writeFileSync(
+      skillPath,
+      `---
+name: normal-skill
+description: A normal skill
+---
+
+# Normal Skill
+`
+    );
+    const result = await parseSkillMd(skillPath);
+    expect(result).not.toBeNull();
+    expect(result!.disableModelInvocation).toBe(false);
+  });
+
+  it('sets disableModelInvocation to false when field is explicitly false', async () => {
+    const skillPath = join(testDir, 'SKILL.md');
+    writeFileSync(
+      skillPath,
+      `---
+name: normal-skill
+description: A normal skill
+disable-model-invocation: false
+---
+
+# Normal Skill
+`
+    );
+    const result = await parseSkillMd(skillPath);
+    expect(result).not.toBeNull();
+    expect(result!.disableModelInvocation).toBe(false);
+  });
+
+  it('still parses skill with disable-model-invocation and internal metadata', async () => {
+    const skillPath = join(testDir, 'SKILL.md');
+    writeFileSync(
+      skillPath,
+      `---
+name: combo-skill
+description: A skill with both fields
+disable-model-invocation: true
+metadata:
+  internal: true
+---
+
+# Combo Skill
+`
+    );
+    // With includeInternal: true, internal skills are not filtered out
+    const result = await parseSkillMd(skillPath, { includeInternal: true });
+    expect(result).not.toBeNull();
+    expect(result!.disableModelInvocation).toBe(true);
+    expect((result!.metadata as Record<string, unknown>)?.internal).toBe(true);
+  });
+});
