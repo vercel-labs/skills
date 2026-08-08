@@ -17,6 +17,7 @@ import { sanitizeMetadata } from './sanitize.ts';
 import { getGitHubHost } from './github-host.ts';
 import type { Skill } from './types.ts';
 import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
+import { debug, debugApi } from './debug.ts';
 
 // ─── Types ───
 
@@ -112,11 +113,13 @@ async function fetchTreeBranch(
   branch: string,
   token: string | null
 ): Promise<BranchFetchResult> {
+  const t0 = Date.now();
+  const githubHost = getGitHubHost();
+  const apiBase =
+    githubHost === 'github.com' ? 'https://api.github.com' : `https://${githubHost}/api/v3`;
+  const url = `${apiBase}/repos/${ownerRepo}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
+  debugApi('GET', url, { branch, hasToken: !!token });
   try {
-    const githubHost = getGitHubHost();
-    const apiBase =
-      githubHost === 'github.com' ? 'https://api.github.com' : `https://${githubHost}/api/v3`;
-    const url = `${apiBase}/repos/${ownerRepo}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
     const headers: Record<string, string> = {
       Accept: 'application/vnd.github.v3+json',
       'User-Agent': 'skills-cli',
@@ -135,6 +138,12 @@ async function fetchTreeBranch(
         sha: string;
         tree: TreeEntry[];
       };
+      debugApi('GET', url, {
+        branch,
+        status: response.status,
+        entries: data.tree.length,
+        ms: Date.now() - t0,
+      });
       return {
         tree: { sha: data.sha, branch, tree: data.tree },
         rateLimited: false,
@@ -149,8 +158,16 @@ async function fetchTreeBranch(
     // A private repo answers 401/404 to an anonymous request (GitHub hides its
     // existence); a token may turn that into a 200. See issue #1318.
     const authRetryable = response.status === 401 || response.status === 404;
+    debugApi('GET', url, {
+      branch,
+      status: response.status,
+      rateLimited,
+      authRetryable,
+      ms: Date.now() - t0,
+    });
     return { tree: null, rateLimited, authRetryable };
-  } catch {
+  } catch (e) {
+    debugApi('GET', url, { branch, error: String(e).slice(0, 120), ms: Date.now() - t0 });
     return { tree: null, rateLimited: false, authRetryable: false };
   }
 }
@@ -160,8 +177,12 @@ async function fetchTreeWithToken(
   branches: string[],
   getToken: () => string | null
 ): Promise<RepoTree | null> {
+  debug('api', `fetchTreeWithToken ${ownerRepo} branches=${branches.join(',')}`);
   const token = getToken();
-  if (!token) return null;
+  if (!token) {
+    debug('api', `fetchTreeWithToken ${ownerRepo} -> no token`);
+    return null;
+  }
   for (const branch of branches) {
     const result = await fetchTreeBranch(ownerRepo, branch, token);
     if (result.tree) return result.tree;
@@ -237,12 +258,22 @@ export async function fetchRepoTree(
   ref?: string,
   getToken?: () => string | null
 ): Promise<RepoTree | null> {
+  const t0 = Date.now();
   const branches = ref ? [ref] : ['HEAD', 'main', 'master'];
-
+  debug(
+    'api',
+    `fetchRepoTree ${ownerRepo} ref=${ref ?? '-'} branches=${branches.join(',')} rateLimitedSession=${_rateLimitedThisSession}`
+  );
   // Fast path: once we've seen a rate limit in this process, don't bother
   // retrying unauth on subsequent calls. Go straight to auth.
   if (_rateLimitedThisSession) {
-    return fetchTreeWithAvailableAuth(ownerRepo, branches, getToken);
+    debug('api', `fetchRepoTree ${ownerRepo} fast-path via token (rateLimitedSession)`);
+    const tree = await fetchTreeWithAvailableAuth(ownerRepo, branches, getToken);
+    debug(
+      'api',
+      `fetchRepoTree ${ownerRepo} fast-path -> ${tree ? `ok branch=${tree.branch}` : 'null'} ms=${Date.now() - t0}`
+    );
+    return tree;
   }
 
   // First pass: unauthenticated.
@@ -265,13 +296,26 @@ export async function fetchRepoTree(
     }
   }
 
-  if (!(rateLimited || authRetryable)) return null;
-
+  if (!(rateLimited || authRetryable)) {
+    debug(
+      'api',
+      `fetchRepoTree ${ownerRepo} -> null (no token or no retry) rateLimited=${rateLimited} authRetryable=${authRetryable} ms=${Date.now() - t0}`
+    );
+    return null;
+  }
   // Remember an IP-level rate limit so later calls skip the unauth pass.
   // A private-repo 404 is per-repo, not per-IP, so it must not set this flag.
   if (rateLimited) _rateLimitedThisSession = true;
-
-  return fetchTreeWithAvailableAuth(ownerRepo, branches, getToken);
+  debug(
+    'api',
+    `fetchRepoTree ${ownerRepo} retry with token rateLimited=${rateLimited} authRetryable=${authRetryable}`
+  );
+  const tree = await fetchTreeWithAvailableAuth(ownerRepo, branches, getToken);
+  debug(
+    'api',
+    `fetchRepoTree ${ownerRepo} -> ${tree ? `ok branch=${tree.branch} entries=${tree.tree.length}` : 'null'} ms=${Date.now() - t0}`
+  );
+  return tree;
 }
 
 /**
@@ -441,14 +485,27 @@ async function fetchSkillMdContent(
   branch: string,
   skillMdPath: string
 ): Promise<string | null> {
+  const t0 = Date.now();
+  const url = `https://raw.githubusercontent.com/${ownerRepo}/${branch}/${skillMdPath}`;
+  debugApi('GET', url, { branch, mdPath: skillMdPath });
   try {
-    const url = `https://raw.githubusercontent.com/${ownerRepo}/${branch}/${skillMdPath}`;
     const response = await fetch(url, {
       signal: AbortSignal.timeout(FETCH_TIMEOUT),
     });
-    if (!response.ok) return null;
-    return await response.text();
-  } catch {
+    if (!response.ok) {
+      debugApi('GET', url, { branch, status: response.status, ms: Date.now() - t0 });
+      return null;
+    }
+    const text = await response.text();
+    debugApi('GET', url, {
+      branch,
+      status: response.status,
+      bytes: text.length,
+      ms: Date.now() - t0,
+    });
+    return text;
+  } catch (e) {
+    debugApi('GET', url, { branch, error: String(e).slice(0, 120), ms: Date.now() - t0 });
     return null;
   }
 }
@@ -461,18 +518,32 @@ async function fetchSkillDownload(
   source: string,
   slug: string
 ): Promise<SkillDownloadResponse | null> {
+  const [owner, repo] = source.split('/');
+  const defaultUrl = `${DOWNLOAD_BASE_URL}/api/download/${encodeURIComponent(owner!)}/${encodeURIComponent(repo!)}/${encodeURIComponent(slug)}`;
+  // Self-hosted repos build their own URL; otherwise fall back to the default.
+  const selfHosted = BLOB_ALLOWED_REPOS[source.toLowerCase()]?.downloadUrl(slug);
+  const url = selfHosted ?? defaultUrl;
+  const t0 = Date.now();
+  debugApi('GET', url, { source, slug, selfHosted: !!selfHosted });
   try {
-    const [owner, repo] = source.split('/');
-    const defaultUrl = `${DOWNLOAD_BASE_URL}/api/download/${encodeURIComponent(owner!)}/${encodeURIComponent(repo!)}/${encodeURIComponent(slug)}`;
-    // Self-hosted repos build their own URL; otherwise fall back to the default.
-    const selfHosted = BLOB_ALLOWED_REPOS[source.toLowerCase()]?.downloadUrl(slug);
-    const url = selfHosted ?? defaultUrl;
     const response = await fetch(url, {
       signal: AbortSignal.timeout(FETCH_TIMEOUT),
     });
-    if (!response.ok) return null;
-    return (await response.json()) as SkillDownloadResponse;
-  } catch {
+    if (!response.ok) {
+      debugApi('GET', url, { source, slug, status: response.status, ms: Date.now() - t0 });
+      return null;
+    }
+    const json = (await response.json()) as SkillDownloadResponse;
+    debugApi('GET', url, {
+      source,
+      slug,
+      status: response.status,
+      files: json.files?.length ?? 0,
+      ms: Date.now() - t0,
+    });
+    return json;
+  } catch (e) {
+    debugApi('GET', url, { source, slug, error: String(e).slice(0, 120), ms: Date.now() - t0 });
     return null;
   }
 }

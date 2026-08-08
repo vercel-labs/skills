@@ -4,6 +4,7 @@ import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
 import { isRepoPrivate } from './source-parser.ts';
 import { isRunningInAgent } from './detect-agent.ts';
+import { debugApi } from './debug.ts';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -85,13 +86,17 @@ export function parseFindOptions(args: string[]): ParseFindOptionsResult {
 
 // Search via API
 export async function searchSkillsAPI(query: string, owner?: string): Promise<SearchSkill[]> {
+  const t0 = Date.now();
   try {
     const params = new URLSearchParams({ q: query, limit: SEARCH_RESULT_LIMIT });
     if (owner) params.set('owner', owner);
     const url = `${SEARCH_API_BASE}/api/search?${params.toString()}`;
+    debugApi('GET', url, { query, owner: owner ?? '-' });
     const res = await fetch(url);
-
-    if (!res.ok) return [];
+    if (!res.ok) {
+      debugApi('GET', url, { query, status: res.status, ms: Date.now() - t0 });
+      return [];
+    }
 
     const data = (await res.json()) as {
       skills: Array<{
@@ -102,7 +107,7 @@ export async function searchSkillsAPI(query: string, owner?: string): Promise<Se
       }>;
     };
 
-    return data.skills
+    const mapped = data.skills
       .map((skill) => ({
         name: sanitizeMetadata(skill.name),
         slug: sanitizeMetadata(skill.id),
@@ -110,7 +115,18 @@ export async function searchSkillsAPI(query: string, owner?: string): Promise<Se
         installs: skill.installs,
       }))
       .sort((a, b) => (b.installs || 0) - (a.installs || 0));
-  } catch {
+    debugApi('GET', `${SEARCH_API_BASE}/api/search`, {
+      query,
+      results: mapped.length,
+      ms: Date.now() - t0,
+    });
+    return mapped;
+  } catch (e) {
+    debugApi('GET', `${SEARCH_API_BASE}/api/search`, {
+      query,
+      error: String(e).slice(0, 120),
+      ms: Date.now() - t0,
+    });
     return [];
   }
 }

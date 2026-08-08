@@ -13,6 +13,17 @@ import { flushTelemetry } from './telemetry.ts';
 import { isRunningInAgent } from './detect-agent.ts';
 import { runUpdate } from './update.ts';
 import { runUse, parseUseOptions } from './use.ts';
+import {
+  DEBUG_FLAGS,
+  isDebugEnabled,
+  enableDebug,
+  debug,
+  isDebugFlag,
+  getLogFilePath,
+  getDisplayLogPath,
+  setDebugFile,
+  isStderrMode,
+} from './debug.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -27,6 +38,7 @@ function getVersion(): string {
 }
 
 const VERSION = getVersion();
+const VERSION_LABEL = `${VERSION} (bermudi fork)`;
 initTelemetry(VERSION);
 
 const RESET = '\x1b[0m';
@@ -64,7 +76,9 @@ function showLogo(): void {
 function showBanner(): void {
   showLogo();
   console.log();
-  console.log(`${DIM}The open agent skills ecosystem${RESET}`);
+  console.log(
+    `${DIM}The open agent skills ecosystem${RESET}  ${DIM}·${RESET}  ${TEXT}bermudi fork${RESET} ${DIM}(${VERSION})${RESET}`
+  );
   console.log();
   console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills add ${DIM}<package>${RESET}        ${DIM}Add a new skill${RESET}`
@@ -104,6 +118,7 @@ function showBanner(): void {
 
 function showHelp(): void {
   console.log(`
+${DIM}bermudi fork${RESET} ${DIM}(${VERSION}) · debug + disable-model-invocation${RESET}
 ${BOLD}Usage:${RESET} skills <command> [options]
 
 ${BOLD}Manage Skills:${RESET}
@@ -166,6 +181,10 @@ ${BOLD}List Options:${RESET}
   -g, --global           List global skills (default: project)
   -a, --agent <agents>   Filter by specific agents
   --json                 Output as JSON (machine-readable, no ANSI codes)
+
+${BOLD}Global Options:${RESET}
+  --debug, -d          Enable debug logging to file (default $XDG_STATE_HOME/skills/debug.log). Also --debug=/path, SKILLS_DEBUG_FILE, SKILLS_DEBUG=1 or DEBUG=skills*
+  --verbose            Alias for --debug
 
 ${BOLD}Options:${RESET}
   --help, -h        Show this help message
@@ -299,8 +318,25 @@ Describe when this skill should be used.
 // ============================================
 
 async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+  const raw = process.argv.slice(2);
+  // --debug=/path override (first wins) — capture before enabling
+  const debugPathArg = raw.find((a) => a.startsWith('--debug='));
+  const explicitDebugPath = debugPathArg ? debugPathArg.slice('--debug='.length) : null;
+  if (explicitDebugPath !== null && explicitDebugPath !== '') {
+    setDebugFile(explicitDebugPath);
+  }
+  const debugEnabled = isDebugEnabled() || raw.some((a) => isDebugFlag(a));
+  if (debugEnabled) {
+    enableDebug();
+  }
+  const args = raw.filter((a) => !isDebugFlag(a));
   const inAgent = await isRunningInAgent();
+  if (debugEnabled) {
+    debug(
+      'cli',
+      `raw=${JSON.stringify(raw)} filtered=${JSON.stringify(args)} version=${VERSION} inAgent=${inAgent} cwd=${process.cwd()}`
+    );
+  }
 
   if (args.length === 0) {
     if (!inAgent) {
@@ -331,6 +367,7 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Fork indicator for --version is handled below; keep VERSION_LABEL for display
   switch (command) {
     case 'find':
     case 'search':
@@ -401,7 +438,7 @@ async function main(): Promise<void> {
       break;
     case '--version':
     case '-v':
-      console.log(VERSION);
+      console.log(VERSION_LABEL);
       break;
 
     default:
@@ -411,4 +448,15 @@ async function main(): Promise<void> {
   }
 }
 
-main().finally(() => flushTelemetry().then(() => process.exit(process.exitCode ?? 0)));
+main().finally(() =>
+  flushTelemetry().finally(() => {
+    if (isDebugEnabled() && !isStderrMode()) {
+      const logPath = getLogFilePath();
+      if (logPath) {
+        const display = getDisplayLogPath() ?? logPath;
+        console.error(`Debug log: ${display}`);
+      }
+    }
+    process.exit(process.exitCode ?? 0);
+  })
+);

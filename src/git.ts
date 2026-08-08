@@ -5,6 +5,7 @@ import { tmpdir } from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { isGitHubHost } from './github-host.ts';
+import { debug, debugFs, debugFsResult, debugApi } from './debug.ts';
 
 const DEFAULT_CLONE_TIMEOUT_MS = 300_000; // 5 minutes
 const ALLOWED_GIT_PROTOCOLS = 'https:http:ssh:git:file';
@@ -236,13 +237,18 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
   if (/^ext::/i.test(url)) {
     throw new GitCloneError('Unsupported Git transport: ext', url);
   }
-
+  const t0 = Date.now();
+  debugApi('git clone', url, { ref: ref ?? '-', timeoutMs: CLONE_TIMEOUT_MS });
   const tempDir = await mkdtemp(join(tmpdir(), 'skills-'));
+  debugFs('mkdtemp', tempDir);
   const cloneOptions = ref ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
   const repo = parseGitHubRepoUrl(url);
+  debug('api', `cloneRepo repo=${repo?.slug ?? '-'} opts=${cloneOptions.join(' ')}`);
 
   try {
+    debug('api', `git clone attempt url=${url} dir=${tempDir}`);
     await createGitClient().clone(url, tempDir, cloneOptions);
+    debugApi('git clone', url, { status: 'ok', dir: tempDir, ms: Date.now() - t0 });
     return tempDir;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -266,15 +272,18 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
     }
 
     if (isAuthError && repo && isGitHubHttpsCloneUrl(url)) {
+      debug('api', `clone auth fail, trying gh CLI for ${repo.slug}`);
       try {
         await resetTempDir(tempDir);
         if (await tryGhClone(repo, tempDir, ref)) {
+          debugApi('git clone', url, { status: 'ok via gh', dir: tempDir, ms: Date.now() - t0 });
           return tempDir;
         }
-      } catch {
+      } catch (e) {
+        debug('api', `gh clone fallback failed ${String(e).slice(0, 120)}`);
         // Fall through to SSH retry.
       }
-
+      debug('api', `clone auth fail, trying SSH ${repo.sshUrl}`);
       try {
         await resetTempDir(tempDir);
         await createGitClient(process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes').clone(
@@ -282,8 +291,10 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
           tempDir,
           cloneOptions
         );
+        debugApi('git clone', url, { status: 'ok via ssh', dir: tempDir, ms: Date.now() - t0 });
         return tempDir;
-      } catch {
+      } catch (e) {
+        debug('api', `ssh clone fallback failed ${String(e).slice(0, 120)}`);
         // Fall through to the targeted auth error below.
       }
     }
@@ -333,6 +344,7 @@ export async function getGitTreeHash(repoDir: string, skillPath: string): Promis
 }
 
 export async function cleanupTempDir(dir: string): Promise<void> {
+  debugFs('rm', dir, { recursive: true });
   // Validate that the directory path is within tmpdir to prevent deletion of arbitrary paths
   const normalizedDir = normalize(resolve(dir));
   const normalizedTmpDir = normalize(resolve(tmpdir()));

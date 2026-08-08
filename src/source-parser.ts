@@ -1,6 +1,7 @@
 import { isAbsolute, resolve } from 'path';
 import type { ParsedSource } from './types.ts';
 import { getGitHubHost, isGitHubHost } from './github-host.ts';
+import { debugApi } from './debug.ts';
 
 /**
  * Extract owner/repo (or group/subgroup/repo for GitLab) from a parsed source
@@ -82,18 +83,20 @@ export function parseOwnerRepo(ownerRepo: string): { owner: string; repo: string
  * Only works for GitHub repositories (GitLab not supported).
  */
 export async function isRepoPrivate(owner: string, repo: string): Promise<boolean | null> {
+  const url = `https://api.github.com/repos/${owner}/${repo}`;
+  const t0 = Date.now();
+  debugApi('GET', url, { owner, repo });
   try {
-    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
-
-    // If repo doesn't exist or we don't have access, assume private to be safe
+    const res = await fetch(url);
     if (!res.ok) {
-      return null; // Unable to determine
+      debugApi('GET', url, { status: res.status, ms: Date.now() - t0 });
+      return null;
     }
-
     const data = (await res.json()) as { private?: boolean };
+    debugApi('GET', url, { status: res.status, private: data.private, ms: Date.now() - t0 });
     return data.private === true;
-  } catch {
-    // On error, return null to indicate we couldn't determine
+  } catch (e) {
+    debugApi('GET', url, { error: String(e).slice(0, 120), ms: Date.now() - t0 });
     return null;
   }
 }

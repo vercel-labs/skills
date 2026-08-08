@@ -18,6 +18,7 @@ import { join, basename, normalize, resolve, sep, relative, dirname, extname } f
 import { homedir, platform } from 'os';
 import type { Skill, AgentType, RemoteSkill } from './types.ts';
 import type { WellKnownSkill } from './providers/wellknown.ts';
+import { debug, debugFs, debugFsResult } from './debug.ts';
 import {
   agents,
   detectInstalledAgents,
@@ -161,12 +162,22 @@ function resolveSymlinkTarget(linkPath: string, linkTarget: string): string {
  *    when canonical and agent paths resolve to the same location
  */
 async function cleanAndCreateDirectory(path: string): Promise<void> {
+  const t0 = Date.now();
+  debugFs('rm', path, { recursive: true });
   try {
     await rm(path, { recursive: true, force: true });
-  } catch {
+  } catch (e) {
+    debugFsResult('rm', path, false, Date.now() - t0, e);
     // Ignore cleanup errors - mkdir will fail if there's a real problem
   }
-  await mkdir(path, { recursive: true });
+  debugFs('mkdir', path, { recursive: true });
+  try {
+    await mkdir(path, { recursive: true });
+    debugFsResult('mkdir', path, true, Date.now() - t0);
+  } catch (e) {
+    debugFsResult('mkdir', path, false, Date.now() - t0, e);
+    throw e;
+  }
 }
 
 /**
@@ -184,8 +195,10 @@ async function resolveParentSymlinks(path: string): Promise<string> {
   const base = basename(resolved);
   try {
     const realDir = await realpath(dir);
+    debug('fs', `realpath ${dir} -> ${realDir}`);
     return join(realDir, base);
-  } catch {
+  } catch (e) {
+    debug('fs', `realpath ${dir} -> miss ${String(e).slice(0, 120)}`);
     return resolved;
   }
 }
@@ -195,6 +208,8 @@ async function resolveParentSymlinks(path: string): Promise<string> {
  * Returns true if symlink was created, false if fallback to copy is needed
  */
 async function createSymlink(target: string, linkPath: string): Promise<boolean> {
+  debug('fs', `createSymlink ${target} -> ${linkPath}`);
+  const t0 = Date.now();
   try {
     const resolvedTarget = resolve(target);
     const resolvedLinkPath = resolve(linkPath);
@@ -246,6 +261,7 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
     }
 
     const linkDir = dirname(linkPath);
+    debugFs('mkdir', linkDir, { recursive: true });
     await mkdir(linkDir, { recursive: true });
 
     // Use the real (symlink-resolved) parent directory for computing the relative path.
@@ -255,9 +271,12 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
     const symlinkType = platform() === 'win32' ? 'junction' : undefined;
     const symlinkTarget = symlinkType === 'junction' ? resolvedTarget : relativePath;
 
+    debugFs('symlink', linkPath, { target: symlinkTarget, type: symlinkType ?? 'symlink' });
     await symlink(symlinkTarget, linkPath, symlinkType);
+    debugFsResult('symlink', linkPath, true, Date.now() - t0);
     return true;
-  } catch {
+  } catch (e) {
+    debugFsResult('symlink', linkPath, false, Date.now() - t0, e);
     return false;
   }
 }
@@ -460,9 +479,11 @@ function stripIgnoredEveFrontmatter(raw: string): string {
 }
 
 async function copyDirectory(src: string, dest: string, agentType?: AgentType): Promise<void> {
+  debugFs('mkdir', dest, { recursive: true });
   await mkdir(dest, { recursive: true });
-
+  debugFs('readdir', src);
   const entries = await readdir(src, { withFileTypes: true });
+  debug('fs', `readdir ${src} -> ${entries.length} entries`);
 
   // Copy files and directories in parallel
   await Promise.all(
@@ -477,13 +498,14 @@ async function copyDirectory(src: string, dest: string, agentType?: AgentType): 
         } else {
           try {
             if (agentType === 'eve' && entry.name.toLowerCase() === 'skill.md') {
-              await writeFile(
-                destPath,
-                stripIgnoredEveFrontmatter(await readFile(srcPath, 'utf-8'))
-              );
+              debugFs('readFile', srcPath);
+              const raw = await readFile(srcPath, 'utf-8');
+              debugFs('writeFile', destPath, { bytes: raw.length, eve: true });
+              await writeFile(destPath, stripIgnoredEveFrontmatter(raw));
               return;
             }
 
+            debugFs('cp', srcPath, { dest: destPath, dereference: true });
             await cp(srcPath, destPath, {
               // If the file is a symlink to elsewhere in a remote skill, it may not
               // resolve correctly once it has been copied to the local location.
@@ -493,6 +515,7 @@ async function copyDirectory(src: string, dest: string, agentType?: AgentType): 
               recursive: true,
             });
             const sourceStats = await stat(srcPath);
+            debugFs('chmod', destPath, { mode: (sourceStats.mode & 0o777).toString(8) });
             await chmod(destPath, sourceStats.mode & 0o777);
           } catch (err: unknown) {
             // Skip broken symlinks (e.g., pointing to absolute paths on another machine)
@@ -674,6 +697,11 @@ export async function installRemoteSkillForAgent(
       const skillFileName =
         agentType === 'eve' ? toEveFlatSkillFileName(skill.installName) : 'SKILL.md';
       const skillMdPath = join(agentDir, skillFileName);
+      debugFs('writeFile', skillMdPath, {
+        bytes: skill.content.length,
+        agent: agentType,
+        mode: 'copy',
+      });
       await writeFile(
         skillMdPath,
         agentType === 'eve' ? stripIgnoredEveFrontmatter(skill.content) : skill.content,
@@ -692,6 +720,11 @@ export async function installRemoteSkillForAgent(
     const skillFileName =
       agentType === 'eve' ? toEveFlatSkillFileName(skill.installName) : 'SKILL.md';
     const skillMdPath = join(canonicalDir, skillFileName);
+    debugFs('writeFile', skillMdPath, {
+      bytes: skill.content.length,
+      agent: agentType,
+      mode: 'symlink-canonical',
+    });
     await writeFile(
       skillMdPath,
       agentType === 'eve' ? stripIgnoredEveFrontmatter(skill.content) : skill.content,
@@ -716,6 +749,11 @@ export async function installRemoteSkillForAgent(
       const agentSkillFileName =
         agentType === 'eve' ? toEveFlatSkillFileName(skill.installName) : 'SKILL.md';
       const agentSkillMdPath = join(agentDir, agentSkillFileName);
+      debugFs('writeFile', agentSkillMdPath, {
+        bytes: skill.content.length,
+        agent: agentType,
+        mode: 'symlink-fallback',
+      });
       await writeFile(
         agentSkillMdPath,
         agentType === 'eve' ? stripIgnoredEveFrontmatter(skill.content) : skill.content,
@@ -816,15 +854,21 @@ export async function installWellKnownSkillForAgent(
       // Validate file path doesn't escape the target directory
       const fullPath = join(targetDir, filePath);
       if (!isPathSafe(targetDir, fullPath)) {
+        debug('fs', `writeSkillFiles skip unsafe path ${fullPath}`);
         continue; // Skip files that would escape the directory
       }
 
       // Create parent directories if needed
       const parentDir = dirname(fullPath);
       if (parentDir !== targetDir) {
+        debugFs('mkdir', parentDir, { recursive: true });
         await mkdir(parentDir, { recursive: true });
       }
 
+      debugFs('writeFile', fullPath, {
+        bytes: typeof content === 'string' ? content.length : 0,
+        files: skill.files.size,
+      });
       await writeFile(
         fullPath,
         agentType === 'eve' &&
@@ -935,8 +979,14 @@ export async function installBlobSkillForAgent(
     }
 
     try {
+      debugFs('mkdir', agentBase, { recursive: true });
       await mkdir(agentBase, { recursive: true });
+      debugFs('rm', flatSkillPath, { recursive: true });
       await rm(flatSkillPath, { recursive: true, force: true });
+      debugFs('writeFile', flatSkillPath, {
+        bytes: getEveFlatSkillMarkdown(skill.files).length,
+        eveFlat: true,
+      });
       await writeFile(flatSkillPath, getEveFlatSkillMarkdown(skill.files), 'utf-8');
       return { success: true, path: flatSkillPath, mode: 'copy' };
     } catch (error) {
@@ -977,13 +1027,18 @@ export async function installBlobSkillForAgent(
   async function writeSkillFiles(targetDir: string): Promise<void> {
     for (const file of skill.files) {
       const fullPath = join(targetDir, file.path);
-      if (!isPathSafe(targetDir, fullPath)) continue;
+      if (!isPathSafe(targetDir, fullPath)) {
+        debug('fs', `writeSkillFiles skip unsafe path ${fullPath}`);
+        continue;
+      }
 
       const parentDir = dirname(fullPath);
       if (parentDir !== targetDir) {
+        debugFs('mkdir', parentDir, { recursive: true });
         await mkdir(parentDir, { recursive: true });
       }
 
+      debugFs('writeFile', fullPath, { bytes: file.contents.length, files: skill.files.length });
       await writeFile(
         fullPath,
         agentType === 'eve' && basename(file.path).toLowerCase() === 'skill.md'

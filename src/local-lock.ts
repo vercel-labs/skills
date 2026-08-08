@@ -1,6 +1,7 @@
 import { readFile, writeFile, readdir, stat } from 'fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'path';
 import { createHash } from 'crypto';
+import { debug, debugFs, debugFsResult } from './debug.ts';
 
 const LOCAL_LOCK_FILE = 'skills-lock.json';
 const CURRENT_VERSION = 1;
@@ -74,16 +75,22 @@ export function getLocalLockPath(cwd?: string): string {
 export async function readLocalLock(cwd?: string): Promise<LocalSkillLockFile> {
   const lockDir = cwd || process.cwd();
   const lockPath = getLocalLockPath(lockDir);
-
+  const t0 = Date.now();
+  debugFs('readFile', lockPath);
   try {
     const content = await readFile(lockPath, 'utf-8');
     const parsed = JSON.parse(content) as LocalSkillLockFile;
-
+    debugFsResult('readFile', lockPath, true, Date.now() - t0);
+    debug(
+      'fs',
+      `readLocalLock ${lockPath} version=${parsed.version} entries=${Object.keys(parsed.skills ?? {}).length}`
+    );
     if (typeof parsed.version !== 'number' || !parsed.skills) {
+      debug('fs', `readLocalLock ${lockPath} invalid -> empty`);
       return createEmptyLocalLock();
     }
-
     if (parsed.version < CURRENT_VERSION) {
+      debug('fs', `readLocalLock ${lockPath} old version -> wipe`);
       return createEmptyLocalLock();
     }
 
@@ -94,7 +101,8 @@ export async function readLocalLock(cwd?: string): Promise<LocalSkillLockFile> {
     }
 
     return parsed;
-  } catch {
+  } catch (e) {
+    debugFsResult('readFile', lockPath, false, Date.now() - t0, e);
     return createEmptyLocalLock();
   }
 }
@@ -106,7 +114,7 @@ export async function readLocalLock(cwd?: string): Promise<LocalSkillLockFile> {
 export async function writeLocalLock(lock: LocalSkillLockFile, cwd?: string): Promise<void> {
   const lockDir = cwd || process.cwd();
   const lockPath = getLocalLockPath(lockDir);
-
+  const t0 = Date.now();
   // Sort skills alphabetically for deterministic output / clean diffs
   const sortedSkills: Record<string, LocalSkillLockEntry> = {};
   for (const key of Object.keys(lock.skills).sort()) {
@@ -116,10 +124,14 @@ export async function writeLocalLock(lock: LocalSkillLockFile, cwd?: string): Pr
         ? { ...entry, source: getPortableLocalSource(entry.source, lockDir) }
         : entry;
   }
-
   const sorted: LocalSkillLockFile = { version: lock.version, skills: sortedSkills };
   const content = JSON.stringify(sorted, null, 2) + '\n';
+  debugFs('writeFile', lockPath, {
+    bytes: content.length,
+    entries: Object.keys(lock.skills).length,
+  });
   await writeFile(lockPath, content, 'utf-8');
+  debugFsResult('writeFile', lockPath, true, Date.now() - t0);
 }
 
 function getPortableLocalSource(source: string, lockDir: string): string {
@@ -164,7 +176,9 @@ async function collectFiles(
   currentDir: string,
   results: Array<{ relativePath: string; content: Buffer }>
 ): Promise<void> {
+  debugFs('readdir', currentDir);
   const entries = await readdir(currentDir, { withFileTypes: true });
+  debug('fs', `readdir ${currentDir} -> ${entries.length} entries`);
 
   await Promise.all(
     entries.map(async (entry) => {
@@ -175,7 +189,9 @@ async function collectFiles(
         if (entry.name === '.git' || entry.name === 'node_modules') return;
         await collectFiles(baseDir, fullPath, results);
       } else if (entry.isFile()) {
+        debugFs('readFile', fullPath);
         const content = await readFile(fullPath);
+        debug('fs', `readFile ${fullPath} -> ${content.length} bytes`);
         const relativePath = relative(baseDir, fullPath).split('\\').join('/');
         results.push({ relativePath, content });
       }

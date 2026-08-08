@@ -2,6 +2,7 @@ import { readFile, writeFile, mkdir } from 'fs/promises';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
+import { debug, debugFs, debugFsResult, debugApi } from './debug.ts';
 
 const AGENTS_DIR = '.agents';
 const LOCK_FILE = '.skill-lock.json';
@@ -79,24 +80,34 @@ export function getSkillLockPath(): string {
  */
 export async function readSkillLock(): Promise<SkillLockFile> {
   const lockPath = getSkillLockPath();
-
+  const t0 = Date.now();
+  debugFs('readFile', lockPath);
   try {
     const content = await readFile(lockPath, 'utf-8');
     const parsed = JSON.parse(content) as SkillLockFile;
-
+    debugFsResult('readFile', lockPath, true, Date.now() - t0);
+    debug(
+      'fs',
+      `readSkillLock ${lockPath} version=${parsed.version} entries=${Object.keys(parsed.skills ?? {}).length} bytes=${content.length}`
+    );
     // Validate version - wipe if old format
     if (typeof parsed.version !== 'number' || !parsed.skills) {
+      debug('fs', `readSkillLock ${lockPath} invalid format -> empty`);
       return createEmptyLockFile();
     }
-
     // If old version, wipe and start fresh (backwards incompatible change)
     // v3 adds skillFolderHash - we want fresh installs to populate it
     if (parsed.version < CURRENT_VERSION) {
+      debug(
+        'fs',
+        `readSkillLock ${lockPath} old version ${parsed.version} < ${CURRENT_VERSION} -> wipe`
+      );
       return createEmptyLockFile();
     }
-
     return parsed;
   } catch (error) {
+    debugFsResult('readFile', lockPath, false, Date.now() - t0, error);
+    debug('fs', `readSkillLock ${lockPath} miss/parse fail -> empty`);
     // File doesn't exist or is invalid - return empty
     return createEmptyLockFile();
   }
@@ -108,13 +119,18 @@ export async function readSkillLock(): Promise<SkillLockFile> {
  */
 export async function writeSkillLock(lock: SkillLockFile): Promise<void> {
   const lockPath = getSkillLockPath();
-
+  const t0 = Date.now();
+  debugFs('mkdir', dirname(lockPath), { recursive: true });
   // Ensure directory exists
   await mkdir(dirname(lockPath), { recursive: true });
-
   // Write with pretty formatting for human readability
   const content = JSON.stringify(lock, null, 2);
+  debugFs('writeFile', lockPath, {
+    bytes: content.length,
+    entries: Object.keys(lock.skills).length,
+  });
   await writeFile(lockPath, content, 'utf-8');
+  debugFsResult('writeFile', lockPath, true, Date.now() - t0);
 }
 
 /**
@@ -138,12 +154,14 @@ export function computeContentHash(content: string): string {
  */
 export function getGitHubToken(): string | null {
   if (process.env.GITHUB_TOKEN) {
+    debug('api', 'getGitHubToken via GITHUB_TOKEN');
     return process.env.GITHUB_TOKEN;
   }
   if (process.env.GH_TOKEN) {
+    debug('api', 'getGitHubToken via GH_TOKEN');
     return process.env.GH_TOKEN;
   }
-
+  debug('api', 'getGitHubToken -> none');
   return null;
 }
 

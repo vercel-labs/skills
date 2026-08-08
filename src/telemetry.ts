@@ -1,3 +1,5 @@
+import { debug as debugLog, debugApi } from './debug.ts';
+
 const TELEMETRY_URL = 'https://add-skill.vercel.sh/t';
 const AUDIT_URL = 'https://add-skill.vercel.sh/audit';
 
@@ -114,24 +116,28 @@ export async function fetchAuditData(
 ): Promise<AuditResponse | null> {
   if (!isEnabled()) return null;
   if (skillSlugs.length === 0) return null;
-
+  const t0 = Date.now();
+  const params = new URLSearchParams({ source, skills: skillSlugs.join(',') });
+  const url = `${AUDIT_URL}?${params.toString()}`;
+  debugApi('GET', url, { source, count: skillSlugs.length });
   try {
-    const params = new URLSearchParams({
-      source,
-      skills: skillSlugs.join(','),
-    });
-
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-    const response = await fetch(`${AUDIT_URL}?${params.toString()}`, {
-      signal: controller.signal,
-    });
+    const response = await fetch(url, { signal: controller.signal });
     clearTimeout(timeout);
-
-    if (!response.ok) return null;
-    return (await response.json()) as AuditResponse;
-  } catch {
+    if (!response.ok) {
+      debugApi('GET', url, { status: response.status, ms: Date.now() - t0 });
+      return null;
+    }
+    const json = (await response.json()) as AuditResponse;
+    debugApi('GET', url, {
+      status: response.status,
+      skills: Object.keys(json).length,
+      ms: Date.now() - t0,
+    });
+    return json;
+  } catch (e) {
+    debugApi('GET', url, { error: String(e).slice(0, 120), ms: Date.now() - t0 });
     return null;
   }
 }
@@ -141,6 +147,7 @@ export async function fetchAuditData(
 const pendingTelemetry: Promise<void>[] = [];
 
 export function track(data: TelemetryData): void {
+  debugLog('api', `track ${data.event} ${JSON.stringify(data).slice(0, 300)}`);
   if (!isEnabled()) return;
 
   try {

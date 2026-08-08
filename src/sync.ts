@@ -5,6 +5,7 @@ import { join, sep } from 'path';
 import { homedir } from 'os';
 import { parseSkillMd } from './skills.ts';
 import { installSkillForAgent, getCanonicalPath } from './installer.ts';
+import { debug, debugFs } from './debug.ts';
 import {
   detectInstalledAgents,
   agents,
@@ -53,8 +54,11 @@ async function discoverNodeModuleSkills(
 
   let topNames: string[];
   try {
+    debugFs('readdir', nodeModulesDir);
     topNames = await readdir(nodeModulesDir);
-  } catch {
+    debug('fs', 'readdir ' + nodeModulesDir + ' -> ' + topNames.length + ' entries');
+  } catch (e) {
+    debug('fs', 'readdir ' + nodeModulesDir + ' -> fail ' + String(e).slice(0, 120));
     return skills;
   }
 
@@ -71,7 +75,10 @@ async function discoverNodeModuleSkills(
 
     for (const searchDir of searchDirs) {
       try {
+        debugFs('readdir', searchDir);
         const entries = await readdir(searchDir);
+        if (entries.length)
+          debug('fs', 'readdir ' + searchDir + ' -> ' + entries.length + ' entries');
         for (const name of entries) {
           const skillDir = join(searchDir, name);
           try {
@@ -106,6 +113,7 @@ async function discoverNodeModuleSkills(
       if (name.startsWith('@')) {
         // Scoped package: read @org/* entries
         try {
+          debugFs('readdir', fullPath);
           const scopeNames = await readdir(fullPath);
           await Promise.all(
             scopeNames.map(async (scopedName) => {

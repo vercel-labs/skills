@@ -6,6 +6,7 @@ import type { Skill } from './types.ts';
 import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
 import { readLocalLock } from './local-lock.ts';
 import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
+import { debug, debugFs, debugFsResult } from './debug.ts';
 
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
 
@@ -63,9 +64,15 @@ export function shouldInstallInternalSkills(): boolean {
 async function hasSkillMd(dir: string): Promise<boolean> {
   try {
     const skillPath = join(dir, 'SKILL.md');
+    const t0 = Date.now();
+    debugFs('stat', skillPath);
     const stats = await stat(skillPath);
-    return stats.isFile();
-  } catch {
+    const ok = stats.isFile();
+    debugFsResult('stat', skillPath, true, Date.now() - t0);
+    debug('fs', `hasSkillMd ${dir} -> ${ok}`);
+    return ok;
+  } catch (e) {
+    debug('fs', `hasSkillMd ${dir} -> false (${String(e).slice(0, 80)})`);
     return false;
   }
 }
@@ -78,10 +85,15 @@ export async function parseSkillMd(
   skillMdPath: string,
   options?: { includeInternal?: boolean }
 ): Promise<Skill | null> {
+  const t0 = Date.now();
+  debugFs('readFile', skillMdPath);
   let content: string;
   try {
     content = await readFile(skillMdPath, 'utf-8');
+    debugFsResult('readFile', skillMdPath, true, Date.now() - t0);
+    debug('fs', `parseSkillMd ${skillMdPath} bytes=${content.length}`);
   } catch (err) {
+    debugFsResult('readFile', skillMdPath, false, Date.now() - t0, err);
     warnSkippedSkill(skillMdPath, `failed to read file: ${(err as Error).message}`);
     return null;
   }
@@ -132,12 +144,16 @@ export async function parseSkillMd(
 
 async function findSkillDirs(dir: string, depth = 0, maxDepth = 5): Promise<string[]> {
   if (depth > maxDepth) return [];
-
+  debugFs('readdir', dir);
   try {
     const [hasSkill, entries] = await Promise.all([
       hasSkillMd(dir),
-      readdir(dir, { withFileTypes: true }).catch(() => []),
+      readdir(dir, { withFileTypes: true }).catch((e) => {
+        debugFsResult('readdir', dir, false, undefined, e);
+        return [];
+      }),
     ]);
+    debug('fs', `readdir ${dir} -> ${entries.length} entries depth=${depth} hasSkill=${hasSkill}`);
 
     const currentDir = hasSkill ? [dir] : [];
 
@@ -178,6 +194,11 @@ export async function discoverSkills(
   subpath?: string,
   options?: DiscoverSkillsOptions
 ): Promise<Skill[]> {
+  debug(
+    'fs',
+    `discoverSkills base=${basePath} subpath=${subpath ?? '-'} fullDepth=${!!options?.fullDepth} includeInternal=${!!options?.includeInternal}`
+  );
+  const t0 = Date.now();
   const skills: Skill[] = [];
   const seenNames = new Set<string>();
   const parsedSkillPaths = new Set<string>();
@@ -304,6 +325,7 @@ export async function discoverSkills(
   }
 
   // Fall back to recursive search if nothing found, or if fullDepth is set
+  debug('fs', `discoverSkills mid: found ${skills.length} priority skills in ${Date.now() - t0}ms`);
   if (skills.length === 0 || options?.fullDepth) {
     const allSkillDirs = await findSkillDirs(searchPath);
 
@@ -316,7 +338,10 @@ export async function discoverSkills(
       }
     }
   }
-
+  debug(
+    'fs',
+    `discoverSkills done: ${skills.length} skills in ${Date.now() - t0}ms base=${basePath}`
+  );
   return skills;
 }
 

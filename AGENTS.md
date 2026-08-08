@@ -155,18 +155,88 @@ pnpm format:check
 
 CI will fail if code is not properly formatted.
 
-## Publishing
+## Installing (this fork)
+
+This fork is **not published to npm**. The global `skills` command is symlinked to
+the local checkout (see [Fork Notes](#fork-notes)), so "installing" means building
+the repo and letting the symlink pick it up:
 
 ```bash
-# 1. Bump version in package.json
-# 2. Build
-pnpm build
-# 3. Publish
-npm publish
+pnpm install   # first time, or after dependency changes
+pnpm build     # rebuild dist/; the symlinked `skills` reflects it immediately
 ```
+
+Do not run `npm publish` — there is no publish path for this fork.
 
 ## Adding a New Agent
 
 1. Add the agent definition to `src/agents.ts`
 2. Run `pnpm run -C scripts validate-agents.ts` to validate
 3. Run `pnpm run -C scripts sync-agents.ts` to update README.md and package keywords
+
+## Fork Notes
+
+This repository is a fork of `vercel-labs/skills`. The fork is hosted at `bermudi/skills-cli` and `origin` is configured to point to that fork, while `upstream` points to `vercel-labs/skills`.
+
+### Custom changes
+
+This fork keeps exactly two features on top of upstream:
+
+#### 1. `disable-model-invocation` frontmatter field
+
+When `disable-model-invocation: true` is set in a `SKILL.md` frontmatter, the skill is hidden from the agent's system prompt and users must explicitly invoke it via `/skill:name`.
+
+Key changes:
+
+- `src/types.ts` — adds `disableModelInvocation?: boolean` to the `Skill` interface
+- `src/skills.ts` — parses `disable-model-invocation` in `parseSkillMd`
+- `src/blob.ts` — carries the field through the blob install path
+- `src/installer.ts` — surfaces the field on `InstalledSkill` and `listInstalledSkills`
+- `src/list.ts` — includes the field in `--json` output only when `true`
+- `tests/skill-matching.test.ts` — adds tests for the new field
+
+#### 2. File-based `--debug` logging (never breaks the TUI)
+
+Debug output goes to a file instead of stderr so the Clack pretty TUI stays intact.
+
+- Default: `$XDG_STATE_HOME/skills/debug.log` else `~/.local/state/skills/debug.log`
+- Overrides (first wins): `--debug=/path` (rel to cwd), `SKILLS_DEBUG_FILE`, `SKILLS_DEBUG` when it looks like a path (`/` or `\` or ends with `.log`), else default
+- Escape hatch: `SKILLS_DEBUG=stderr` (or `SKILLS_DEBUG_FILE=stderr`) restores stderr
+- First write: `mkdir -p`, `>5MB` rotate to `debug.log.1`, header with ISO time, args, version (`bermudi fork`), cwd
+- Every `debug()`/`debugFs()`/`debugApi()` appends with `[HH:MM:SS.mmm] [debug:ns]` and redaction (Bearer tokens, `ghp_`/`gho_`/`github_pat_`, `token=`, `GITHUB_TOKEN=`), sync for `process.exit` safety
+- Exit: single `Debug log: ...` line to stderr
+
+Key changes:
+
+- `src/debug.ts` (new, ~303 lines) — file sink, rotation, redaction, header, `getLogFilePath`/`getDisplayLogPath`/`setDebugFile`/`isStderrMode`/`isDebugEnabled`/`enableDebug`/`isDebugFlag`
+- `src/cli.ts` — parses `--debug`/`--verbose`/`-d` (including `--debug=/path`), propagates via `SKILLS_DEBUG_FILE` to `update` child, banner/version show `bermudi fork`, prints `Debug log: ...` at exit; added `Global Options` to help
+- Instrumented call sites: `src/skills.ts` (`hasSkillMd`, `parseSkillMd`, `findSkillDirs`, `discoverSkills` timing), `src/blob.ts` (tree fetches), `src/git.ts` (clone), `src/source-parser.ts` (API), `src/installer.ts` (FS ops), `src/local-lock.ts`/`src/skill-lock.ts`/`src/sync.ts`/`src/telemetry.ts`/`src/find.ts`
+- `src/debug.test.ts` (new) — unit tests for log path resolution/rotation; `src/cli.test.ts` — integration tests asserting output goes to file not stderr and `--json` stays pure; `src/test-utils.ts` — uses `spawnSync` for uniform stdout/stderr capture
+
+### Syncing with upstream
+
+To pull the latest `vercel-labs/skills` changes and rebuild the installed CLI:
+
+```bash
+git fetch upstream
+git rebase upstream/main
+pnpm install
+pnpm build
+```
+
+If the rebase rewrites `main`, push the updated branch to the fork with force-lease:
+
+```bash
+git push --force-with-lease origin main
+```
+
+The global `skills` command is directly symlinked to the local entrypoint at `~/.local/bin/skills -> /home/daniel/build/skills-CLI/bin/cli.mjs`, so after `pnpm build` the installed CLI reflects the current code immediately. It is not installed through npm or pnpm's global package store.
+
+### Backup branches
+
+- `backup/main` holds the pre-rebase merge history from `668aad7`.
+- `backup/pre-trim-2026-08-08` holds the state before trimming to two features (had store-only + debug). Delete once the trimmed history is stable.
+
+```bash
+git branch -D backup/main backup/pre-trim-2026-08-08
+```
