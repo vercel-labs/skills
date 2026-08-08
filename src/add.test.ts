@@ -120,7 +120,7 @@ description: Shared install path regression test
     mkdirSync(projectDir, { recursive: true });
 
     const result = runCli(
-      ['add', sourceDir, '-y', '--agent', 'codex', 'cursor', 'cline'],
+      ['add', sourceDir, '-y', '--agent', 'codex', 'antigravity', 'cline'],
       projectDir
     );
 
@@ -155,7 +155,7 @@ description: Mixed copied destination regression test
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('✓ multi-target-skill (copied)');
-    expect(countPathLinesForSkill(result.stdout, 'multi-target-skill')).toBe(2);
+    expect(countPathLinesForSkill(result.stdout, 'multi-target-skill')).toBe(3);
   });
 
   it('should describe Eve project installs as for the eve agent to use', () => {
