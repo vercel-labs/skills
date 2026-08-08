@@ -595,9 +595,11 @@ export function getCanonicalPath(
 ): string {
   const sanitized = sanitizeName(skillName);
   const canonicalBase =
-    options.agent === 'eve'
-      ? getAgentBaseDir('eve', options.global ?? false, options.cwd, options.eveSubagent)
-      : getCanonicalSkillsDir(options.global ?? false, options.cwd);
+    options.agent === undefined
+      ? getCanonicalSkillsDir(options.global ?? false, options.cwd)
+      : options.agent === 'eve'
+        ? getAgentBaseDir('eve', options.global ?? false, options.cwd, options.eveSubagent)
+        : getAgentBaseDir(options.agent, options.global ?? false, options.cwd);
   const canonicalPath = join(canonicalBase, sanitized);
 
   if (!isPathSafe(canonicalBase, canonicalPath)) {
