@@ -20,7 +20,8 @@ function generateAgentNames(): string {
 }
 
 function generateAvailableAgentsTable(): string {
-  // Group agents by their paths
+  // Group agents by their paths. Virtual agents (API upload targets) have no
+  // paths; each gets its own group so it stays in registry order.
   const pathGroups = new Map<
     string,
     {
@@ -28,23 +29,19 @@ function generateAvailableAgentsTable(): string {
       displayNames: string[];
       skillsDir: string;
       globalSkillsDir: string | undefined;
+      installHint?: string;
     }
   >();
 
-  const virtualRows: string[] = [];
-
   for (const [key, a] of Object.entries(agents)) {
-    if (a.virtual) {
-      virtualRows.push(`| ${a.displayName} | \`${key}\` | ${a.installHint} | ${a.installHint} |`);
-      continue;
-    }
-    const pathKey = `${a.skillsDir}|${a.globalSkillsDir}`;
+    const pathKey = a.virtual ? `virtual|${key}` : `${a.skillsDir}|${a.globalSkillsDir}`;
     if (!pathGroups.has(pathKey)) {
       pathGroups.set(pathKey, {
         keys: [],
         displayNames: [],
         skillsDir: a.skillsDir,
         globalSkillsDir: a.globalSkillsDir,
+        ...(a.virtual && { installHint: a.installHint }),
       });
     }
     const group = pathGroups.get(pathKey)!;
@@ -53,18 +50,20 @@ function generateAvailableAgentsTable(): string {
   }
 
   const rows = Array.from(pathGroups.values()).map((group) => {
+    const names = group.displayNames.join(', ');
+    const keys = group.keys.map((k) => `\`${k}\``).join(', ');
+    if (group.installHint) {
+      return `| ${names} | ${keys} | ${group.installHint} | ${group.installHint} |`;
+    }
     const globalPath = group.globalSkillsDir
       ? `\`${group.globalSkillsDir.replace(homedir(), '~')}/\``
       : 'N/A (project-only)';
-    const names = group.displayNames.join(', ');
-    const keys = group.keys.map((k) => `\`${k}\``).join(', ');
     return `| ${names} | ${keys} | \`${group.skillsDir}/\` | ${globalPath} |`;
   });
   return [
     '| Agent | `--agent` | Project Path | Global Path |',
     '|-------|-----------|--------------|-------------|',
     ...rows,
-    ...virtualRows,
   ].join('\n');
 }
 

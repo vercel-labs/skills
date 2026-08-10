@@ -278,6 +278,7 @@ Skills can be installed to any of these agents:
 | Augment | `augment` | `.augment/skills/` | `~/.augment/skills/` |
 | IBM Bob | `bob` | `.bob/skills/` | `~/.bob/skills/` |
 | Claude Code | `claude-code` | `.claude/skills/` | `~/.claude/skills/` |
+| Claude Managed Agents | `claude-managed-agents` | Uploads to the Anthropic Skills API | Uploads to the Anthropic Skills API |
 | OpenClaw | `openclaw` | `skills/` | `~/.openclaw/skills/` |
 | Cline, Dexto, Kimi Code CLI, Loaf, Warp, Zed | `cline`, `dexto`, `kimi-code-cli`, `loaf`, `warp`, `zed` | `.agents/skills/` | `~/.agents/skills/` |
 | CodeArts Agent | `codearts-agent` | `.codeartsdoer/skills/` | `~/.codeartsdoer/skills/` |
@@ -337,7 +338,6 @@ Skills can be installed to any of these agents:
 | Pochi | `pochi` | `.pochi/skills/` | `~/.pochi/skills/` |
 | PromptScript | `promptscript` | `.agents/skills/` | N/A (project-only) |
 | AdaL | `adal` | `.adal/skills/` | `~/.adal/skills/` |
-| Claude Managed Agents | `claude-managed-agents` | Uploads to the Anthropic Skills API | Uploads to the Anthropic Skills API |
 <!-- supported-agents:end -->
 
 > [!NOTE]
