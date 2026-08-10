@@ -185,6 +185,26 @@ This is a test skill.
       expect(existsSync(join(skillsDir, 'skill-three'))).toBe(false);
     });
 
+    it('should not remove a repo-owned skills directory for an undetected agent with --all', () => {
+      const repoSkillDir = createTestSkill(
+        'source-skill',
+        'A repository-owned source skill',
+        join(testDir, 'skills')
+      );
+
+      const result = runCli(['remove', '--all', '-y'], testDir);
+
+      expect(result.stdout).toContain('Successfully removed');
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(join(skillsDir, 'skill-one'))).toBe(false);
+      expect(existsSync(join(skillsDir, 'skill-two'))).toBe(false);
+      expect(existsSync(join(skillsDir, 'skill-three'))).toBe(false);
+      expect(existsSync(repoSkillDir)).toBe(true);
+      expect(readFileSync(join(repoSkillDir, 'SKILL.md'), 'utf-8')).toContain(
+        'A repository-owned source skill'
+      );
+    });
+
     it('should show error for non-existent skill name when skills exist', () => {
       const result = runCli(['remove', 'non-existent', '-y'], testDir);
 

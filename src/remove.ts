@@ -73,6 +73,22 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   const isGlobal = options.global ?? false;
   const cwd = process.cwd();
 
+  // Validate agent options BEFORE prompting for skill selection
+  if (options.agent && options.agent.length > 0) {
+    const validAgents = Object.keys(agents);
+    const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
+
+    if (invalidAgents.length > 0) {
+      p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
+      p.log.info(`Valid agents: ${validAgents.join(', ')}`);
+      process.exit(1);
+    }
+  }
+
+  const explicitlyTargetedAgents = options.agent as AgentType[] | undefined;
+  const installedAgents = await detectInstalledAgents();
+  const installedAgentSet = new Set(installedAgents);
+
   const spinner = p.spinner();
 
   spinner.start('Scanning for installed skills…');
@@ -102,12 +118,15 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     }
   } else {
     await scanDir(getCanonicalSkillsDir(false, cwd));
-    for (const agent of Object.values(agents)) {
-      await scanDir(join(cwd, agent.skillsDir));
+    const agentsToScan = explicitlyTargetedAgents ?? installedAgents;
+    for (const agentKey of agentsToScan) {
+      await scanDir(join(cwd, agents[agentKey].skillsDir));
     }
     // Eve subagents keep their skills under agent/subagents/<name>/skills.
-    for (const subagent of getEveSubagents(cwd)) {
-      await scanDir(getEveSubagentSkillsDir(subagent, cwd));
+    if (explicitlyTargetedAgents?.includes('eve') || installedAgentSet.has('eve')) {
+      for (const subagent of getEveSubagents(cwd)) {
+        await scanDir(getEveSubagentSkillsDir(subagent, cwd));
+      }
     }
   }
 
@@ -130,18 +149,6 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   if (installedSkills.length === 0 && resolvedRequestedSkills.length === 0) {
     p.outro(pc.yellow('No skills found to remove.'));
     return;
-  }
-
-  // Validate agent options BEFORE prompting for skill selection
-  if (options.agent && options.agent.length > 0) {
-    const validAgents = Object.keys(agents);
-    const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
-
-    if (invalidAgents.length > 0) {
-      p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
-      p.log.info(`Valid agents: ${validAgents.join(', ')}`);
-      process.exit(1);
-    }
   }
 
   let selectedSkills: string[] = [];
@@ -247,6 +254,14 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
           try {
             const stats = await lstat(pathToCleanup).catch(() => null);
             if (stats) {
+              if (
+                !isGlobal &&
+                !explicitlyTargetedAgents &&
+                !installedAgentSet.has(agentKey) &&
+                !stats.isSymbolicLink()
+              ) {
+                continue;
+              }
               await rm(pathToCleanup, { recursive: true, force: true });
             }
           } catch (err) {
@@ -261,7 +276,6 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
       // Only remove the canonical path if no other installed agents are using it.
       // This prevents breaking other agents when uninstalling from a specific agent (#287).
-      const installedAgents = await detectInstalledAgents();
       const remainingAgents = installedAgents.filter((a) => !targetAgents.includes(a));
 
       let isStillUsed = false;
