@@ -1143,8 +1143,14 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     // Include internal skills when a specific skill is explicitly requested
-    // (via --skill or @skill syntax)
-    const includeInternal = !!(options.skill && options.skill.length > 0);
+    // (via --skill or @skill syntax). The '*' wildcard is a bulk request, not
+    // an explicit one, so internal skills stay hidden from it unless
+    // INSTALL_INTERNAL_SKILLS is set.
+    const includeInternal = !!(
+      options.skill &&
+      options.skill.length > 0 &&
+      !options.skill.includes('*')
+    );
 
     let skills: Skill[];
     let blobResult: BlobInstallResult | null = null;
