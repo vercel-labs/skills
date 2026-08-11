@@ -1,7 +1,8 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { readdir, rm, lstat } from 'fs/promises';
-import { join } from 'path';
+import { join, sep } from 'path';
+import { homedir } from 'os';
 import { agents, detectInstalledAgents, getEveSubagents } from './agents.ts';
 import { track } from './telemetry.ts';
 import { detectAgent } from './detect-agent.ts';
@@ -18,9 +19,77 @@ import {
 
 export interface RemoveOptions {
   global?: boolean;
+  project?: boolean;
   agent?: string[];
   yes?: boolean;
   all?: boolean;
+}
+
+/** A skill to remove, paired with the scope it is installed in. */
+export interface RemovalTarget {
+  name: string;
+  global: boolean;
+}
+
+export function scopeLabel(global: boolean): string {
+  return global ? 'Global' : 'Project';
+}
+
+/**
+ * Shortens a path for display: replaces homedir with ~ and cwd with .
+ */
+function shortenPath(fullPath: string, cwd: string): string {
+  const home = homedir();
+  if (fullPath === home || fullPath.startsWith(home + sep)) {
+    return '~' + fullPath.slice(home.length);
+  }
+  if (fullPath === cwd || fullPath.startsWith(cwd + sep)) {
+    return '.' + fullPath.slice(cwd.length);
+  }
+  return fullPath;
+}
+
+/**
+ * Decide which scopes a remove run touches.
+ *
+ * Explicit flags always win. Otherwise only the interactive picker looks at
+ * both scopes — named skills and --all stay project-scoped so that existing
+ * non-interactive invocations keep removing exactly what they removed before.
+ */
+export function resolveRemoveScopes(
+  options: RemoveOptions,
+  hasSkillNames: boolean
+): Array<{ global: boolean }> {
+  const project = { global: false };
+  const global = { global: true };
+
+  if (options.global && options.project) return [project, global];
+  if (options.global) return [global];
+  if (options.project) return [project];
+
+  const isInteractiveSelection = !options.all && !hasSkillNames;
+  return isInteractiveSelection ? [project, global] : [project];
+}
+
+/**
+ * Build the grouped option list for the interactive picker, one group per
+ * scope. Values carry their scope so a name installed both globally and in the
+ * project stays two distinct, independently selectable entries.
+ */
+export function buildScopedChoices(
+  skillsByScope: Array<{ global: boolean; names: string[]; dir: string }>
+): Record<string, Array<{ value: RemovalTarget; label: string }>> {
+  const groups: Record<string, Array<{ value: RemovalTarget; label: string }>> = {};
+
+  for (const { global, names, dir } of skillsByScope) {
+    if (names.length === 0) continue;
+    groups[`${scopeLabel(global)} ${pc.dim(`(${dir})`)}`] = names.map((name) => ({
+      value: { name, global },
+      label: name,
+    }));
+  }
+
+  return groups;
 }
 
 /**
@@ -70,64 +139,83 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     );
   }
 
-  const isGlobal = options.global ?? false;
   const cwd = process.cwd();
+  const scopes = resolveRemoveScopes(options, skillNames.length > 0);
 
   const spinner = p.spinner();
 
   spinner.start('Scanning for installed skills…');
-  const skillNamesSet = new Set<string>();
 
-  const scanDir = async (dir: string) => {
-    try {
-      const entries = await readdir(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          skillNamesSet.add(entry.name);
+  const scanScope = async (isGlobal: boolean): Promise<string[]> => {
+    const skillNamesSet = new Set<string>();
+
+    const scanDir = async (dir: string) => {
+      try {
+        const entries = await readdir(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isDirectory()) {
+            skillNamesSet.add(entry.name);
+          }
+        }
+      } catch (err) {
+        if (err instanceof Error && (err as { code?: string }).code !== 'ENOENT') {
+          p.log.warn(`Could not scan directory ${dir}: ${err.message}`);
         }
       }
-    } catch (err) {
-      if (err instanceof Error && (err as { code?: string }).code !== 'ENOENT') {
-        p.log.warn(`Could not scan directory ${dir}: ${err.message}`);
+    };
+
+    if (isGlobal) {
+      await scanDir(getCanonicalSkillsDir(true, cwd));
+      for (const agent of Object.values(agents)) {
+        if (agent.globalSkillsDir !== undefined) {
+          await scanDir(agent.globalSkillsDir);
+        }
+      }
+    } else {
+      await scanDir(getCanonicalSkillsDir(false, cwd));
+      for (const agent of Object.values(agents)) {
+        await scanDir(join(cwd, agent.skillsDir));
+      }
+      // Eve subagents keep their skills under agent/subagents/<name>/skills.
+      for (const subagent of getEveSubagents(cwd)) {
+        await scanDir(getEveSubagentSkillsDir(subagent, cwd));
       }
     }
+
+    return Array.from(skillNamesSet).sort();
   };
-
-  if (isGlobal) {
-    await scanDir(getCanonicalSkillsDir(true, cwd));
-    for (const agent of Object.values(agents)) {
-      if (agent.globalSkillsDir !== undefined) {
-        await scanDir(agent.globalSkillsDir);
-      }
-    }
-  } else {
-    await scanDir(getCanonicalSkillsDir(false, cwd));
-    for (const agent of Object.values(agents)) {
-      await scanDir(join(cwd, agent.skillsDir));
-    }
-    // Eve subagents keep their skills under agent/subagents/<name>/skills.
-    for (const subagent of getEveSubagents(cwd)) {
-      await scanDir(getEveSubagentSkillsDir(subagent, cwd));
-    }
-  }
-
-  const installedSkills = Array.from(skillNamesSet).sort();
-  spinner.stop(`Found ${installedSkills.length} unique installed skill(s)`);
 
   // Read lock file keys up front. These are needed both to decide whether there is
   // anything to remove (a skill may be missing from disk but still leave a stale lock
   // entry) and to clean up those stale entries below.
-  const lockSkillsKeys = isGlobal
-    ? Object.keys((await readSkillLock()).skills)
-    : Object.keys((await readLocalLock(cwd)).skills);
+  const readLockKeys = async (isGlobal: boolean): Promise<string[]> =>
+    isGlobal
+      ? Object.keys((await readSkillLock()).skills)
+      : Object.keys((await readLocalLock(cwd)).skills);
 
-  const requestedSkills = options.all ? [...installedSkills, ...lockSkillsKeys] : skillNames;
-  const resolvedRequestedSkills =
-    options.all || skillNames.length > 0
-      ? resolveSkillsToRemove(requestedSkills, installedSkills, lockSkillsKeys)
-      : [];
+  const scanned: Array<{ global: boolean; names: string[]; lockKeys: string[] }> = [];
+  for (const { global } of scopes) {
+    scanned.push({
+      global,
+      names: await scanScope(global),
+      lockKeys: await readLockKeys(global),
+    });
+  }
 
-  if (installedSkills.length === 0 && resolvedRequestedSkills.length === 0) {
+  const installedCount = scanned.reduce((total, scope) => total + scope.names.length, 0);
+  spinner.stop(`Found ${installedCount} unique installed skill(s)`);
+
+  const resolvedRequestedTargets: RemovalTarget[] = [];
+  if (options.all || skillNames.length > 0) {
+    for (const scope of scanned) {
+      const requested = options.all ? [...scope.names, ...scope.lockKeys] : skillNames;
+      for (const name of resolveSkillsToRemove(requested, scope.names, scope.lockKeys)) {
+        resolvedRequestedTargets.push({ name, global: scope.global });
+      }
+    }
+  }
+
+  if (installedCount === 0 && resolvedRequestedTargets.length === 0) {
     p.outro(pc.yellow('No skills found to remove.'));
     return;
   }
@@ -144,36 +232,67 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     }
   }
 
-  let selectedSkills: string[] = [];
+  let selectedTargets: RemovalTarget[] = [];
 
   if (options.all) {
-    selectedSkills = resolvedRequestedSkills;
+    selectedTargets = resolvedRequestedTargets;
   } else if (skillNames.length > 0) {
-    selectedSkills = resolvedRequestedSkills;
+    selectedTargets = resolvedRequestedTargets;
 
-    if (selectedSkills.length === 0) {
+    if (selectedTargets.length === 0) {
       p.log.error(`No matching skills found for: ${skillNames.join(', ')}`);
       return;
     }
   } else {
-    const choices = installedSkills.map((s) => ({
-      value: s,
-      label: s,
-    }));
+    const message = `Select skills to remove ${pc.dim('(space to toggle)')}`;
+    let selected: RemovalTarget[] | symbol;
 
-    const selected = await p.multiselect({
-      message: `Select skills to remove ${pc.dim('(space to toggle)')}`,
-      options: choices,
-      required: true,
-    });
+    if (scanned.length > 1) {
+      // Both scopes are in play: group them so it is obvious which copy of a
+      // skill is about to be removed.
+      selected = await p.groupMultiselect<RemovalTarget>({
+        message,
+        options: buildScopedChoices(
+          scanned.map((scope) => ({
+            global: scope.global,
+            names: scope.names,
+            dir: shortenPath(getCanonicalSkillsDir(scope.global, cwd), cwd),
+          }))
+        ),
+        required: true,
+        selectableGroups: true,
+      });
+    } else {
+      const scope = scanned[0]!;
+      const picked = await p.multiselect({
+        message,
+        options: scope.names.map((name) => ({ value: name, label: name })),
+        required: true,
+      });
+      selected = p.isCancel(picked)
+        ? picked
+        : (picked as string[]).map((name) => ({ name, global: scope.global }));
+    }
 
     if (p.isCancel(selected)) {
       p.cancel('Removal cancelled');
       process.exit(0);
     }
 
-    selectedSkills = resolveSkillsToRemove(selected as string[], installedSkills, lockSkillsKeys);
+    // Re-resolve per scope so lock-only keys (e.g. "ce:review" behind the
+    // "ce-review" folder) are removed under their exact key.
+    for (const scope of scanned) {
+      const namesInScope = (selected as RemovalTarget[])
+        .filter((target) => target.global === scope.global)
+        .map((target) => target.name);
+      if (namesInScope.length === 0) continue;
+      for (const name of resolveSkillsToRemove(namesInScope, scope.names, scope.lockKeys)) {
+        selectedTargets.push({ name, global: scope.global });
+      }
+    }
   }
+
+  const spansScopes = new Set(selectedTargets.map((target) => target.global)).size > 1;
 
   let targetAgents: AgentType[];
   if (options.agent && options.agent.length > 0) {
@@ -188,13 +307,16 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   if (!options.yes) {
     console.log();
     p.log.info('Skills to remove:');
-    for (const skill of selectedSkills) {
-      p.log.message(`  ${pc.red('•')} ${skill}`);
+    for (const target of selectedTargets) {
+      const scopeTag = spansScopes
+        ? ` ${pc.dim(`(${scopeLabel(target.global).toLowerCase()})`)}`
+        : '';
+      p.log.message(`  ${pc.red('•')} ${target.name}${scopeTag}`);
     }
     console.log();
 
     const confirmed = await p.confirm({
-      message: `Are you sure you want to uninstall ${selectedSkills.length} skill(s)?`,
+      message: `Are you sure you want to uninstall ${selectedTargets.length} skill(s)?`,
     });
 
     if (p.isCancel(confirmed) || !confirmed) {
@@ -207,13 +329,14 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
   const results: {
     skill: string;
+    global: boolean;
     success: boolean;
     source?: string;
     sourceType?: string;
     error?: string;
   }[] = [];
 
-  for (const skillName of selectedSkills) {
+  for (const { name: skillName, global: isGlobal } of selectedTargets) {
     try {
       const canonicalPath = getCanonicalPath(skillName, { global: isGlobal, cwd });
 
@@ -303,6 +426,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
       results.push({
         skill: skillName,
+        global: isGlobal,
         success: true,
         source: effectiveSource,
         sourceType: effectiveSourceType,
@@ -310,6 +434,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     } catch (err) {
       results.push({
         skill: skillName,
+        global: isGlobal,
         success: false,
         error: err instanceof Error ? err.message : String(err),
       });
@@ -321,25 +446,29 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   const successful = results.filter((r) => r.success);
   const failed = results.filter((r) => !r.success);
 
-  // Track removal (grouped by source)
+  // Track removal (grouped by scope, then source)
   if (successful.length > 0) {
-    const bySource = new Map<string, { skills: string[]; sourceType?: string }>();
+    const byScopeAndSource = new Map<
+      string,
+      { global: boolean; source: string; skills: string[]; sourceType?: string }
+    >();
 
     for (const r of successful) {
       const source = r.source || 'local';
-      const existing = bySource.get(source) || { skills: [] };
+      const key = `${r.global ? 'global' : 'project'} ${source}`;
+      const existing = byScopeAndSource.get(key) || { global: r.global, source, skills: [] };
       existing.skills.push(r.skill);
       existing.sourceType = r.sourceType;
-      bySource.set(source, existing);
+      byScopeAndSource.set(key, existing);
     }
 
-    for (const [source, data] of bySource) {
+    for (const data of byScopeAndSource.values()) {
       track({
         event: 'remove',
-        source,
+        source: data.source,
         skills: data.skills.join(','),
         agents: targetAgents.join(','),
-        ...(isGlobal && { global: '1' }),
+        ...(data.global && { global: '1' }),
         sourceType: data.sourceType,
       });
     }
@@ -373,6 +502,8 @@ export function parseRemoveOptions(args: string[]): { skills: string[]; options:
 
     if (arg === '-g' || arg === '--global') {
       options.global = true;
+    } else if (arg === '-p' || arg === '--project') {
+      options.project = true;
     } else if (arg === '-y' || arg === '--yes') {
       options.yes = true;
     } else if (arg === '--all') {

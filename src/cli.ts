@@ -204,20 +204,23 @@ ${BOLD}Usage:${RESET} skills remove [skills...] [options]
 
 ${BOLD}Description:${RESET}
   Remove installed skills from agents. If no skill names are provided,
-  an interactive selection menu will be shown.
+  an interactive selection menu will be shown, listing project and global
+  skills as separate groups.
 
 ${BOLD}Arguments:${RESET}
   skills            Optional skill names to remove (space-separated)
 
 ${BOLD}Options:${RESET}
   -g, --global       Remove from global scope (~/) instead of project scope
+  -p, --project      Remove from project scope only
   -a, --agent        Remove from specific agents (use '*' for all agents)
   -s, --skill        Specify skills to remove (use '*' for all skills)
   -y, --yes          Skip confirmation prompts
   --all              Shorthand for --skill '*' --agent '*' -y
 
 ${BOLD}Examples:${RESET}
-  ${DIM}$${RESET} skills remove                           ${DIM}# interactive selection${RESET}
+  ${DIM}$${RESET} skills remove                           ${DIM}# interactive selection (project + global)${RESET}
+  ${DIM}$${RESET} skills remove -p                         ${DIM}# interactive selection, project only${RESET}
   ${DIM}$${RESET} skills remove my-skill                   ${DIM}# remove specific skill${RESET}
   ${DIM}$${RESET} skills remove skill1 skill2 -y           ${DIM}# remove multiple skills${RESET}
   ${DIM}$${RESET} skills remove --global my-skill          ${DIM}# remove from global scope${RESET}

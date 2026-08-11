@@ -3,6 +3,7 @@ import { existsSync, rmSync, mkdirSync, writeFileSync, readdirSync, readFileSync
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli, runCliWithInput } from './test-utils.js';
+import { buildScopedChoices, resolveRemoveScopes } from './remove.ts';
 
 describe('remove command', { timeout: 30000 }, () => {
   let testDir: string;
@@ -374,6 +375,68 @@ This is a test skill.
     });
   });
 
+  describe('interactive scope grouping', () => {
+    let testHome: string;
+
+    beforeEach(() => {
+      testHome = join(testDir, 'home');
+      createTestSkill('project-skill', 'A project skill');
+      createTestSkill('global-skill', 'A global skill', join(testHome, '.agents', 'skills'));
+    });
+
+    // Piped stdin cannot drive a clack multiselect to submit, so these assert
+    // what the picker offers. Sending a carriage return ends the prompt with
+    // nothing selected once the first frame has rendered.
+    const showPicker = ' \r';
+
+    it('lists project and global skills as separate groups', () => {
+      const result = runCliWithInput(['remove'], showPicker, testDir, { HOME: testHome });
+
+      expect(result.stdout).toContain('Select skills to remove');
+      expect(result.stdout).toContain('Project');
+      expect(result.stdout).toContain('Global');
+      expect(result.stdout).toContain('project-skill');
+      expect(result.stdout).toContain('global-skill');
+    });
+
+    it('restricts the picker to project skills with -p', () => {
+      const result = runCliWithInput(['remove', '-p'], showPicker, testDir, { HOME: testHome });
+
+      expect(result.stdout).toContain('project-skill');
+      expect(result.stdout).not.toContain('global-skill');
+    });
+
+    it('restricts the picker to global skills with -g', () => {
+      const result = runCliWithInput(['remove', '-g'], showPicker, testDir, { HOME: testHome });
+
+      expect(result.stdout).toContain('global-skill');
+      expect(result.stdout).not.toContain('project-skill');
+    });
+
+    it('removes a name from both scopes when -g and -p are combined', () => {
+      createTestSkill('shared-skill', 'In both scopes');
+      createTestSkill('shared-skill', 'In both scopes', join(testHome, '.agents', 'skills'));
+
+      const result = runCli(['remove', 'shared-skill', '-g', '-p', '-y'], testDir, {
+        HOME: testHome,
+      });
+
+      expect(result.stdout).toContain('Successfully removed');
+      expect(result.stdout).toContain('2 skill');
+      expect(existsSync(join(skillsDir, 'shared-skill'))).toBe(false);
+      expect(existsSync(join(testHome, '.agents', 'skills', 'shared-skill'))).toBe(false);
+      expect(existsSync(join(skillsDir, 'project-skill'))).toBe(true);
+      expect(existsSync(join(testHome, '.agents', 'skills', 'global-skill'))).toBe(true);
+    });
+
+    it('leaves global skills alone when removing by name', () => {
+      const result = runCli(['remove', 'global-skill', '-y'], testDir, { HOME: testHome });
+
+      expect(result.stdout).toContain('No matching skills');
+      expect(existsSync(join(testHome, '.agents', 'skills', 'global-skill'))).toBe(true);
+    });
+  });
+
   describe('command aliases', () => {
     beforeEach(() => {
       createTestSkill('alias-test-skill');
@@ -446,6 +509,51 @@ This is a test skill.
       const result = runCli(['remove', '-h'], testDir);
       expect(result.stdout).toContain('Usage');
       expect(result.exitCode).toBe(0);
+    });
+  });
+
+  describe('resolveRemoveScopes', () => {
+    it('browses both scopes for an interactive selection', () => {
+      expect(resolveRemoveScopes({}, false)).toEqual([{ global: false }, { global: true }]);
+    });
+
+    it('stays project-scoped for named skills and --all', () => {
+      expect(resolveRemoveScopes({}, true)).toEqual([{ global: false }]);
+      expect(resolveRemoveScopes({ all: true }, false)).toEqual([{ global: false }]);
+    });
+
+    it('honours explicit scope flags', () => {
+      expect(resolveRemoveScopes({ global: true }, false)).toEqual([{ global: true }]);
+      expect(resolveRemoveScopes({ project: true }, false)).toEqual([{ global: false }]);
+      expect(resolveRemoveScopes({ global: true, project: true }, true)).toEqual([
+        { global: false },
+        { global: true },
+      ]);
+    });
+  });
+
+  describe('buildScopedChoices', () => {
+    it('keeps same-named skills in both scopes as distinct entries', () => {
+      const groups = buildScopedChoices([
+        { global: false, names: ['shared'], dir: './.agents/skills' },
+        { global: true, names: ['shared'], dir: '~/.agents/skills' },
+      ]);
+
+      const [projectGroup, globalGroup] = Object.keys(groups);
+      expect(projectGroup).toContain('Project');
+      expect(globalGroup).toContain('Global');
+      expect(groups[projectGroup!]![0]!.value).toEqual({ name: 'shared', global: false });
+      expect(groups[globalGroup!]![0]!.value).toEqual({ name: 'shared', global: true });
+    });
+
+    it('omits empty scopes', () => {
+      const groups = buildScopedChoices([
+        { global: false, names: ['only-project'], dir: './.agents/skills' },
+        { global: true, names: [], dir: '~/.agents/skills' },
+      ]);
+
+      expect(Object.keys(groups)).toHaveLength(1);
+      expect(Object.keys(groups)[0]).toContain('Project');
     });
   });
 
