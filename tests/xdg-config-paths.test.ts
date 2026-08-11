@@ -59,6 +59,13 @@ describe('XDG config paths', () => {
     });
   });
 
+  describe('Codex', () => {
+    it('uses ~/.codex/skills for global skills', () => {
+      const expected = join(home, '.codex', 'skills');
+      expect(agents.codex.globalSkillsDir).toBe(expected);
+    });
+  });
+
   describe('Goose', () => {
     it('uses ~/.config/goose/skills for global skills', () => {
       const expected = join(home, '.config', 'goose', 'skills');
