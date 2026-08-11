@@ -21,6 +21,7 @@ import type { WellKnownSkill } from './providers/wellknown.ts';
 import {
   agents,
   detectInstalledAgents,
+  isAstrBotProjectInstalled,
   isUniversalAgent,
   getEveSubagents,
   EVE_SUBAGENTS_DIR,
@@ -39,6 +40,17 @@ interface InstallResult {
   symlinkFailed?: boolean;
   skipped?: boolean;
   error?: string;
+}
+
+function shouldSkipProjectAgentInstall(agentType: AgentType, cwd: string): boolean {
+  if (agentType === 'claude-code') {
+    return false;
+  }
+  if (agentType === 'astrbot') {
+    return !isAstrBotProjectInstalled(cwd);
+  }
+  const agentRootDir = join(cwd, agents[agentType].skillsDir.split('/')[0]!);
+  return !existsSync(agentRootDir);
 }
 
 /**
@@ -335,6 +347,18 @@ export async function installSkillForAgent(
 
     // For copy mode, skip canonical directory and copy directly to agent location
     if (installMode === 'copy') {
+      if (
+        !isGlobal &&
+        !isUniversalAgent(agentType) &&
+        shouldSkipProjectAgentInstall(agentType, cwd)
+      ) {
+        return {
+          success: true,
+          path: agentDir,
+          mode: 'copy',
+          skipped: true,
+        };
+      }
       await cleanAndCreateDirectory(agentDir);
       await copyDirectory(skill.path, agentDir, agentType);
 
@@ -375,17 +399,18 @@ export async function installSkillForAgent(
     // whose config directory doesn't already exist in the project. This prevents
     // creating directories like .windsurf/, .kiro/, etc. when those agents aren't
     // actually used in this project. The skill is already available in .agents/skills/.
-    if (!isGlobal && !isUniversalAgent(agentType)) {
-      const agentRootDir = join(cwd, agents[agentType].skillsDir.split('/')[0]!);
-      if (!existsSync(agentRootDir) && agentType !== 'claude-code') {
-        return {
-          success: true,
-          path: canonicalDir,
-          canonicalPath: canonicalDir,
-          mode: 'symlink',
-          skipped: true,
-        };
-      }
+    if (
+      !isGlobal &&
+      !isUniversalAgent(agentType) &&
+      shouldSkipProjectAgentInstall(agentType, cwd)
+    ) {
+      return {
+        success: true,
+        path: canonicalDir,
+        canonicalPath: canonicalDir,
+        mode: 'symlink',
+        skipped: true,
+      };
     }
 
     const symlinkCreated = await createSymlink(canonicalDir, agentDir);
@@ -996,6 +1021,18 @@ export async function installBlobSkillForAgent(
 
   try {
     if (installMode === 'copy') {
+      if (
+        !isGlobal &&
+        !isUniversalAgent(agentType) &&
+        shouldSkipProjectAgentInstall(agentType, cwd)
+      ) {
+        return {
+          success: true,
+          path: agentDir,
+          mode: 'copy',
+          skipped: true,
+        };
+      }
       await cleanAndCreateDirectory(agentDir);
       await writeSkillFiles(agentDir);
       return { success: true, path: agentDir, mode: 'copy' };
@@ -1015,20 +1052,19 @@ export async function installBlobSkillForAgent(
     }
 
     // For project-level installs, skip creating symlinks for non-universal agents
-    // whose config directory doesn't already exist in the project. Claude Code is
-    // exempted since it can be explicitly selected as the install target even when
-    // .claude/ doesn't exist yet (see installSkillForAgent for the same exemption).
-    if (!isGlobal && !isUniversalAgent(agentType)) {
-      const agentRootDir = join(cwd, agents[agentType].skillsDir.split('/')[0]!);
-      if (!existsSync(agentRootDir) && agentType !== 'claude-code') {
-        return {
-          success: true,
-          path: canonicalDir,
-          canonicalPath: canonicalDir,
-          mode: 'symlink',
-          skipped: true,
-        };
-      }
+    // whose config directory doesn't already exist in the project.
+    if (
+      !isGlobal &&
+      !isUniversalAgent(agentType) &&
+      shouldSkipProjectAgentInstall(agentType, cwd)
+    ) {
+      return {
+        success: true,
+        path: canonicalDir,
+        canonicalPath: canonicalDir,
+        mode: 'symlink',
+        skipped: true,
+      };
     }
 
     const symlinkCreated = await createSymlink(canonicalDir, agentDir);
