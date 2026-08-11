@@ -3,6 +3,7 @@ import { gunzipSync } from 'node:zlib';
 import { readZipArchive } from '../archive.ts';
 import { parseFrontmatter } from '../frontmatter.ts';
 import { sanitizeMetadata } from '../sanitize.ts';
+import { shouldInstallInternalSkills } from '../skills.ts';
 import type { HostProvider, ProviderMatch, RemoteSkill } from './types.ts';
 
 const DISCOVERY_SCHEMA_V2 = 'https://schemas.agentskills.io/discovery/0.2.0/schema.json';
@@ -104,6 +105,11 @@ export interface WellKnownSkill extends RemoteSkill {
   files: Map<string, WellKnownFileContent>;
   /** The entry from index.json */
   indexEntry: WellKnownSkillEntry;
+}
+
+export interface FetchAllSkillsOptions {
+  /** Include skills marked with metadata.internal: true. */
+  includeInternal?: boolean;
 }
 
 /**
@@ -598,20 +604,24 @@ export class WellKnownProvider implements HostProvider {
    * throws {@link WellKnownScopeNotFoundError} instead of silently widening
    * to the root index and returning the host's entire catalog.
    */
-  async fetchAllSkills(url: string): Promise<WellKnownSkill[]> {
+  async fetchAllSkills(
+    url: string,
+    options: FetchAllSkillsOptions = {}
+  ): Promise<WellKnownSkill[]> {
     try {
       const candidates = await this.fetchIndexCandidates(url);
       const scope = this.getScope(url);
       const scopedCandidates = scope
         ? candidates.filter((c) => c.resolvedBaseUrl !== scope.rootBaseUrl)
         : candidates;
+      const includeInternal = options.includeInternal || shouldInstallInternalSkills();
 
       for (const result of scopedCandidates) {
         const skillPromises = result.entries.map((entry) => this.fetchSkillByEntry(entry));
         const results = await Promise.all(skillPromises);
-        const skills = results.filter(
-          (s: WellKnownSkill | null): s is WellKnownSkill => s !== null
-        );
+        const skills = results
+          .filter((s: WellKnownSkill | null): s is WellKnownSkill => s !== null)
+          .filter((skill) => includeInternal || skill.metadata?.internal !== true);
         if (skills.length > 0) return skills;
       }
 

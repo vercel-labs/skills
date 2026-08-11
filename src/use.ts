@@ -219,10 +219,14 @@ export async function runUse(
     let selectedSkill: UseSkill;
 
     if (parsed.type === 'well-known') {
-      const skills = await wellKnownProvider.fetchAllSkills(parsed.url).catch((error) => {
-        if (error instanceof WellKnownScopeNotFoundError) fail(error.message);
-        return [] as WellKnownSkill[];
-      });
+      const skills = await wellKnownProvider
+        .fetchAllSkills(parsed.url, {
+          includeInternal,
+        })
+        .catch((error) => {
+          if (error instanceof WellKnownScopeNotFoundError) fail(error.message);
+          return [] as WellKnownSkill[];
+        });
       if (skills.length > 0) {
         selectedSkill = selectWellKnownSkill(skills, selector, source);
       } else {

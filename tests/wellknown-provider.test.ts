@@ -48,6 +48,7 @@ function createTarGz(files: Record<string, string>): Uint8Array {
 }
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 
@@ -162,6 +163,57 @@ describe('WellKnownProvider', () => {
   });
 
   describe('fetchAllSkills', () => {
+    it('hides internal skills unless explicitly enabled', async () => {
+      vi.stubEnv('INSTALL_INTERNAL_SKILLS', '');
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+          return response({
+            skills: [
+              {
+                name: 'public-skill',
+                description: 'Public skill.',
+                files: ['SKILL.md'],
+              },
+              {
+                name: 'internal-skill',
+                description: 'Internal skill.',
+                files: ['SKILL.md'],
+              },
+            ],
+          });
+        }
+        if (href.endsWith('/public-skill/SKILL.md')) {
+          return response('---\nname: public-skill\ndescription: Public skill.\n---\n# Public');
+        }
+        if (href.endsWith('/internal-skill/SKILL.md')) {
+          return response(
+            '---\nname: internal-skill\ndescription: Internal skill.\nmetadata:\n  internal: true\n---\n# Internal'
+          );
+        }
+        return response('not found', { status: 404 });
+      });
+
+      const defaultSkills = await provider.fetchAllSkills('https://example.com');
+      expect(defaultSkills.map((skill) => skill.installName)).toEqual(['public-skill']);
+
+      vi.stubEnv('INSTALL_INTERNAL_SKILLS', '1');
+      const envEnabledSkills = await provider.fetchAllSkills('https://example.com');
+      expect(envEnabledSkills.map((skill) => skill.installName)).toEqual([
+        'public-skill',
+        'internal-skill',
+      ]);
+
+      vi.stubEnv('INSTALL_INTERNAL_SKILLS', '');
+      const explicitlyIncludedSkills = await provider.fetchAllSkills('https://example.com', {
+        includeInternal: true,
+      });
+      expect(explicitlyIncludedSkills.map((skill) => skill.installName)).toEqual([
+        'public-skill',
+        'internal-skill',
+      ]);
+    });
+
     it('bounds well-known discovery with a shared timeout signal', async () => {
       const signal = AbortSignal.abort(new DOMException('timed out', 'TimeoutError'));
       const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(signal);

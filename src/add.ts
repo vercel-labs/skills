@@ -582,7 +582,11 @@ async function handleWellKnownSkills(
   // Fetch all skills from the well-known endpoint
   let skills: WellKnownSkill[] = [];
   try {
-    skills = await wellKnownProvider.fetchAllSkills(url);
+    skills = await wellKnownProvider.fetchAllSkills(url, {
+      includeInternal: Boolean(
+        options.skill && options.skill.length > 0 && !options.skill.includes('*')
+      ),
+    });
   } catch (error) {
     if (error instanceof WellKnownScopeNotFoundError) {
       spinner.stop(pc.red('No matching skills'));
