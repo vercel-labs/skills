@@ -296,10 +296,11 @@ export async function checkAndPromptForDeletions(
   options: UpdateCheckOptions,
   discoveredPaths: string[]
 ): Promise<string[]> {
+  const discoveredSet = new Set(discoveredPaths.map((p) => p.replace(/\\/g, '/')));
   const deletedSkills = allLockedForSource.filter((name) => {
     const entry = lockSkills[name];
     if (!entry?.skillPath) return false;
-    return !discoveredPaths.includes(entry.skillPath);
+    return !discoveredSet.has(entry.skillPath.replace(/\\/g, '/'));
   });
 
   await promptDeletions(source, deletedSkills, isGlobal, options);
@@ -612,12 +613,13 @@ export async function updateGlobalSkills(
       );
 
       const deletedSkillSet = new Set(deletedSkills);
+      const discoveredForUpdate = new Set(discoveredPaths.map((p) => p.replace(/\\/g, '/')));
 
       for (const { name: skillName, entry } of itemsForSource) {
         if (deletedSkillSet.has(skillName)) continue;
 
         const skillPath = entry.skillPath!;
-        if (!discoveredPaths.includes(skillPath)) continue;
+        if (!discoveredForUpdate.has(skillPath.replace(/\\/g, '/'))) continue;
 
         const usesGitTreeHash = isGitHubSource && /^[0-9a-f]{40}$/i.test(entry.skillFolderHash);
         const latestHash = usesGitTreeHash
