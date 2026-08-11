@@ -185,6 +185,23 @@ This is a test skill.
       expect(existsSync(join(skillsDir, 'skill-three'))).toBe(false);
     });
 
+    it('should not delete source skills from an undetected agent directory with --all', () => {
+      const sourceSkillsDir = join(testDir, 'skills');
+      const sourceSkillDir = createTestSkill(
+        'source-skill',
+        'An authored source skill',
+        sourceSkillsDir
+      );
+
+      const result = runCli(['remove', '--all', '-y'], testDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(sourceSkillDir)).toBe(true);
+      expect(readFileSync(join(sourceSkillDir, 'SKILL.md'), 'utf-8')).toContain(
+        'An authored source skill'
+      );
+    });
+
     it('should show error for non-existent skill name when skills exist', () => {
       const result = runCli(['remove', 'non-existent', '-y'], testDir);
 
