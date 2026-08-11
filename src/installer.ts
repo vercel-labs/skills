@@ -444,6 +444,13 @@ export async function installSkillForAgent(
       await cleanAndCreateDirectory(agentDir);
       await copyDirectory(skill.path, agentDir, agentType);
 
+      // Mirror the copy-mode native block: also populate the agent-native
+      // global dir so the agent still sees the skill on symlink-less systems.
+      if (nativeGlobalTarget !== undefined && nativeGlobalTarget !== agentDir) {
+        await cleanAndCreateDirectory(nativeGlobalTarget);
+        await copyDirectory(skill.path, nativeGlobalTarget, agentType);
+      }
+
       return {
         success: true,
         path: agentDir,
@@ -797,6 +804,20 @@ export async function installRemoteSkillForAgent(
         'utf-8'
       );
 
+      // Mirror the copy-mode native block: also populate the agent-native
+      // global dir so the agent still sees the skill on symlink-less systems.
+      if (nativeGlobalTarget !== undefined && nativeGlobalTarget !== agentDir) {
+        await cleanAndCreateDirectory(nativeGlobalTarget);
+        const nativeSkillFileName =
+          agentType === 'eve' ? toEveFlatSkillFileName(skill.installName) : 'SKILL.md';
+        const nativeSkillMdPath = join(nativeGlobalTarget, nativeSkillFileName);
+        await writeFile(
+          nativeSkillMdPath,
+          agentType === 'eve' ? stripIgnoredEveFrontmatter(skill.content) : skill.content,
+          'utf-8'
+        );
+      }
+
       return {
         success: true,
         path: agentDir,
@@ -963,6 +984,13 @@ export async function installWellKnownSkillForAgent(
       // Symlink failed, fall back to copy
       await cleanAndCreateDirectory(agentDir);
       await writeSkillFiles(agentDir);
+
+      // Mirror the copy-mode native block: also populate the agent-native
+      // global dir so the agent still sees the skill on symlink-less systems.
+      if (nativeGlobalTarget !== undefined && nativeGlobalTarget !== agentDir) {
+        await cleanAndCreateDirectory(nativeGlobalTarget);
+        await writeSkillFiles(nativeGlobalTarget);
+      }
 
       return {
         success: true,
@@ -1151,6 +1179,13 @@ export async function installBlobSkillForAgent(
     if (!symlinkCreated) {
       await cleanAndCreateDirectory(agentDir);
       await writeSkillFiles(agentDir);
+
+      // Mirror the copy-mode native block: also populate the agent-native
+      // global dir so the agent still sees the skill on symlink-less systems.
+      if (nativeGlobalTarget !== undefined && nativeGlobalTarget !== agentDir) {
+        await cleanAndCreateDirectory(nativeGlobalTarget);
+        await writeSkillFiles(nativeGlobalTarget);
+      }
       return {
         success: true,
         path: agentDir,

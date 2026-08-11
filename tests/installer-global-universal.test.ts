@@ -22,6 +22,27 @@ import { tmpdir } from 'node:os';
 import type { WellKnownSkill } from '../src/providers/wellknown.ts';
 import { createTestHomeEnvironment } from '../src/test-utils.ts';
 
+const { setSymlinkFailure, shouldSymlinkFail } = vi.hoisted(() => {
+  const state = { fail: false };
+  return {
+    setSymlinkFailure: (v: boolean) => {
+      state.fail = v;
+    },
+    shouldSymlinkFail: () => state.fail,
+  };
+});
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    symlink: (target: string, linkPath: string, type?: string | null) =>
+      shouldSymlinkFail()
+        ? Promise.reject(new Error('symlink not supported'))
+        : actual.symlink(target, linkPath, type),
+  };
+});
+
 let installer: typeof import('../src/installer.ts');
 let agentsModule: typeof import('../src/agents.ts');
 let testHome: string;
@@ -206,6 +227,41 @@ describe('global universal-agent installs', () => {
       expect(nativeStats.isSymbolicLink()).toBe(false);
       await expect(readFile(join(nativeDir, 'SKILL.md'), 'utf-8')).resolves.toContain(skillName);
     } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to copy for the native global dir when symlink creation fails', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'skills-global-universal-'));
+    const skillName = 'symlink-failed-skill';
+    const skillDir = await makeSkillSource(root, skillName);
+
+    setSymlinkFailure(true);
+    try {
+      const result = await installer.installSkillForAgent(
+        { name: skillName, description: 'test', path: skillDir },
+        'antigravity-cli',
+        { global: true, mode: 'symlink' }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.symlinkFailed).toBe(true);
+
+      const canonicalDir = join(testHome, '.agents', 'skills', skillName);
+      const nativeDir = join(testHome, '.gemini', 'antigravity-cli', 'skills', skillName);
+
+      // Canonical dir is a real directory (no symlink was created)
+      const canonicalStats = await lstat(canonicalDir);
+      expect(canonicalStats.isDirectory()).toBe(true);
+      expect(canonicalStats.isSymbolicLink()).toBe(false);
+
+      // Agent-native global dir is populated with real files despite the failure
+      const nativeStats = await lstat(nativeDir);
+      expect(nativeStats.isDirectory()).toBe(true);
+      expect(nativeStats.isSymbolicLink()).toBe(false);
+      await expect(readFile(join(nativeDir, 'SKILL.md'), 'utf-8')).resolves.toContain(skillName);
+    } finally {
+      setSymlinkFailure(false);
       await rm(root, { recursive: true, force: true });
     }
   });
