@@ -17,6 +17,7 @@ const AGENT_PROJECT_SKILL_DIRS = [
   '.codex/skills',
   '.commandcode/skills',
   '.continue/skills',
+  '.explyt/skills',
   '.github/skills',
   '.goose/skills',
   '.grok/skills',

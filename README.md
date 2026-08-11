@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [72 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [73 more](#supported-agents).
 <!-- agent-list:end -->
 
 [![skills.sh](https://skills.sh/b/vercel-labs/skills)](https://skills.sh/vercel-labs/skills)
@@ -294,6 +294,7 @@ Skills can be installed to any of these agents:
 | Devin for Terminal | `devin` | `.devin/skills/` | `~/.config/devin/skills/` |
 | Droid | `droid` | `.factory/skills/` | `~/.factory/skills/` |
 | Eve | `eve` | `agent/skills/` | N/A (project-only) |
+| Explyt | `explyt` | `.explyt/skills/` | `~/.explyt/skills/` |
 | Firebender | `firebender` | `.agents/skills/` | `~/.firebender/skills/` |
 | ForgeCode | `forgecode` | `.forge/skills/` | `~/.forge/skills/` |
 | Gemini CLI | `gemini-cli` | `.agents/skills/` | `~/.gemini/skills/` |
@@ -431,6 +432,7 @@ discover `SKILL.md` files outside these container directories (e.g. under
 - `.devin/skills/`
 - `.factory/skills/`
 - `agent/skills/`
+- `.explyt/skills/`
 - `.forge/skills/`
 - `.goose/skills/`
 - `.grok/skills/`
