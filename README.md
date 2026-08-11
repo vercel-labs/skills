@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [72 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [73 more](#supported-agents).
 <!-- agent-list:end -->
 
 [![skills.sh](https://skills.sh/b/vercel-labs/skills)](https://skills.sh/vercel-labs/skills)
@@ -291,6 +291,7 @@ Skills can be installed to any of these agents:
 | Crush | `crush` | `.crush/skills/` | `~/.config/crush/skills/` |
 | Cursor | `cursor` | `.agents/skills/` | `~/.cursor/skills/` |
 | Deep Agents | `deepagents` | `.agents/skills/` | `~/.deepagents/agent/skills/` |
+| DeerFlow | `deer-flow` | `skills/public/` | N/A (project-only) |
 | Devin for Terminal | `devin` | `.devin/skills/` | `~/.config/devin/skills/` |
 | Droid | `droid` | `.factory/skills/` | `~/.factory/skills/` |
 | Eve | `eve` | `agent/skills/` | N/A (project-only) |
@@ -428,6 +429,7 @@ discover `SKILL.md` files outside these container directories (e.g. under
 - `.continue/skills/`
 - `.cortex/skills/`
 - `.crush/skills/`
+- `skills/public/`
 - `.devin/skills/`
 - `.factory/skills/`
 - `agent/skills/`

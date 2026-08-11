@@ -377,7 +377,7 @@ export async function installSkillForAgent(
     // actually used in this project. The skill is already available in .agents/skills/.
     if (!isGlobal && !isUniversalAgent(agentType)) {
       const agentRootDir = join(cwd, agents[agentType].skillsDir.split('/')[0]!);
-      if (!existsSync(agentRootDir) && agentType !== 'claude-code') {
+      if (!existsSync(agentRootDir) && agentType !== 'claude-code' && agentType !== 'deer-flow') {
         return {
           success: true,
           path: canonicalDir,
@@ -1015,12 +1015,12 @@ export async function installBlobSkillForAgent(
     }
 
     // For project-level installs, skip creating symlinks for non-universal agents
-    // whose config directory doesn't already exist in the project. Claude Code is
-    // exempted since it can be explicitly selected as the install target even when
-    // .claude/ doesn't exist yet (see installSkillForAgent for the same exemption).
+    // whose config directory doesn't already exist in the project. Claude Code and
+    // DeerFlow are exempted since they can be selected for a fresh project before
+    // their skill roots exist (see installSkillForAgent for the same exemption).
     if (!isGlobal && !isUniversalAgent(agentType)) {
       const agentRootDir = join(cwd, agents[agentType].skillsDir.split('/')[0]!);
-      if (!existsSync(agentRootDir) && agentType !== 'claude-code') {
+      if (!existsSync(agentRootDir) && agentType !== 'claude-code' && agentType !== 'deer-flow') {
         return {
           success: true,
           path: canonicalDir,

@@ -67,6 +67,20 @@ export function isMiniMaxCodeInstalled(
   return pathExists(join(homeDir, '.minimax')) || pathExists('/Applications/MiniMax Code.app');
 }
 
+export function isDeerFlowInstalled(
+  _homeDir = home,
+  pathExists: (path: string) => boolean = existsSync,
+  cwd: string = process.cwd()
+) {
+  return (
+    pathExists(join(cwd, '.deer-flow')) ||
+    // Repo checkouts: require the harness package alongside the skills layout
+    // so generic `skills/<category>` taxonomies in other projects don't match.
+    (pathExists(join(cwd, 'skills', 'public')) &&
+      pathExists(join(cwd, 'backend', 'packages', 'harness', 'deerflow')))
+  );
+}
+
 export const agents: Record<AgentType, AgentConfig> = {
   'aider-desk': {
     name: 'aider-desk',
@@ -268,6 +282,19 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.deepagents/agent/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.deepagents'));
+    },
+  },
+  'deer-flow': {
+    name: 'deer-flow',
+    displayName: 'DeerFlow',
+    skillsDir: 'skills/public',
+    // DeerFlow is a server/framework: skills live in the project skills root
+    // (public/custom) or per-user dirs under DEER_FLOW_HOME, which defaults to
+    // project-local .deer-flow. There is no global home it reads by default,
+    // so global installation is not supported.
+    globalSkillsDir: undefined,
+    detectInstalled: async () => {
+      return isDeerFlowInstalled();
     },
   },
   devin: {

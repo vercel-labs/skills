@@ -21,6 +21,7 @@ export type AgentType =
   | 'crush'
   | 'cursor'
   | 'deepagents'
+  | 'deer-flow'
   | 'devin'
   | 'dexto'
   | 'droid'

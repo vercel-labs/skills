@@ -37,6 +37,7 @@ const AGENT_PROJECT_SKILL_DIRS = [
   '.windsurf/skills',
   '.zcode/skills',
   '.zencoder/skills',
+  'skills/public',
 ];
 
 function normalizeSkillName(name: string): string {
