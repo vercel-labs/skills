@@ -1,5 +1,5 @@
 import { existsSync, readdirSync } from 'fs';
-import { join, dirname, relative, sep } from 'path';
+import { basename, join, dirname, relative, sep } from 'path';
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 
@@ -10,6 +10,7 @@ import {
   type SkillLockEntry,
 } from './skill-lock.ts';
 import {
+  computeSkillFileHash,
   computeSkillFolderHash,
   readLocalLock,
   addSkillToLocalLock,
@@ -1031,11 +1032,16 @@ export async function updateProjectSkills(
         if (!skillPath || !current) continue;
 
         // Hash the clone the same way `add` records computedHash, so an
-        // unchanged skill is not reinstalled.
-        const computedHash = await computeSkillFolderHash(current.path).catch(() => null);
+        // unchanged skill is not reinstalled. Root blob installs only record
+        // SKILL.md, so compare just that file for them.
+        const folderHash = () => computeSkillFolderHash(current.path).catch(() => null);
+        const lockedHash =
+          skill.entry.computedHashScope === 'skill-file'
+            ? await computeSkillFileHash(current.path, basename(skillPath)).catch(() => null)
+            : await folderHash();
         if (
           skillPath === skill.entry.skillPath &&
-          computedHash === skill.entry.computedHash &&
+          lockedHash === skill.entry.computedHash &&
           onDisk.has(skill.name)
         ) {
           upToDateCount++;
@@ -1053,8 +1059,13 @@ export async function updateProjectSkills(
           await placementFor(skill.entry.subagents, skill.entry.installMode)
         );
         const outcome = targetOutcome(results);
+        // The reinstall copies the whole cloned folder, so record its folder
+        // hash and drop any narrower scope from a previous blob install.
+        const computedHash =
+          skill.entry.computedHashScope === 'skill-file' ? await folderHash() : lockedHash;
         if (outcome.ok && computedHash) {
-          await addSkillToLocalLock(skill.name, { ...skill.entry, skillPath, computedHash });
+          const { computedHashScope: _scope, ...entry } = skill.entry;
+          await addSkillToLocalLock(skill.name, { ...entry, skillPath, computedHash });
         }
         if (reportInstall(skill.name, outcome)) successCount++;
         else failCount++;
