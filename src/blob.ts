@@ -506,7 +506,8 @@ function computeSnapshotHash(files: SkillSnapshotFile[]): string {
  * (the caller should fall back to git clone).
  *
  * @param ownerRepo - e.g., "vercel-labs/agent-skills"
- * @param options - subpath, skillFilter, ref, token
+ * @param options - subpath, skillFilter, ref, token. An explicit ref bypasses
+ *   this ref-agnostic snapshot path and returns null for the caller's git fallback.
  */
 export async function tryBlobInstall(
   ownerRepo: string,
@@ -518,6 +519,12 @@ export async function tryBlobInstall(
     includeInternal?: boolean;
   } = {}
 ): Promise<BlobInstallResult | null> {
+  // Snapshot downloads are keyed only by owner, repository, and skill slug. They
+  // are not bound to the requested ref, so using this path for an explicit ref
+  // could install different bytes than the tree and frontmatter resolved below.
+  // Return null to use the caller's existing git clone fallback instead.
+  if (options.ref !== undefined) return null;
+
   // 1. Fetch the full repo tree
   const tree = await fetchRepoTree(ownerRepo, options.ref, options.getToken);
   if (!tree) return null;
