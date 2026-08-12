@@ -7,6 +7,7 @@ import {
   writeLocalLock,
   addSkillToLocalLock,
   removeSkillFromLocalLock,
+  computeSkillFileHash,
   computeSkillFolderHash,
   getLocalLockPath,
 } from '../src/local-lock.ts';
@@ -461,6 +462,23 @@ describe('local-lock', () => {
 
         const hash2 = await computeSkillFolderHash(skillDir);
         expect(hash1).toBe(hash2);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('computeSkillFileHash', () => {
+    it('ignores supporting files while retaining the folder-hash format', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await writeFile(join(dir, 'SKILL.md'), 'skill contents', 'utf-8');
+        const skillFileHash = await computeSkillFileHash(dir);
+        expect(skillFileHash).toBe(await computeSkillFolderHash(dir));
+
+        await writeFile(join(dir, 'supporting.md'), 'supporting contents', 'utf-8');
+        expect(await computeSkillFileHash(dir)).toBe(skillFileHash);
+        expect(await computeSkillFolderHash(dir)).not.toBe(skillFileHash);
       } finally {
         await rm(dir, { recursive: true, force: true });
       }

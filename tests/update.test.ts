@@ -335,6 +335,33 @@ describe('Update Cleanup Unit Tests', () => {
       expect(result).toEqual({ successCount: 0, failCount: 0, foundCount: 1 });
     });
 
+    it('compares root blob installs using only the installed skill file', async () => {
+      vi.mocked(localLock.readLocalLock).mockResolvedValue({
+        version: 1,
+        skills: {
+          'root-skill': {
+            source: 'owner/repo',
+            sourceType: 'github',
+            skillPath: 'SKILL.md',
+            computedHash: 'same-hash',
+            computedHashScope: 'skill-file',
+          },
+        },
+      });
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        { name: 'root-skill', path: '/tmp/repo', description: 'Root', rawContent: '' },
+      ]);
+      vi.mocked(localLock.computeSkillFileHash).mockResolvedValue('same-hash');
+
+      const result = await updateProjectSkills({ yes: true });
+
+      expect(localLock.computeSkillFileHash).toHaveBeenCalledWith('/tmp/repo', 'SKILL.md');
+      expect(localLock.computeSkillFolderHash).not.toHaveBeenCalled();
+      expect(spawnSync).not.toHaveBeenCalled();
+      expect(result).toEqual({ successCount: 0, failCount: 0, foundCount: 1 });
+    });
+
     it('reinstalls only project skills whose upstream hash changed', async () => {
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
         version: 1,
