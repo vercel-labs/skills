@@ -2,9 +2,20 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, rmSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { runCli } from './test-utils.ts';
+import { runCli, stripAnsi } from './test-utils.ts';
 import { shouldInstallInternalSkills } from './skills.ts';
-import { parseAddOptions, getLockSource } from './add.ts';
+import {
+  parseAddOptions,
+  getLockSource,
+  getProjectLockSourceUrl,
+  formatEveInstallPromptMessage,
+} from './add.ts';
+
+function countPathLinesForSkill(text: string, skillName: string): number {
+  return (
+    text.match(new RegExp(`→ .*${skillName.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}`, 'g')) || []
+  ).length;
+}
 
 describe('add command', () => {
   let testDir: string;
@@ -90,6 +101,96 @@ Instructions here.
     expect(result.exitCode).toBe(0);
   });
 
+  it('deduplicates copied install paths for universal agents sharing the same directory', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'skills', 'shared-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: shared-skill
+description: Shared install path regression test
+---
+
+# Shared Skill
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    mkdirSync(projectDir, { recursive: true });
+
+    const result = runCli(
+      ['add', sourceDir, '-y', '--agent', 'codex', 'cursor', 'cline'],
+      projectDir
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Installed 1 skill');
+    expect(result.stdout).toContain('✓ shared-skill (copied)');
+    expect(countPathLinesForSkill(result.stdout, 'shared-skill')).toBe(1);
+  });
+
+  it('preserves distinct copied install paths when --copy targets different agent directories', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'skills', 'multi-target-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: multi-target-skill
+description: Mixed copied destination regression test
+---
+
+# Multi Target Skill
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    mkdirSync(projectDir, { recursive: true });
+
+    const result = runCli(
+      ['add', sourceDir, '-y', '--copy', '--agent', 'codex', 'cursor', 'openclaw'],
+      projectDir
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('✓ multi-target-skill (copied)');
+    expect(countPathLinesForSkill(result.stdout, 'multi-target-skill')).toBe(2);
+  });
+
+  it('should describe Eve project installs as for the eve agent to use', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'eve-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: eve-skill
+description: Skill for eve wording
+---
+
+# Eve Skill
+
+Instructions here.
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    mkdirSync(join(projectDir, 'agent'), { recursive: true });
+    writeFileSync(
+      join(projectDir, 'package.json'),
+      JSON.stringify({ dependencies: { eve: '^0.11.5' } })
+    );
+
+    const result = runCli(['add', sourceDir, '-y', '--skill', 'eve-skill'], projectDir);
+
+    expect(result.stdout).toContain('Installing to: eve agent');
+    expect(result.stdout).not.toContain('Installing to: Eve');
+    expect(result.stdout).toContain('Done!');
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(join(projectDir, 'agent', 'skills', 'eve-skill', 'SKILL.md'))).toBe(true);
+  });
+
   it('should filter skills by name with --skill flag', () => {
     // Create multiple test skills
     const skill1Dir = join(testDir, 'skills', 'skill-one');
@@ -120,6 +221,53 @@ description: Second skill
     const result = runCli(['add', testDir, '--list', '--skill', 'skill-one'], testDir);
     // With --list, it should show only the filtered skill info
     expect(result.stdout).toContain('skill-one');
+  });
+
+  it('finds a selected skill nested under two category levels when shallower skills exist', () => {
+    const sourceDir = join(testDir, 'source');
+    const shallowSkillDir = join(sourceDir, 'skills', 'core-skills', 'amazon-bedrock');
+    mkdirSync(shallowSkillDir, { recursive: true });
+    writeFileSync(
+      join(shallowSkillDir, 'SKILL.md'),
+      `---
+name: amazon-bedrock
+description: Amazon Bedrock skill
+---
+# Amazon Bedrock
+`
+    );
+
+    const skillDir = join(
+      sourceDir,
+      'skills',
+      'specialized-skills',
+      'database-skills',
+      'amazon-dynamodb'
+    );
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: amazon-dynamodb
+description: Amazon DynamoDB skill
+---
+# Amazon DynamoDB
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    mkdirSync(projectDir, { recursive: true });
+
+    const result = runCli(
+      ['add', sourceDir, '--skill', 'amazon-dynamodb', '--agent', 'codex', '--copy', '-y'],
+      projectDir
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Selected 1 skill: amazon-dynamodb');
+    expect(existsSync(join(projectDir, '.agents', 'skills', 'amazon-dynamodb', 'SKILL.md'))).toBe(
+      true
+    );
   });
 
   it('should show error for invalid agent name', () => {
@@ -309,8 +457,50 @@ describe('getLockSource', () => {
     );
   });
 
-  it('keeps normalized owner/repo for non-SSH remotes', () => {
+  it('keeps normalized owner/repo for GitHub HTTPS remotes', () => {
     expect(getLockSource('https://github.com/owner/repo.git', 'owner/repo')).toBe('owner/repo');
+  });
+
+  it('preserves self-hosted HTTPS Git URLs for lock files', () => {
+    expect(getLockSource('https://gitlab.example.com/acme/skills.git', 'acme/skills')).toBe(
+      'https://gitlab.example.com/acme/skills.git'
+    );
+  });
+
+  it('preserves gitlab.com HTTPS URLs for lock files', () => {
+    expect(getLockSource('https://gitlab.com/acme/skills.git', 'acme/skills')).toBe(
+      'https://gitlab.com/acme/skills.git'
+    );
+  });
+});
+
+describe('getProjectLockSourceUrl', () => {
+  it('records sourceUrl for self-hosted GitLab HTTPS sources installed into project locks', () => {
+    expect(getProjectLockSourceUrl('git', 'https://gitlab.example.com/acme/skills.git')).toBe(
+      'https://gitlab.example.com/acme/skills.git'
+    );
+  });
+
+  it('records sourceUrl for GitLab sources installed into project locks', () => {
+    expect(getProjectLockSourceUrl('gitlab', 'https://gitlab.com/acme/skills.git')).toBe(
+      'https://gitlab.com/acme/skills.git'
+    );
+  });
+
+  it('keeps GitHub project locks compatible with existing shorthand entries', () => {
+    expect(getProjectLockSourceUrl('github', 'https://github.com/owner/repo.git')).toBeUndefined();
+  });
+});
+
+describe('formatEveInstallPromptMessage', () => {
+  it('describes selected skills as for the eve agent to use', () => {
+    const message = formatEveInstallPromptMessage([
+      { name: 'eve-skill', description: 'Skill for eve wording', path: '/tmp/eve-skill' },
+    ]);
+
+    expect(stripAnsi(message)).toBe(
+      'Detected an eve project. Install eve-skill for your eve agent to use?'
+    );
   });
 });
 
@@ -407,59 +597,45 @@ describe('parseAddOptions', () => {
     expect(result.options.list).toBe(true);
     expect(result.options.global).toBe(true);
   });
-});
 
-describe('openclaw source blocking', () => {
-  let testDir: string;
+  it('should parse valid JSON metadata', () => {
+    const metadata = '{"origin":"workflow","runId":42}';
+    const result = parseAddOptions(['source', '--metadata', metadata]);
 
-  beforeEach(() => {
-    testDir = join(tmpdir(), `skills-openclaw-test-${Date.now()}`);
-    mkdirSync(testDir, { recursive: true });
+    expect(result.source).toEqual(['source']);
+    expect(result.options.metadata).toBe(metadata);
+    expect(result.errors).toEqual([]);
   });
 
-  afterEach(() => {
-    if (existsSync(testDir)) {
-      rmSync(testDir, { recursive: true, force: true });
-    }
+  it('should reject invalid JSON metadata', () => {
+    const result = parseAddOptions(['source', '--metadata', '{not-json}']);
+
+    expect(result.options.metadata).toBeUndefined();
+    expect(result.errors).toEqual(['--metadata must be valid JSON']);
   });
 
-  it('should block openclaw/skills without --dangerously-accept-openclaw-risks', () => {
-    const result = runCli(['add', 'openclaw/skills', '-y'], testDir);
-    expect(result.stdout).toContain('unverified community submissions');
-    expect(result.stdout).toContain('--dangerously-accept-openclaw-risks');
-    expect(result.stdout).toContain('Installation blocked');
-    expect(result.exitCode).toBe(1);
+  it('should reject a missing metadata value', () => {
+    const result = parseAddOptions(['source', '--metadata']);
+
+    expect(result.errors).toEqual(['--metadata requires a JSON value']);
   });
 
-  it('should block openclaw/anything without the flag', () => {
-    const result = runCli(['add', 'openclaw/some-repo', '-y'], testDir);
-    expect(result.stdout).toContain('unverified community submissions');
-    expect(result.stdout).toContain('--dangerously-accept-openclaw-risks');
-    expect(result.exitCode).toBe(1);
+  it('should parse a single --subagent value', () => {
+    const result = parseAddOptions(['source', '--subagent', 'research']);
+    expect(result.source).toEqual(['source']);
+    expect(result.options.subagent).toEqual(['research']);
   });
 
-  it('should block OpenClaw/skills (case-insensitive)', () => {
-    const result = runCli(['add', 'OpenClaw/skills', '-y'], testDir);
-    expect(result.stdout).toContain('unverified community submissions');
-    expect(result.stdout).toContain('--dangerously-accept-openclaw-risks');
-    expect(result.exitCode).toBe(1);
+  it('should parse multiple --subagent values', () => {
+    const result = parseAddOptions(['source', '--subagent', 'root', 'research', 'writer']);
+    expect(result.source).toEqual(['source']);
+    expect(result.options.subagent).toEqual(['root', 'research', 'writer']);
   });
 
-  it('should not block non-openclaw sources', () => {
-    // Use a local path to avoid network calls that time out on slow CI runners
-    const result = runCli(['add', testDir, '--list'], testDir);
-    expect(result.stdout).not.toContain('--dangerously-accept-openclaw-risks');
-    expect(result.stdout).not.toContain('Installation blocked');
-  });
-
-  it('should parse --dangerously-accept-openclaw-risks flag', () => {
-    const result = parseAddOptions([
-      'openclaw/skills',
-      '--dangerously-accept-openclaw-risks',
-      '-y',
-    ]);
-    expect(result.source).toEqual(['openclaw/skills']);
-    expect(result.options.dangerouslyAcceptOpenclawRisks).toBe(true);
+  it('should parse --subagent alongside other flags', () => {
+    const result = parseAddOptions(['source', '--subagent', 'research', '-y']);
+    expect(result.source).toEqual(['source']);
+    expect(result.options.subagent).toEqual(['research']);
     expect(result.options.yes).toBe(true);
   });
 });

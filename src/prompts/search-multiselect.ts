@@ -14,6 +14,10 @@ export interface SearchItem<T> {
   value: T;
   label: string;
   hint?: string;
+  /** Optional group heading shown before this item. */
+  group?: string;
+  /** Optional detail rendered in a fixed pane for the highlighted item. */
+  detail?: string;
 }
 
 export interface LockedSection<T> {
@@ -31,7 +35,21 @@ export interface SearchMultiselectOptions<T> {
   required?: boolean;
   /** Locked section shown above the searchable list - items are always selected and can't be toggled */
   lockedSection?: LockedSection<T>;
+  /** Whether to render a search input and accept text input. Defaults to true. */
+  searchable?: boolean;
+  /** Whether to render a fixed-height detail pane for the highlighted item. */
+  showDetail?: boolean;
+  /** Number of rows reserved for the detail pane. Defaults to two. */
+  detailLines?: number;
+  /** Whether to display the selected-item summary. Defaults to true. */
+  showSelectedSummary?: boolean;
+  /** Whether group headings are selectable and toggle every item in the group. */
+  selectGroups?: boolean;
 }
+
+export type SearchEntry<T> =
+  | { type: 'item'; item: SearchItem<T> }
+  | { type: 'group'; group: string; items: SearchItem<T>[]; collapsed: boolean };
 
 const S_STEP_ACTIVE = pc.green('◆');
 const S_STEP_CANCEL = pc.red('■');
@@ -127,6 +145,112 @@ export function countVisualRowsForLines(lines: string[], columns: number | undef
   return lines.reduce((sum, line) => sum + visualRowsForLine(line, cols), 0);
 }
 
+function truncateToWidth(text: string, width: number): string {
+  let truncated = '';
+  for (const char of text) {
+    if (approxStringWidth(truncated + char) > width) break;
+    truncated += char;
+  }
+  return truncated;
+}
+
+/**
+ * Wrap description text into a fixed number of terminal-width-safe lines.
+ * Empty lines are appended so changing the highlighted item never changes the
+ * prompt's logical height.
+ */
+export function formatDetailLines(
+  detail: string | undefined,
+  width: number,
+  maxLines: number
+): string[] {
+  const safeWidth = Math.max(1, width);
+  const normalized = detail?.replace(/\s+/g, ' ').trim() ?? '';
+  const lines: string[] = [];
+  let remaining = normalized;
+
+  while (remaining && lines.length < maxLines) {
+    if (approxStringWidth(remaining) <= safeWidth) {
+      lines.push(remaining);
+      remaining = '';
+      break;
+    }
+
+    const candidate = truncateToWidth(remaining, safeWidth);
+    const breakAt = candidate.lastIndexOf(' ');
+    if (breakAt > 0) {
+      lines.push(candidate.slice(0, breakAt).trimEnd());
+      remaining = remaining.slice(breakAt).trimStart();
+    } else {
+      lines.push(candidate);
+      remaining = remaining.slice(candidate.length).trimStart();
+    }
+  }
+
+  if (remaining && lines.length > 0) {
+    const last = lines.length - 1;
+    lines[last] = `${truncateToWidth(lines[last]!, Math.max(0, safeWidth - 1)).trimEnd()}…`;
+  }
+
+  while (lines.length < maxLines) lines.push('');
+  return lines;
+}
+
+/** Build the navigable rows for a prompt, including selectable group headings. */
+export function buildSearchEntries<T>(
+  items: SearchItem<T>[],
+  selectGroups: boolean,
+  collapsedGroups: ReadonlySet<string> = new Set()
+): SearchEntry<T>[] {
+  if (!selectGroups) return items.map((item) => ({ type: 'item', item }));
+
+  const entries: SearchEntry<T>[] = [];
+  let index = 0;
+
+  while (index < items.length) {
+    const item = items[index]!;
+    if (!item.group) {
+      entries.push({ type: 'item', item });
+      index += 1;
+      continue;
+    }
+
+    const groupItems: SearchItem<T>[] = [];
+    while (index < items.length && items[index]!.group === item.group) {
+      groupItems.push(items[index]!);
+      index += 1;
+    }
+
+    const collapsed = collapsedGroups.has(item.group);
+    entries.push({ type: 'group', group: item.group, items: groupItems, collapsed });
+    if (!collapsed) {
+      entries.push(...groupItems.map((groupItem) => ({ type: 'item' as const, item: groupItem })));
+    }
+  }
+
+  return entries;
+}
+
+/** Toggle one item, or every item represented by a selectable group heading. */
+export function toggleSearchEntry<T>(selected: Set<T>, entry: SearchEntry<T> | undefined): void {
+  if (entry?.type === 'group') {
+    const allSelected = entry.items.every((item) => selected.has(item.value));
+    for (const item of entry.items) {
+      if (allSelected) {
+        selected.delete(item.value);
+      } else {
+        selected.add(item.value);
+      }
+    }
+  } else if (entry?.type === 'item') {
+    if (selected.has(entry.item.value)) {
+      selected.delete(entry.item.value);
+    } else {
+      selected.add(entry.item.value);
+    }
+  }
+}
+
 /**
  * Interactive search multiselect prompt.
  * Allows users to filter a long list by typing and select multiple items.
@@ -142,6 +266,11 @@ export async function searchMultiselect<T>(
     initialSelected = [],
     required = false,
     lockedSection,
+    searchable = true,
+    showDetail = false,
+    detailLines = 2,
+    showSelectedSummary = true,
+    selectGroups = false,
   } = options;
 
   return new Promise((resolve) => {
@@ -160,6 +289,7 @@ export async function searchMultiselect<T>(
     let query = '';
     let cursor = 0;
     const selected = new Set<T>(initialSelected);
+    const collapsedGroups = new Set<string>();
     let lastRenderHeight = 0;
 
     // Locked items are always included in the result
@@ -178,22 +308,10 @@ export async function searchMultiselect<T>(
       return items.filter((item) => filter(item, query));
     };
 
-    const clearRender = (): void => {
-      if (lastRenderHeight > 0) {
-        // Move up and clear each line
-        process.stdout.write(`\x1b[${lastRenderHeight}A`);
-        for (let i = 0; i < lastRenderHeight; i++) {
-          process.stdout.write('\x1b[2K\x1b[1B');
-        }
-        process.stdout.write(`\x1b[${lastRenderHeight}A`);
-      }
-    };
-
     const render = (state: 'active' | 'submit' | 'cancel' = 'active'): void => {
-      clearRender();
-
       const lines: string[] = [];
       const filtered = getFiltered();
+      const entries = buildSearchEntries(filtered, selectGroups, collapsedGroups);
 
       // Header
       const icon =
@@ -210,7 +328,7 @@ export async function searchMultiselect<T>(
             lines.push(`${S_BAR}    ${S_BULLET} ${pc.bold(item.label)}`);
           }
           if (lockedSection.hiddenCount && lockedSection.hiddenCount > 0) {
-            lines.push(`${S_BAR}    ${pc.dim(`...and ${lockedSection.hiddenCount} more`)}`);
+            lines.push(`${S_BAR}    ${pc.dim(`…and ${lockedSection.hiddenCount} more`)}`);
           }
           lines.push(`${S_BAR}`);
           lines.push(
@@ -218,42 +336,61 @@ export async function searchMultiselect<T>(
           );
         }
 
-        // Search input
-        const searchLine = `${S_BAR}  ${pc.dim('Search:')} ${query}${pc.inverse(' ')}`;
-        lines.push(searchLine);
-
-        // Hint
-        lines.push(`${S_BAR}  ${pc.dim('↑↓ move, space select, enter confirm')}`);
-        lines.push(`${S_BAR}`);
+        if (searchable) {
+          const searchLine = `${S_BAR}  ${pc.dim('Search:')} ${query}${pc.inverse(' ')}`;
+          lines.push(searchLine);
+          lines.push(`${S_BAR}  ${pc.dim('↑↓ move, space select, enter confirm')}`);
+          lines.push(`${S_BAR}`);
+        }
 
         // Items
         const visibleStart = Math.max(
           0,
-          Math.min(cursor - Math.floor(maxVisible / 2), filtered.length - maxVisible)
+          Math.min(cursor - Math.floor(maxVisible / 2), entries.length - maxVisible)
         );
-        const visibleEnd = Math.min(filtered.length, visibleStart + maxVisible);
-        const visibleItems = filtered.slice(visibleStart, visibleEnd);
+        const visibleEnd = Math.min(entries.length, visibleStart + maxVisible);
+        const visibleEntries = entries.slice(visibleStart, visibleEnd);
 
         if (filtered.length === 0) {
           lines.push(`${S_BAR}  ${pc.dim('No matches found')}`);
         } else {
-          for (let i = 0; i < visibleItems.length; i++) {
-            const item = visibleItems[i]!;
+          for (let i = 0; i < visibleEntries.length; i++) {
+            const entry = visibleEntries[i]!;
             const actualIndex = visibleStart + i;
-            const isSelected = selected.has(item.value);
             const isCursor = actualIndex === cursor;
 
+            if (entry.type === 'group') {
+              const selectedCount = entry.items.filter((item) => selected.has(item.value)).length;
+              const radio =
+                selectedCount === entry.items.length
+                  ? S_RADIO_ACTIVE
+                  : selectedCount > 0
+                    ? pc.yellow('◐')
+                    : S_RADIO_INACTIVE;
+              const label = isCursor ? pc.underline(pc.bold(entry.group)) : pc.bold(entry.group);
+              const prefix = isCursor ? pc.cyan('❯') : ' ';
+              const disclosure = pc.dim(entry.collapsed ? '▸' : '▾');
+              lines.push(`${S_BAR} ${prefix} ${disclosure} ${radio} ${label}`);
+              continue;
+            }
+
+            const item = entry.item;
+            const isSelected = selected.has(item.value);
             const radio = isSelected ? S_RADIO_ACTIVE : S_RADIO_INACTIVE;
             const label = isCursor ? pc.underline(item.label) : item.label;
             const hint = item.hint ? pc.dim(` (${item.hint})`) : '';
 
             const prefix = isCursor ? pc.cyan('❯') : ' ';
-            lines.push(`${S_BAR} ${prefix} ${radio} ${label}${hint}`);
+            const groupItems =
+              selectGroups && item.group ? filtered.filter((i) => i.group === item.group) : [];
+            const isLastInGroup = groupItems.at(-1) === item;
+            const tree = groupItems.length > 0 ? `${pc.dim(isLastInGroup ? '└─' : '├─')} ` : '';
+            lines.push(`${S_BAR} ${prefix} ${tree}${radio} ${label}${hint}`);
           }
 
           // Show count if more items
           const hiddenBefore = visibleStart;
-          const hiddenAfter = filtered.length - visibleEnd;
+          const hiddenAfter = entries.length - visibleEnd;
           if (hiddenBefore > 0 || hiddenAfter > 0) {
             const parts: string[] = [];
             if (hiddenBefore > 0) parts.push(`↑ ${hiddenBefore} more`);
@@ -262,22 +399,47 @@ export async function searchMultiselect<T>(
           }
         }
 
-        // Selected summary (include locked items)
-        lines.push(`${S_BAR}`);
-        const allSelectedLabels = [
-          ...(lockedSection ? lockedSection.items.map((i) => i.label) : []),
-          ...items.filter((item) => selected.has(item.value)).map((item) => item.label),
-        ];
-        if (allSelectedLabels.length === 0) {
-          lines.push(`${S_BAR}  ${pc.dim('Selected: (none)')}`);
-        } else {
-          const summary =
-            allSelectedLabels.length <= 3
-              ? allSelectedLabels.join(', ')
-              : `${allSelectedLabels.slice(0, 3).join(', ')} +${allSelectedLabels.length - 3} more`;
-          lines.push(`${S_BAR}  ${pc.green('Selected:')} ${summary}`);
+        if (showDetail) {
+          const entry = entries[cursor];
+          const detail =
+            entry?.type === 'group'
+              ? `Select all ${entry.items.length} skills in ${entry.group}.`
+              : entry?.item.detail;
+          const columns =
+            process.stdout.columns && process.stdout.columns > 0 ? process.stdout.columns : 80;
+          // Keep a small margin for the left rail and terminal wrapping behavior.
+          const detailWidth = Math.max(1, columns - 5);
+          lines.push(`${S_BAR}`);
+          lines.push(`${S_BAR}  ${pc.dim('Description')}`);
+          for (const line of formatDetailLines(detail, detailWidth, detailLines)) {
+            lines.push(`${S_BAR}  ${pc.dim(line)}`);
+          }
         }
 
+        if (showSelectedSummary) {
+          // Selected summary (include locked items)
+          lines.push(`${S_BAR}`);
+          const allSelectedLabels = [
+            ...(lockedSection ? lockedSection.items.map((i) => i.label) : []),
+            ...items.filter((item) => selected.has(item.value)).map((item) => item.label),
+          ];
+          if (allSelectedLabels.length === 0) {
+            lines.push(`${S_BAR}  ${pc.dim('Selected: (none)')}`);
+          } else {
+            const summary =
+              allSelectedLabels.length <= 3
+                ? allSelectedLabels.join(', ')
+                : `${allSelectedLabels.slice(0, 3).join(', ')} +${allSelectedLabels.length - 3} more`;
+            lines.push(`${S_BAR}  ${pc.green('Selected:')} ${summary}`);
+          }
+        }
+
+        if (!searchable) {
+          lines.push(`${S_BAR}`);
+          lines.push(
+            `${S_BAR}  ${pc.dim('↑↓ move, ←→ collapse/expand, space select, enter confirm')}`
+          );
+        }
         lines.push(`${pc.dim('└')}`);
       } else if (state === 'submit') {
         // Final state - show what was selected (including locked)
@@ -290,10 +452,13 @@ export async function searchMultiselect<T>(
         lines.push(`${S_BAR}  ${pc.strikethrough(pc.dim('Cancelled'))}`);
       }
 
-      process.stdout.write(lines.join('\n') + '\n');
+      // Write the clear sequence and next frame together. Clearing individual rows first
+      // makes larger prompts visibly flash between redraws in some terminals.
+      const clearPreviousFrame = lastRenderHeight > 0 ? `\x1b[${lastRenderHeight}A\x1b[J` : '';
+      process.stdout.write(clearPreviousFrame + lines.join('\n') + '\n');
       // Use wrapped row count: logical lines can span multiple terminal rows when hints
-      // or labels exceed column width. Using lines.length alone under-counts and breaks
-      // clearRender(), causing the prompt to re-print hundreds of times on each redraw.
+      // or labels exceed column width. Using lines.length alone under-counts and fails to
+      // clear the full previous frame, causing the prompt to re-print stale rows on redraw.
       lastRenderHeight = countVisualRowsForLines(lines, process.stdout.columns);
     };
 
@@ -326,7 +491,7 @@ export async function searchMultiselect<T>(
     const keypressHandler = (_str: string, key: readline.Key): void => {
       if (!key) return;
 
-      const filtered = getFiltered();
+      const entries = buildSearchEntries(getFiltered(), selectGroups, collapsedGroups);
 
       if (key.name === 'return') {
         submit();
@@ -345,20 +510,37 @@ export async function searchMultiselect<T>(
       }
 
       if (key.name === 'down') {
-        cursor = Math.min(filtered.length - 1, cursor + 1);
+        cursor = Math.min(entries.length - 1, cursor + 1);
         render();
         return;
       }
 
-      if (key.name === 'space') {
-        const item = filtered[cursor];
-        if (item) {
-          if (selected.has(item.value)) {
-            selected.delete(item.value);
-          } else {
-            selected.add(item.value);
-          }
+      if (selectGroups && key.name === 'right') {
+        const entry = entries[cursor];
+        if (entry?.type === 'group' && entry.collapsed) {
+          collapsedGroups.delete(entry.group);
+          render();
         }
+        return;
+      }
+
+      if (selectGroups && key.name === 'left') {
+        const entry = entries[cursor];
+        const group = entry?.type === 'group' ? entry.group : entry?.item.group;
+        if (group) {
+          collapsedGroups.add(group);
+          const collapsedEntries = buildSearchEntries(getFiltered(), selectGroups, collapsedGroups);
+          cursor = collapsedEntries.findIndex(
+            (collapsedEntry) => collapsedEntry.type === 'group' && collapsedEntry.group === group
+          );
+          render();
+        }
+        return;
+      }
+
+      if (key.name === 'space') {
+        const entry = entries[cursor];
+        toggleSearchEntry(selected, entry);
         render();
         return;
       }
@@ -371,7 +553,7 @@ export async function searchMultiselect<T>(
       }
 
       // Regular character input
-      if (key.sequence && !key.ctrl && !key.meta && key.sequence.length === 1) {
+      if (searchable && key.sequence && !key.ctrl && !key.meta && key.sequence.length === 1) {
         query += key.sequence;
         cursor = 0;
         render();

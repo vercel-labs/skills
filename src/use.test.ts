@@ -1,13 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import * as tar from 'tar';
 import { runCli } from './test-utils.ts';
 import {
   buildUsePrompt,
   materializeUseSkill,
   parseUseOptions,
+  runUse,
   launchAgentInteractively,
   type AgentProcess,
   type AgentSpawn,
@@ -76,6 +78,13 @@ describe('use command', () => {
 
       expect(result.errors).toContain('Only one --skill value can be provided');
       expect(result.errors).toContain('Unknown option: --wat');
+    });
+
+    it('parses OpenClaw sources like other GitHub owners', () => {
+      const result = parseUseOptions(['openclaw/skills@demo']);
+
+      expect(result.source).toEqual(['openclaw/skills@demo']);
+      expect(result.errors).toEqual([]);
     });
 
     it('parses --agent and -a values', () => {
@@ -224,6 +233,46 @@ describe('use command', () => {
   });
 
   describe('CLI behavior', () => {
+    it('uses a direct archive when well-known discovery misses', async () => {
+      const archiveRoot = join(testDir, 'direct-archive');
+      writeSkill(archiveRoot, 'direct-skill', 'Direct archive body.');
+      writeFileSync(join(archiveRoot, 'reference.md'), 'Reference');
+      const archivePath = join(testDir, 'direct-skill.tgz');
+      await tar.c({ cwd: archiveRoot, gzip: true, file: archivePath }, [
+        'SKILL.md',
+        'reference.md',
+      ]);
+      const archive = readFileSync(archivePath);
+      const directUrl = 'https://downloads.example.com/direct-skill?signature=secret';
+
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        if (String(url) === directUrl) {
+          return new Response(archive, {
+            status: 200,
+            headers: { 'content-length': String(archive.length) },
+          });
+        }
+        return new Response('not found', { status: 404 });
+      });
+      const writes: string[] = [];
+      vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: unknown) => {
+        writes.push(String(chunk));
+        return true;
+      }) as typeof process.stdout.write);
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.spyOn(process, 'exit').mockImplementation((() => {
+        throw new Error('process.exit called');
+      }) as never);
+
+      await runUse([directUrl]);
+
+      const stdout = writes.join('');
+      const supportDir = extractSupportDir(stdout);
+      if (supportDir) cleanupDirs.push(join(supportDir, '..'));
+      expect(stdout).toContain('Direct archive body.');
+      expect(supportDir).toBeTruthy();
+    });
+
     it('prints only the generated prompt for a single local skill', () => {
       writeSkill(join(testDir, 'single'), 'single-skill', 'Single skill body.');
 
@@ -326,13 +375,6 @@ describe('use command', () => {
       const result = runCli(['run', testDir], testDir);
 
       expect(result.stdout).toContain('Unknown command: run');
-    });
-
-    it('blocks OpenClaw sources before network access unless explicitly accepted', () => {
-      const result = runCli(['use', 'openclaw/example@demo'], testDir);
-
-      expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain('OpenClaw skills are unverified');
     });
   });
 });

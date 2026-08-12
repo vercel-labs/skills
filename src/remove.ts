@@ -2,15 +2,17 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { readdir, rm, lstat } from 'fs/promises';
 import { join } from 'path';
-import { agents, detectInstalledAgents } from './agents.ts';
+import { agents, detectInstalledAgents, getEveSubagents } from './agents.ts';
 import { track } from './telemetry.ts';
 import { detectAgent } from './detect-agent.ts';
-import { removeSkillFromLock, getSkillFromLock } from './skill-lock.ts';
+import { removeSkillFromLock, getSkillFromLock, readSkillLock } from './skill-lock.ts';
+import { readLocalLock, removeSkillFromLocalLock } from './local-lock.ts';
 import type { AgentType } from './types.ts';
 import {
   getInstallPath,
   getCanonicalPath,
   getCanonicalSkillsDir,
+  getEveSubagentSkillsDir,
   sanitizeName,
 } from './installer.ts';
 
@@ -19,6 +21,41 @@ export interface RemoveOptions {
   agent?: string[];
   yes?: boolean;
   all?: boolean;
+}
+
+/**
+ * Resolve requested skill names to canonical removal targets.
+ *
+ * On-disk folder names are the result of sanitizeName() at install time, but
+ * lock-file keys keep the original name, which may contain characters
+ * sanitizeName() rewrites — e.g. the ':' in plugin skills such as "ce:review"
+ * maps to the folder "ce-review". Matching purely on folder names therefore
+ * misses lock-only or name-mismatched skills (and stale lock entries whose
+ * folder is already gone). Every candidate is canonicalized by its sanitized
+ * name, preferring the lock key, so downstream disk cleanup (which
+ * re-sanitizes) and lock removal (which needs the exact key) both target the
+ * right thing.
+ */
+export function resolveSkillsToRemove(
+  requested: string[],
+  folderNames: string[],
+  lockKeys: string[] = []
+): string[] {
+  const identityBySanitized = new Map<string, string>();
+  for (const folder of folderNames) {
+    identityBySanitized.set(sanitizeName(folder), folder);
+  }
+  // Lock keys win: they carry the exact key needed for lock removal.
+  for (const key of lockKeys) {
+    identityBySanitized.set(sanitizeName(key), key);
+  }
+
+  const matched = new Set<string>();
+  for (const name of requested) {
+    const hit = identityBySanitized.get(sanitizeName(name));
+    if (hit) matched.add(hit);
+  }
+  return Array.from(matched);
 }
 
 export async function removeCommand(skillNames: string[], options: RemoveOptions) {
@@ -38,7 +75,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
   const spinner = p.spinner();
 
-  spinner.start('Scanning for installed skills...');
+  spinner.start('Scanning for installed skills…');
   const skillNamesSet = new Set<string>();
 
   const scanDir = async (dir: string) => {
@@ -68,12 +105,29 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     for (const agent of Object.values(agents)) {
       await scanDir(join(cwd, agent.skillsDir));
     }
+    // Eve subagents keep their skills under agent/subagents/<name>/skills.
+    for (const subagent of getEveSubagents(cwd)) {
+      await scanDir(getEveSubagentSkillsDir(subagent, cwd));
+    }
   }
 
   const installedSkills = Array.from(skillNamesSet).sort();
   spinner.stop(`Found ${installedSkills.length} unique installed skill(s)`);
 
-  if (installedSkills.length === 0) {
+  // Read lock file keys up front. These are needed both to decide whether there is
+  // anything to remove (a skill may be missing from disk but still leave a stale lock
+  // entry) and to clean up those stale entries below.
+  const lockSkillsKeys = isGlobal
+    ? Object.keys((await readSkillLock()).skills)
+    : Object.keys((await readLocalLock(cwd)).skills);
+
+  const requestedSkills = options.all ? [...installedSkills, ...lockSkillsKeys] : skillNames;
+  const resolvedRequestedSkills =
+    options.all || skillNames.length > 0
+      ? resolveSkillsToRemove(requestedSkills, installedSkills, lockSkillsKeys)
+      : [];
+
+  if (installedSkills.length === 0 && resolvedRequestedSkills.length === 0) {
     p.outro(pc.yellow('No skills found to remove.'));
     return;
   }
@@ -93,11 +147,9 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   let selectedSkills: string[] = [];
 
   if (options.all) {
-    selectedSkills = installedSkills;
+    selectedSkills = resolvedRequestedSkills;
   } else if (skillNames.length > 0) {
-    selectedSkills = installedSkills.filter((s) =>
-      skillNames.some((name) => name.toLowerCase() === s.toLowerCase())
-    );
+    selectedSkills = resolvedRequestedSkills;
 
     if (selectedSkills.length === 0) {
       p.log.error(`No matching skills found for: ${skillNames.join(', ')}`);
@@ -120,7 +172,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
       process.exit(0);
     }
 
-    selectedSkills = selected as string[];
+    selectedSkills = resolveSkillsToRemove(selected as string[], installedSkills, lockSkillsKeys);
   }
 
   let targetAgents: AgentType[];
@@ -151,7 +203,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     }
   }
 
-  spinner.start('Removing skills...');
+  spinner.start('Removing skills…');
 
   const results: {
     skill: string;
@@ -178,6 +230,12 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
           pathsToCleanup.add(join(agent.globalSkillsDir, sanitizedName));
         } else {
           pathsToCleanup.add(join(cwd, agent.skillsDir, sanitizedName));
+          // Eve skills may also live in subagent directories.
+          if (agentKey === 'eve') {
+            for (const subagent of getEveSubagents(cwd)) {
+              pathsToCleanup.add(join(getEveSubagentSkillsDir(subagent, cwd), sanitizedName));
+            }
+          }
         }
 
         for (const pathToCleanup of pathsToCleanup) {
@@ -220,12 +278,27 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
         await rm(canonicalPath, { recursive: true, force: true });
       }
 
-      const lockEntry = isGlobal ? await getSkillFromLock(skillName) : null;
-      const effectiveSource = lockEntry?.source || 'local';
-      const effectiveSourceType = lockEntry?.sourceType || 'local';
+      let effectiveSource = 'local';
+      let effectiveSourceType = 'local';
 
+      // The lock entry tracks the canonical path, so it survives for as long as
+      // that path does. Dropping it while another installed agent still links
+      // the skill leaves the skill in place but no longer updatable (#1718).
       if (isGlobal) {
-        await removeSkillFromLock(skillName);
+        const lockEntry = await getSkillFromLock(skillName);
+        effectiveSource = lockEntry?.source || 'local';
+        effectiveSourceType = lockEntry?.sourceType || 'local';
+        if (!isStillUsed) {
+          await removeSkillFromLock(skillName);
+        }
+      } else {
+        const localLock = await readLocalLock(cwd);
+        const lockEntry = localLock.skills[skillName];
+        effectiveSource = lockEntry?.source || 'local';
+        effectiveSourceType = lockEntry?.sourceType || 'local';
+        if (!isStillUsed) {
+          await removeSkillFromLocalLock(skillName, cwd);
+        }
       }
 
       results.push({

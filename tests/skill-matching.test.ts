@@ -5,11 +5,11 @@
  * must be quoted on the command line (e.g., --skill "Convex Best Practices").
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { filterSkills, parseSkillMd } from '../src/skills.ts';
+import { discoverSkills, filterSkills, parseSkillMd } from '../src/skills.ts';
 import type { Skill } from '../src/types.ts';
 
 // Mock skill factory
@@ -97,14 +97,17 @@ describe('filterSkills', () => {
 
 describe('parseSkillMd with non-string frontmatter values', () => {
   let testDir: string;
+  let warnSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     testDir = join(tmpdir(), `skills-nonstring-test-${Date.now()}`);
     mkdirSync(testDir, { recursive: true });
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
 
   afterEach(() => {
     rmSync(testDir, { recursive: true, force: true });
+    warnSpy.mockRestore();
   });
 
   it('rejects skill with numeric name', async () => {
@@ -121,6 +124,7 @@ description: A skill with numeric name
     );
     const result = await parseSkillMd(skillPath);
     expect(result).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('must be strings'));
   });
 
   it('rejects skill with boolean name', async () => {
@@ -137,6 +141,7 @@ description: A skill with boolean name
     );
     const result = await parseSkillMd(skillPath);
     expect(result).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('must be strings'));
   });
 
   it('rejects skill with array name', async () => {
@@ -155,6 +160,7 @@ description: A skill with array name
     );
     const result = await parseSkillMd(skillPath);
     expect(result).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('must be strings'));
   });
 
   it('rejects skill with numeric description', async () => {
@@ -171,6 +177,7 @@ description: 456
     );
     const result = await parseSkillMd(skillPath);
     expect(result).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('must be strings'));
   });
 
   it('accepts skill with valid string name and description', async () => {
@@ -188,5 +195,191 @@ description: A valid skill
     const result = await parseSkillMd(skillPath);
     expect(result).not.toBeNull();
     expect(result!.name).toBe('valid-skill');
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('parseSkillMd warnings on parse failures', () => {
+  let testDir: string;
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    testDir = join(tmpdir(), `skills-warn-test-${Date.now()}`);
+    mkdirSync(testDir, { recursive: true });
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    rmSync(testDir, { recursive: true, force: true });
+    warnSpy.mockRestore();
+  });
+
+  it('warns when YAML frontmatter fails to parse (issue #1058)', async () => {
+    // Reproduces the exact case from issue #1058: a description containing
+    // ": " is parsed by the yaml package as a nested compact mapping.
+    const skillPath = join(testDir, 'SKILL.md');
+    writeFileSync(
+      skillPath,
+      `---
+name: my-skill
+description: Configure the harness: Hooks, MCP Servers, Skills
+---
+
+# My Skill
+`
+    );
+    const result = await parseSkillMd(skillPath);
+    expect(result).toBeNull();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(skillPath));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('YAML parse error'));
+  });
+
+  it('warns once when discovery skips a malformed skill', async () => {
+    const skillDir = join(testDir, 'skills', 'broken-skill');
+    const skillPath = join(skillDir, 'SKILL.md');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      skillPath,
+      `---
+name: broken-skill
+description: Configure the harness: Hooks, MCP Servers, Skills
+---
+`
+    );
+
+    const result = await discoverSkills(testDir);
+
+    expect(result).toEqual([]);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(skillPath));
+  });
+
+  it('strips terminal escapes from malformed-skill warnings', async () => {
+    const skillDir = join(testDir, 'skills', 'broken-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: broken-skill
+description: Configure \x1b[31mthe harness: Hooks
+---
+`
+    );
+
+    await discoverSkills(testDir);
+
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const warning = String(warnSpy.mock.calls[0]?.[0]);
+    expect(warning).toContain('Configure the harness: Hooks');
+    expect(warning).not.toContain('\x1b');
+  });
+
+  it('warns when name is missing', async () => {
+    const skillPath = join(testDir, 'SKILL.md');
+    writeFileSync(
+      skillPath,
+      `---
+description: A skill with no name
+---
+
+# No Name
+`
+    );
+    const result = await parseSkillMd(skillPath);
+    expect(result).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('missing required'));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('name'));
+  });
+
+  it('warns when description is missing', async () => {
+    const skillPath = join(testDir, 'SKILL.md');
+    writeFileSync(
+      skillPath,
+      `---
+name: nameless
+---
+
+# No Description
+`
+    );
+    const result = await parseSkillMd(skillPath);
+    expect(result).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('missing required'));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('description'));
+  });
+
+  it('warns when SKILL.md cannot be read', async () => {
+    const skillPath = join(testDir, 'does-not-exist', 'SKILL.md');
+    const result = await parseSkillMd(skillPath);
+    expect(result).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('failed to read file'));
+  });
+
+  it('does not warn for internal skills filtered by default', async () => {
+    const skillPath = join(testDir, 'SKILL.md');
+    writeFileSync(
+      skillPath,
+      `---
+name: internal-skill
+description: An internal skill
+metadata:
+  internal: true
+---
+
+# Internal Skill
+`
+    );
+    const result = await parseSkillMd(skillPath);
+    expect(result).toBeNull();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('parseSkillMd with metadata', () => {
+  let testDir: string;
+
+  beforeEach(() => {
+    testDir = join(tmpdir(), `skills-metadata-test-${Date.now()}`);
+    mkdirSync(testDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(testDir, { recursive: true, force: true });
+  });
+
+  async function parseWithMetadata(metadata: string) {
+    const skillPath = join(testDir, 'SKILL.md');
+    writeFileSync(
+      skillPath,
+      `---
+name: metadata-skill
+description: A skill with metadata
+metadata: ${metadata}
+---
+
+# Metadata Skill
+`
+    );
+    return parseSkillMd(skillPath);
+  }
+
+  it('preserves mapping metadata', async () => {
+    const result = await parseWithMetadata(`
+  origin: workflow
+  runId: 42`);
+
+    expect(result?.metadata).toEqual({ origin: 'workflow', runId: 42 });
+  });
+
+  it.each([
+    ['scalar', 'private'],
+    ['array', '\n  - private\n  - generated'],
+    ['null', 'null'],
+  ])('omits %s metadata', async (_type, metadata) => {
+    const result = await parseWithMetadata(metadata);
+
+    expect(result).not.toBeNull();
+    expect(result?.metadata).toBeUndefined();
   });
 });

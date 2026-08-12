@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { access, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { installSkillForAgent } from '../src/installer.ts';
@@ -40,6 +40,36 @@ describe('installer copy mode', () => {
       );
       await expect(access(join(installedDir, 'metadata.json'))).rejects.toThrow();
       await expect(access(join(installedDir, '.git'))).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves executable mode bits when copying files', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-copy-mode-'));
+    const projectDir = join(root, 'project');
+    await mkdir(projectDir, { recursive: true });
+
+    const skillName = 'copy-executable-skill';
+    const skillDir = await makeSkillSource(root, skillName);
+    const scriptPath = join(skillDir, 'scripts', 'hello.sh');
+    await mkdir(join(skillDir, 'scripts'), { recursive: true });
+    await writeFile(scriptPath, '#!/bin/sh\necho hello\n', 'utf-8');
+    await chmod(scriptPath, 0o755);
+
+    try {
+      const result = await installSkillForAgent(
+        { name: skillName, description: 'test', path: skillDir },
+        'codex',
+        { cwd: projectDir, mode: 'copy', global: false }
+      );
+
+      expect(result.success).toBe(true);
+
+      const installedScript = join(projectDir, '.agents/skills', skillName, 'scripts', 'hello.sh');
+      const sourceMode = (await stat(scriptPath)).mode & 0o777;
+      const installedMode = (await stat(installedScript)).mode & 0o777;
+      expect(installedMode).toBe(sourceMode);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

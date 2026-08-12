@@ -1,11 +1,45 @@
 import { describe, it, expect } from 'vitest';
 import {
+  buildLocalCloneSource,
   buildLocalUpdateSource,
   buildUpdateInstallSource,
   formatSourceInput,
+  shouldUseFullDepthForUpdate,
 } from './update-source.ts';
 
 describe('update-source', () => {
+  describe('buildLocalCloneSource', () => {
+    it('expands GitHub shorthand to a cloneable URL', () => {
+      expect(buildLocalCloneSource({ source: 'owner/repo', sourceType: 'github' })).toBe(
+        'https://github.com/owner/repo.git'
+      );
+    });
+
+    it('preserves an explicit sourceUrl', () => {
+      expect(
+        buildLocalCloneSource({
+          source: 'owner/repo',
+          sourceUrl: 'https://github.com/owner/repo.git',
+          sourceType: 'github',
+        })
+      ).toBe('https://github.com/owner/repo.git');
+    });
+
+    it('preserves non-GitHub clone URLs', () => {
+      expect(
+        buildLocalCloneSource({
+          source: 'acme/skills',
+          sourceUrl: 'https://gitlab.example.com/acme/skills.git',
+          sourceType: 'git',
+        })
+      ).toBe('https://gitlab.example.com/acme/skills.git');
+    });
+
+    it('fails closed for a generic Git shorthand without sourceUrl', () => {
+      expect(buildLocalCloneSource({ source: 'acme/skills', sourceType: 'git' })).toBeNull();
+    });
+  });
+
   describe('formatSourceInput', () => {
     it('appends ref fragment when provided', () => {
       expect(formatSourceInput('https://github.com/owner/repo.git', 'feature/install')).toBe(
@@ -35,10 +69,31 @@ describe('update-source', () => {
       const result = buildUpdateInstallSource({
         source: 'owner/repo',
         sourceUrl: 'https://github.com/owner/repo.git',
+        sourceType: 'github',
         ref: 'feature/install',
         skillPath: 'skills/my-skill/SKILL.md',
       });
       expect(result).toBe('owner/repo/skills/my-skill#feature/install');
+    });
+
+    it('uses sourceUrl for non-GitHub sources with host-stripped source', () => {
+      const result = buildUpdateInstallSource({
+        source: 'acme/skills',
+        sourceUrl: 'https://gitlab.example.com/acme/skills.git',
+        sourceType: 'git',
+        ref: 'main',
+        skillPath: 'skills/my-skill/SKILL.md',
+      });
+      expect(result).toBe('https://gitlab.example.com/acme/skills.git#main');
+    });
+
+    it('fails closed for non-GitHub lock entries missing sourceUrl', () => {
+      const result = buildUpdateInstallSource({
+        source: 'acme/skills',
+        sourceType: 'git',
+        skillPath: 'skills/my-skill/SKILL.md',
+      });
+      expect(result).toBeNull();
     });
 
     it('falls back to sourceUrl when skillPath is missing', () => {
@@ -55,6 +110,7 @@ describe('update-source', () => {
     it('appends skill folder from skillPath with ref', () => {
       const result = buildLocalUpdateSource({
         source: 'owner/repo',
+        sourceType: 'github',
         ref: 'main',
         skillPath: 'skills/my-skill/SKILL.md',
       });
@@ -64,6 +120,7 @@ describe('update-source', () => {
     it('appends skill folder from skillPath without ref', () => {
       const result = buildLocalUpdateSource({
         source: 'owner/repo',
+        sourceType: 'github',
         skillPath: 'skills/my-skill/SKILL.md',
       });
       expect(result).toBe('owner/repo/skills/my-skill');
@@ -72,6 +129,7 @@ describe('update-source', () => {
     it('keeps root-level skillPath from collapsing to trailing slash', () => {
       const result = buildLocalUpdateSource({
         source: 'owner/repo',
+        sourceType: 'github',
         skillPath: 'SKILL.md',
       });
       expect(result).toBe('owner/repo');
@@ -80,6 +138,7 @@ describe('update-source', () => {
     it('falls back to bare source when skillPath is missing', () => {
       const result = buildLocalUpdateSource({
         source: 'owner/repo',
+        sourceType: 'github',
         ref: 'main',
       });
       expect(result).toBe('owner/repo#main');
@@ -102,6 +161,14 @@ describe('update-source', () => {
       expect(result).toBe('git@gitea.example.com:owner/repo.git#main');
     });
 
+    it('does not append skill folder for ssh:// sources without a .git suffix', () => {
+      const result = buildLocalUpdateSource({
+        source: 'ssh://git@gitea.example.com/owner/repo',
+        skillPath: 'skills/my-skill/SKILL.md',
+      });
+      expect(result).toBe('ssh://git@gitea.example.com/owner/repo');
+    });
+
     it('does not append skill folder for self-hosted HTTPS .git URLs', () => {
       const result = buildLocalUpdateSource({
         source: 'https://gitea.example.com/owner/repo.git',
@@ -116,6 +183,87 @@ describe('update-source', () => {
         skillPath: 'skills/my-skill/SKILL.md',
       });
       expect(result).toBe('https://github.com/owner/repo/skills/my-skill');
+    });
+
+    it('uses sourceUrl for self-hosted GitLab project lock entries', () => {
+      const result = buildLocalUpdateSource({
+        source: 'acme/skills',
+        sourceUrl: 'https://gitlab.example.com/acme/skills.git',
+        sourceType: 'git',
+        ref: 'main',
+        skillPath: 'skills/my-skill/SKILL.md',
+      });
+      expect(result).toBe('https://gitlab.example.com/acme/skills.git#main');
+    });
+
+    it('fails closed for generic git shorthand without sourceUrl', () => {
+      const result = buildLocalUpdateSource({
+        source: 'acme/skills',
+        sourceType: 'git',
+        skillPath: 'skills/my-skill/SKILL.md',
+      });
+      expect(result).toBeNull();
+    });
+
+    it('fails closed for legacy GitLab shorthands without sourceUrl', () => {
+      const result = buildLocalUpdateSource({
+        source: 'acme/skills',
+        sourceType: 'gitlab',
+        skillPath: 'skills/my-skill/SKILL.md',
+      });
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('shouldUseFullDepthForUpdate', () => {
+    it('returns true for SSH sources that cannot append the locked skill path', () => {
+      expect(
+        shouldUseFullDepthForUpdate({
+          source: 'git@gitea.example.com:owner/repo.git',
+          sourceType: 'git',
+          skillPath: 'plugins/example/skills/deep-skill/SKILL.md',
+        })
+      ).toBe(true);
+    });
+
+    it('returns true for ssh:// sources without a .git suffix', () => {
+      expect(
+        shouldUseFullDepthForUpdate({
+          source: 'ssh://git@gitea.example.com/owner/repo',
+          sourceType: 'git',
+          skillPath: 'plugins/example/skills/deep-skill/SKILL.md',
+        })
+      ).toBe(true);
+    });
+
+    it('returns true for self-hosted .git URLs', () => {
+      expect(
+        shouldUseFullDepthForUpdate({
+          source: 'owner/repo',
+          sourceUrl: 'https://gitea.example.com/owner/repo.git',
+          sourceType: 'git',
+          skillPath: 'plugins/example/skills/deep-skill/SKILL.md',
+        })
+      ).toBe(true);
+    });
+
+    it('returns false for GitHub sources that can append the locked skill path', () => {
+      expect(
+        shouldUseFullDepthForUpdate({
+          source: 'owner/repo',
+          sourceType: 'github',
+          skillPath: 'plugins/example/skills/deep-skill/SKILL.md',
+        })
+      ).toBe(false);
+    });
+
+    it('returns false when no skillPath is recorded', () => {
+      expect(
+        shouldUseFullDepthForUpdate({
+          source: 'git@gitea.example.com:owner/repo.git',
+          sourceType: 'git',
+        })
+      ).toBe(false);
     });
   });
 });

@@ -1,5 +1,6 @@
 import { isAbsolute, resolve } from 'path';
 import type { ParsedSource } from './types.ts';
+import { getGitHubHost, isGitHubHost } from './github-host.ts';
 
 /**
  * Extract owner/repo (or group/subgroup/repo for GitLab) from a parsed source
@@ -8,7 +9,7 @@ import type { ParsedSource } from './types.ts';
  * Supports any Git host with an owner/repo URL structure, including GitLab subgroups.
  */
 export function getOwnerRepo(parsed: ParsedSource): string | null {
-  if (parsed.type === 'local') {
+  if (parsed.type === 'local' || parsed.type === 'download') {
     return null;
   }
 
@@ -137,11 +138,13 @@ function isLocalPath(input: string): boolean {
 
 /**
  * Parse a source string into a structured format
- * Supports: local paths, GitHub URLs, GitLab URLs, GitHub shorthand, well-known URLs, and direct git URLs
+ * Supports: local paths, GitHub URLs, GitLab URLs, GitHub shorthand, well-known URLs,
+ * hosted download URLs, and direct git URLs
  */
 // Source aliases: map common shorthand to canonical source
 const SOURCE_ALIASES: Record<string, string> = {
   'coinbase/agentWallet': 'coinbase/agentic-wallet-skills',
+  'vercel-labs/vercel-skills': 'vercel-labs/agent-skills',
 };
 
 interface FragmentRefResult {
@@ -173,7 +176,7 @@ function looksLikeGitSource(input: string): boolean {
       const pathname = parsed.pathname;
 
       // Only treat GitHub fragments as refs for repo/tree URLs.
-      if (parsed.hostname === 'github.com') {
+      if (isGitHubHost(parsed.host)) {
         return /^\/[^/]+\/[^/]+(?:\.git)?(?:\/tree\/[^/]+(?:\/.*)?)?\/?$/.test(pathname);
       }
 
@@ -237,6 +240,35 @@ function appendFragmentRef(input: string, ref?: string, skillFilter?: string): s
   return `${input}#${ref}${skillFilter ? `@${skillFilter}` : ''}`;
 }
 
+function isHostedArtifactUrl(input: string): boolean {
+  try {
+    const parsed = new URL(input);
+    const host = parsed.hostname.toLowerCase();
+
+    if (
+      host === 'raw.githubusercontent.com' ||
+      host === 'codeload.github.com' ||
+      host === 'objects.githubusercontent.com'
+    ) {
+      return true;
+    }
+
+    if (host === 'github.com') {
+      return /^\/[^/]+\/[^/]+\/(?:archive\/|raw\/|releases\/(?:download\/|latest\/download\/))/.test(
+        parsed.pathname
+      );
+    }
+
+    if (host === 'gitlab.com') {
+      return /\/-\/(?:archive|raw)\//.test(parsed.pathname);
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export function parseSource(input: string): ParsedSource {
   // Local path: absolute, relative, or current directory
   if (isLocalPath(input)) {
@@ -279,6 +311,41 @@ export function parseSource(input: string): ParsedSource {
         fragmentSkillFilter
       )
     );
+  }
+
+  // Hosted raw files and archive/release assets must be downloaded directly,
+  // not normalized to their parent repository and cloned.
+  if (isHostedArtifactUrl(input)) {
+    return {
+      type: 'download',
+      url: input,
+    };
+  }
+
+  // Explicit GitHub Enterprise URL. Use generic git handling for cloning and
+  // updates because the GitHub.com API/blob fast paths target the public host.
+  if (getGitHubHost() !== 'github.com' && /^https?:\/\//.test(input)) {
+    try {
+      const parsedUrl = new URL(input);
+      if (isGitHubHost(parsedUrl.host) && parsedUrl.host !== 'github.com') {
+        const segments = parsedUrl.pathname.split('/').filter(Boolean);
+        const [owner, rawRepo, marker, ref, ...subpathSegments] = segments;
+        if (owner && rawRepo) {
+          const repo = rawRepo.replace(/\.git$/, '');
+          const isTreeUrl = marker === 'tree' && ref;
+          return {
+            type: 'git',
+            url: `${parsedUrl.protocol}//${parsedUrl.host}/${owner}/${repo}.git`,
+            ...(isTreeUrl ? { ref } : fragmentRef ? { ref: fragmentRef } : {}),
+            ...(isTreeUrl && subpathSegments.length > 0
+              ? { subpath: sanitizeSubpath(subpathSegments.join('/')) }
+              : {}),
+          };
+        }
+      }
+    } catch {
+      // Fall through to the remaining source formats.
+    }
   }
 
   // GitHub URL with path: https://github.com/owner/repo/tree/branch/path/to/skill
@@ -365,13 +432,19 @@ export function parseSource(input: string): ParsedSource {
 
   // GitHub shorthand: owner/repo, owner/repo/path/to/skill, or owner/repo@skill-name
   // Exclude paths that start with . or / to avoid matching local paths
+  // GH_HOST selects a GitHub Enterprise host for shorthand inputs. Enterprise
+  // sources use the generic git path because GitHub.com API optimizations do
+  // not apply to them.
+  const githubHost = getGitHubHost();
+  const shorthandSourceType = githubHost === 'github.com' ? 'github' : 'git';
+
   // First check for @skill syntax: owner/repo@skill-name
   const atSkillMatch = input.match(/^([^/]+)\/([^/@]+)@(.+)$/);
   if (atSkillMatch && !input.includes(':') && !input.startsWith('.') && !input.startsWith('/')) {
     const [, owner, repo, skillFilter] = atSkillMatch;
     return {
-      type: 'github',
-      url: `https://github.com/${owner}/${repo}.git`,
+      type: shorthandSourceType,
+      url: `https://${githubHost}/${owner}/${repo}.git`,
       ...(fragmentRef ? { ref: fragmentRef } : {}),
       skillFilter: fragmentSkillFilter || skillFilter,
     };
@@ -381,17 +454,17 @@ export function parseSource(input: string): ParsedSource {
   if (shorthandMatch && !input.includes(':') && !input.startsWith('.') && !input.startsWith('/')) {
     const [, owner, repo, subpath] = shorthandMatch;
     return {
-      type: 'github',
-      url: `https://github.com/${owner}/${repo}.git`,
+      type: shorthandSourceType,
+      url: `https://${githubHost}/${owner}/${repo}.git`,
       ...(fragmentRef ? { ref: fragmentRef } : {}),
       subpath: subpath ? sanitizeSubpath(subpath) : subpath,
       ...(fragmentSkillFilter ? { skillFilter: fragmentSkillFilter } : {}),
     };
   }
 
-  // Well-known skills: arbitrary HTTP(S) URLs that aren't GitHub/GitLab
-  // This is the final fallback for URLs - we'll check for /.well-known/agent-skills/index.json
-  // then fall back to /.well-known/skills/index.json
+  // Well-known skills: arbitrary HTTP(S) URLs that aren't GitHub/GitLab.
+  // These are also valid direct download URLs: callers should try well-known
+  // discovery first, then fall back to downloading the URL as a SKILL.md or archive.
   if (isWellKnownUrl(input)) {
     return {
       type: 'well-known',

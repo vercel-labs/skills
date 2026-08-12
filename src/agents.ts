@@ -1,6 +1,6 @@
 import { homedir } from 'os';
 import { join } from 'path';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync, readdirSync } from 'fs';
 import { xdgConfig } from 'xdg-basedir';
 import type { AgentConfig, AgentType } from './types.ts';
 
@@ -12,8 +12,23 @@ const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude'
 const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
 const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
+const grokHome = process.env.GROK_HOME?.trim() || join(home, '.grok');
 const zedAppDataHome = process.env.APPDATA?.trim();
 const zedFlatpakConfigHome = process.env.FLATPAK_XDG_CONFIG_HOME?.trim();
+
+function packageJsonHasDependency(packageJsonPath: string, dependencyName: string): boolean {
+  try {
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8')) as {
+      dependencies?: Record<string, unknown>;
+      devDependencies?: Record<string, unknown>;
+    };
+    return !!(
+      packageJson.dependencies?.[dependencyName] || packageJson.devDependencies?.[dependencyName]
+    );
+  } catch {
+    return false;
+  }
+}
 
 export function getOpenClawGlobalSkillsDir(
   homeDir = home,
@@ -29,6 +44,27 @@ export function getOpenClawGlobalSkillsDir(
     return join(homeDir, '.moltbot/skills');
   }
   return join(homeDir, '.openclaw/skills');
+}
+
+export function isZCodeInstalled(
+  homeDir = home,
+  pathExists: (path: string) => boolean = existsSync
+) {
+  return pathExists(join(homeDir, '.zcode')) || pathExists('/Applications/ZCode.app');
+}
+
+export function isKimchiInstalled(
+  homeDir = home,
+  pathExists: (path: string) => boolean = existsSync
+) {
+  return pathExists(join(homeDir, '.config', 'kimchi'));
+}
+
+export function isMiniMaxCodeInstalled(
+  homeDir = home,
+  pathExists: (path: string) => boolean = existsSync
+) {
+  return pathExists(join(homeDir, '.minimax')) || pathExists('/Applications/MiniMax Code.app');
 }
 
 export const agents: Record<AgentType, AgentConfig> = {
@@ -262,6 +298,18 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.factory'));
     },
   },
+  eve: {
+    name: 'eve',
+    displayName: 'Eve',
+    skillsDir: 'agent/skills',
+    globalSkillsDir: undefined,
+    detectInstalled: async () => {
+      const cwd = process.cwd();
+      return (
+        existsSync(join(cwd, 'agent')) && packageJsonHasDependency(join(cwd, 'package.json'), 'eve')
+      );
+    },
+  },
   firebender: {
     name: 'firebender',
     displayName: 'Firebender',
@@ -306,6 +354,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(configHome, 'goose/skills'),
     detectInstalled: async () => {
       return existsSync(join(configHome, 'goose'));
+    },
+  },
+  grok: {
+    name: 'grok',
+    displayName: 'Grok Build',
+    skillsDir: '.grok/skills',
+    globalSkillsDir: join(grokHome, 'skills'),
+    detectInstalled: async () => {
+      return existsSync(grokHome);
     },
   },
   'hermes-agent': {
@@ -362,6 +419,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.kilocode'));
     },
   },
+  kimchi: {
+    name: 'kimchi',
+    displayName: 'Kimchi',
+    skillsDir: '.kimchi/skills',
+    globalSkillsDir: join(home, '.config', 'kimchi', 'harness', 'skills'),
+    detectInstalled: async () => {
+      return isKimchiInstalled();
+    },
+  },
   'kimi-code-cli': {
     name: 'kimi-code-cli',
     displayName: 'Kimi Code CLI',
@@ -415,6 +481,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.mcpjam/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.mcpjam'));
+    },
+  },
+  'minimax-code': {
+    name: 'minimax-code',
+    displayName: 'MiniMax Code',
+    skillsDir: '.minimax/skills',
+    globalSkillsDir: join(home, '.minimax/skills'),
+    detectInstalled: async () => {
+      return isMiniMaxCodeInstalled();
     },
   },
   'mistral-vibe': {
@@ -621,6 +696,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       );
     },
   },
+  zcode: {
+    name: 'zcode',
+    displayName: 'ZCode',
+    skillsDir: '.zcode/skills',
+    globalSkillsDir: join(home, '.zcode/skills'),
+    detectInstalled: async () => {
+      return isZCodeInstalled();
+    },
+  },
   zencoder: {
     name: 'zencoder',
     displayName: 'Zencoder',
@@ -701,6 +785,36 @@ export async function detectInstalledAgents(): Promise<AgentType[]> {
 
 export function getAgentConfig(type: AgentType): AgentConfig {
   return agents[type];
+}
+
+/**
+ * Directory (relative to an Eve project root) that holds subagents.
+ * Each subagent owns its own skills at `agent/subagents/<name>/skills`,
+ * mirroring the root agent's `agent/skills`.
+ */
+export const EVE_SUBAGENTS_DIR = join('agent', 'subagents');
+
+/**
+ * Discover the names of Eve subagents in a project.
+ *
+ * Eve supports subagents that each have their own skills directory at
+ * `agent/subagents/<name>/skills`. This returns the `<name>` of every
+ * subagent directory found under `agent/subagents/`, sorted alphabetically.
+ * Returns an empty list when the directory doesn't exist or can't be read.
+ */
+export function getEveSubagents(cwd: string = process.cwd()): string[] {
+  const dir = join(cwd, EVE_SUBAGENTS_DIR);
+  if (!existsSync(dir)) {
+    return [];
+  }
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort();
+  } catch {
+    return [];
+  }
 }
 
 /**

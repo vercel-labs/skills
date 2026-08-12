@@ -4,8 +4,10 @@ import { mkdtemp, mkdir, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { isGitHubHost } from './github-host.ts';
 
 const DEFAULT_CLONE_TIMEOUT_MS = 300_000; // 5 minutes
+const ALLOWED_GIT_PROTOCOLS = 'https:http:ssh:git:file';
 const CLONE_TIMEOUT_MS = (() => {
   const raw = process.env.SKILLS_CLONE_TIMEOUT_MS;
   if (!raw) return DEFAULT_CLONE_TIMEOUT_MS;
@@ -64,9 +66,9 @@ async function cloneAtSha(
   url: string,
   sha: string,
   tempDir: string,
-  extraEnv?: NodeJS.ProcessEnv
+  sshCommand?: string
 ): Promise<void> {
-  const git = createGitClient(extraEnv);
+  const git = createGitClient(sshCommand);
   await git.cwd(tempDir);
   await git.init();
   await git.addRemote('origin', url);
@@ -96,21 +98,22 @@ export class GitCloneError extends Error {
 }
 
 export function parseGitHubRepoUrl(url: string): GitHubRepoInfo | null {
-  const sshMatch = url.match(/^git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?$/i);
-  if (sshMatch) {
-    const owner = sshMatch[1]!;
-    const repo = sshMatch[2]!;
+  const sshMatch = url.match(/^git@([^:]+):([^/]+)\/([^/]+?)(?:\.git)?$/i);
+  if (sshMatch && isGitHubHost(sshMatch[1]!)) {
+    const host = sshMatch[1]!;
+    const owner = sshMatch[2]!;
+    const repo = sshMatch[3]!;
     return {
       owner,
       repo,
       slug: `${owner}/${repo}`,
-      sshUrl: `git@github.com:${owner}/${repo}.git`,
+      sshUrl: `git@${host}:${owner}/${repo}.git`,
     };
   }
 
   try {
     const parsed = new URL(url);
-    if (parsed.hostname !== 'github.com') return null;
+    if (!isGitHubHost(parsed.host)) return null;
 
     const match = parsed.pathname.match(/^\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/);
     if (!match) return null;
@@ -121,7 +124,7 @@ export function parseGitHubRepoUrl(url: string): GitHubRepoInfo | null {
       owner,
       repo,
       slug: `${owner}/${repo}`,
-      sshUrl: `git@github.com:${owner}/${repo}.git`,
+      sshUrl: `git@${parsed.host}:${owner}/${repo}.git`,
     };
   } catch {
     return null;
@@ -131,7 +134,7 @@ export function parseGitHubRepoUrl(url: string): GitHubRepoInfo | null {
 export function isGitHubHttpsCloneUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
-    return parsed.protocol === 'https:' && parsed.hostname === 'github.com';
+    return parsed.protocol === 'https:' && isGitHubHost(parsed.host);
   } catch {
     return false;
   }
@@ -158,17 +161,9 @@ function isAuthFailure(message: string): boolean {
   );
 }
 
-function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
-  return simpleGit({
+function createGitClient(sshCommand?: string) {
+  const git = simpleGit({
     timeout: { block: CLONE_TIMEOUT_MS },
-    env: {
-      ...process.env,
-      GIT_TERMINAL_PROMPT: '0',
-      // When git-lfs IS installed, tell it not to download LFS content
-      // during checkout. See #952 for context and empirical impact.
-      GIT_LFS_SKIP_SMUDGE: '1',
-      ...extraEnv,
-    },
     // When git-lfs is NOT installed, GIT_LFS_SKIP_SMUDGE has no effect —
     // git sees `filter=lfs` in .gitattributes, tries to run
     // `git-lfs filter-process`, and aborts the checkout with:
@@ -188,7 +183,50 @@ function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
       'filter.lfs.clean=',
       'filter.lfs.process=',
     ],
+    // simple-git v3.36+ rejects all `filter.*` configuration by default.
+    // These values are hard-coded above and only disable the LFS filter for
+    // this clone; no caller-controlled filter command is ever allowed.
+    //
+    // Calling `.env()` below replaces simple-git's normally inherited process
+    // environment. Preserve that existing Git behavior for credentials,
+    // configuration, SSH, proxies, editors, pagers, and related tooling. These
+    // allowances apply only to trusted environment variables already controlled
+    // by the caller (plus the hard-coded SSH fallback). This client is used only
+    // for clone with fixed options; the clone URL and ref cannot configure them.
+    unsafe: {
+      allowUnsafeAlias: true,
+      allowUnsafeAskPass: true,
+      allowUnsafeConfigEnvCount: true,
+      allowUnsafeConfigPaths: true,
+      allowUnsafeCredentialHelper: true,
+      allowUnsafeDiffExternal: true,
+      allowUnsafeDiffTextConv: true,
+      allowUnsafeEditor: true,
+      allowUnsafeFilter: true,
+      allowUnsafeFsMonitor: true,
+      allowUnsafeGpgProgram: true,
+      allowUnsafeGitProxy: true,
+      allowUnsafeHooksPath: true,
+      allowUnsafeMergeDriver: true,
+      allowUnsafePack: true,
+      allowUnsafePager: true,
+      allowUnsafeProtocolOverride: true,
+      allowUnsafeSshCommand: true,
+      allowUnsafeTemplateDir: true,
+    },
   });
+
+  git.env({
+    ...process.env,
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_ALLOW_PROTOCOL: ALLOWED_GIT_PROTOCOLS,
+    // When git-lfs IS installed, tell it not to download LFS content
+    // during checkout. See #952 for context and empirical impact.
+    GIT_LFS_SKIP_SMUDGE: '1',
+    ...(sshCommand ? { GIT_SSH_COMMAND: sshCommand } : {}),
+  });
+
+  return git;
 }
 
 async function resetTempDir(dir: string): Promise<void> {
@@ -198,9 +236,10 @@ async function resetTempDir(dir: string): Promise<void> {
 
 async function tryGhClone(repo: GitHubRepoInfo, tempDir: string, ref?: string): Promise<boolean> {
   let cloneTarget = repo.slug;
+  const host = repo.sshUrl.match(/^git@([^:]+):/)?.[1] || 'github.com';
 
   try {
-    const { stdout, stderr } = await execFileAsync('gh', ['auth', 'status', '-h', 'github.com'], {
+    const { stdout, stderr } = await execFileAsync('gh', ['auth', 'status', '-h', host], {
       timeout: 5000,
       env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
     });
@@ -215,19 +254,24 @@ async function tryGhClone(repo: GitHubRepoInfo, tempDir: string, ref?: string): 
   const gitFlags = ref ? ['--depth=1', '--branch', ref] : ['--depth=1'];
   await execFileAsync('gh', ['repo', 'clone', cloneTarget, tempDir, '--', ...gitFlags], {
     timeout: CLONE_TIMEOUT_MS,
-    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    env: {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_ALLOW_PROTOCOL: ALLOWED_GIT_PROTOCOLS,
+    },
   });
   return true;
 }
 
 function buildGitHubAuthError(url: string, repo: GitHubRepoInfo | null, message: string): string {
+  const host = repo?.sshUrl.match(/^git@([^:]+):/)?.[1] || 'github.com';
   if (repo && isGitHubSsoAuthError(message)) {
     return (
       `GitHub blocked HTTPS access to ${url} because the organization enforces SAML SSO.\n` +
       `  skills tried your existing git credentials and available fallbacks, but none succeeded.\n` +
       `  - Re-authorize your GitHub credentials/app for that org's SSO policy\n` +
       `  - Or rerun with SSH: npx skills add ${repo.sshUrl}\n` +
-      `  - Verify access with: gh auth status -h github.com or ssh -T git@github.com`
+      `  - Verify access with: gh auth status -h ${host} or ssh -T git@${host}`
     );
   }
 
@@ -236,7 +280,7 @@ function buildGitHubAuthError(url: string, repo: GitHubRepoInfo | null, message:
       `Authentication failed for ${url}.\n` +
       `  - For private repos, ensure you have access\n` +
       `  - Retry with SSH: npx skills add ${repo.sshUrl}\n` +
-      `  - Check access with: gh auth status -h github.com or ssh -T git@github.com`
+      `  - Check access with: gh auth status -h ${host} or ssh -T git@${host}`
     );
   }
 
@@ -249,6 +293,10 @@ function buildGitHubAuthError(url: string, repo: GitHubRepoInfo | null, message:
 }
 
 export async function cloneRepo(url: string, ref?: string): Promise<string> {
+  if (/^ext::/i.test(url)) {
+    throw new GitCloneError('Unsupported Git transport: ext', url);
+  }
+
   const tempDir = await mkdtemp(join(tmpdir(), 'skills-'));
   const cloneOptions = ref ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
   const refCanBeSha = !!ref && isCommitSha(ref);
@@ -305,16 +353,14 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
 
       try {
         await resetTempDir(tempDir);
-        const sshEnv = {
-          GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes',
-        };
+        const sshCommand = process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes';
         try {
-          await createGitClient(sshEnv).clone(repo.sshUrl, tempDir, cloneOptions);
+          await createGitClient(sshCommand).clone(repo.sshUrl, tempDir, cloneOptions);
         } catch (sshError) {
           const sshMessage = sshError instanceof Error ? sshError.message : String(sshError);
           if (refCanBeSha && isMissingRefError(sshMessage)) {
             await resetTempDir(tempDir);
-            await cloneAtSha(repo.sshUrl, ref!, tempDir, sshEnv);
+            await cloneAtSha(repo.sshUrl, ref!, tempDir, sshCommand);
           } else {
             throw sshError;
           }
@@ -332,6 +378,40 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
     }
 
     throw new GitCloneError(`Failed to clone ${url}: ${errorMessage}`, url, false, false);
+  }
+}
+
+/**
+ * Resolve the Git tree object for a locked skill path in a cloned repository.
+ * This matches the folder SHA returned by GitHub's Trees API.
+ */
+export async function getGitTreeHash(repoDir: string, skillPath: string): Promise<string | null> {
+  const normalizedPath = skillPath.replace(/\\/g, '/');
+  const segments = normalizedPath.split('/');
+  segments.pop();
+  const folderPath = segments.join('/');
+  const revision = folderPath ? `HEAD:${folderPath}` : 'HEAD^{tree}';
+
+  try {
+    const stdout = await new Promise<string>((resolve, reject) => {
+      execFile(
+        'git',
+        ['-C', repoDir, 'rev-parse', '--verify', '--end-of-options', revision],
+        {
+          encoding: 'utf8',
+          timeout: CLONE_TIMEOUT_MS,
+          env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' },
+        },
+        (error, output) => {
+          if (error) reject(error);
+          else resolve(output);
+        }
+      );
+    });
+    const hash = stdout.trim();
+    return /^[0-9a-f]{40}$/i.test(hash) ? hash.toLowerCase() : null;
+  } catch {
+    return null;
   }
 }
 

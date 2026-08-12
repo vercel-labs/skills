@@ -1,6 +1,6 @@
 {
   "name": "skills",
-  "version": "1.5.11",
+  "version": "1.5.22",
   "description": "The open agent skills ecosystem",
   "type": "module",
   "bin": {
@@ -61,23 +61,27 @@
     "devin",
     "dexto",
     "droid",
+    "eve",
     "firebender",
     "forgecode",
     "gemini-cli",
     "github-copilot",
     "goose",
+    "grok",
     "hermes-agent",
     "inference-sh",
     "jazz",
     "junie",
     "iflow-cli",
     "kilo",
+    "kimchi",
     "kimi-code-cli",
     "kiro-cli",
     "kode",
     "lingma",
     "loaf",
     "mcpjam",
+    "minimax-code",
     "mistral-vibe",
     "moxby",
     "mux",
@@ -100,6 +104,7 @@
     "warp",
     "windsurf",
     "zed",
+    "zcode",
     "zencoder",
     "zenflow",
     "neovate",
@@ -119,7 +124,7 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "@clack/prompts": "^0.11.0",
+    "@clack/prompts": "^1.2.0",
     "@types/bun": "latest",
     "@types/node": "^22.10.0",
     "@vercel/detect-agent": "^1.2.1",
@@ -128,16 +133,17 @@
     "obuild": "^0.4.22",
     "picocolors": "^1.1.1",
     "prettier": "^3.8.1",
-    "simple-git": "^3.27.0",
+    "simple-git": "^3.36.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.17",
     "xdg-basedir": "^5.1.0"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22.20.0"
   },
   "packageManager": "pnpm@10.17.1",
   "dependencies": {
+    "tar": "^7.5.20",
     "yaml": "^2.8.3"
   }
 }
