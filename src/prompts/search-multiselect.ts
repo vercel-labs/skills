@@ -145,6 +145,42 @@ export function countVisualRowsForLines(lines: string[], columns: number | undef
   return lines.reduce((sum, line) => sum + visualRowsForLine(line, cols), 0);
 }
 
+/**
+ * Viewport height in rows used to size prompt frames. Non-TTY streams report
+ * no size, so fall back to a conservative default (mirrors the columns fallback).
+ */
+export function resolveViewportRows(rows: number | undefined): number {
+  return rows !== undefined && rows > 0 ? rows : 20;
+}
+
+export interface VisibleWindow {
+  windowSize: number;
+  showIndicator: boolean;
+}
+
+/**
+ * Clamp the entry window so the frame fits the viewport: maxVisible acts as a
+ * ceiling, not a fixed count. When entries overflow the window, one row is
+ * reserved up front for the "↑ N more / ↓ N more" indicator so rendering it can
+ * never itself push the frame past the viewport. The result depends only on
+ * counts and available rows — never the cursor — so the frame height stays
+ * stable while navigating.
+ */
+export function resolveVisibleWindow(
+  entryCount: number,
+  maxVisible: number,
+  availableRows: number,
+  minVisible = 5
+): VisibleWindow {
+  if (entryCount === 0) return { windowSize: 0, showIndicator: false };
+  if (entryCount <= Math.min(maxVisible, availableRows)) {
+    return { windowSize: entryCount, showIndicator: false };
+  }
+  const floor = Math.min(Math.max(1, minVisible), entryCount);
+  const windowSize = Math.max(floor, Math.min(maxVisible, availableRows - 1));
+  return { windowSize, showIndicator: true };
+}
+
 function truncateToWidth(text: string, width: number): string {
   let truncated = '';
   for (const char of text) {
@@ -319,41 +355,98 @@ export async function searchMultiselect<T>(
       lines.push(`${icon}  ${pc.bold(message)}`);
 
       if (state === 'active') {
+        const columns =
+          process.stdout.columns && process.stdout.columns > 0 ? process.stdout.columns : 80;
+
+        const preLines: string[] = [];
+
         // Locked section (universal agents)
         if (lockedSection && lockedSection.items.length > 0) {
-          lines.push(`${S_BAR}`);
+          preLines.push(`${S_BAR}`);
           const lockedTitle = `${pc.bold(lockedSection.title)} ${pc.dim('── always included')}`;
-          lines.push(`${S_BAR}  ${S_BAR_H}${S_BAR_H} ${lockedTitle} ${S_BAR_H.repeat(12)}`);
+          preLines.push(`${S_BAR}  ${S_BAR_H}${S_BAR_H} ${lockedTitle} ${S_BAR_H.repeat(12)}`);
           for (const item of lockedSection.items) {
-            lines.push(`${S_BAR}    ${S_BULLET} ${pc.bold(item.label)}`);
+            preLines.push(`${S_BAR}    ${S_BULLET} ${pc.bold(item.label)}`);
           }
           if (lockedSection.hiddenCount && lockedSection.hiddenCount > 0) {
-            lines.push(`${S_BAR}    ${pc.dim(`…and ${lockedSection.hiddenCount} more`)}`);
+            preLines.push(`${S_BAR}    ${pc.dim(`…and ${lockedSection.hiddenCount} more`)}`);
           }
-          lines.push(`${S_BAR}`);
-          lines.push(
+          preLines.push(`${S_BAR}`);
+          preLines.push(
             `${S_BAR}  ${S_BAR_H}${S_BAR_H} ${pc.bold('Additional agents')} ${S_BAR_H.repeat(29)}`
           );
         }
 
         if (searchable) {
           const searchLine = `${S_BAR}  ${pc.dim('Search:')} ${query}${pc.inverse(' ')}`;
-          lines.push(searchLine);
-          lines.push(`${S_BAR}  ${pc.dim('↑↓ move, space select, enter confirm')}`);
-          lines.push(`${S_BAR}`);
+          preLines.push(searchLine);
+          preLines.push(`${S_BAR}  ${pc.dim('↑↓ move, space select, enter confirm')}`);
+          preLines.push(`${S_BAR}`);
         }
 
-        // Items
-        const visibleStart = Math.max(
-          0,
-          Math.min(cursor - Math.floor(maxVisible / 2), entries.length - maxVisible)
-        );
-        const visibleEnd = Math.min(entries.length, visibleStart + maxVisible);
-        const visibleEntries = entries.slice(visibleStart, visibleEnd);
+        // The detail pane depends on the highlighted entry but not on the item
+        // window, so trailing chrome can be composed before the window is sized.
+        const composePostLines = (includeDetail: boolean): string[] => {
+          const postLines: string[] = [];
 
-        if (filtered.length === 0) {
-          lines.push(`${S_BAR}  ${pc.dim('No matches found')}`);
-        } else {
+          if (showDetail && includeDetail) {
+            const entry = entries[cursor];
+            const detail =
+              entry?.type === 'group'
+                ? `Select all ${entry.items.length} skills in ${entry.group}.`
+                : entry?.item.detail;
+            // Keep a small margin for the left rail and terminal wrapping behavior.
+            const detailWidth = Math.max(1, columns - 5);
+            postLines.push(`${S_BAR}`);
+            postLines.push(`${S_BAR}  ${pc.dim('Description')}`);
+            for (const line of formatDetailLines(detail, detailWidth, detailLines)) {
+              postLines.push(`${S_BAR}  ${pc.dim(line)}`);
+            }
+          }
+
+          if (showSelectedSummary) {
+            // Selected summary (include locked items)
+            postLines.push(`${S_BAR}`);
+            const allSelectedLabels = [
+              ...(lockedSection ? lockedSection.items.map((i) => i.label) : []),
+              ...items.filter((item) => selected.has(item.value)).map((item) => item.label),
+            ];
+            if (allSelectedLabels.length === 0) {
+              postLines.push(`${S_BAR}  ${pc.dim('Selected: (none)')}`);
+            } else {
+              const summary =
+                allSelectedLabels.length <= 3
+                  ? allSelectedLabels.join(', ')
+                  : `${allSelectedLabels.slice(0, 3).join(', ')} +${allSelectedLabels.length - 3} more`;
+              postLines.push(`${S_BAR}  ${pc.green('Selected:')} ${summary}`);
+            }
+          }
+
+          if (!searchable) {
+            postLines.push(`${S_BAR}`);
+            postLines.push(
+              `${S_BAR}  ${pc.dim('↑↓ move, ←→ collapse/expand, space select, enter confirm')}`
+            );
+          }
+          postLines.push(`${pc.dim('└')}`);
+          return postLines;
+        };
+
+        const composeEntryLines = (windowSize: number): string[] => {
+          const entryLines: string[] = [];
+
+          if (filtered.length === 0) {
+            entryLines.push(`${S_BAR}  ${pc.dim('No matches found')}`);
+            return entryLines;
+          }
+
+          const visibleStart = Math.max(
+            0,
+            Math.min(cursor - Math.floor(windowSize / 2), entries.length - windowSize)
+          );
+          const visibleEnd = Math.min(entries.length, visibleStart + windowSize);
+          const visibleEntries = entries.slice(visibleStart, visibleEnd);
+
           for (let i = 0; i < visibleEntries.length; i++) {
             const entry = visibleEntries[i]!;
             const actualIndex = visibleStart + i;
@@ -370,7 +463,7 @@ export async function searchMultiselect<T>(
               const label = isCursor ? pc.underline(pc.bold(entry.group)) : pc.bold(entry.group);
               const prefix = isCursor ? pc.cyan('❯') : ' ';
               const disclosure = pc.dim(entry.collapsed ? '▸' : '▾');
-              lines.push(`${S_BAR} ${prefix} ${disclosure} ${radio} ${label}`);
+              entryLines.push(`${S_BAR} ${prefix} ${disclosure} ${radio} ${label}`);
               continue;
             }
 
@@ -385,7 +478,7 @@ export async function searchMultiselect<T>(
               selectGroups && item.group ? filtered.filter((i) => i.group === item.group) : [];
             const isLastInGroup = groupItems.at(-1) === item;
             const tree = groupItems.length > 0 ? `${pc.dim(isLastInGroup ? '└─' : '├─')} ` : '';
-            lines.push(`${S_BAR} ${prefix} ${tree}${radio} ${label}${hint}`);
+            entryLines.push(`${S_BAR} ${prefix} ${tree}${radio} ${label}${hint}`);
           }
 
           // Show count if more items
@@ -395,52 +488,59 @@ export async function searchMultiselect<T>(
             const parts: string[] = [];
             if (hiddenBefore > 0) parts.push(`↑ ${hiddenBefore} more`);
             if (hiddenAfter > 0) parts.push(`↓ ${hiddenAfter} more`);
-            lines.push(`${S_BAR}  ${pc.dim(parts.join('  '))}`);
+            entryLines.push(`${S_BAR}  ${pc.dim(parts.join('  '))}`);
           }
-        }
+          return entryLines;
+        };
 
-        if (showDetail) {
-          const entry = entries[cursor];
-          const detail =
-            entry?.type === 'group'
-              ? `Select all ${entry.items.length} skills in ${entry.group}.`
-              : entry?.item.detail;
-          const columns =
-            process.stdout.columns && process.stdout.columns > 0 ? process.stdout.columns : 80;
-          // Keep a small margin for the left rail and terminal wrapping behavior.
-          const detailWidth = Math.max(1, columns - 5);
-          lines.push(`${S_BAR}`);
-          lines.push(`${S_BAR}  ${pc.dim('Description')}`);
-          for (const line of formatDetailLines(detail, detailWidth, detailLines)) {
-            lines.push(`${S_BAR}  ${pc.dim(line)}`);
-          }
-        }
+        // The trailing newline written after each frame consumes one extra
+        // viewport row, so the frame itself may use at most rows - 1. A frame
+        // taller than that scrolls the terminal and the cursor-up erase can no
+        // longer reach the frame's first row, stacking stale frames on redraw.
+        const frameBudget = resolveViewportRows(process.stdout.rows) - 1;
 
-        if (showSelectedSummary) {
-          // Selected summary (include locked items)
-          lines.push(`${S_BAR}`);
-          const allSelectedLabels = [
-            ...(lockedSection ? lockedSection.items.map((i) => i.label) : []),
-            ...items.filter((item) => selected.has(item.value)).map((item) => item.label),
-          ];
-          if (allSelectedLabels.length === 0) {
-            lines.push(`${S_BAR}  ${pc.dim('Selected: (none)')}`);
-          } else {
-            const summary =
-              allSelectedLabels.length <= 3
-                ? allSelectedLabels.join(', ')
-                : `${allSelectedLabels.slice(0, 3).join(', ')} +${allSelectedLabels.length - 3} more`;
-            lines.push(`${S_BAR}  ${pc.green('Selected:')} ${summary}`);
-          }
-        }
+        // Fitting attempts, most complete frame first: shrink the item window
+        // toward its floor, then trade the detail pane for entry rows, then
+        // lower the floor. The last attempt always renders, clamped erase
+        // bounds the damage on pathologically short terminals.
+        const attempts = [
+          { includeDetail: true, minVisible: 5 },
+          { includeDetail: false, minVisible: 5 },
+          { includeDetail: false, minVisible: 3 },
+        ];
 
-        if (!searchable) {
-          lines.push(`${S_BAR}`);
-          lines.push(
-            `${S_BAR}  ${pc.dim('↑↓ move, ←→ collapse/expand, space select, enter confirm')}`
+        for (const attempt of attempts) {
+          const postLines = composePostLines(attempt.includeDetail);
+          const chromeRows = countVisualRowsForLines(
+            [...lines, ...preLines, ...postLines],
+            columns
           );
+          const availableRows = frameBudget - chromeRows;
+          let { windowSize } = resolveVisibleWindow(
+            entries.length,
+            maxVisible,
+            availableRows,
+            attempt.minVisible
+          );
+          let entryLines = composeEntryLines(windowSize);
+
+          // Soft-wrapped labels can occupy more rows than the entry count;
+          // shrink the window until the measured rows fit.
+          const floor = Math.min(Math.max(1, attempt.minVisible), Math.max(1, entries.length));
+          while (
+            windowSize > floor &&
+            countVisualRowsForLines(entryLines, columns) > Math.max(0, availableRows)
+          ) {
+            windowSize -= 1;
+            entryLines = composeEntryLines(windowSize);
+          }
+
+          const fits = chromeRows + countVisualRowsForLines(entryLines, columns) <= frameBudget;
+          if (fits || attempt === attempts[attempts.length - 1]) {
+            lines.push(...preLines, ...entryLines, ...postLines);
+            break;
+          }
         }
-        lines.push(`${pc.dim('└')}`);
       } else if (state === 'submit') {
         // Final state - show what was selected (including locked)
         const allSelectedLabels = [
@@ -454,7 +554,10 @@ export async function searchMultiselect<T>(
 
       // Write the clear sequence and next frame together. Clearing individual rows first
       // makes larger prompts visibly flash between redraws in some terminals.
-      const clearPreviousFrame = lastRenderHeight > 0 ? `\x1b[${lastRenderHeight}A\x1b[J` : '';
+      // The erase distance is capped at the viewport: cursor-up cannot travel
+      // past the top margin, and rows above it already scrolled out of reach.
+      const eraseRows = Math.min(lastRenderHeight, resolveViewportRows(process.stdout.rows) - 1);
+      const clearPreviousFrame = eraseRows > 0 ? `\x1b[${eraseRows}A\x1b[J` : '';
       process.stdout.write(clearPreviousFrame + lines.join('\n') + '\n');
       // Use wrapped row count: logical lines can span multiple terminal rows when hints
       // or labels exceed column width. Using lines.length alone under-counts and fails to
@@ -462,8 +565,15 @@ export async function searchMultiselect<T>(
       lastRenderHeight = countVisualRowsForLines(lines, process.stdout.columns);
     };
 
+    const resizeHandler = (): void => {
+      // The previous frame may have rewrapped under the new dimensions; repaint
+      // and let the clamped erase recover what is still inside the viewport.
+      render();
+    };
+
     const cleanup = (): void => {
       process.stdin.removeListener('keypress', keypressHandler);
+      process.stdout.removeListener('resize', resizeHandler);
       if (process.stdin.isTTY) {
         process.stdin.setRawMode(false);
       }
@@ -562,6 +672,7 @@ export async function searchMultiselect<T>(
     };
 
     process.stdin.on('keypress', keypressHandler);
+    process.stdout.on('resize', resizeHandler);
 
     // Initial render
     render();
