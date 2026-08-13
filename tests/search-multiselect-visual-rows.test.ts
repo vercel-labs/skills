@@ -5,6 +5,8 @@ import {
   buildSearchEntries,
   countVisualRowsForLines,
   formatDetailLines,
+  resolveViewportRows,
+  resolveVisibleWindow,
   toggleSearchEntry,
   visualRowsForLine,
 } from '../src/prompts/search-multiselect.ts';
@@ -127,5 +129,43 @@ describe('searchMultiselect visual row counting', () => {
 
     toggleSearchEntry(selected, entries[0]);
     expect(selected).toEqual(new Set());
+  });
+});
+
+describe('resolveViewportRows', () => {
+  it('uses the reported terminal height when available', () => {
+    expect(resolveViewportRows(24)).toBe(24);
+  });
+
+  it('falls back to a conservative default without a reported height', () => {
+    expect(resolveViewportRows(undefined)).toBe(20);
+    expect(resolveViewportRows(0)).toBe(20);
+  });
+});
+
+describe('resolveVisibleWindow', () => {
+  it('shows every entry when the list fits the ceiling and the viewport', () => {
+    expect(resolveVisibleWindow(6, 8, 10)).toEqual({ windowSize: 6, showIndicator: false });
+  });
+
+  it('caps the window at maxVisible when the viewport has room', () => {
+    expect(resolveVisibleWindow(40, 20, 30)).toEqual({ windowSize: 20, showIndicator: true });
+  });
+
+  it('reserves one row for the overflow indicator', () => {
+    expect(resolveVisibleWindow(40, 20, 10)).toEqual({ windowSize: 9, showIndicator: true });
+  });
+
+  it('never shrinks the window below the floor', () => {
+    expect(resolveVisibleWindow(40, 20, 3)).toEqual({ windowSize: 5, showIndicator: true });
+    expect(resolveVisibleWindow(40, 20, 3, 3)).toEqual({ windowSize: 3, showIndicator: true });
+  });
+
+  it('lowers the floor to the entry count for short lists', () => {
+    expect(resolveVisibleWindow(4, 8, 2)).toEqual({ windowSize: 4, showIndicator: true });
+  });
+
+  it('handles empty entry lists', () => {
+    expect(resolveVisibleWindow(0, 8, 10)).toEqual({ windowSize: 0, showIndicator: false });
   });
 });
