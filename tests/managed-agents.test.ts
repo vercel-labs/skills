@@ -22,6 +22,8 @@ import {
   type AnthropicAuth,
 } from '../src/managed-agents.ts';
 import { agents, getWildcardAgents, isVirtualAgent } from '../src/agents.ts';
+import { parseAddOptions } from '../src/add.ts';
+import { buildManagedAgentsArgs } from '../src/update.ts';
 
 const API_KEY_AUTH: AnthropicAuth = {
   headers: { 'x-api-key': 'sk-ant-test' },
@@ -323,5 +325,137 @@ describe('uploadSkillToManagedAgents', () => {
     expect(String(fetchMock.mock.calls[0]![0])).toBe(
       'https://api.staging.example/v1/skills?beta=true'
     );
+  });
+});
+
+describe('uploadSkillToManagedAgents with a known skill id', () => {
+  const fetchMock = vi.fn<typeof fetch>();
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  const SKILL = { name: 'My Skill', files: [{ path: 'SKILL.md', content: '#' }] };
+
+  it('uploads a new version directly to the known skill', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { skill_id: 'skill_01A', version: '789' }));
+
+    const result = await uploadSkillToManagedAgents(SKILL, API_KEY_AUTH, 'skill_01A');
+
+    expect(result).toEqual({ skillId: 'skill_01A', version: '789', action: 'updated' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]![0])).toBe(
+      'https://api.anthropic.com/v1/skills/skill_01A/versions?beta=true'
+    );
+    // Version uploads carry no display_title
+    const form = fetchMock.mock.calls[0]![1]?.body as FormData;
+    expect(form.get('display_title')).toBeNull();
+  });
+
+  it('falls back to the create flow when the known id is gone', async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(404, {
+          type: 'error',
+          error: { type: 'not_found_error', message: 'skill not found' },
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, { id: 'skill_02B', display_title: 'My Skill', latest_version: '1' })
+      );
+
+    const result = await uploadSkillToManagedAgents(SKILL, API_KEY_AUTH, 'skill_gone');
+
+    expect(result).toEqual({ skillId: 'skill_02B', version: '1', action: 'created' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]![0])).toBe(
+      'https://api.anthropic.com/v1/skills?beta=true'
+    );
+  });
+
+  it('falls back to the create flow when the known id is malformed (400)', async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(400, {
+          type: 'error',
+          error: { type: 'invalid_request_error', message: 'invalid skill id' },
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, { id: 'skill_02B', display_title: 'My Skill', latest_version: '1' })
+      );
+
+    const result = await uploadSkillToManagedAgents(SKILL, API_KEY_AUTH, 'not-a-skill-id');
+
+    expect(result).toEqual({ skillId: 'skill_02B', version: '1', action: 'created' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('propagates non-recoverable errors from the fast path without falling back', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(403, {
+        type: 'error',
+        error: { type: 'permission_error', message: 'forbidden' },
+      })
+    );
+
+    await expect(uploadSkillToManagedAgents(SKILL, API_KEY_AUTH, 'skill_01A')).rejects.toThrow(
+      ManagedAgentsApiError
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('parseAddOptions --managed-agents', () => {
+  it('parses the additive flag', () => {
+    const { options, errors } = parseAddOptions(['owner/repo', '--managed-agents', '-y']);
+    expect(errors).toEqual([]);
+    expect(options.managedAgents).toBe(true);
+    expect(options.yes).toBe(true);
+  });
+
+  it('is off by default', () => {
+    const { options } = parseAddOptions(['owner/repo']);
+    expect(options.managedAgents).toBeUndefined();
+  });
+});
+
+describe('buildManagedAgentsArgs', () => {
+  let dir: string;
+  let prevCwd: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'skills-update-'));
+    prevCwd = process.cwd();
+    process.chdir(dir);
+  });
+
+  afterEach(async () => {
+    process.chdir(prevCwd);
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('returns nothing for entries without a managed skill id', async () => {
+    expect(await buildManagedAgentsArgs({}, 'my-skill', false)).toEqual([]);
+  });
+
+  it('targets the virtual agent directly for upload-only skills', async () => {
+    expect(
+      await buildManagedAgentsArgs({ managedSkillId: 'skill_01A' }, 'my-skill', false)
+    ).toEqual(['--agent', 'claude-managed-agents']);
+  });
+
+  it('uses the additive flag when the skill is also installed on the filesystem', async () => {
+    await mkdir(join(dir, '.claude', 'skills', 'my-skill'), { recursive: true });
+    await writeFile(join(dir, '.claude', 'skills', 'my-skill', 'SKILL.md'), '# my-skill');
+    expect(
+      await buildManagedAgentsArgs({ managedSkillId: 'skill_01A' }, 'my-skill', false)
+    ).toEqual(['--managed-agents']);
   });
 });

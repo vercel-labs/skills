@@ -143,6 +143,8 @@ ${BOLD}Add Options:${RESET}
   --copy                 Copy files instead of symlinking to agent directories
   --metadata <json>      Attach valid JSON to the install telemetry event
   --subagent <names>     Install to Eve subagents (use 'root' for the root agent)
+  --managed-agents       Also upload to Claude Managed Agents on top of the
+                         selected agents (skipped with a warning if no credentials)
   --all                  Shorthand for --skill '*' --agent '*' -y
   --full-depth           Search all subdirectories even when a root SKILL.md exists
 

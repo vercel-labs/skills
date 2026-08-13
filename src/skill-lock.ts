@@ -35,6 +35,12 @@ export interface SkillLockEntry {
   pluginName?: string;
   sourceBaseUrl?: string;
   wellKnownDigest?: string;
+  /**
+   * Anthropic Skills API id (e.g. "skill_01Ab…") recorded when this skill was
+   * uploaded to the Claude Managed Agents target. Lets `update` re-upload a
+   * new version directly instead of re-resolving the skill by display title.
+   */
+  managedSkillId?: string;
 }
 
 /**

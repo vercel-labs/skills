@@ -308,14 +308,35 @@ export interface ManagedSkillUploadResult {
   action: 'created' | 'updated';
 }
 
+async function uploadSkillVersion(
+  skillId: string,
+  directory: string,
+  files: SkillUploadFile[],
+  headers: Record<string, string>
+): Promise<Response> {
+  return fetch(`${getApiBaseUrl()}/v1/skills/${encodeURIComponent(skillId)}/versions?beta=true`, {
+    method: 'POST',
+    headers,
+    body: buildSkillForm(directory, null, files),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+}
+
 /**
  * Upload a skill to the Anthropic Skills API. Creates the skill if it doesn't
  * exist; if a skill with the same display title already exists, uploads the
  * files as a new version of that skill instead.
+ *
+ * When `knownSkillId` (recorded in the lock file by a previous upload) is
+ * provided, a new version is uploaded to that skill directly, skipping the
+ * create attempt and display-title lookup. A 404 for the id (deleted skill,
+ * or credentials now pointing at a different org) falls back to the normal
+ * create-or-version flow.
  */
 export async function uploadSkillToManagedAgents(
   skill: { name: string; files: SkillUploadFile[] },
-  auth: AnthropicAuth
+  auth: AnthropicAuth,
+  knownSkillId?: string
 ): Promise<ManagedSkillUploadResult> {
   if (!skill.files.some((file) => file.path === 'SKILL.md')) {
     throw new Error('Skill is missing a SKILL.md at its root');
@@ -324,6 +345,26 @@ export async function uploadSkillToManagedAgents(
   const directory = sanitizeName(skill.name);
   const headers = buildHeaders(auth);
   const baseUrl = getApiBaseUrl();
+
+  if (knownSkillId) {
+    const response = await uploadSkillVersion(knownSkillId, directory, skill.files, headers);
+    if (response.ok) {
+      const version = (await response.json()) as SkillVersionResponse;
+      return { skillId: version.skill_id, version: version.version, action: 'updated' };
+    }
+    // 404: the skill was deleted or the credentials point at a different
+    // org. 400: the recorded id is malformed (e.g. a hand-edited lock).
+    // Both mean the id is unusable — fall through to the create-or-version
+    // flow, which self-heals the lock; a 400 caused by the files themselves
+    // fails there identically and is surfaced then.
+    if (response.status !== 404 && response.status !== 400) {
+      throw new ManagedAgentsApiError(
+        response.status,
+        await readApiError(response),
+        'Failed to create skill version'
+      );
+    }
+  }
 
   const createResponse = await fetch(`${baseUrl}/v1/skills?beta=true`, {
     method: 'POST',
@@ -351,15 +392,7 @@ export async function uploadSkillToManagedAgents(
     throw new ManagedAgentsApiError(createResponse.status, createError, 'Failed to create skill');
   }
 
-  const versionResponse = await fetch(
-    `${baseUrl}/v1/skills/${encodeURIComponent(existing.id)}/versions?beta=true`,
-    {
-      method: 'POST',
-      headers,
-      body: buildSkillForm(directory, null, skill.files),
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    }
-  );
+  const versionResponse = await uploadSkillVersion(existing.id, directory, skill.files, headers);
 
   if (!versionResponse.ok) {
     throw new ManagedAgentsApiError(

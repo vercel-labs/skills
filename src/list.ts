@@ -92,6 +92,18 @@ export async function runList(args: string[]): Promise<void> {
     }
 
     agentFilter = options.agent as AgentType[];
+
+    // Claude Managed Agents skills live in the Anthropic API, not on disk,
+    // so a listing filtered to that agent would silently show the wrong thing.
+    if (agentFilter.includes('claude-managed-agents')) {
+      console.log(
+        `${YELLOW}Claude Managed Agents skills are managed through the Anthropic API and cannot be listed locally.${RESET}`
+      );
+      agentFilter = agentFilter.filter((a) => a !== 'claude-managed-agents');
+      if (agentFilter.length === 0) {
+        process.exit(1);
+      }
+    }
   }
 
   const installedSkills = await listInstalledSkills({
