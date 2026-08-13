@@ -78,6 +78,18 @@ function getLocalSource(entry: LocalUpdateSourceEntry): string | null {
   return entry.source;
 }
 
+/** Build a cloneable repository URL for project update source checks. */
+export function buildLocalCloneSource(entry: LocalUpdateSourceEntry): string | null {
+  const source = getLocalSource(entry);
+  if (!source) {
+    return null;
+  }
+  if (entry.sourceType === 'github' && isBareShorthand(source)) {
+    return `https://github.com/${source.replace(/\.git$/, '')}.git`;
+  }
+  return source;
+}
+
 export function shouldUseFullDepthForUpdate(entry: LocalUpdateSourceEntry): boolean {
   if (!entry.skillPath) return false;
 

@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [70 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [72 more](#supported-agents).
 <!-- agent-list:end -->
 
 [![skills.sh](https://skills.sh/b/vercel-labs/skills)](https://skills.sh/vercel-labs/skills)
@@ -46,6 +46,28 @@ npx skills add git@github.com:vercel-labs/agent-skills.git
 # Local path
 npx skills add ./my-local-skills
 ```
+
+### Private Repositories
+
+Use the same command for public and private repositories. The CLI uses the authentication already configured for the repository URL:
+
+```bash
+# GitHub shorthand or HTTPS (Git credential helper, GitHub CLI, then SSH fallback)
+npx skills add acme/private-skills
+
+# SSH on GitHub, GitLab, or another Git host
+npx skills add git@github.com:acme/private-skills.git
+npx skills add ssh://git@git.example.com/acme/private-skills.git
+
+# HTTPS on any Git host (uses your configured Git credential helper)
+npx skills add https://git.example.com/acme/private-skills.git
+```
+
+For GitHub HTTPS and shorthand sources, `skills` first uses normal Git credentials. If that fails and GitHub CLI is authenticated, it tries `gh repo clone`, followed by SSH. It does not execute `gh auth token` or copy the stored GitHub CLI credential into the Node.js process.
+
+For GitHub tree lookups, `skills` first tries the API anonymously, then an explicitly supplied environment token, then `gh api`. GitHub CLI applies its own stored authentication and returns only the API response; the credential is never printed to or read by `skills`. If API access still fails, update checks fall back to an authenticated Git clone.
+
+`GITHUB_TOKEN` or `GH_TOKEN` can be set explicitly for GitHub API access, including private repository downloads and update checks. They are optional for installs when Git, GitHub CLI, or SSH authentication is already configured.
 
 ### Options
 
@@ -289,6 +311,7 @@ Skills can be installed to any of these agents:
 | Kode | `kode` | `.kode/skills/` | `~/.kode/skills/` |
 | Lingma | `lingma` | `.lingma/skills/` | `~/.lingma/skills/` |
 | MCPJam | `mcpjam` | `.mcpjam/skills/` | `~/.mcpjam/skills/` |
+| MiniMax Code | `minimax-code` | `.minimax/skills/` | `~/.minimax/skills/` |
 | Mistral Vibe | `mistral-vibe` | `.vibe/skills/` | `~/.vibe/skills/` |
 | Moxby | `moxby` | `.moxby/skills/` | `~/.moxby/skills/` |
 | Mux | `mux` | `.mux/skills/` | `~/.mux/skills/` |
@@ -376,12 +399,13 @@ metadata:
 ### Skill Discovery
 
 The CLI searches for skills in these locations within a repository. Each
-skill container directory is walked one level deep for the common flat
-layout (`skills/<name>/SKILL.md`) and one extra level deep for catalog
-layouts (`skills/<category>/<name>/SKILL.md`). A `SKILL.md` discovered at
-the shallower level shadows anything nested below it. Use `--full-depth`
-to also discover `SKILL.md` files outside these container directories
-(e.g. under `examples/` or `tests/`).
+skill container directory is walked up to three levels deep, covering flat
+layouts (`skills/<name>/SKILL.md`) and catalog layouts with one or two category
+levels (`skills/<category>/<name>/SKILL.md` or
+`skills/<category>/<category>/<name>/SKILL.md`). A `SKILL.md` discovered at a
+shallower level shadows anything nested below it. Use `--full-depth` to also
+discover `SKILL.md` files outside these container directories (e.g. under
+`examples/` or `tests/`).
 
 <!-- skill-discovery:start -->
 - Root directory (if it contains `SKILL.md`)
@@ -421,6 +445,7 @@ to also discover `SKILL.md` files outside these container directories
 - `.kode/skills/`
 - `.lingma/skills/`
 - `.mcpjam/skills/`
+- `.minimax/skills/`
 - `.vibe/skills/`
 - `.moxby/skills/`
 - `.mux/skills/`
@@ -462,7 +487,7 @@ If `.claude-plugin/marketplace.json` or `.claude-plugin/plugin.json` exists, ski
 }
 ```
 
-This enables compatibility with the [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-marketplaces) ecosystem. Skill paths declared in a manifest are searched at their declared depth and are not subject to the depth-2 catalog walk described above.
+This enables compatibility with the [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-marketplaces) ecosystem. Skill paths declared in a manifest are searched at their declared depth and are not subject to the bounded depth-3 catalog walk described above.
 
 If no skills are found in standard locations, a recursive search is performed.
 
@@ -501,6 +526,8 @@ Ensure you have write access to the target directory.
 | `INSTALL_INTERNAL_SKILLS` | Set to `1` or `true` to show and install skills marked as `internal: true` |
 | `DISABLE_TELEMETRY`       | Set to disable anonymous usage telemetry                                   |
 | `DO_NOT_TRACK`            | Alternative way to disable telemetry                                       |
+| `GITHUB_TOKEN`            | Optional explicit token for authenticated GitHub API requests              |
+| `GH_TOKEN`                | Fallback explicit token for authenticated GitHub API requests              |
 
 ```bash
 # Install internal skills
@@ -511,7 +538,7 @@ INSTALL_INTERNAL_SKILLS=1 npx skills add vercel-labs/agent-skills --list
 
 This CLI collects anonymous usage data to help improve the tool. No personal information is collected.
 
-Telemetry is automatically disabled in CI environments.
+GitHub repository and skill identifiers are sent only for repositories that GitHub positively confirms are public. Other remote source types may include source and skill identifiers in install telemetry because their visibility cannot be checked through GitHub. Security-audit requests remain limited to confirmed-public GitHub repositories. Set `DISABLE_TELEMETRY=1` or `DO_NOT_TRACK=1` to disable both entirely.
 
 ## Related Links
 

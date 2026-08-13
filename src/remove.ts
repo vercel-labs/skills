@@ -281,17 +281,24 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
       let effectiveSource = 'local';
       let effectiveSourceType = 'local';
 
+      // The lock entry tracks the canonical path, so it survives for as long as
+      // that path does. Dropping it while another installed agent still links
+      // the skill leaves the skill in place but no longer updatable (#1718).
       if (isGlobal) {
         const lockEntry = await getSkillFromLock(skillName);
         effectiveSource = lockEntry?.source || 'local';
         effectiveSourceType = lockEntry?.sourceType || 'local';
-        await removeSkillFromLock(skillName);
+        if (!isStillUsed) {
+          await removeSkillFromLock(skillName);
+        }
       } else {
         const localLock = await readLocalLock(cwd);
         const lockEntry = localLock.skills[skillName];
         effectiveSource = lockEntry?.source || 'local';
         effectiveSourceType = lockEntry?.sourceType || 'local';
-        await removeSkillFromLocalLock(skillName, cwd);
+        if (!isStillUsed) {
+          await removeSkillFromLocalLock(skillName, cwd);
+        }
       }
 
       results.push({

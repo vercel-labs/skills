@@ -8,6 +8,8 @@ export { registry, registerProvider, findProvider, getProviders } from './regist
 export {
   WellKnownProvider,
   wellKnownProvider,
+  computeWellKnownSkillDigest,
+  type NormalizedWellKnownEntry,
   type WellKnownIndex,
   type WellKnownSkillEntry,
   type WellKnownSkill,

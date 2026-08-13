@@ -33,7 +33,11 @@ import {
   type PartnerAudit,
 } from './telemetry.ts';
 import { detectAgent, getAgentType } from './detect-agent.ts';
-import { wellKnownProvider, type WellKnownSkill } from './providers/index.ts';
+import {
+  wellKnownProvider,
+  computeWellKnownSkillDigest,
+  type WellKnownSkill,
+} from './providers/index.ts';
 import { downloadSource } from './download-source.ts';
 import {
   addSkillToLock,
@@ -556,6 +560,16 @@ export interface AddOptions {
  * Discovers skills from /.well-known/agent-skills/index.json (preferred)
  * or /.well-known/skills/index.json (legacy fallback).
  */
+function isSkillsShPackUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.replace(/^www\./, '');
+    return hostname === 'skills.sh' && /^\/p\/[^/]+/.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
 async function handleWellKnownSkills(
   source: string,
   url: string,
@@ -640,6 +654,7 @@ async function handleWellKnownSkills(
     const selected = await multiselect({
       message: 'Select skills to install',
       options: skillChoices,
+      initialValues: isSkillsShPackUrl(url) ? skills : undefined,
       required: true,
     });
 
@@ -910,7 +925,9 @@ async function handleWellKnownSkills(
             source: sourceIdentifier,
             sourceType: 'well-known',
             sourceUrl: skill.sourceUrl,
-            skillFolderHash: '', // Well-known skills don't have a folder hash
+            skillFolderHash: '',
+            sourceBaseUrl: url,
+            wellKnownDigest: computeWellKnownSkillDigest(skill),
           });
         } catch {
           // Don't fail installation if lock file update fails
@@ -933,8 +950,10 @@ async function handleWellKnownSkills(
               skill.installName,
               {
                 source: sourceIdentifier,
+                sourceUrl: url,
                 sourceType: 'well-known',
                 computedHash,
+                wellKnownDigest: computeWellKnownSkillDigest(skill),
               },
               cwd
             );
@@ -1349,13 +1368,18 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       selectedSkills = selected as Skill[];
     }
 
-    // Kick off security audit fetch early (non-blocking) so it runs
-    // in parallel with agent selection, scope, and mode prompts.
+    // Kick off the security audit only after GitHub has positively confirmed
+    // that this is a public repository. Private and unknown repositories must
+    // not send their names or skill names to the audit service.
     const ownerRepoForAudit = getOwnerRepo(parsed);
     const auditPromise = ownerRepoForAudit
-      ? fetchAuditData(
-          ownerRepoForAudit,
-          selectedSkills.map((s) => getSkillDisplayName(s))
+      ? repoPrivacyPromise.then((isPrivate) =>
+          isPrivate === false
+            ? fetchAuditData(
+                ownerRepoForAudit,
+                selectedSkills.map((s) => getSkillDisplayName(s))
+              )
+            : null
         )
       : Promise.resolve(null);
 

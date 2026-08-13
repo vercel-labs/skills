@@ -53,7 +53,7 @@ export type WellKnownIndex = WellKnownIndexV1 | WellKnownIndexV2;
 export type WellKnownSkillEntry = WellKnownSkillEntryV1 | WellKnownSkillEntryV2;
 export type WellKnownFileContent = string | Uint8Array;
 
-type NormalizedWellKnownEntry =
+export type NormalizedWellKnownEntry =
   | {
       version: '0.1.0';
       name: string;
@@ -138,18 +138,24 @@ export class WellKnownProvider implements HostProvider {
    * /.well-known/skills/index.json. For each path, tries path-relative
    * first, then root .well-known.
    */
-  async fetchIndex(baseUrl: string): Promise<{
+  async fetchIndex(
+    baseUrl: string,
+    options?: { updateCheck?: boolean }
+  ): Promise<{
     index: WellKnownIndex;
     entries: NormalizedWellKnownEntry[];
     resolvedBaseUrl: string;
     resolvedWellKnownPath: string;
     indexUrl: string;
   } | null> {
-    const candidates = await this.fetchIndexCandidates(baseUrl);
+    const candidates = await this.fetchIndexCandidates(baseUrl, options);
     return candidates[0] ?? null;
   }
 
-  private async fetchIndexCandidates(baseUrl: string): Promise<
+  private async fetchIndexCandidates(
+    baseUrl: string,
+    options?: { updateCheck?: boolean }
+  ): Promise<
     Array<{
       index: WellKnownIndex;
       entries: NormalizedWellKnownEntry[];
@@ -195,7 +201,10 @@ export class WellKnownProvider implements HostProvider {
 
       for (const { indexUrl, baseUrl: resolvedBase, wellKnownPath } of urlsToTry) {
         try {
-          const response = await fetch(indexUrl, { signal });
+          const response = await fetch(indexUrl, {
+            signal,
+            ...(options?.updateCheck ? { headers: { 'X-Skills-Update-Check': '1' } } : {}),
+          });
           if (!response.ok) continue;
 
           const rawIndex = (await response.json()) as unknown;
@@ -730,6 +739,20 @@ export class WellKnownProvider implements HostProvider {
     const result = await this.fetchIndex(url);
     return result !== null;
   }
+}
+
+export function computeWellKnownSkillDigest(skill: WellKnownSkill): string {
+  if ('digest' in skill.indexEntry && skill.indexEntry.digest) {
+    return skill.indexEntry.digest;
+  }
+  const hash = createHash('sha256');
+  for (const path of Array.from(skill.files.keys()).sort()) {
+    hash.update(path);
+    hash.update('\0');
+    hash.update(skill.files.get(path)!);
+    hash.update('\0');
+  }
+  return `sha256:${hash.digest('hex')}`;
 }
 
 export const wellKnownProvider = new WellKnownProvider();

@@ -22,7 +22,6 @@ export interface UseOptions {
   skill?: string;
   agent?: string[];
   fullDepth?: boolean;
-  dangerouslyAcceptOpenclawRisks?: boolean;
   help?: boolean;
 }
 
@@ -99,8 +98,6 @@ export function parseUseOptions(args: string[]): ParseUseOptionsResult {
       options.help = true;
     } else if (arg === '--full-depth') {
       options.fullDepth = true;
-    } else if (arg === '--dangerously-accept-openclaw-risks') {
-      options.dangerouslyAcceptOpenclawRisks = true;
     } else if (arg === '--skill' || arg === '-s') {
       const value = args[i + 1];
       if (!value || value.startsWith('-')) {
@@ -214,18 +211,6 @@ export async function runUse(
 
     const source = sourceArgs[0]!;
     const parsed = parseSource(source);
-    const ownerRepoRaw = getOwnerRepo(parsed);
-    const sourceOwner = ownerRepoRaw?.split('/')[0]?.toLowerCase();
-
-    if (sourceOwner === 'openclaw' && !options.dangerouslyAcceptOpenclawRisks) {
-      fail(
-        [
-          'OpenClaw skills are unverified community submissions.',
-          'Skills run with full agent permissions and could be malicious.',
-          `If you understand the risks, re-run with: skills use ${source} --dangerously-accept-openclaw-risks`,
-        ].join('\n')
-      );
-    }
 
     const selector = resolveSelector(parsed.skillFilter, options.skill);
     const includeInternal = selector !== undefined;
@@ -403,8 +388,6 @@ Options:
   -s, --skill <skill>   Select the skill to use
   -a, --agent <agent>   Start one supported agent interactively (${SUPPORTED_USE_AGENTS.join(', ')})
   --full-depth          Search nested directories like skills add --full-depth
-  --dangerously-accept-openclaw-risks
-                         Allow unverified OpenClaw community skills
   -h, --help            Show this help message
 
 Examples:

@@ -148,8 +148,6 @@ ${BOLD}Use Options:${RESET}
   -s, --skill <skill>    Specify the skill to use
   -a, --agent <agent>    Start one supported agent interactively
   --full-depth           Search all subdirectories even when a root SKILL.md exists
-  --dangerously-accept-openclaw-risks
-                         Allow unverified OpenClaw community skills
 
 ${BOLD}Remove Options:${RESET}
   -g, --global           Remove from global scope
