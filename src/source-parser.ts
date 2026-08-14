@@ -130,9 +130,10 @@ function azureReposVersionToRef(version: string | null): string | undefined {
     return undefined;
   }
 
-  const prefixed = /^(?:GB|GT|GC)(.+)$/i.exec(version)?.[1];
-  const ref = prefixed ?? version;
-  return ref || undefined;
+  // GB = branch, GT = tag. GC (commit) is omitted because `git clone --branch`
+  // cannot check out a SHA.
+  const prefixed = /^(?:GB|GT)(.+)$/i.exec(version)?.[1];
+  return prefixed || undefined;
 }
 
 /**
@@ -149,45 +150,47 @@ function parseAzureReposSource(
     return null;
   }
 
+  let parsed: URL;
   try {
-    const parsed = new URL(input);
-    const segments = parsed.pathname.split('/').filter(Boolean);
-    const gitIndex = segments.indexOf('_git');
-    if (gitIndex < 0 || gitIndex === segments.length - 1) {
-      return null;
-    }
-
-    const repo = segments[gitIndex + 1]!.replace(/\.git$/, '');
-    if (!repo) {
-      return null;
-    }
-
-    const clonePath =
-      '/' +
-      [...segments.slice(0, gitIndex), '_git', repo]
-        .map((segment) => {
-          try {
-            return encodeURIComponent(decodeURIComponent(segment));
-          } catch {
-            return encodeURIComponent(segment);
-          }
-        })
-        .join('/');
-    const cloneUrl = `${parsed.protocol}//${parsed.host}${clonePath}`;
-    const ref = azureReposVersionToRef(parsed.searchParams.get('version')) || fragmentRef;
-    const pathParam = parsed.searchParams.get('path');
-    const subpath = pathParam ? sanitizeSubpath(pathParam.replace(/^\/+/, '')) : undefined;
-
-    return {
-      type: 'git',
-      url: cloneUrl,
-      ...(ref ? { ref } : {}),
-      ...(subpath ? { subpath } : {}),
-      ...(fragmentSkillFilter ? { skillFilter: fragmentSkillFilter } : {}),
-    };
+    parsed = new URL(input);
   } catch {
     return null;
   }
+
+  const segments = parsed.pathname.split('/').filter(Boolean);
+  const gitIndex = segments.indexOf('_git');
+  if (gitIndex < 0 || gitIndex === segments.length - 1) {
+    return null;
+  }
+
+  const repo = segments[gitIndex + 1]!.replace(/\.git$/, '');
+  if (!repo) {
+    return null;
+  }
+
+  const clonePath =
+    '/' +
+    [...segments.slice(0, gitIndex), '_git', repo]
+      .map((segment) => {
+        try {
+          return encodeURIComponent(decodeURIComponent(segment));
+        } catch {
+          return encodeURIComponent(segment);
+        }
+      })
+      .join('/');
+  const cloneUrl = `${parsed.protocol}//${parsed.host}${clonePath}`;
+  const ref = azureReposVersionToRef(parsed.searchParams.get('version')) || fragmentRef;
+  const pathParam = parsed.searchParams.get('path');
+  const subpath = pathParam ? sanitizeSubpath(pathParam.replace(/^\/+/, '')) : undefined;
+
+  return {
+    type: 'git',
+    url: cloneUrl,
+    ...(ref ? { ref } : {}),
+    ...(subpath ? { subpath } : {}),
+    ...(fragmentSkillFilter ? { skillFilter: fragmentSkillFilter } : {}),
+  };
 }
 
 /**

@@ -198,7 +198,7 @@ describe('parseSource', () => {
       expect(result.url).toBe('https://dev.azure.com/My%20Org/My%20Project/_git/agent-skills');
     });
 
-    it('version=GT is a tag ref and version=GC is a commit ref', () => {
+    it('version=GT is a tag ref; version=GC is not a cloneable ref', () => {
       expect(
         parseSource('https://dev.azure.com/fabrikam/Fiber/_git/skills?version=GTv1.2.0').ref
       ).toBe('v1.2.0');
@@ -206,7 +206,7 @@ describe('parseSource', () => {
         parseSource(
           'https://dev.azure.com/fabrikam/Fiber/_git/skills?version=GC2c732a035bae9fb21e7823d37b2b9553e272f0c6'
         ).ref
-      ).toBe('2c732a035bae9fb21e7823d37b2b9553e272f0c6');
+      ).toBeUndefined();
     });
 
     it('#fragment is a git ref on Azure Repos URLs', () => {

@@ -42,6 +42,7 @@ npx skills add https://gitlab.com/org/repo
 
 # Azure Repos (Azure DevOps Services or Server)
 npx skills add https://dev.azure.com/org/project/_git/repo
+npx skills add https://dev.azure.com/org/project/_git/repo?path=/skills/web-design&version=GBmain
 
 # Any git URL
 npx skills add git@github.com:vercel-labs/agent-skills.git
