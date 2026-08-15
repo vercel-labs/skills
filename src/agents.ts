@@ -559,9 +559,11 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'polytoken',
     displayName: 'Polytoken',
     skillsDir: '.polytoken/skills',
-    globalSkillsDir: join(home, '.polytoken/skills'),
+    globalSkillsDir: join(configHome, 'polytoken/skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.polytoken')) || existsSync(join(process.cwd(), '.polytoken'));
+      return (
+        existsSync(join(configHome, 'polytoken')) || existsSync(join(process.cwd(), '.polytoken'))
+      );
     },
   },
   qoder: {

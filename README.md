@@ -319,7 +319,7 @@ Skills can be installed to any of these agents:
 | OpenHands | `openhands` | `.openhands/skills/` | `~/.openhands/skills/` |
 | Ona | `ona` | `.ona/skills/` | `~/.ona/skills/` |
 | Pi | `pi` | `.pi/skills/` | `~/.pi/agent/skills/` |
-| Polytoken | `polytoken` | `.polytoken/skills/` | `~/.polytoken/skills/` |
+| Polytoken | `polytoken` | `.polytoken/skills/` | `~/.config/polytoken/skills/` |
 | Qoder | `qoder` | `.qoder/skills/` | `~/.qoder/skills/` |
 | Qoder CN | `qoder-cn` | `.qoder/skills/` | `~/.qoder-cn/skills/` |
 | Qwen Code | `qwen-code` | `.qwen/skills/` | `~/.qwen/skills/` |

@@ -27,14 +27,14 @@ describe('polytoken detection', () => {
     vi.unstubAllEnvs();
   });
 
-  it('detects Polytoken when ~/.polytoken exists', async () => {
-    await mkdir(join(tempHome!, '.polytoken'), { recursive: true });
+  it('detects Polytoken when ~/.config/polytoken exists', async () => {
+    await mkdir(join(tempHome!, '.config', 'polytoken'), { recursive: true });
     const { detectInstalledAgents: detect } = await import('../src/agents.ts');
     const installed = await detect();
     expect(installed).toContain('polytoken');
   });
 
-  it('does not detect Polytoken when ~/.polytoken is absent', async () => {
+  it('does not detect Polytoken when ~/.config/polytoken is absent', async () => {
     const { detectInstalledAgents: detect } = await import('../src/agents.ts');
     const installed = await detect();
     expect(installed).not.toContain('polytoken');

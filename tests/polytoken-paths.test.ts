@@ -14,8 +14,8 @@ describe('polytoken paths', () => {
     expect(getAgentConfig('polytoken').skillsDir).toBe('.polytoken/skills');
   });
 
-  it('uses ~/.polytoken/skills for global skills', () => {
-    const expected = join(home, '.polytoken', 'skills');
+  it('uses ~/.config/polytoken/skills for global skills', () => {
+    const expected = join(home, '.config', 'polytoken', 'skills');
     expect(getAgentConfig('polytoken').globalSkillsDir).toBe(expected);
   });
 
