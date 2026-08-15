@@ -70,6 +70,25 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     );
   }
 
+  // `--skill '*'` is the documented synonym for selecting every skill.
+  if (skillNames.includes('*')) {
+    options.all = true;
+    skillNames = skillNames.filter((name) => name !== '*');
+  }
+
+  // Footgun: `remove --skill foo --all` used to ignore `foo` and wipe everything,
+  // because `--all` replaced the requested list with every installed skill.
+  // Refuse the combination so agents/scripts cannot accidentally mass-delete.
+  const namedSkills = skillNames.filter((name) => name !== '*');
+  if (options.all && namedSkills.length > 0) {
+    p.log.error('Cannot combine --all with specific skill names.');
+    p.log.info(
+      'Use `skills remove --all` to remove every skill, or omit --all to remove only the named skills.'
+    );
+    p.log.info(`Example: skills remove ${namedSkills[0]} -y`);
+    process.exit(1);
+  }
+
   const isGlobal = options.global ?? false;
   const cwd = process.cwd();
 
@@ -363,6 +382,10 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 /**
  * Parse command line options for the remove command.
  * Separates skill names from options flags.
+ *
+ * Supports both positional names (`skills remove foo`) and `-s/--skill`
+ * (documented in the CLI help). Unknown flags that start with `-` are ignored
+ * so we do not treat `--skill` as a skill name when the flag is misspelled.
  */
 export function parseRemoveOptions(args: string[]): { skills: string[]; options: RemoveOptions } {
   const options: RemoveOptions = {};
@@ -377,6 +400,16 @@ export function parseRemoveOptions(args: string[]): { skills: string[]; options:
       options.yes = true;
     } else if (arg === '--all') {
       options.all = true;
+      options.yes = true;
+    } else if (arg === '-s' || arg === '--skill') {
+      i++;
+      let nextArg = args[i];
+      while (i < args.length && nextArg && !nextArg.startsWith('-')) {
+        skills.push(nextArg);
+        i++;
+        nextArg = args[i];
+      }
+      i--; // Back up one since the loop will increment
     } else if (arg === '-a' || arg === '--agent') {
       options.agent = options.agent || [];
       i++;
