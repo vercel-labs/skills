@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest';
 import { spawnSync } from 'child_process';
 import { updateProjectSkills, updateGlobalSkills, runUpdate } from '../src/update.ts';
 import * as git from '../src/git.ts';
@@ -79,6 +79,10 @@ describe('Update Cleanup Unit Tests', () => {
       value: true,
       configurable: true,
     });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   describe('updateProjectSkills', () => {
@@ -272,7 +276,7 @@ describe('Update Cleanup Unit Tests', () => {
       expect(argv).toContain('--full-depth');
     });
 
-    it('keeps GitHub project updates path-targeted without full-depth discovery', async () => {
+    it('normalizes GitHub shorthand for deletion checks and keeps updates path-targeted', async () => {
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
         version: 1,
         skills: {
@@ -296,6 +300,7 @@ describe('Update Cleanup Unit Tests', () => {
 
       await updateProjectSkills({ yes: true });
 
+      expect(git.cloneRepo).toHaveBeenCalledWith('https://github.com/owner/repo.git', undefined);
       const installCall = vi
         .mocked(spawnSync)
         .mock.calls.find((call) => Array.isArray(call[1]) && call[1].includes('add'));
@@ -303,6 +308,38 @@ describe('Update Cleanup Unit Tests', () => {
       const [, argv] = installCall!;
       expect(argv).toContain('owner/repo/plugins/example/skills/skill-a');
       expect(argv).not.toContain('--full-depth');
+    });
+
+    it('pins public GitHub project updates to github.com when GH_HOST points elsewhere', async () => {
+      vi.stubEnv('GH_HOST', 'github.example.com');
+      vi.mocked(localLock.readLocalLock).mockResolvedValue({
+        version: 1,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            computedHash: 'abc',
+          },
+        },
+      });
+
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        { name: 'skill-a', path: '/tmp/repo/skills/skill-a', description: 'A', rawContent: '' },
+      ]);
+
+      await updateProjectSkills({ yes: true });
+
+      const installCall = vi
+        .mocked(spawnSync)
+        .mock.calls.find((call) => Array.isArray(call[1]) && call[1].includes('add'));
+      expect(installCall).toBeDefined();
+      const [, argv, options] = installCall!;
+      expect(argv).toEqual(
+        expect.arrayContaining(['add', 'owner/repo/skills/skill-a', '--skill', 'skill-a'])
+      );
+      expect((options as { env?: NodeJS.ProcessEnv }).env?.GH_HOST).toBe('github.com');
     });
 
     it('does not reinterpret generic git shorthands as GitHub during project update', async () => {
@@ -411,6 +448,86 @@ describe('Update Cleanup Unit Tests', () => {
 
       expect(p.confirm).not.toHaveBeenCalled();
       expect(remove.removeCommand).not.toHaveBeenCalled();
+    });
+
+    it('checks a private GitHub update by cloning when authenticated API access is unavailable', async () => {
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: 'owner/private-repo',
+            sourceUrl: 'https://github.com/owner/private-repo.git',
+            sourceType: 'github',
+            skillPath: 'skills/skill-a/SKILL.md',
+            skillFolderHash: 'old-content-hash',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+      vi.mocked(blob.fetchRepoTree).mockResolvedValue(null);
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/private-repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        {
+          name: 'skill-a',
+          path: '/tmp/private-repo/skills/skill-a',
+          description: 'Private skill',
+          rawContent: '',
+        },
+      ]);
+      vi.mocked(localLock.computeSkillFolderHash).mockResolvedValue('new-content-hash');
+
+      await updateGlobalSkills({ yes: true });
+
+      expect(git.cloneRepo).toHaveBeenCalledWith(
+        'https://github.com/owner/private-repo.git',
+        undefined
+      );
+      expect(localLock.computeSkillFolderHash).toHaveBeenCalledWith(
+        join('/tmp/private-repo', 'skills/skill-a')
+      );
+      const installCall = vi
+        .mocked(spawnSync)
+        .mock.calls.find((call) => Array.isArray(call[1]) && call[1].includes('add'));
+      expect(installCall).toBeDefined();
+    });
+
+    it('does not report an unchanged Git tree SHA as updated after an API fallback', async () => {
+      const treeHash = 'a'.repeat(40);
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: 'owner/private-repo',
+            sourceUrl: 'git@github.com:owner/private-repo.git',
+            sourceType: 'github',
+            skillPath: 'skills/skill-a/SKILL.md',
+            skillFolderHash: treeHash,
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+      vi.mocked(blob.fetchRepoTree).mockResolvedValue(null);
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/private-repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        {
+          name: 'skill-a',
+          path: '/tmp/private-repo/skills/skill-a',
+          description: 'Private skill',
+          rawContent: '',
+        },
+      ]);
+      vi.mocked(git.getGitTreeHash).mockResolvedValue(treeHash);
+      vi.mocked(localLock.computeSkillFolderHash).mockResolvedValue('b'.repeat(64));
+
+      await updateGlobalSkills({ yes: true });
+
+      expect(git.getGitTreeHash).toHaveBeenCalledWith(
+        '/tmp/private-repo',
+        'skills/skill-a/SKILL.md'
+      );
+      expect(spawnSync).not.toHaveBeenCalled();
     });
 
     it('uses full-depth discovery for non-GitHub global deletion checks', async () => {
@@ -529,9 +646,93 @@ describe('Update Cleanup Unit Tests', () => {
       expect(installCall).toBeDefined();
       const [, argv] = installCall!;
       expect(argv).toEqual(
-        expect.arrayContaining(['add', 'https://gitlab.example.com/acme/skills.git'])
+        expect.arrayContaining([
+          'add',
+          'https://gitlab.example.com/acme/skills.git',
+          '--skill',
+          'skill-a',
+        ])
       );
       expect(argv).not.toEqual(expect.arrayContaining(['acme/skills']));
+    });
+
+    it('pins public GitHub global updates to github.com when GH_HOST points elsewhere', async () => {
+      vi.stubEnv('GH_HOST', 'github.example.com');
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            sourceUrl: 'https://github.com/owner/repo.git',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            skillFolderHash: 'old-hash',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+
+      vi.mocked(blob.fetchRepoTree).mockResolvedValue({
+        sha: 'rootsha',
+        branch: 'main',
+        tree: [{ path: 'skills/skill-a/SKILL.md', type: 'blob', sha: 'new-hash' }],
+      });
+      vi.mocked(blob.findSkillMdPaths).mockReturnValue(['skills/skill-a/SKILL.md']);
+      vi.mocked(blob.getSkillFolderHashFromTree).mockReturnValue('new-hash');
+
+      await updateGlobalSkills({ yes: true });
+
+      const installCall = vi
+        .mocked(spawnSync)
+        .mock.calls.find((call) => Array.isArray(call[1]) && call[1].includes('add'));
+      expect(installCall).toBeDefined();
+      const [, argv, options] = installCall!;
+      expect(argv).toEqual(
+        expect.arrayContaining(['add', 'owner/repo/skills/skill-a', '--skill', 'skill-a'])
+      );
+      expect((options as { env?: NodeJS.ProcessEnv }).env?.GH_HOST).toBe('github.com');
+    });
+
+    it('keeps GitHub Enterprise updates on their recorded URL and targets one skill', async () => {
+      vi.stubEnv('GH_HOST', 'github.example.com');
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: 'https://github.example.com/acme/skills.git',
+            sourceUrl: 'https://github.example.com/acme/skills.git',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'git',
+            skillFolderHash: 'old-hash',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        { name: 'skill-a', path: '/tmp/repo/skills/skill-a', description: 'A', rawContent: '' },
+      ]);
+      vi.mocked(localLock.computeSkillFolderHash).mockResolvedValue('new-hash');
+
+      await updateGlobalSkills({ yes: true });
+
+      const installCall = vi
+        .mocked(spawnSync)
+        .mock.calls.find((call) => Array.isArray(call[1]) && call[1].includes('add'));
+      expect(installCall).toBeDefined();
+      const [, argv, options] = installCall!;
+      expect(argv).toEqual(
+        expect.arrayContaining([
+          'add',
+          'https://github.example.com/acme/skills.git',
+          '--skill',
+          'skill-a',
+        ])
+      );
+      expect((options as { env?: NodeJS.ProcessEnv }).env).toBeUndefined();
     });
 
     it('spawns the update without a shell so a crafted ref cannot inject commands', async () => {

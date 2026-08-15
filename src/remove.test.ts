@@ -479,3 +479,76 @@ This is a test skill.
     });
   });
 });
+
+describe('remove -a with a subset of agents', { timeout: 30000 }, () => {
+  let testDir: string;
+  let fakeHome: string;
+
+  // Both agents are detected from directories under HOME, so the test drives
+  // HOME rather than relying on whatever is installed on the host.
+  beforeEach(() => {
+    testDir = join(tmpdir(), `skills-remove-subset-${Date.now()}`);
+    fakeHome = join(testDir, 'home');
+    mkdirSync(join(fakeHome, '.claude'), { recursive: true });
+    mkdirSync(join(fakeHome, '.codex'), { recursive: true });
+  });
+
+  afterEach(() => {
+    if (existsSync(testDir)) {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the lock entry when another agent still uses the skill', () => {
+    const project = join(testDir, 'project');
+    const skillName = 'shared-skill';
+
+    // Canonical copy — also codex's project skills dir.
+    const canonical = join(project, '.agents', 'skills', skillName);
+    mkdirSync(canonical, { recursive: true });
+    writeFileSync(
+      join(canonical, 'SKILL.md'),
+      `---\nname: ${skillName}\ndescription: shared between two agents\n---\n`
+    );
+
+    // Claude Code's own copy, the one being removed.
+    const claudeCopy = join(project, '.claude', 'skills', skillName);
+    mkdirSync(claudeCopy, { recursive: true });
+    writeFileSync(
+      join(claudeCopy, 'SKILL.md'),
+      `---\nname: ${skillName}\ndescription: shared between two agents\n---\n`
+    );
+
+    const lockPath = join(project, 'skills-lock.json');
+    writeFileSync(
+      lockPath,
+      JSON.stringify(
+        {
+          version: 1,
+          skills: {
+            [skillName]: {
+              source: 'owner/repo',
+              sourceType: 'github',
+              computedHash: 'somehash',
+            },
+          },
+        },
+        null,
+        2
+      )
+    );
+
+    const result = runCli(['remove', skillName, '-a', 'claude-code', '-y'], project, {
+      HOME: fakeHome,
+    });
+
+    expect(result.exitCode).toBe(0);
+    // Claude Code's copy goes, codex keeps working.
+    expect(existsSync(claudeCopy)).toBe(false);
+    expect(existsSync(canonical)).toBe(true);
+
+    // The skill is still installed, so it must still be updatable.
+    const updatedLock = JSON.parse(readFileSync(lockPath, 'utf-8'));
+    expect(updatedLock.skills[skillName]).toBeDefined();
+  });
+});

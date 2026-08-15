@@ -298,6 +298,40 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
   }
 }
 
+/**
+ * Resolve the Git tree object for a locked skill path in a cloned repository.
+ * This matches the folder SHA returned by GitHub's Trees API.
+ */
+export async function getGitTreeHash(repoDir: string, skillPath: string): Promise<string | null> {
+  const normalizedPath = skillPath.replace(/\\/g, '/');
+  const segments = normalizedPath.split('/');
+  segments.pop();
+  const folderPath = segments.join('/');
+  const revision = folderPath ? `HEAD:${folderPath}` : 'HEAD^{tree}';
+
+  try {
+    const stdout = await new Promise<string>((resolve, reject) => {
+      execFile(
+        'git',
+        ['-C', repoDir, 'rev-parse', '--verify', '--end-of-options', revision],
+        {
+          encoding: 'utf8',
+          timeout: CLONE_TIMEOUT_MS,
+          env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' },
+        },
+        (error, output) => {
+          if (error) reject(error);
+          else resolve(output);
+        }
+      );
+    });
+    const hash = stdout.trim();
+    return /^[0-9a-f]{40}$/i.test(hash) ? hash.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function cleanupTempDir(dir: string): Promise<void> {
   // Validate that the directory path is within tmpdir to prevent deletion of arbitrary paths
   const normalizedDir = normalize(resolve(dir));

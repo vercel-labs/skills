@@ -62,6 +62,29 @@ describe('local-lock', () => {
       }
     });
 
+    it('resolves relative local sources from the lock file directory', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        const content = {
+          version: 1,
+          skills: {
+            'my-skill': {
+              source: './skills',
+              sourceType: 'local',
+              computedHash: 'abc123',
+            },
+          },
+        };
+        await writeFile(join(dir, 'skills-lock.json'), JSON.stringify(content), 'utf-8');
+
+        const lock = await readLocalLock(dir);
+
+        expect(lock.skills['my-skill']!.source).toBe(join(dir, 'skills'));
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
     it('returns empty lock for corrupted JSON (merge conflict markers)', async () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
@@ -152,6 +175,46 @@ describe('local-lock', () => {
           sourceType: 'github',
           computedHash: 'hash123',
         });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('stores absolute local sources relative to the lock file', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await addSkillToLocalLock(
+          'local-skill',
+          {
+            source: join(dir, 'skills'),
+            sourceType: 'local',
+            computedHash: 'hash123',
+          },
+          dir
+        );
+
+        const raw = JSON.parse(await readFile(join(dir, 'skills-lock.json'), 'utf-8'));
+        expect(raw.skills['local-skill'].source).toBe('./skills');
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('keeps hidden local sources recognizable as local paths', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await addSkillToLocalLock(
+          'hidden-skill',
+          {
+            source: join(dir, '.skills'),
+            sourceType: 'local',
+            computedHash: 'hash123',
+          },
+          dir
+        );
+
+        const raw = JSON.parse(await readFile(join(dir, 'skills-lock.json'), 'utf-8'));
+        expect(raw.skills['hidden-skill'].source).toBe('./.skills');
       } finally {
         await rm(dir, { recursive: true, force: true });
       }

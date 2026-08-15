@@ -19,6 +19,7 @@ vi.mock('child_process', async () => {
 import {
   GitCloneError,
   cloneRepo,
+  getGitTreeHash,
   isGitHubHttpsCloneUrl,
   isGitHubSsoAuthError,
   parseGitHubRepoUrl,
@@ -295,6 +296,28 @@ describe('git clone fallbacks', () => {
       GitCloneError
     );
     expect(execFileMock).not.toHaveBeenCalled();
+  });
+
+  it('reads a locked skill folder tree hash from an authenticated clone', async () => {
+    const treeHash = 'a'.repeat(40);
+    mockExecFileSuccess(`${treeHash}\n`);
+
+    await expect(
+      getGitTreeHash('/tmp/private-repo', 'skills/private-skill/SKILL.md')
+    ).resolves.toBe(treeHash);
+    expect(execFileMock).toHaveBeenCalledWith(
+      'git',
+      [
+        '-C',
+        '/tmp/private-repo',
+        'rev-parse',
+        '--verify',
+        '--end-of-options',
+        'HEAD:skills/private-skill',
+      ],
+      expect.any(Object),
+      expect.any(Function)
+    );
   });
 
   it('rejects the command-executing ext transport before invoking git', async () => {

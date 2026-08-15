@@ -60,6 +60,13 @@ export function isKimchiInstalled(
   return pathExists(join(homeDir, '.config', 'kimchi'));
 }
 
+export function isMiniMaxCodeInstalled(
+  homeDir = home,
+  pathExists: (path: string) => boolean = existsSync
+) {
+  return pathExists(join(homeDir, '.minimax')) || pathExists('/Applications/MiniMax Code.app');
+}
+
 export const agents: Record<AgentType, AgentConfig> = {
   'aider-desk': {
     name: 'aider-desk',
@@ -474,6 +481,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.mcpjam/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.mcpjam'));
+    },
+  },
+  'minimax-code': {
+    name: 'minimax-code',
+    displayName: 'MiniMax Code',
+    skillsDir: '.minimax/skills',
+    globalSkillsDir: join(home, '.minimax/skills'),
+    detectInstalled: async () => {
+      return isMiniMaxCodeInstalled();
     },
   },
   'mistral-vibe': {
