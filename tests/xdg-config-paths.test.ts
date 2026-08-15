@@ -104,6 +104,19 @@ describe('XDG config paths', () => {
     });
   });
 
+  describe('Polytoken', () => {
+    it('uses ~/.config/polytoken/skills for global skills', () => {
+      const expected = join(home, '.config', 'polytoken', 'skills');
+      expect(agents.polytoken.globalSkillsDir).toBe(expected);
+    });
+
+    it('does NOT use platform-specific paths', () => {
+      expect(agents.polytoken.globalSkillsDir).not.toContain('Library');
+      expect(agents.polytoken.globalSkillsDir).not.toContain('Preferences');
+      expect(agents.polytoken.globalSkillsDir).not.toContain('AppData');
+    });
+  });
+
   describe('non-XDG agents', () => {
     it('cursor uses ~/.cursor/skills (home-based, not XDG)', () => {
       const expected = join(home, '.cursor', 'skills');
