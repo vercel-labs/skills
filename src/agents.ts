@@ -831,6 +831,42 @@ export function getUniversalAgents(): AgentType[] {
 }
 
 /**
+ * Returns agents whose config root directory is present at `cwd`.
+ *
+ * Detection uses the first path component of each agent's `skillsDir`
+ * (e.g. `.claude/` for Claude Code, `.kiro/` for Kiro CLI). Universal
+ * agents also use `.agents/`. Eve is excluded because its subagent
+ * placement is handled separately via --subagent.
+ *
+ * Only agents whose `skillsDir` first component is dot-prefixed are
+ * eligible. Non-dot-prefixed paths (e.g. OpenClaw's `skills`, AstrBot's
+ * `data/skills`) collide with generic top-level folders that exist in
+ * many projects for unrelated reasons; including them would produce
+ * false-positive agent detection and trigger `installSkillForAgent`
+ * for an agent the user never configured, with `rm -rf` semantics on
+ * the colliding path. Agents without a project-local signal (notably
+ * OpenClaw, whose `detectInstalled` only checks home-dir markers)
+ * are therefore silently excluded from this helper.
+ *
+ * Used by sync flows (update, experimental_install) to determine which
+ * agents the spawned `add` should target: every locked skill should be
+ * installed for every agent whose config root is currently on disk.
+ * Returns an empty array when no agent config roots exist.
+ */
+export function getPresentAgents(cwd: string): AgentType[] {
+  const result: AgentType[] = [];
+  for (const [type, config] of Object.entries(agents) as [AgentType, AgentConfig][]) {
+    if (type === 'eve') continue;
+    const checkDir = config.skillsDir.split('/')[0]!;
+    if (!checkDir.startsWith('.')) continue;
+    if (existsSync(join(cwd, checkDir))) {
+      result.push(type);
+    }
+  }
+  return result;
+}
+
+/**
  * Returns the subset of universal agents shown in the interactive locked section.
  * All universal agents are still installed; this only keeps the prompt readable.
  */
