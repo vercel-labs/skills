@@ -14,6 +14,7 @@ import type { AgentType, Skill } from './types.ts';
 import { downloadSource } from './download-source.ts';
 import {
   wellKnownProvider,
+  WellKnownScopeNotFoundError,
   type WellKnownSkill,
   type WellKnownFileContent,
 } from './providers/wellknown.ts';
@@ -218,7 +219,10 @@ export async function runUse(
     let selectedSkill: UseSkill;
 
     if (parsed.type === 'well-known') {
-      const skills = await wellKnownProvider.fetchAllSkills(parsed.url);
+      const skills = await wellKnownProvider.fetchAllSkills(parsed.url).catch((error) => {
+        if (error instanceof WellKnownScopeNotFoundError) fail(error.message);
+        return [] as WellKnownSkill[];
+      });
       if (skills.length > 0) {
         selectedSkill = selectWellKnownSkill(skills, selector, source);
       } else {

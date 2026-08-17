@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { WellKnownProvider } from '../src/providers/wellknown.ts';
+import { WellKnownProvider, WellKnownScopeNotFoundError } from '../src/providers/wellknown.ts';
 import { createZip } from './fixtures/zip.ts';
 
 const SCHEMA_V2 = 'https://schemas.agentskills.io/discovery/0.2.0/schema.json';
@@ -232,6 +232,85 @@ describe('WellKnownProvider', () => {
       expect(skills[0]!.sourceUrl).toBe(
         'https://code.claude.com/docs/.well-known/skills/claude/SKILL.md'
       );
+    });
+
+    it('fails instead of falling back to the root index when a scoped path has no index', async () => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+          return response({
+            skills: [
+              { name: 'alpha', description: 'Alpha skill.', files: ['SKILL.md'] },
+              { name: 'beta', description: 'Beta skill.', files: ['SKILL.md'] },
+            ],
+          });
+        }
+        return response('not found', { status: 404 });
+      });
+
+      await expect(provider.fetchAllSkills('https://example.com/s/alpha')).rejects.toThrow(
+        WellKnownScopeNotFoundError
+      );
+      await expect(provider.fetchAllSkills('https://example.com/s/alpha')).rejects.toThrow(
+        /\/s\/alpha/
+      );
+    });
+
+    it('fails when the scoped index exists but lists no skills', async () => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://example.com/s/alpha/.well-known/agent-skills/index.json') {
+          return response({ skills: [] });
+        }
+        if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+          return response({
+            skills: [
+              { name: 'alpha', description: 'Alpha skill.', files: ['SKILL.md'] },
+              { name: 'beta', description: 'Beta skill.', files: ['SKILL.md'] },
+            ],
+          });
+        }
+        return response('not found', { status: 404 });
+      });
+
+      await expect(provider.fetchAllSkills('https://example.com/s/alpha')).rejects.toThrow(
+        WellKnownScopeNotFoundError
+      );
+    });
+
+    it('uses the scoped index without consulting the root index when the scope resolves', async () => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://example.com/s/alpha/.well-known/agent-skills/index.json') {
+          return response({
+            skills: [{ name: 'alpha', description: 'Alpha skill.', files: ['SKILL.md'] }],
+          });
+        }
+        if (href === 'https://example.com/s/alpha/.well-known/agent-skills/alpha/SKILL.md') {
+          return response('---\nname: alpha\ndescription: Alpha skill.\n---\n# Alpha');
+        }
+        if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+          return response({
+            skills: [
+              { name: 'alpha', description: 'Alpha skill.', files: ['SKILL.md'] },
+              { name: 'beta', description: 'Beta skill.', files: ['SKILL.md'] },
+            ],
+          });
+        }
+        return response('not found', { status: 404 });
+      });
+
+      const skills = await provider.fetchAllSkills('https://example.com/s/alpha');
+      expect(skills).toHaveLength(1);
+      expect(skills[0]!.installName).toBe('alpha');
+    });
+
+    it('returns no skills for a scoped path when the host has no index at all', async () => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+        response('not found', { status: 404 })
+      );
+
+      await expect(provider.fetchAllSkills('https://example.com/s/alpha')).resolves.toEqual([]);
     });
 
     it('supports v0.2.0 skill-md entries with relative URL resolution and digest checks', async () => {

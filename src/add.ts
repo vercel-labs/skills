@@ -36,6 +36,7 @@ import { detectAgent, getAgentType } from './detect-agent.ts';
 import {
   wellKnownProvider,
   computeWellKnownSkillDigest,
+  WellKnownScopeNotFoundError,
   type WellKnownSkill,
 } from './providers/index.ts';
 import { downloadSource } from './download-source.ts';
@@ -579,7 +580,16 @@ async function handleWellKnownSkills(
   spinner.start('Discovering skills from well-known endpoint...');
 
   // Fetch all skills from the well-known endpoint
-  const skills = await wellKnownProvider.fetchAllSkills(url).catch(() => []);
+  let skills: WellKnownSkill[] = [];
+  try {
+    skills = await wellKnownProvider.fetchAllSkills(url);
+  } catch (error) {
+    if (error instanceof WellKnownScopeNotFoundError) {
+      spinner.stop(pc.red('No matching skills'));
+      p.log.error(error.message);
+      process.exit(1);
+    }
+  }
 
   if (skills.length === 0) {
     spinner.stop(pc.dim('No well-known skills found; trying direct download...'));
