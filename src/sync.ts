@@ -12,7 +12,8 @@ import {
   getVisibleUniversalAgents,
   getNonUniversalAgents,
   getWildcardAgents,
-  isVirtualAgent,
+  isApiUploadAgent,
+  isFilesystemAgent,
 } from './agents.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 import { addSkillToLocalLock, computeSkillFolderHash, readLocalLock } from './local-lock.ts';
@@ -233,7 +234,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   const visibleUniversalAgents = getVisibleUniversalAgents();
 
   if (options.agent?.includes('*')) {
-    // Covers filesystem agents only; virtual agents need an explicit -a.
+    // Covers filesystem agents only; API-upload agents need an explicit -a.
     targetAgents = getWildcardAgents();
     p.log.info(`Installing to all ${targetAgents.length} agents`);
   } else if (options.agent && options.agent.length > 0) {
@@ -243,10 +244,10 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
       p.log.info(`Valid agents: ${validAgents.join(', ')}`);
       process.exit(1);
     }
-    const virtualRequested = options.agent.filter((a) => isVirtualAgent(a as AgentType));
-    if (virtualRequested.length > 0) {
+    const apiUploadRequested = options.agent.filter((a) => isApiUploadAgent(a as AgentType));
+    if (apiUploadRequested.length > 0) {
       p.log.error(
-        `${virtualRequested.join(', ')} is not supported by experimental_sync; use \`skills add\` to upload skills`
+        `${apiUploadRequested.join(', ')} is not supported by experimental_sync; use \`skills add\` to upload skills`
       );
       process.exit(1);
     }
@@ -262,8 +263,8 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
         targetAgents = universalAgents;
         p.log.info('Installing to universal agents');
       } else {
-        // Virtual agents (API uploads) aren't sync targets.
-        const otherAgents = getNonUniversalAgents().filter((a) => !isVirtualAgent(a));
+        // API-upload agents aren't sync targets.
+        const otherAgents = getNonUniversalAgents().filter((a) => isFilesystemAgent(a));
 
         const otherChoices = otherAgents.map((a) => ({
           value: a,

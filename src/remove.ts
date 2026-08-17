@@ -2,7 +2,13 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { readdir, rm, lstat } from 'fs/promises';
 import { join } from 'path';
-import { agents, detectInstalledAgents, getEveSubagents, isVirtualAgent } from './agents.ts';
+import {
+  agents,
+  detectInstalledAgents,
+  getEveSubagents,
+  isApiUploadAgent,
+  isFilesystemAgent,
+} from './agents.ts';
 import { track } from './telemetry.ts';
 import { detectAgent } from './detect-agent.ts';
 import { removeSkillFromLock, getSkillFromLock, readSkillLock } from './skill-lock.ts';
@@ -192,14 +198,14 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   if (options.agent && options.agent.length > 0) {
     targetAgents = options.agent as AgentType[];
 
-    // Virtual agents have no local files; their skills live in the user's
+    // API-upload agents have no local files; their skills live in the user's
     // Anthropic organization and are not deleted by this command. Say so
     // instead of reporting a successful no-op removal.
-    const virtualRequested = targetAgents.filter((a) => isVirtualAgent(a));
-    if (virtualRequested.length > 0) {
-      targetAgents = targetAgents.filter((a) => !isVirtualAgent(a));
+    const apiUploadRequested = targetAgents.filter((a) => isApiUploadAgent(a));
+    if (apiUploadRequested.length > 0) {
+      targetAgents = targetAgents.filter((a) => isFilesystemAgent(a));
       p.log.warn(
-        `${virtualRequested.map((a) => agents[a].displayName).join(', ')} skills are managed through the Anthropic API and are not removed by this command.`
+        `${apiUploadRequested.map((a) => agents[a].displayName).join(', ')} skills are managed through the Anthropic API and are not removed by this command.`
       );
       if (targetAgents.length === 0) {
         p.outro(pc.yellow('Nothing to remove.'));

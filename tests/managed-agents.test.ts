@@ -21,7 +21,7 @@ import {
   ManagedAgentsApiError,
   type AnthropicAuth,
 } from '../src/managed-agents.ts';
-import { agents, getWildcardAgents, isVirtualAgent } from '../src/agents.ts';
+import { agents, getWildcardAgents, isApiUploadAgent } from '../src/agents.ts';
 import { parseAddOptions, buildManagedLockBookkeeping } from '../src/add.ts';
 import { buildManagedAgentsArgs } from '../src/update.ts';
 
@@ -39,9 +39,9 @@ function jsonResponse(status: number, body: unknown): Response {
 }
 
 describe('claude-managed-agents agent registry entry', () => {
-  it('is registered as a virtual agent', () => {
+  it('is registered as an api-upload agent', () => {
     expect(agents['claude-managed-agents']).toBeDefined();
-    expect(isVirtualAgent('claude-managed-agents')).toBe(true);
+    expect(isApiUploadAgent('claude-managed-agents')).toBe(true);
   });
 
   it('is never auto-detected', async () => {
@@ -460,7 +460,7 @@ describe('buildManagedAgentsArgs', () => {
     expect(await buildManagedAgentsArgs({}, 'my-skill', false)).toEqual([]);
   });
 
-  it('targets the virtual agent (softly) for upload-only skills', async () => {
+  it('targets the API-upload agent (softly) for upload-only skills', async () => {
     expect(
       await buildManagedAgentsArgs({ managedSkillId: 'skill_01A' }, 'my-skill', false)
     ).toEqual(['--agent', 'claude-managed-agents', '--managed-agents']);

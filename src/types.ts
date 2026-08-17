@@ -88,6 +88,8 @@ export interface Skill {
   metadata?: Record<string, unknown>;
 }
 
+export type AgentInstallMethod = 'filesystem' | 'api-upload';
+
 export interface AgentConfig {
   name: string;
   displayName: string;
@@ -100,12 +102,13 @@ export interface AgentConfig {
   /** Whether to display this universal agent in the interactive locked section. Defaults to true. */
   showInUniversalPrompt?: boolean;
   /**
-   * Virtual agents have no filesystem skills directory; skills are delivered
-   * through a dedicated integration (e.g. an API upload) instead of a copy or
-   * symlink. Virtual agents are never auto-detected, are excluded from
-   * `--agent '*'` expansion, and must be selected explicitly.
+   * How skills reach this agent. `'filesystem'` (the default) copies or
+   * symlinks into `skillsDir`. `'api-upload'` pushes the skill through a
+   * dedicated API instead: such agents have no skills directory, are never
+   * auto-detected, are excluded from `--agent '*'` expansion, and must be
+   * selected explicitly.
    */
-  virtual?: boolean;
+  install?: AgentInstallMethod;
   /** Hint shown in interactive agent selection instead of a skills directory. */
   installHint?: string;
 }

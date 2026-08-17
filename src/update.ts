@@ -21,7 +21,7 @@ import { wellKnownProvider, computeWellKnownSkillDigest } from './providers/inde
 import { removeCommand } from './remove.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
-import { agents, isUniversalAgent, isVirtualAgent } from './agents.ts';
+import { agents, isUniversalAgent, isApiUploadAgent } from './agents.ts';
 import { isSkillInstalled } from './installer.ts';
 import type { AgentType } from './types.ts';
 
@@ -56,7 +56,7 @@ export interface UpdateCheckOptions {
  * recorded in the lock as `managedSkillId`. A skill that also exists on the
  * filesystem gets the additive `--managed-agents` flag on top of the child's
  * normal agent detection; an upload-only skill (no filesystem install)
- * targets the virtual agent directly so the refresh doesn't materialize
+ * targets the API-upload agent directly so the refresh doesn't materialize
  * local copies the user never asked for.
  */
 export async function buildManagedAgentsArgs(
@@ -66,7 +66,7 @@ export async function buildManagedAgentsArgs(
 ): Promise<string[]> {
   if (!entry.managedSkillId) return [];
   for (const type of Object.keys(agents) as AgentType[]) {
-    if (isVirtualAgent(type)) continue;
+    if (isApiUploadAgent(type)) continue;
     if (await isSkillInstalled(skillName, type, { global: isGlobal })) {
       return ['--managed-agents'];
     }
@@ -82,7 +82,7 @@ export async function buildManagedAgentsArgs(
       return ['--managed-agents'];
     }
   }
-  // Upload-only: name the virtual agent so the refresh doesn't materialize
+  // Upload-only: name the API-upload agent so the refresh doesn't materialize
   // local copies, and keep --managed-agents so a missing login makes the
   // child skip the upload instead of aborting the whole update run.
   return ['--agent', 'claude-managed-agents', '--managed-agents'];

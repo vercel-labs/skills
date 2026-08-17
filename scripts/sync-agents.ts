@@ -20,8 +20,8 @@ function generateAgentNames(): string {
 }
 
 function generateAvailableAgentsTable(): string {
-  // Group agents by their paths. Virtual agents (API upload targets) have no
-  // paths; each gets its own group so it stays in registry order.
+  // Group agents by their paths. API-upload agents have no paths; each gets
+  // its own group so it stays in registry order.
   const pathGroups = new Map<
     string,
     {
@@ -34,14 +34,15 @@ function generateAvailableAgentsTable(): string {
   >();
 
   for (const [key, a] of Object.entries(agents)) {
-    const pathKey = a.virtual ? `virtual|${key}` : `${a.skillsDir}|${a.globalSkillsDir}`;
+    const pathKey =
+      a.install === 'api-upload' ? `api-upload|${key}` : `${a.skillsDir}|${a.globalSkillsDir}`;
     if (!pathGroups.has(pathKey)) {
       pathGroups.set(pathKey, {
         keys: [],
         displayNames: [],
         skillsDir: a.skillsDir,
         globalSkillsDir: a.globalSkillsDir,
-        ...(a.virtual && { installHint: a.installHint }),
+        ...(a.install === 'api-upload' && { installHint: a.installHint }),
       });
     }
     const group = pathGroups.get(pathKey)!;
@@ -79,7 +80,7 @@ function generateSkillDiscoveryPaths(): string {
   const agentPaths = [
     ...new Set(
       Object.values(agents)
-        .filter((a) => !a.virtual)
+        .filter((a) => (a.install ?? 'filesystem') === 'filesystem')
         .map((a) => a.skillsDir)
     ),
   ]

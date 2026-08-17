@@ -23,7 +23,8 @@ import {
   getVisibleUniversalAgents,
   getNonUniversalAgents,
   isUniversalAgent,
-  isVirtualAgent,
+  isApiUploadAgent,
+  isFilesystemAgent,
   getWildcardAgents,
   getEveSubagents,
 } from './agents.ts';
@@ -240,21 +241,21 @@ export function formatEveInstallPromptMessage(skills: Skill[]): string {
 }
 
 /**
- * Splits agents into universal, non-universal (symlinked), and virtual
+ * Splits agents into universal, non-universal (symlinked), and API-upload
  * (API upload) groups. Returns display names for each group.
  */
 function splitAgentsByType(agentTypes: AgentType[]): {
   universal: string[];
   symlinked: string[];
-  virtual: string[];
+  apiUpload: string[];
 } {
   const universal: string[] = [];
   const symlinked: string[] = [];
-  const virtual: string[] = [];
+  const apiUpload: string[] = [];
 
   for (const a of agentTypes) {
-    if (isVirtualAgent(a)) {
-      virtual.push(agents[a].displayName);
+    if (isApiUploadAgent(a)) {
+      apiUpload.push(agents[a].displayName);
     } else if (isUniversalAgent(a)) {
       universal.push(agents[a].displayName);
     } else {
@@ -262,7 +263,7 @@ function splitAgentsByType(agentTypes: AgentType[]): {
     }
   }
 
-  return { universal, symlinked, virtual };
+  return { universal, symlinked, apiUpload };
 }
 
 /**
@@ -270,7 +271,7 @@ function splitAgentsByType(agentTypes: AgentType[]): {
  */
 function buildAgentSummaryLines(targetAgents: AgentType[], installMode: InstallMode): string[] {
   const lines: string[] = [];
-  const { universal, symlinked, virtual } = splitAgentsByType(targetAgents);
+  const { universal, symlinked, apiUpload } = splitAgentsByType(targetAgents);
 
   if (installMode === 'symlink') {
     if (universal.length > 0) {
@@ -282,15 +283,15 @@ function buildAgentSummaryLines(targetAgents: AgentType[], installMode: InstallM
   } else {
     // Copy mode - all filesystem agents get copies
     const allNames = targetAgents
-      .filter((a) => !isVirtualAgent(a))
+      .filter((a) => isFilesystemAgent(a))
       .map((a) => agents[a].displayName);
     if (allNames.length > 0) {
       lines.push(`  ${pc.dim('copy →')} ${formatList(allNames)}`);
     }
   }
 
-  if (virtual.length > 0) {
-    lines.push(`  ${pc.dim('upload →')} ${formatList(virtual)}`);
+  if (apiUpload.length > 0) {
+    lines.push(`  ${pc.dim('upload →')} ${formatList(apiUpload)}`);
   }
 
   return lines;
@@ -346,7 +347,7 @@ function buildTargetSummaryLines(targets: InstallTarget[], installMode: InstallM
   const lines: string[] = [];
   const rootAgents = targets.filter((t) => !t.subagent).map((t) => t.agent);
   const subagentNames = targets.filter((t) => t.subagent).map(targetDisplayName);
-  const { universal, symlinked, virtual } = splitAgentsByType(rootAgents);
+  const { universal, symlinked, apiUpload } = splitAgentsByType(rootAgents);
 
   if (installMode === 'symlink') {
     if (universal.length > 0) {
@@ -359,14 +360,14 @@ function buildTargetSummaryLines(targets: InstallTarget[], installMode: InstallM
       lines.push(`  ${pc.dim('copy →')} ${formatList(subagentNames)}`);
     }
   } else {
-    const allNames = targets.filter((t) => !isVirtualAgent(t.agent)).map(targetDisplayName);
+    const allNames = targets.filter((t) => isFilesystemAgent(t.agent)).map(targetDisplayName);
     if (allNames.length > 0) {
       lines.push(`  ${pc.dim('copy →')} ${formatList(allNames)}`);
     }
   }
 
-  if (virtual.length > 0) {
-    lines.push(`  ${pc.dim('upload →')} ${formatList(virtual)}`);
+  if (apiUpload.length > 0) {
+    lines.push(`  ${pc.dim('upload →')} ${formatList(apiUpload)}`);
   }
 
   return lines;
@@ -390,18 +391,18 @@ function ensureUniversalAgents(targetAgents: AgentType[]): AgentType[] {
 }
 
 /**
- * Expand `--agent '*'` to all filesystem agents, keeping any virtual agents
+ * Expand `--agent '*'` to all filesystem agents, keeping any API-upload agents
  * the user listed explicitly alongside the wildcard.
  */
 function expandWildcardAgents(requested: string[]): AgentType[] {
-  const explicitVirtual = requested.filter(
-    (a): a is AgentType => a !== '*' && a in agents && isVirtualAgent(a as AgentType)
+  const explicitApiUpload = requested.filter(
+    (a): a is AgentType => a !== '*' && a in agents && isApiUploadAgent(a as AgentType)
   );
-  return [...new Set([...getWildcardAgents(), ...explicitVirtual])];
+  return [...new Set([...getWildcardAgents(), ...explicitApiUpload])];
 }
 
 /**
- * Resolve Anthropic API credentials when any selected target is a virtual
+ * Resolve Anthropic API credentials when any selected target is an API-upload
  * (API upload) agent. Prints guidance and returns null when no credential is
  * available; callers should abort the install in that case.
  */
@@ -409,7 +410,7 @@ async function resolveManagedAgentsAuth(
   targetAgents: AgentType[],
   spinner: ReturnType<typeof p.spinner>
 ): Promise<{ auth: AnthropicAuth | null; required: boolean }> {
-  if (!targetAgents.some((a) => isVirtualAgent(a))) {
+  if (!targetAgents.some((a) => isApiUploadAgent(a))) {
     return { auth: null, required: false };
   }
 
@@ -427,13 +428,13 @@ async function resolveManagedAgentsAuth(
 
 /**
  * Fold the additive `--managed-agents` flag into the target list and resolve
- * API credentials when any target is virtual. An explicitly requested virtual
- * agent aborts on missing credentials (shouldAbort) — unless the
- * `--managed-agents` flag is also present, which marks the run as an
- * automated refresh: virtual targets are then dropped with a warning and
+ * API credentials when any target is an API-upload agent. An explicitly
+ * requested API-upload agent aborts on missing credentials (shouldAbort) —
+ * unless the `--managed-agents` flag is also present, which marks the run as an
+ * automated refresh: API-upload targets are then dropped with a warning and
  * reported as uploadSkipped, so `update` never fails the whole run over a
  * missing login (it passes the flag on every refresh of a previously
- * uploaded skill, including upload-only ones where the virtual agent is
+ * uploaded skill, including upload-only ones where the API-upload agent is
  * named explicitly).
  */
 async function resolveManagedAgentsTargets(
@@ -457,7 +458,7 @@ async function resolveManagedAgentsTargets(
     if (soft) {
       p.log.warn('Skipping the Claude Managed Agents upload; other installs continue.');
       return {
-        targetAgents: resolved.filter((a) => !isVirtualAgent(a)),
+        targetAgents: resolved.filter((a) => isFilesystemAgent(a)),
         auth: null,
         shouldAbort: false,
         uploadSkipped: true,
@@ -727,9 +728,9 @@ async function selectAgentsInteractive(options: {
   global?: boolean;
 }): Promise<AgentType[] | symbol> {
   // Filter out agents that don't support global installation when --global is used.
-  // Virtual agents (API uploads) are scope-independent, so they always remain.
+  // API-upload agents are scope-independent, so they always remain.
   const supportsGlobalFilter = (a: AgentType) =>
-    !options.global || agents[a].globalSkillsDir || isVirtualAgent(a);
+    !options.global || agents[a].globalSkillsDir || isApiUploadAgent(a);
 
   const universalAgents = getUniversalAgents().filter(supportsGlobalFilter);
   const visibleUniversalAgents = getVisibleUniversalAgents().filter(supportsGlobalFilter);
@@ -932,8 +933,8 @@ async function handleWellKnownSkills(
   const validAgents = Object.keys(agents);
 
   if (options.agent?.includes('*')) {
-    // --agent '*' selects all filesystem agents; virtual agents (API uploads)
-    // are included only when listed explicitly alongside the wildcard.
+    // --agent '*' selects all filesystem agents; API-upload agents are
+    // included only when listed explicitly alongside the wildcard.
     targetAgents = expandWildcardAgents(options.agent);
     p.log.info(`Installing to all ${targetAgents.length} agents`);
   } else if (options.agent && options.agent.length > 0) {
@@ -954,7 +955,7 @@ async function handleWellKnownSkills(
 
     if (installedAgents.length === 0) {
       if (options.yes) {
-        // Covers filesystem agents only; virtual agents need an explicit -a.
+        // Covers filesystem agents only; API-upload agents need an explicit -a.
         targetAgents = getWildcardAgents();
         p.log.info('Installing to all agents');
       } else {
@@ -1052,9 +1053,9 @@ async function handleWellKnownSkills(
 
   // Only prompt for install mode when there are multiple unique target directories.
   // When all selected agents share the same skillsDir, symlink vs copy is meaningless.
-  // Virtual agents have no target directory and don't participate in the choice.
+  // API-upload agents have no target directory and don't participate in the choice.
   const uniqueDirs = new Set(
-    targetAgents.filter((a) => !isVirtualAgent(a)).map((a) => agents[a].skillsDir)
+    targetAgents.filter((a) => isFilesystemAgent(a)).map((a) => agents[a].skillsDir)
   );
 
   if (!options.copy && !options.yes && uniqueDirs.size > 1) {
@@ -1105,13 +1106,13 @@ async function handleWellKnownSkills(
     overwriteStatus.get(skillName)!.set(agent, installed);
   }
 
-  const allVirtualTargets = targetAgents.every((a) => isVirtualAgent(a));
+  const allApiUploadTargets = targetAgents.every((a) => isApiUploadAgent(a));
 
   for (const skill of selectedSkills) {
     if (summaryLines.length > 0) summaryLines.push('');
 
     // API-only installs have no local path to show
-    if (allVirtualTargets) {
+    if (allApiUploadTargets) {
       summaryLines.push(`${pc.cyan(skill.installName)}`);
     } else {
       const canonicalPath = getCanonicalPath(skill.installName, { global: installGlobally });
@@ -1164,7 +1165,7 @@ async function handleWellKnownSkills(
 
   for (const skill of selectedSkills) {
     for (const agent of targetAgents) {
-      if (isVirtualAgent(agent)) continue;
+      if (isApiUploadAgent(agent)) continue;
       const result = await installWellKnownSkillForAgent(skill, agent, {
         global: installGlobally,
         mode: installMode,
@@ -1232,7 +1233,7 @@ async function handleWellKnownSkills(
     knownManagedIds,
     sourceKey: sourceIdentifier,
     uploadRequested: Boolean(managedAgentsAuth) || managedResolution.uploadSkipped,
-    fsRequested: targetAgents.some((a) => !isVirtualAgent(a)),
+    fsRequested: targetAgents.some((a) => isFilesystemAgent(a)),
   });
 
   // Add to skill lock file for update tracking (only for global installs)
@@ -1723,9 +1724,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     const validAgents = Object.keys(agents);
 
     if (options.agent?.includes('*')) {
-      // --agent '*' selects all filesystem agents; virtual agents (API
-      // uploads) are included only when listed explicitly alongside the
-      // wildcard.
+      // --agent '*' selects all filesystem agents; API-upload agents are
+      // included only when listed explicitly alongside the wildcard.
       targetAgents = expandWildcardAgents(options.agent);
       p.log.info(`Installing to all ${targetAgents.length} agents`);
     } else if (options.agent && options.agent.length > 0) {
@@ -1775,7 +1775,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         }
       } else if (installedAgents.length === 0) {
         if (options.yes) {
-          // Covers filesystem agents only; virtual agents need an explicit -a.
+          // Covers filesystem agents only; API-upload agents need an explicit -a.
           targetAgents = getWildcardAgents();
           p.log.info('Installing to all agents');
         } else {
@@ -1930,7 +1930,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     const allEve = installTargets.every((t) => t.agent === 'eve');
     const uniqueDirs = new Set(
       installTargets
-        .filter((t) => !isVirtualAgent(t.agent))
+        .filter((t) => isFilesystemAgent(t.agent))
         .map((t) => (t.subagent ? `eve:subagent:${t.subagent}` : agents[t.agent].skillsDir))
     );
 
@@ -2001,13 +2001,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     // Helper to print summary lines for a list of skills
-    const allVirtualTargets = installTargets.every((t) => isVirtualAgent(t.agent));
+    const allApiUploadTargets = installTargets.every((t) => isApiUploadAgent(t.agent));
     const printSkillSummary = (skills: Skill[]) => {
       for (const skill of skills) {
         if (summaryLines.length > 0) summaryLines.push('');
 
         // API-only installs have no local path to show
-        if (allVirtualTargets) {
+        if (allApiUploadTargets) {
           summaryLines.push(`${pc.cyan(getSkillDisplayName(skill))}`);
         } else {
           const canonicalPath =
@@ -2107,8 +2107,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     for (const skill of selectedSkills) {
       for (const target of installTargets) {
         const { agent, subagent } = target;
-        // Virtual agents are handled by the API upload pass below.
-        if (isVirtualAgent(agent)) continue;
+        // API-upload agents are handled by the API upload pass below.
+        if (isApiUploadAgent(agent)) continue;
         let result;
         if (blobResult && 'files' in skill) {
           // Blob-based install: write files from snapshot
@@ -2258,7 +2258,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       knownManagedIds,
       sourceKey: managedSourceKey,
       uploadRequested: Boolean(managedAgentsAuth) || managedResolution.uploadSkipped,
-      fsRequested: targetAgents.some((a) => !isVirtualAgent(a)),
+      fsRequested: targetAgents.some((a) => isFilesystemAgent(a)),
     });
 
     // Add to skill lock file for update tracking (only for global installs)

@@ -2,7 +2,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { xdgConfig } from 'xdg-basedir';
-import type { AgentConfig, AgentType } from './types.ts';
+import type { AgentConfig, AgentType, AgentInstallMethod } from './types.ts';
 
 const home = homedir();
 // Use xdg-basedir (not env-paths) to match OpenCode/Amp/Goose behavior on all platforms.
@@ -156,7 +156,7 @@ export const agents: Record<AgentType, AgentConfig> = {
     // to the Anthropic Skills API (see managed-agents.ts).
     skillsDir: '.claude-managed-agents/skills',
     globalSkillsDir: undefined,
-    virtual: true,
+    install: 'api-upload',
     installHint: 'Uploads to the Anthropic Skills API',
     // Uploading to the user's Anthropic organization must be an explicit
     // choice, so this target is never auto-detected.
@@ -875,18 +875,28 @@ export function isUniversalAgent(type: AgentType): boolean {
   return agents[type].skillsDir === '.agents/skills';
 }
 
-/**
- * Check if an agent is virtual (no filesystem skills directory; skills are
- * delivered through a dedicated integration such as an API upload).
- */
-export function isVirtualAgent(type: AgentType): boolean {
-  return agents[type].virtual === true;
+/** How skills reach an agent; defaults to a filesystem copy or symlink. */
+export function getInstallMethod(type: AgentType): AgentInstallMethod {
+  return agents[type].install ?? 'filesystem';
+}
+
+/** Agents whose skills are copied or symlinked into a local skills directory. */
+export function isFilesystemAgent(type: AgentType): boolean {
+  return getInstallMethod(type) === 'filesystem';
 }
 
 /**
- * Agent types that install to the filesystem. Virtual agents (API-backed
- * targets) are excluded; they must be requested explicitly by name.
+ * Agents whose skills are pushed through an API instead of written to disk.
+ * They have no skills directory and must be selected explicitly.
+ */
+export function isApiUploadAgent(type: AgentType): boolean {
+  return getInstallMethod(type) === 'api-upload';
+}
+
+/**
+ * Agent types that install to the filesystem. API-upload agents are excluded;
+ * they must be requested explicitly by name.
  */
 export function getWildcardAgents(): AgentType[] {
-  return (Object.keys(agents) as AgentType[]).filter((type) => !isVirtualAgent(type));
+  return (Object.keys(agents) as AgentType[]).filter((type) => isFilesystemAgent(type));
 }
