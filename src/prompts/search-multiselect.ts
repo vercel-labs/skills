@@ -308,10 +308,25 @@ export async function searchMultiselect<T>(
       return items.filter((item) => filter(item, query));
     };
 
+    const NO_COLLAPSED_GROUPS: Set<string> = new Set();
+
+    /**
+     * Collapse state to render with.
+     *
+     * A filter is a temporary view; a collapsed group is a persistent
+     * preference. While a query is active the view wins, so a group holding
+     * matches always reveals them — otherwise a user could type a skill's exact
+     * name and be told it does not exist, because it sits inside a group they
+     * collapsed earlier. `collapsedGroups` is only read here, never cleared, so
+     * the preference is intact the moment the query is.
+     */
+    const activeCollapsedGroups = (): Set<string> =>
+      query ? NO_COLLAPSED_GROUPS : collapsedGroups;
+
     const render = (state: 'active' | 'submit' | 'cancel' = 'active'): void => {
       const lines: string[] = [];
       const filtered = getFiltered();
-      const entries = buildSearchEntries(filtered, selectGroups, collapsedGroups);
+      const entries = buildSearchEntries(filtered, selectGroups, activeCollapsedGroups());
 
       // Header
       const icon =
@@ -339,7 +354,13 @@ export async function searchMultiselect<T>(
         if (searchable) {
           const searchLine = `${S_BAR}  ${pc.dim('Search:')} ${query}${pc.inverse(' ')}`;
           lines.push(searchLine);
-          lines.push(`${S_BAR}  ${pc.dim('↑↓ move, space select, enter confirm')}`);
+          lines.push(
+            `${S_BAR}  ${pc.dim(
+              selectGroups
+                ? '↑↓ move, ←→ collapse/expand, space select, enter confirm'
+                : '↑↓ move, space select, enter confirm'
+            )}`
+          );
           lines.push(`${S_BAR}`);
         }
 
@@ -491,7 +512,7 @@ export async function searchMultiselect<T>(
     const keypressHandler = (_str: string, key: readline.Key): void => {
       if (!key) return;
 
-      const entries = buildSearchEntries(getFiltered(), selectGroups, collapsedGroups);
+      const entries = buildSearchEntries(getFiltered(), selectGroups, activeCollapsedGroups());
 
       if (key.name === 'return') {
         submit();
@@ -529,7 +550,11 @@ export async function searchMultiselect<T>(
         const group = entry?.type === 'group' ? entry.group : entry?.item.group;
         if (group) {
           collapsedGroups.add(group);
-          const collapsedEntries = buildSearchEntries(getFiltered(), selectGroups, collapsedGroups);
+          const collapsedEntries = buildSearchEntries(
+            getFiltered(),
+            selectGroups,
+            activeCollapsedGroups()
+          );
           cursor = collapsedEntries.findIndex(
             (collapsedEntry) => collapsedEntry.type === 'group' && collapsedEntry.group === group
           );
