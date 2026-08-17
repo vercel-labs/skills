@@ -1353,7 +1353,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         items: skillChoices,
         required: true,
         maxVisible: 20,
-        searchable: !hasGroups,
+        searchable: true,
         showDetail: true,
         showSelectedSummary: false,
         selectGroups: hasGroups,

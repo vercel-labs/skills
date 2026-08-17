@@ -231,6 +231,54 @@ export function buildSearchEntries<T>(
   return entries;
 }
 
+/** The prompt's filter: case-insensitive substring match on label or value. */
+export function matchesSearchQuery<T>(item: SearchItem<T>, query: string): boolean {
+  if (!query) return true;
+  const lowerQuery = query.toLowerCase();
+  return (
+    item.label.toLowerCase().includes(lowerQuery) ||
+    String(item.value).toLowerCase().includes(lowerQuery)
+  );
+}
+
+/** Narrow a list to the items matching a query. */
+export function filterSearchItems<T>(items: SearchItem<T>[], query: string): SearchItem<T>[] {
+  return items.filter((item) => matchesSearchQuery(item, query));
+}
+
+const NO_COLLAPSED_GROUPS: ReadonlySet<string> = new Set();
+
+/**
+ * The collapse state to render with.
+ *
+ * A filter is a temporary view; a collapsed group is a persistent preference.
+ * While a query is active the view wins, so a group holding matches always
+ * reveals them — otherwise a user could type a skill's exact name and be told
+ * it does not exist, because it sits inside a group they collapsed earlier.
+ * `collapsedGroups` is only read here, never cleared, so the preference is
+ * intact the moment the query is.
+ */
+export function activeCollapsedGroups(
+  query: string,
+  collapsedGroups: ReadonlySet<string>
+): ReadonlySet<string> {
+  return query ? NO_COLLAPSED_GROUPS : collapsedGroups;
+}
+
+/**
+ * Whether ←/→ collapse and expand anything right now.
+ *
+ * They are live only when grouping is on and no query is active. While
+ * filtering, the rendered collapse state is forced empty by
+ * `activeCollapsedGroups`, so a keypress that wrote to the collapse set would
+ * change nothing on screen and then surprise the user the moment the query
+ * cleared. Both keys are read-only in that state — genuine no-ops, not one key
+ * recording state the other cannot undo.
+ */
+export function collapseKeysActive(selectGroups: boolean, query: string): boolean {
+  return selectGroups && !query;
+}
+
 /** Toggle one item, or every item represented by a selectable group heading. */
 export function toggleSearchEntry<T>(selected: Set<T>, entry: SearchEntry<T> | undefined): void {
   if (entry?.type === 'group') {
@@ -295,23 +343,19 @@ export async function searchMultiselect<T>(
     // Locked items are always included in the result
     const lockedValues = lockedSection ? lockedSection.items.map((i) => i.value) : [];
 
-    const filter = (item: SearchItem<T>, q: string): boolean => {
-      if (!q) return true;
-      const lowerQ = q.toLowerCase();
-      return (
-        item.label.toLowerCase().includes(lowerQ) ||
-        String(item.value).toLowerCase().includes(lowerQ)
-      );
-    };
+    const getFiltered = (): SearchItem<T>[] => filterSearchItems(items, query);
 
-    const getFiltered = (): SearchItem<T>[] => {
-      return items.filter((item) => filter(item, query));
-    };
+    /** The collapse state to render with — see `activeCollapsedGroups`. */
+    const renderedCollapsedGroups = (): ReadonlySet<string> =>
+      activeCollapsedGroups(query, collapsedGroups);
+
+    /** Whether ←/→ do anything right now — see `collapseKeysActive`. */
+    const collapseKeysLive = (): boolean => collapseKeysActive(selectGroups, query);
 
     const render = (state: 'active' | 'submit' | 'cancel' = 'active'): void => {
       const lines: string[] = [];
       const filtered = getFiltered();
-      const entries = buildSearchEntries(filtered, selectGroups, collapsedGroups);
+      const entries = buildSearchEntries(filtered, selectGroups, renderedCollapsedGroups());
 
       // Header
       const icon =
@@ -339,7 +383,13 @@ export async function searchMultiselect<T>(
         if (searchable) {
           const searchLine = `${S_BAR}  ${pc.dim('Search:')} ${query}${pc.inverse(' ')}`;
           lines.push(searchLine);
-          lines.push(`${S_BAR}  ${pc.dim('↑↓ move, space select, enter confirm')}`);
+          lines.push(
+            `${S_BAR}  ${pc.dim(
+              collapseKeysLive()
+                ? '↑↓ move, ←→ collapse/expand, space select, enter confirm'
+                : '↑↓ move, space select, enter confirm'
+            )}`
+          );
           lines.push(`${S_BAR}`);
         }
 
@@ -491,7 +541,7 @@ export async function searchMultiselect<T>(
     const keypressHandler = (_str: string, key: readline.Key): void => {
       if (!key) return;
 
-      const entries = buildSearchEntries(getFiltered(), selectGroups, collapsedGroups);
+      const entries = buildSearchEntries(getFiltered(), selectGroups, renderedCollapsedGroups());
 
       if (key.name === 'return') {
         submit();
@@ -515,7 +565,7 @@ export async function searchMultiselect<T>(
         return;
       }
 
-      if (selectGroups && key.name === 'right') {
+      if (collapseKeysLive() && key.name === 'right') {
         const entry = entries[cursor];
         if (entry?.type === 'group' && entry.collapsed) {
           collapsedGroups.delete(entry.group);
@@ -524,12 +574,16 @@ export async function searchMultiselect<T>(
         return;
       }
 
-      if (selectGroups && key.name === 'left') {
+      if (collapseKeysLive() && key.name === 'left') {
         const entry = entries[cursor];
         const group = entry?.type === 'group' ? entry.group : entry?.item.group;
         if (group) {
           collapsedGroups.add(group);
-          const collapsedEntries = buildSearchEntries(getFiltered(), selectGroups, collapsedGroups);
+          const collapsedEntries = buildSearchEntries(
+            getFiltered(),
+            selectGroups,
+            renderedCollapsedGroups()
+          );
           cursor = collapsedEntries.findIndex(
             (collapsedEntry) => collapsedEntry.type === 'group' && collapsedEntry.group === group
           );
