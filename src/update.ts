@@ -60,7 +60,7 @@ export interface UpdateCheckOptions {
  * local copies the user never asked for.
  */
 export async function buildManagedAgentsArgs(
-  entry: { managedSkillId?: string },
+  entry: { managedSkillId?: string; subagents?: string[] },
   skillName: string,
   isGlobal: boolean
 ): Promise<string[]> {
@@ -71,7 +71,21 @@ export async function buildManagedAgentsArgs(
       return ['--managed-agents'];
     }
   }
-  return ['--agent', 'claude-managed-agents'];
+  // Eve installs into per-subagent directories the generic check misses.
+  for (const subagent of entry.subagents ?? []) {
+    if (
+      await isSkillInstalled(skillName, 'eve', {
+        global: isGlobal,
+        ...(subagent && { eveSubagent: subagent }),
+      })
+    ) {
+      return ['--managed-agents'];
+    }
+  }
+  // Upload-only: name the virtual agent so the refresh doesn't materialize
+  // local copies, and keep --managed-agents so a missing login makes the
+  // child skip the upload instead of aborting the whole update run.
+  return ['--agent', 'claude-managed-agents', '--managed-agents'];
 }
 
 function getUpdateChildEnv(sourceType: string): NodeJS.ProcessEnv | undefined {

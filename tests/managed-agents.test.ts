@@ -22,7 +22,7 @@ import {
   type AnthropicAuth,
 } from '../src/managed-agents.ts';
 import { agents, getWildcardAgents, isVirtualAgent } from '../src/agents.ts';
-import { parseAddOptions } from '../src/add.ts';
+import { parseAddOptions, buildManagedLockBookkeeping } from '../src/add.ts';
 import { buildManagedAgentsArgs } from '../src/update.ts';
 
 const API_KEY_AUTH: AnthropicAuth = {
@@ -195,6 +195,21 @@ describe('uploadSkillToManagedAgents', () => {
       )
     ).rejects.toThrow('missing a SKILL.md');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('normalizes a lowercase skill.md from case-insensitive filesystems', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, { id: 'skill_01A', display_title: 'my-skill', latest_version: '1' })
+    );
+
+    await uploadSkillToManagedAgents(
+      { name: 'my-skill', files: [{ path: 'skill.md', content: '# hi' }] },
+      API_KEY_AUTH
+    );
+
+    const form = fetchMock.mock.calls[0]![1]?.body as FormData;
+    const files = form.getAll('files[]') as File[];
+    expect(files.map((f) => f.name)).toEqual(['my-skill/SKILL.md']);
   });
 
   it('creates a skill with a multipart form of dir-prefixed files', async () => {
@@ -445,10 +460,10 @@ describe('buildManagedAgentsArgs', () => {
     expect(await buildManagedAgentsArgs({}, 'my-skill', false)).toEqual([]);
   });
 
-  it('targets the virtual agent directly for upload-only skills', async () => {
+  it('targets the virtual agent (softly) for upload-only skills', async () => {
     expect(
       await buildManagedAgentsArgs({ managedSkillId: 'skill_01A' }, 'my-skill', false)
-    ).toEqual(['--agent', 'claude-managed-agents']);
+    ).toEqual(['--agent', 'claude-managed-agents', '--managed-agents']);
   });
 
   it('uses the additive flag when the skill is also installed on the filesystem', async () => {
@@ -457,5 +472,87 @@ describe('buildManagedAgentsArgs', () => {
     expect(
       await buildManagedAgentsArgs({ managedSkillId: 'skill_01A' }, 'my-skill', false)
     ).toEqual(['--managed-agents']);
+  });
+
+  it('recognizes Eve subagent installs as filesystem installs', async () => {
+    await mkdir(join(dir, 'agent', 'subagents', 'researcher', 'skills', 'my-skill'), {
+      recursive: true,
+    });
+    await writeFile(
+      join(dir, 'agent', 'subagents', 'researcher', 'skills', 'my-skill', 'SKILL.md'),
+      '# my-skill'
+    );
+    expect(
+      await buildManagedAgentsArgs(
+        { managedSkillId: 'skill_01A', subagents: ['researcher'] },
+        'my-skill',
+        false
+      )
+    ).toEqual(['--managed-agents']);
+  });
+});
+
+describe('buildManagedLockBookkeeping', () => {
+  const KNOWN = new Map([['my-skill', { managedSkillId: 'skill_OLD', source: 'owner/repo-a' }]]);
+
+  it('prefers a fresh upload id and falls back to a same-source recorded id', () => {
+    const { managedIdFor } = buildManagedLockBookkeeping({
+      uploadOutcomes: [{ skill: 'my-skill', success: true, skillId: 'skill_NEW' }],
+      knownManagedIds: KNOWN,
+      sourceKey: 'owner/repo-a',
+      uploadRequested: true,
+      fsRequested: true,
+    });
+    expect(managedIdFor('my-skill')).toBe('skill_NEW');
+
+    const { managedIdFor: preserved } = buildManagedLockBookkeeping({
+      uploadOutcomes: [],
+      knownManagedIds: KNOWN,
+      sourceKey: 'owner/repo-a',
+      uploadRequested: false,
+      fsRequested: true,
+    });
+    expect(preserved('my-skill')).toBe('skill_OLD');
+  });
+
+  it('never inherits an id recorded for a different source', () => {
+    const { managedIdFor } = buildManagedLockBookkeeping({
+      uploadOutcomes: [],
+      knownManagedIds: KNOWN,
+      sourceKey: 'owner/repo-b',
+      uploadRequested: false,
+      fsRequested: true,
+    });
+    expect(managedIdFor('my-skill')).toBeUndefined();
+  });
+
+  it('marks a skill incomplete when a requested part did not succeed', () => {
+    const { isComplete } = buildManagedLockBookkeeping({
+      uploadOutcomes: [],
+      knownManagedIds: new Map(),
+      sourceKey: 'owner/repo-a',
+      uploadRequested: true, // requested (or credential-skipped) but no success
+      fsRequested: true,
+    });
+    expect(isComplete('my-skill', true)).toBe(false);
+
+    const { isComplete: fsOnly } = buildManagedLockBookkeeping({
+      uploadOutcomes: [],
+      knownManagedIds: new Map(),
+      sourceKey: 'owner/repo-a',
+      uploadRequested: false,
+      fsRequested: true,
+    });
+    expect(fsOnly('my-skill', true)).toBe(true);
+    expect(fsOnly('my-skill', false)).toBe(false);
+
+    const { isComplete: uploadOk } = buildManagedLockBookkeeping({
+      uploadOutcomes: [{ skill: 'my-skill', success: true, skillId: 'skill_NEW' }],
+      knownManagedIds: new Map(),
+      sourceKey: 'owner/repo-a',
+      uploadRequested: true,
+      fsRequested: false,
+    });
+    expect(uploadOk('my-skill', false)).toBe(true);
   });
 });

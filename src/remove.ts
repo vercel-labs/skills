@@ -58,6 +58,19 @@ export function resolveSkillsToRemove(
   return Array.from(matched);
 }
 
+/**
+ * Deleting a lock entry that records a Claude Managed Agents upload orphans
+ * the uploaded skill: it stays live in the user's Anthropic organization,
+ * and the recorded id (the direct re-upload path) is lost. Say so instead of
+ * letting the removal read as complete.
+ */
+function warnAboutManagedUpload(skillName: string, managedSkillId: string | undefined): void {
+  if (!managedSkillId) return;
+  p.log.warn(
+    `${skillName} was uploaded to Claude Managed Agents (${managedSkillId}). The uploaded skill remains in your Anthropic organization; manage it via the Anthropic API.`
+  );
+}
+
 export async function removeCommand(skillNames: string[], options: RemoveOptions) {
   // Auto-enable non-interactive mode when running inside an AI agent
   const agentResult = await detectAgent();
@@ -304,6 +317,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
         effectiveSource = lockEntry?.source || 'local';
         effectiveSourceType = lockEntry?.sourceType || 'local';
         if (!isStillUsed) {
+          warnAboutManagedUpload(skillName, lockEntry?.managedSkillId);
           await removeSkillFromLock(skillName);
         }
       } else {
@@ -312,6 +326,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
         effectiveSource = lockEntry?.source || 'local';
         effectiveSourceType = lockEntry?.sourceType || 'local';
         if (!isStillUsed) {
+          warnAboutManagedUpload(skillName, lockEntry?.managedSkillId);
           await removeSkillFromLocalLock(skillName, cwd);
         }
       }

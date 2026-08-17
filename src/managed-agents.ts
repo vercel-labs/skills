@@ -338,9 +338,18 @@ export async function uploadSkillToManagedAgents(
   auth: AnthropicAuth,
   knownSkillId?: string
 ): Promise<ManagedSkillUploadResult> {
-  if (!skill.files.some((file) => file.path === 'SKILL.md')) {
+  // Case-insensitive filesystems discover a lowercase `skill.md`, but the
+  // API requires the exact-case name — normalize instead of rejecting a
+  // skill that installs fine to filesystem agents.
+  const files = skill.files.map((file) =>
+    file.path.toLowerCase() === 'skill.md' && file.path !== 'SKILL.md'
+      ? { ...file, path: 'SKILL.md' }
+      : file
+  );
+  if (!files.some((file) => file.path === 'SKILL.md')) {
     throw new Error('Skill is missing a SKILL.md at its root');
   }
+  skill = { ...skill, files };
 
   const directory = sanitizeName(skill.name);
   const headers = buildHeaders(auth);
