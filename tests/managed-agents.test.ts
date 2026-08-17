@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, mkdir, writeFile, rm } from 'fs/promises';
+import { mkdtemp, mkdir, symlink, writeFile, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -170,6 +170,30 @@ describe('collectSkillFiles', () => {
       expect(paths).toEqual(['SKILL.md', 'scripts/run.py']);
     } finally {
       await rm(skillDir, { recursive: true, force: true });
+    }
+  });
+
+  it('follows in-tree symlinks but skips ones that escape the skill directory', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'skill-'));
+    const skillDir = join(root, 'skill');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await mkdir(skillDir);
+      await writeFile(join(skillDir, 'SKILL.md'), '# skill');
+      await writeFile(join(skillDir, 'shared.md'), 'shared');
+      await writeFile(join(root, 'secret.txt'), 'do not upload');
+      await symlink('shared.md', join(skillDir, 'alias.md'));
+      await symlink(join(root, 'secret.txt'), join(skillDir, 'leak.txt'));
+      await symlink(root, join(skillDir, 'escape-dir'));
+
+      const files = await collectSkillFiles(skillDir);
+      const paths = files.map((f) => f.path).sort();
+      expect(paths).toEqual(['SKILL.md', 'alias.md', 'shared.md']);
+      expect(files.some((f) => String(f.content).includes('do not upload'))).toBe(false);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('leak.txt'));
+    } finally {
+      warn.mockRestore();
+      await rm(root, { recursive: true, force: true });
     }
   });
 });

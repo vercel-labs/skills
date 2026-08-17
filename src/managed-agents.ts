@@ -1,8 +1,8 @@
 import { execFileSync } from 'child_process';
 import { existsSync } from 'fs';
-import { readFile, readdir, stat } from 'fs/promises';
+import { readFile, readdir, realpath, stat } from 'fs/promises';
 import { homedir } from 'os';
-import { join } from 'path';
+import { join, sep } from 'path';
 import { sanitizeName, EXCLUDE_FILES, EXCLUDE_DIRS } from './installer.ts';
 
 /**
@@ -170,31 +170,48 @@ export interface SkillUploadFile {
 /**
  * Collect a skill directory's files for upload, applying the same exclusion
  * rules as filesystem installs (see installer.ts copyDirectory).
+ *
+ * Symlinks are followed only when they resolve inside the skill directory.
+ * Unlike a filesystem install, an upload sends file contents off the machine,
+ * so a cloned repo must not be able to smuggle local files (e.g. a symlink to
+ * an absolute path under the user's home) into the uploaded bundle.
  */
-export async function collectSkillFiles(
-  skillDir: string,
-  relativeDir = ''
+export async function collectSkillFiles(skillDir: string): Promise<SkillUploadFile[]> {
+  const rootReal = await realpath(skillDir);
+  return collectSkillFilesWithin(skillDir, rootReal, '');
+}
+
+async function collectSkillFilesWithin(
+  dir: string,
+  rootReal: string,
+  relativeDir: string
 ): Promise<SkillUploadFile[]> {
   const files: SkillUploadFile[] = [];
-  const entries = await readdir(skillDir, { withFileTypes: true });
+  const entries = await readdir(dir, { withFileTypes: true });
 
   for (const entry of entries) {
-    const entryPath = join(skillDir, entry.name);
+    const entryPath = join(dir, entry.name);
     const relativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
 
     let isDirectory = entry.isDirectory();
-    if (!isDirectory && entry.isSymbolicLink()) {
+    if (entry.isSymbolicLink()) {
+      let target: string;
       try {
-        isDirectory = (await stat(entryPath)).isDirectory();
+        target = await realpath(entryPath);
       } catch {
         // Broken symlink — skip, matching copyDirectory behavior
         continue;
       }
+      if (target !== rootReal && !target.startsWith(rootReal + sep)) {
+        console.warn(`Skipping symlink outside skill directory: ${relativePath}`);
+        continue;
+      }
+      isDirectory = (await stat(target)).isDirectory();
     }
 
     if (isDirectory) {
       if (EXCLUDE_DIRS.has(entry.name)) continue;
-      files.push(...(await collectSkillFiles(entryPath, relativePath)));
+      files.push(...(await collectSkillFilesWithin(entryPath, rootReal, relativePath)));
     } else {
       if (EXCLUDE_FILES.has(entry.name)) continue;
       files.push({ path: relativePath, content: await readFile(entryPath) });
