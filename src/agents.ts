@@ -537,6 +537,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.openhands'));
     },
   },
+  omp: {
+    name: 'omp',
+    displayName: 'omp (Oh My Pi)',
+    skillsDir: '.omp/skills',
+    globalSkillsDir: join(home, '.omp/agent/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.omp/agent'));
+    },
+  },
   ona: {
     name: 'ona',
     displayName: 'Ona',
