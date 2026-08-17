@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { buildSearchEntries, toggleSearchEntry, type SearchItem } from './search-multiselect';
+import {
+  activeCollapsedGroups,
+  buildSearchEntries,
+  collapseKeysActive,
+  filterSearchItems,
+  toggleSearchEntry,
+  type SearchItem,
+} from './search-multiselect';
 
 const items: SearchItem<string>[] = [
   { value: 'ask-matt', label: 'ask-matt', group: 'Engineering' },
@@ -9,13 +16,8 @@ const items: SearchItem<string>[] = [
   { value: 'loose-skill', label: 'loose-skill' },
 ];
 
-/** The prompt's own filter: substring match on label or value, case-insensitive. */
-const filterBy = (query: string): SearchItem<string>[] =>
-  items.filter(
-    (item) =>
-      item.label.toLowerCase().includes(query.toLowerCase()) ||
-      String(item.value).toLowerCase().includes(query.toLowerCase())
-  );
+/** The prompt's own filter, imported rather than reimplemented so it cannot drift. */
+const filterBy = (query: string): SearchItem<string>[] => filterSearchItems(items, query);
 
 const groupNames = (entries: ReturnType<typeof buildSearchEntries<string>>) =>
   entries.filter((e) => e.type === 'group').map((e) => (e.type === 'group' ? e.group : ''));
@@ -43,15 +45,60 @@ describe('buildSearchEntries with groups', () => {
     expect(itemValues(entries)).toContain('kmp-module-setup');
   });
 
-  it('reveals matches inside a collapsed group when the collapse set is ignored', () => {
-    // What the prompt does while a query is active: a filter is a temporary
-    // view, so it wins over the persistent collapse preference. Without this,
-    // typing a skill's exact name reports nothing when its group is collapsed.
+  it('reveals matches inside a manually-collapsed group while a query is active', () => {
+    // The regression this PR fixes, wired the way the prompt wires it: the
+    // collapse set goes through activeCollapsedGroups rather than being blanked
+    // by hand. Without it, typing a skill's exact name reports nothing because
+    // its group was collapsed earlier.
     const collapsed = new Set(['Engineering']);
-    expect(itemValues(buildSearchEntries(filterBy('tdd'), true, collapsed))).toEqual([]);
-    expect(itemValues(buildSearchEntries(filterBy('tdd'), true, new Set()))).toEqual(['tdd']);
+
+    const idle = buildSearchEntries(filterBy(''), true, activeCollapsedGroups('', collapsed));
+    expect(itemValues(idle)).not.toContain('tdd');
+
+    const searching = buildSearchEntries(
+      filterBy('tdd'),
+      true,
+      activeCollapsedGroups('tdd', collapsed)
+    );
+    expect(itemValues(searching)).toEqual(['tdd']);
+
     // The preference itself is untouched — it is read, never cleared.
     expect(collapsed.has('Engineering')).toBe(true);
+    expect(
+      itemValues(buildSearchEntries(items, true, activeCollapsedGroups('', collapsed)))
+    ).not.toContain('tdd');
+  });
+});
+
+describe('activeCollapsedGroups', () => {
+  it('honours the collapse preference when no query is active', () => {
+    const collapsed = new Set(['Engineering']);
+    expect(activeCollapsedGroups('', collapsed)).toBe(collapsed);
+  });
+
+  it('ignores the collapse preference while a query is active, without clearing it', () => {
+    const collapsed = new Set(['Engineering']);
+    expect([...activeCollapsedGroups('kmp', collapsed)]).toEqual([]);
+    expect([...collapsed]).toEqual(['Engineering']);
+  });
+});
+
+describe('collapseKeysActive', () => {
+  it('enables ←/→ only when grouping is on and no query is active', () => {
+    expect(collapseKeysActive(true, '')).toBe(true);
+  });
+
+  it('makes both ←/→ no-ops while a query is active', () => {
+    // Read-only during search. Previously ← still wrote to the collapse set
+    // while → was guarded by entry.collapsed — always false while filtering —
+    // so collapse state accumulated with no way to undo it until the query
+    // cleared. Neither key may act unless this predicate is true.
+    expect(collapseKeysActive(true, 'kmp')).toBe(false);
+  });
+
+  it('stays off when grouping is disabled', () => {
+    expect(collapseKeysActive(false, '')).toBe(false);
+    expect(collapseKeysActive(false, 'kmp')).toBe(false);
   });
 });
 
