@@ -221,24 +221,28 @@ async function collectSkillFilesWithin(
   return files;
 }
 
+/** A non-2xx response from the Skills API. */
 export class ManagedAgentsApiError extends Error {
   status: number;
-  apiMessage: string;
 
-  constructor(status: number, apiMessage: string, context: string) {
-    super(`${context}: ${apiMessage} (HTTP ${status})`);
+  constructor(status: number, message: string) {
+    super(message);
     this.name = 'ManagedAgentsApiError';
     this.status = status;
-    this.apiMessage = apiMessage;
   }
-}
 
-async function readApiError(response: Response): Promise<string> {
-  try {
-    const body = (await response.json()) as { error?: { message?: string } };
-    return body.error?.message || response.statusText;
-  } catch {
-    return response.statusText;
+  static async from(response: Response, context: string): Promise<ManagedAgentsApiError> {
+    let detail = response.statusText;
+    try {
+      const body = (await response.json()) as { error?: { message?: string } };
+      detail = body.error?.message || detail;
+    } catch {
+      // Non-JSON error body; the status text will do.
+    }
+    return new ManagedAgentsApiError(
+      response.status,
+      `${context}: ${detail} (HTTP ${response.status})`
+    );
   }
 }
 
@@ -301,13 +305,7 @@ async function findSkillByDisplayTitle(
       headers,
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
-    if (!response.ok) {
-      throw new ManagedAgentsApiError(
-        response.status,
-        await readApiError(response),
-        'Failed to list skills'
-      );
-    }
+    if (!response.ok) throw await ManagedAgentsApiError.from(response, 'Failed to list skills');
 
     const body = (await response.json()) as SkillListResponse;
     const match = body.data.find((skill) => skill.display_title === displayTitle);
@@ -325,18 +323,27 @@ export interface ManagedSkillUploadResult {
   action: 'created' | 'updated';
 }
 
+/** Upload `files` as a new version of an existing skill. */
 async function uploadSkillVersion(
   skillId: string,
   directory: string,
   files: SkillUploadFile[],
   headers: Record<string, string>
-): Promise<Response> {
-  return fetch(`${getApiBaseUrl()}/v1/skills/${encodeURIComponent(skillId)}/versions?beta=true`, {
-    method: 'POST',
-    headers,
-    body: buildSkillForm(directory, null, files),
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-  });
+): Promise<ManagedSkillUploadResult> {
+  const response = await fetch(
+    `${getApiBaseUrl()}/v1/skills/${encodeURIComponent(skillId)}/versions?beta=true`,
+    {
+      method: 'POST',
+      headers,
+      body: buildSkillForm(directory, null, files),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    }
+  );
+  if (!response.ok) {
+    throw await ManagedAgentsApiError.from(response, 'Failed to create skill version');
+  }
+  const version = (await response.json()) as SkillVersionResponse;
+  return { skillId: version.skill_id, version: version.version, action: 'updated' };
 }
 
 /**
@@ -370,64 +377,38 @@ export async function uploadSkillToManagedAgents(
 
   const directory = sanitizeName(skill.name);
   const headers = buildHeaders(auth);
-  const baseUrl = getApiBaseUrl();
 
   if (knownSkillId) {
-    const response = await uploadSkillVersion(knownSkillId, directory, skill.files, headers);
-    if (response.ok) {
-      const version = (await response.json()) as SkillVersionResponse;
-      return { skillId: version.skill_id, version: version.version, action: 'updated' };
-    }
-    // 404: the skill was deleted or the credentials point at a different
-    // org. 400: the recorded id is malformed (e.g. a hand-edited lock).
-    // Both mean the id is unusable — fall through to the create-or-version
-    // flow, which self-heals the lock; a 400 caused by the files themselves
-    // fails there identically and is surfaced then.
-    if (response.status !== 404 && response.status !== 400) {
-      throw new ManagedAgentsApiError(
-        response.status,
-        await readApiError(response),
-        'Failed to create skill version'
-      );
+    try {
+      return await uploadSkillVersion(knownSkillId, directory, skill.files, headers);
+    } catch (error) {
+      // 404: the skill was deleted or the credentials point at a different
+      // org. 400: the recorded id is malformed (e.g. a hand-edited lock).
+      // Both mean the id is unusable — fall through to the create-or-version
+      // flow, which self-heals the lock; a 400 caused by the files themselves
+      // fails there identically and is surfaced then.
+      const status = error instanceof ManagedAgentsApiError ? error.status : 0;
+      if (status !== 404 && status !== 400) throw error;
     }
   }
 
-  const createResponse = await fetch(`${baseUrl}/v1/skills?beta=true`, {
+  const createResponse = await fetch(`${getApiBaseUrl()}/v1/skills?beta=true`, {
     method: 'POST',
     headers,
     body: buildSkillForm(directory, skill.name, skill.files),
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
-
   if (createResponse.ok) {
     const created = (await createResponse.json()) as SkillResponse;
     return { skillId: created.id, version: created.latest_version ?? 'latest', action: 'created' };
   }
 
-  const createError = await readApiError(createResponse);
-  const isDisplayTitleConflict =
-    createResponse.status === 400 && /display_title/i.test(createError);
-
-  if (!isDisplayTitleConflict) {
-    throw new ManagedAgentsApiError(createResponse.status, createError, 'Failed to create skill');
-  }
-
-  // A skill with this display title already exists — upload a new version.
-  const existing = await findSkillByDisplayTitle(skill.name, auth);
-  if (!existing) {
-    throw new ManagedAgentsApiError(createResponse.status, createError, 'Failed to create skill');
-  }
-
-  const versionResponse = await uploadSkillVersion(existing.id, directory, skill.files, headers);
-
-  if (!versionResponse.ok) {
-    throw new ManagedAgentsApiError(
-      versionResponse.status,
-      await readApiError(versionResponse),
-      'Failed to create skill version'
-    );
-  }
-
-  const version = (await versionResponse.json()) as SkillVersionResponse;
-  return { skillId: version.skill_id, version: version.version, action: 'updated' };
+  // A skill with this display title already exists — upload a new version of it.
+  const createError = await ManagedAgentsApiError.from(createResponse, 'Failed to create skill');
+  const existing =
+    createError.status === 400 && /display_title/i.test(createError.message)
+      ? await findSkillByDisplayTitle(skill.name, auth)
+      : null;
+  if (!existing) throw createError;
+  return uploadSkillVersion(existing.id, directory, skill.files, headers);
 }

@@ -21,7 +21,6 @@ import type { WellKnownSkill } from './providers/wellknown.ts';
 import {
   agents,
   detectInstalledAgents,
-  isFilesystemAgent,
   isUniversalAgent,
   getEveSubagents,
   EVE_SUBAGENTS_DIR,
@@ -40,16 +39,6 @@ interface InstallResult {
   symlinkFailed?: boolean;
   skipped?: boolean;
   error?: string;
-}
-
-function apiUploadAgentInstallError(agentType: AgentType, mode?: InstallMode): InstallResult {
-  const agent = agents[agentType];
-  return {
-    success: false,
-    path: '',
-    mode: mode ?? 'symlink',
-    error: `${agent.displayName} skills are uploaded through the Anthropic API and cannot be installed to a directory`,
-  };
 }
 
 /**
@@ -282,12 +271,6 @@ export async function installSkillForAgent(
   const isGlobal = options.global ?? false;
   const cwd = options.cwd || process.cwd();
   const eveSubagent = options.eveSubagent;
-
-  // API-upload agents have no filesystem install; their skills are delivered
-  // through a dedicated integration (see managed-agents.ts).
-  if (!isFilesystemAgent(agentType)) {
-    return apiUploadAgentInstallError(agentType, options.mode);
-  }
 
   // Check if agent supports global installation
   if (isGlobal && agent.globalSkillsDir === undefined) {
@@ -641,12 +624,6 @@ export async function installRemoteSkillForAgent(
   const installMode = options.mode ?? 'symlink';
   const eveSubagent = options.eveSubagent;
 
-  // API-upload agents have no filesystem install; their skills are delivered
-  // through a dedicated integration (see managed-agents.ts).
-  if (!isFilesystemAgent(agentType)) {
-    return apiUploadAgentInstallError(agentType, options.mode);
-  }
-
   // Check if agent supports global installation
   if (isGlobal && agent.globalSkillsDir === undefined) {
     return {
@@ -787,12 +764,6 @@ export async function installWellKnownSkillForAgent(
   const cwd = options.cwd || process.cwd();
   const installMode = options.mode ?? 'symlink';
   const eveSubagent = options.eveSubagent;
-
-  // API-upload agents have no filesystem install; their skills are delivered
-  // through a dedicated integration (see managed-agents.ts).
-  if (!isFilesystemAgent(agentType)) {
-    return apiUploadAgentInstallError(agentType, options.mode);
-  }
 
   // Check if agent supports global installation
   if (isGlobal && agent.globalSkillsDir === undefined) {
@@ -939,10 +910,6 @@ export async function installBlobSkillForAgent(
   const cwd = options.cwd || process.cwd();
   const installMode = options.mode ?? 'symlink';
   const eveSubagent = options.eveSubagent;
-
-  if (!isFilesystemAgent(agentType)) {
-    return apiUploadAgentInstallError(agentType, options.mode);
-  }
 
   if (isGlobal && agent.globalSkillsDir === undefined) {
     return {

@@ -22,7 +22,7 @@ import {
   type AnthropicAuth,
 } from '../src/managed-agents.ts';
 import { agents, getWildcardAgents, isApiUploadAgent } from '../src/agents.ts';
-import { parseAddOptions, buildManagedLockBookkeeping } from '../src/add.ts';
+import { parseAddOptions, knownManagedIds, summarizeManagedUploads } from '../src/add.ts';
 import { buildManagedAgentsArgs } from '../src/update.ts';
 
 const API_KEY_AUTH: AnthropicAuth = {
@@ -365,21 +365,8 @@ describe('uploadSkillToManagedAgents', () => {
       'https://api.staging.example/v1/skills?beta=true'
     );
   });
-});
 
-describe('uploadSkillToManagedAgents with a known skill id', () => {
-  const fetchMock = vi.fn<typeof fetch>();
-
-  beforeEach(() => {
-    fetchMock.mockReset();
-    vi.stubGlobal('fetch', fetchMock);
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.unstubAllEnvs();
-  });
-
+  // With a known skill id (recorded in the lock by a previous upload).
   const SKILL = { name: 'My Skill', files: [{ path: 'SKILL.md', content: '#' }] };
 
   it('uploads a new version directly to the known skill', async () => {
@@ -516,67 +503,47 @@ describe('buildManagedAgentsArgs', () => {
   });
 });
 
-describe('buildManagedLockBookkeeping', () => {
-  const KNOWN = new Map([['my-skill', { managedSkillId: 'skill_OLD', source: 'owner/repo-a' }]]);
+describe('managed upload bookkeeping', () => {
+  const LOCK = {
+    'my-skill': { source: 'owner/repo-a', managedSkillId: 'skill_OLD' },
+    'fs-only': { source: 'owner/repo-a' },
+  };
 
-  it('prefers a fresh upload id and falls back to a same-source recorded id', () => {
-    const { managedIdFor } = buildManagedLockBookkeeping({
-      uploadOutcomes: [{ skill: 'my-skill', success: true, skillId: 'skill_NEW' }],
-      knownManagedIds: KNOWN,
-      sourceKey: 'owner/repo-a',
-      uploadRequested: true,
-      fsRequested: true,
-    });
-    expect(managedIdFor('my-skill')).toBe('skill_NEW');
-
-    const { managedIdFor: preserved } = buildManagedLockBookkeeping({
-      uploadOutcomes: [],
-      knownManagedIds: KNOWN,
-      sourceKey: 'owner/repo-a',
-      uploadRequested: false,
-      fsRequested: true,
-    });
-    expect(preserved('my-skill')).toBe('skill_OLD');
+  it('reads recorded ids for the same source only', () => {
+    expect(knownManagedIds(LOCK, 'owner/repo-a')).toEqual(new Map([['my-skill', 'skill_OLD']]));
+    // A same-named skill from another source must not inherit the upload.
+    expect(knownManagedIds(LOCK, 'owner/repo-b').size).toBe(0);
   });
 
-  it('never inherits an id recorded for a different source', () => {
-    const { managedIdFor } = buildManagedLockBookkeeping({
-      uploadOutcomes: [],
-      knownManagedIds: KNOWN,
-      sourceKey: 'owner/repo-b',
-      uploadRequested: false,
-      fsRequested: true,
-    });
-    expect(managedIdFor('my-skill')).toBeUndefined();
+  it('prefers a fresh upload id and falls back to the recorded one', () => {
+    const known = knownManagedIds(LOCK, 'owner/repo-a');
+    const fresh = summarizeManagedUploads(
+      [{ skill: 'my-skill', success: true, skillId: 'skill_NEW' }],
+      known,
+      { upload: true, fs: true }
+    );
+    expect(fresh.managedIdFor('my-skill')).toBe('skill_NEW');
+
+    const untouched = summarizeManagedUploads([], known, { upload: false, fs: true });
+    expect(untouched.managedIdFor('my-skill')).toBe('skill_OLD');
   });
 
   it('marks a skill incomplete when a requested part did not succeed', () => {
-    const { isComplete } = buildManagedLockBookkeeping({
-      uploadOutcomes: [],
-      knownManagedIds: new Map(),
-      sourceKey: 'owner/repo-a',
-      uploadRequested: true, // requested (or credential-skipped) but no success
-      fsRequested: true,
-    });
-    expect(isComplete('my-skill', true)).toBe(false);
+    const none = new Map<string, string>();
+    // Upload requested (or credential-skipped) but nothing reached the API.
+    expect(
+      summarizeManagedUploads([], none, { upload: true, fs: true }).isComplete('my-skill', true)
+    ).toBe(false);
 
-    const { isComplete: fsOnly } = buildManagedLockBookkeeping({
-      uploadOutcomes: [],
-      knownManagedIds: new Map(),
-      sourceKey: 'owner/repo-a',
-      uploadRequested: false,
-      fsRequested: true,
-    });
-    expect(fsOnly('my-skill', true)).toBe(true);
-    expect(fsOnly('my-skill', false)).toBe(false);
+    const fsOnly = summarizeManagedUploads([], none, { upload: false, fs: true });
+    expect(fsOnly.isComplete('my-skill', true)).toBe(true);
+    expect(fsOnly.isComplete('my-skill', false)).toBe(false);
 
-    const { isComplete: uploadOk } = buildManagedLockBookkeeping({
-      uploadOutcomes: [{ skill: 'my-skill', success: true, skillId: 'skill_NEW' }],
-      knownManagedIds: new Map(),
-      sourceKey: 'owner/repo-a',
-      uploadRequested: true,
-      fsRequested: false,
-    });
-    expect(uploadOk('my-skill', false)).toBe(true);
+    const uploadOnly = summarizeManagedUploads(
+      [{ skill: 'my-skill', success: true, skillId: 'skill_NEW' }],
+      none,
+      { upload: true, fs: false }
+    );
+    expect(uploadOnly.isComplete('my-skill', false)).toBe(true);
   });
 });

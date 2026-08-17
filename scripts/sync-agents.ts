@@ -20,8 +20,7 @@ function generateAgentNames(): string {
 }
 
 function generateAvailableAgentsTable(): string {
-  // Group agents by their paths. API-upload agents have no paths; each gets
-  // its own group so it stays in registry order.
+  // Group agents by their paths (API-upload agents by their install hint).
   const pathGroups = new Map<
     string,
     {
@@ -34,15 +33,14 @@ function generateAvailableAgentsTable(): string {
   >();
 
   for (const [key, a] of Object.entries(agents)) {
-    const pathKey =
-      a.install === 'api-upload' ? `api-upload|${key}` : `${a.skillsDir}|${a.globalSkillsDir}`;
+    const pathKey = `${a.skillsDir}|${a.globalSkillsDir}|${a.installHint ?? ''}`;
     if (!pathGroups.has(pathKey)) {
       pathGroups.set(pathKey, {
         keys: [],
         displayNames: [],
         skillsDir: a.skillsDir,
         globalSkillsDir: a.globalSkillsDir,
-        ...(a.install === 'api-upload' && { installHint: a.installHint }),
+        installHint: a.installHint,
       });
     }
     const group = pathGroups.get(pathKey)!;
@@ -80,7 +78,7 @@ function generateSkillDiscoveryPaths(): string {
   const agentPaths = [
     ...new Set(
       Object.values(agents)
-        .filter((a) => (a.install ?? 'filesystem') === 'filesystem')
+        .filter((a) => a.install !== 'api-upload')
         .map((a) => a.skillsDir)
     ),
   ]

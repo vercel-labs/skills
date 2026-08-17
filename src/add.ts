@@ -401,72 +401,51 @@ function expandWildcardAgents(requested: string[]): AgentType[] {
   return [...new Set([...getWildcardAgents(), ...explicitApiUpload])];
 }
 
-/**
- * Resolve Anthropic API credentials when any selected target is an API-upload
- * (API upload) agent. Prints guidance and returns null when no credential is
- * available; callers should abort the install in that case.
- */
-async function resolveManagedAgentsAuth(
-  targetAgents: AgentType[],
-  spinner: ReturnType<typeof p.spinner>
-): Promise<{ auth: AnthropicAuth | null; required: boolean }> {
-  if (!targetAgents.some((a) => isApiUploadAgent(a))) {
-    return { auth: null, required: false };
-  }
-
-  spinner.start('Checking Anthropic credentials…');
-  const auth = await resolveAnthropicAuth();
-  if (!auth) {
-    spinner.stop(pc.red('No Anthropic credentials found'));
-    p.log.error('Claude Managed Agents requires Anthropic API credentials.');
-    p.log.message(pc.dim(`  ${MANAGED_AGENTS_AUTH_GUIDANCE}`));
-    return { auth: null, required: true };
-  }
-  spinner.stop(`Anthropic credentials: ${pc.cyan(auth.source)}`);
-  return { auth, required: true };
+interface ManagedResolution {
+  targetAgents: AgentType[];
+  auth: AnthropicAuth | null;
+  /** An upload is part of this run: attempted, or skipped for missing credentials. */
+  uploadRequested: boolean;
 }
 
 /**
  * Fold the additive `--managed-agents` flag into the target list and resolve
- * API credentials when any target is an API-upload agent. An explicitly
- * requested API-upload agent aborts on missing credentials (shouldAbort) —
- * unless the `--managed-agents` flag is also present, which marks the run as an
- * automated refresh: API-upload targets are then dropped with a warning and
- * reported as uploadSkipped, so `update` never fails the whole run over a
- * missing login (it passes the flag on every refresh of a previously
- * uploaded skill, including upload-only ones where the API-upload agent is
- * named explicitly).
+ * API credentials up front when any target is an API-upload agent, so a
+ * missing login fails before anything is installed. Returns null when the
+ * install should abort: an explicitly requested API-upload agent with no
+ * credentials. With `--managed-agents` the run is an automated refresh
+ * (`update` passes it for every previously uploaded skill), so a missing
+ * login drops the upload with a warning instead of failing the whole run.
  */
 async function resolveManagedAgentsTargets(
   targetAgents: AgentType[],
   options: AddOptions | undefined,
   spinner: ReturnType<typeof p.spinner>
-): Promise<{
-  targetAgents: AgentType[];
-  auth: AnthropicAuth | null;
-  shouldAbort: boolean;
-  uploadSkipped: boolean;
-}> {
+): Promise<ManagedResolution | null> {
   const soft = Boolean(options?.managedAgents);
-  const resolved =
-    options?.managedAgents && !targetAgents.includes('claude-managed-agents')
-      ? [...targetAgents, 'claude-managed-agents' as AgentType]
-      : targetAgents;
-
-  const { auth, required } = await resolveManagedAgentsAuth(resolved, spinner);
-  if (required && !auth) {
-    if (soft) {
-      p.log.warn('Skipping the Claude Managed Agents upload; other installs continue.');
-      return {
-        targetAgents: resolved.filter((a) => isFilesystemAgent(a)),
-        auth: null,
-        shouldAbort: false,
-        uploadSkipped: true,
-      };
-    }
-    return { targetAgents: resolved, auth: null, shouldAbort: true, uploadSkipped: false };
+  if (soft && !targetAgents.includes('claude-managed-agents')) {
+    targetAgents = [...targetAgents, 'claude-managed-agents'];
   }
-  return { targetAgents: resolved, auth, shouldAbort: false, uploadSkipped: false };
+  if (!targetAgents.some((a) => isApiUploadAgent(a))) {
+    return { targetAgents, auth: null, uploadRequested: false };
+  }
+
+  spinner.start('Checking Anthropic credentials…');
+  const auth = await resolveAnthropicAuth();
+  if (auth) {
+    spinner.stop(`Anthropic credentials: ${pc.cyan(auth.source)}`);
+    return { targetAgents, auth, uploadRequested: true };
+  }
+  spinner.stop(pc.red('No Anthropic credentials found'));
+  p.log.error('Claude Managed Agents requires Anthropic API credentials.');
+  p.log.message(pc.dim(`  ${MANAGED_AGENTS_AUTH_GUIDANCE}`));
+  if (!soft) return null;
+  p.log.warn('Skipping the Claude Managed Agents upload; other installs continue.');
+  return {
+    targetAgents: targetAgents.filter((a) => isFilesystemAgent(a)),
+    auth: null,
+    uploadRequested: true,
+  };
 }
 
 /**
@@ -477,71 +456,6 @@ async function resolveManagedAgentsTargets(
  */
 export const PENDING_INSTALL_HASH = 'pending-install';
 
-interface KnownManagedSkill {
-  managedSkillId: string;
-  /** The lock entry's source, so ids never leak across sources. */
-  source: string;
-}
-
-/**
- * Read previously recorded Skills API ids from the lock file for the scope
- * being installed to, so re-uploads go straight to the right skill instead of
- * re-resolving it by display title (and so a re-add that doesn't touch the
- * upload preserves the recorded id). Ids are keyed by skill name but carry
- * their entry's source: a same-named skill installed from a different source
- * must not inherit the previous source's uploaded skill.
- */
-async function getKnownManagedSkillIds(
-  installGlobally: boolean,
-  cwd?: string
-): Promise<Map<string, KnownManagedSkill>> {
-  const ids = new Map<string, KnownManagedSkill>();
-  try {
-    const skills = installGlobally
-      ? (await readSkillLock()).skills
-      : (await readLocalLock(cwd)).skills;
-    for (const [name, entry] of Object.entries(skills)) {
-      if (entry.managedSkillId) {
-        ids.set(name, { managedSkillId: entry.managedSkillId, source: entry.source });
-      }
-    }
-  } catch {
-    // Unreadable lock — uploads fall back to display-title resolution.
-  }
-  return ids;
-}
-
-/**
- * Per-run bookkeeping for lock writes after the install + upload passes.
- * `managedIdFor` resolves the id to record (fresh upload first, then the
- * previously recorded id when it belongs to the same source), and
- * `isComplete` says whether every requested part of the install reached its
- * destination — an incomplete skill gets `PENDING_INSTALL_HASH` in place of
- * its content hash so `update` retries it.
- */
-export function buildManagedLockBookkeeping(opts: {
-  uploadOutcomes: ManagedUploadOutcome[];
-  knownManagedIds: Map<string, KnownManagedSkill>;
-  sourceKey: string | null;
-  /** Uploads were part of this install (attempted, or skipped for missing credentials). */
-  uploadRequested: boolean;
-  /** Any filesystem agent was targeted. */
-  fsRequested: boolean;
-}) {
-  const uploadedManagedIds = new Map(
-    opts.uploadOutcomes.filter((o) => o.success && o.skillId).map((o) => [o.skill, o.skillId!])
-  );
-  const managedIdFor = (name: string): string | undefined => {
-    const uploaded = uploadedManagedIds.get(name);
-    if (uploaded) return uploaded;
-    const known = opts.knownManagedIds.get(name);
-    return known && known.source === opts.sourceKey ? known.managedSkillId : undefined;
-  };
-  const isComplete = (name: string, fsSucceeded: boolean): boolean =>
-    (!opts.fsRequested || fsSucceeded) && (!opts.uploadRequested || uploadedManagedIds.has(name));
-  return { uploadedManagedIds, managedIdFor, isComplete };
-}
-
 interface ManagedUploadOutcome {
   skill: string;
   success: boolean;
@@ -551,29 +465,91 @@ interface ManagedUploadOutcome {
   error?: string;
 }
 
+/** Result of one run's Claude Managed Agents upload pass, shaped for the lock writes. */
+interface ManagedUploadPass {
+  outcomes: ManagedUploadOutcome[];
+  /** Skills API ids from this run's successful uploads, by skill name. */
+  uploadedManagedIds: Map<string, string>;
+  /** Id to record: this run's upload, else the id already recorded for this source. */
+  managedIdFor(name: string): string | undefined;
+  /**
+   * Whether every requested part of the install reached its destination. An
+   * incomplete skill gets PENDING_INSTALL_HASH so `update` retries it.
+   */
+  isComplete(name: string, fsSucceeded: boolean): boolean;
+}
+
 /**
- * Upload skills to the Anthropic Skills API for the Claude Managed Agents
- * target. Uploads happen one skill at a time; a failure on one skill doesn't
- * stop the rest.
+ * Skills API ids a previous run recorded in the lock, restricted to entries
+ * whose source matches this run's: a same-named skill installed from another
+ * source must not inherit (and version over) the earlier upload.
  */
-async function uploadSkillsToManagedAgents(
-  skills: Array<{ name: string; files: SkillUploadFile[]; knownSkillId?: string }>,
-  auth: AnthropicAuth
-): Promise<ManagedUploadOutcome[]> {
+export function knownManagedIds(
+  entries: Record<string, { source: string; managedSkillId?: string }>,
+  sourceKey: string | null
+): Map<string, string> {
+  const ids = new Map<string, string>();
+  for (const [name, entry] of Object.entries(entries)) {
+    if (entry.managedSkillId && entry.source === sourceKey) ids.set(name, entry.managedSkillId);
+  }
+  return ids;
+}
+
+export function summarizeManagedUploads(
+  outcomes: ManagedUploadOutcome[],
+  knownIds: Map<string, string>,
+  requested: { upload: boolean; fs: boolean }
+): ManagedUploadPass {
+  const uploadedManagedIds = new Map(
+    outcomes.filter((o) => o.success && o.skillId).map((o) => [o.skill, o.skillId!])
+  );
+  return {
+    outcomes,
+    uploadedManagedIds,
+    managedIdFor: (name) => uploadedManagedIds.get(name) ?? knownIds.get(name),
+    isComplete: (name, fsSucceeded) =>
+      (!requested.fs || fsSucceeded) && (!requested.upload || uploadedManagedIds.has(name)),
+  };
+}
+
+/**
+ * Upload pass for the Claude Managed Agents target. Skills with an id
+ * recorded in this scope's lock are versioned directly; the rest are created
+ * or resolved by display title. One skill at a time; a failure doesn't stop
+ * the rest. Without credentials nothing is uploaded, but recorded ids are
+ * still returned so a filesystem-only re-add keeps them in the lock.
+ */
+async function runManagedUploads(
+  resolution: ManagedResolution,
+  skills: Array<{ name: string; files: () => SkillUploadFile[] | Promise<SkillUploadFile[]> }>,
+  scope: { installGlobally: boolean; cwd: string; sourceKey: string | null }
+): Promise<ManagedUploadPass> {
+  const lock = scope.installGlobally ? await readSkillLock() : await readLocalLock(scope.cwd);
+  const knownIds = knownManagedIds(lock.skills, scope.sourceKey);
+
   const outcomes: ManagedUploadOutcome[] = [];
-  for (const skill of skills) {
-    try {
-      const result = await uploadSkillToManagedAgents(skill, auth, skill.knownSkillId);
-      outcomes.push({ skill: skill.name, success: true, ...result });
-    } catch (error) {
-      outcomes.push({
-        skill: skill.name,
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      });
+  if (resolution.auth) {
+    for (const skill of skills) {
+      try {
+        const result = await uploadSkillToManagedAgents(
+          { name: skill.name, files: await skill.files() },
+          resolution.auth,
+          knownIds.get(skill.name)
+        );
+        outcomes.push({ skill: skill.name, success: true, ...result });
+      } catch (error) {
+        outcomes.push({
+          skill: skill.name,
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
     }
   }
-  return outcomes;
+  return summarizeManagedUploads(outcomes, knownIds, {
+    upload: resolution.uploadRequested,
+    fs: resolution.targetAgents.some((a) => isFilesystemAgent(a)),
+  });
 }
 
 /**
@@ -1005,12 +981,11 @@ async function handleWellKnownSkills(
   // Resolve API credentials up front when Claude Managed Agents is targeted,
   // so a missing login fails before anything is installed.
   const managedResolution = await resolveManagedAgentsTargets(targetAgents, options, spinner);
-  if (managedResolution.shouldAbort) {
+  if (!managedResolution) {
     p.outro(pc.red('Installation failed'));
     process.exit(1);
   }
   targetAgents = managedResolution.targetAgents;
-  const managedAgentsAuth = managedResolution.auth;
   if (targetAgents.length === 0) {
     // Upload-only run whose upload was credential-skipped: nothing left to do,
     // but the well-known source was handled.
@@ -1178,24 +1153,16 @@ async function handleWellKnownSkills(
     }
   }
 
-  const knownManagedIds = await getKnownManagedSkillIds(installGlobally, cwd);
-  const knownIdForUpload = (name: string): string | undefined => {
-    const known = knownManagedIds.get(name);
-    return known && known.source === sourceIdentifier ? known.managedSkillId : undefined;
-  };
-  let uploadOutcomes: ManagedUploadOutcome[] = [];
-  if (managedAgentsAuth) {
-    uploadOutcomes = await uploadSkillsToManagedAgents(
-      // installName is the unique identifier for well-known skills; frontmatter
-      // names may collide across entries.
-      selectedSkills.map((skill) => ({
-        name: skill.installName,
-        files: Array.from(skill.files, ([path, content]) => ({ path, content })),
-        knownSkillId: knownIdForUpload(skill.installName),
-      })),
-      managedAgentsAuth
-    );
-  }
+  const managed = await runManagedUploads(
+    managedResolution,
+    // installName is the unique identifier for well-known skills; frontmatter
+    // names may collide across entries.
+    selectedSkills.map((skill) => ({
+      name: skill.installName,
+      files: () => Array.from(skill.files, ([path, content]) => ({ path, content })),
+    })),
+    { installGlobally, cwd, sourceKey: sourceIdentifier }
+  );
 
   spinner.stop('Installation complete');
 
@@ -1226,15 +1193,8 @@ async function handleWellKnownSkills(
   }
 
   // A skill counts as installed for lock purposes when it reached the
-  // filesystem or the Skills API. Keep a previously recorded API id when this
-  // run didn't touch the upload, so a filesystem-only re-add doesn't drop it.
-  const { uploadedManagedIds, managedIdFor, isComplete } = buildManagedLockBookkeeping({
-    uploadOutcomes,
-    knownManagedIds,
-    sourceKey: sourceIdentifier,
-    uploadRequested: Boolean(managedAgentsAuth) || managedResolution.uploadSkipped,
-    fsRequested: targetAgents.some((a) => isFilesystemAgent(a)),
-  });
+  // filesystem or the Skills API.
+  const { uploadedManagedIds, managedIdFor, isComplete } = managed;
 
   // Add to skill lock file for update tracking (only for global installs)
   if ((successful.length > 0 || uploadedManagedIds.size > 0) && installGlobally) {
@@ -1361,7 +1321,7 @@ async function handleWellKnownSkills(
     }
   }
 
-  printManagedUploadOutcomes(uploadOutcomes);
+  printManagedUploadOutcomes(managed.outcomes);
 
   console.log();
   p.outro(
@@ -1873,13 +1833,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Resolve API credentials up front when Claude Managed Agents is targeted,
     // so a missing login fails before anything is installed.
     const managedResolution = await resolveManagedAgentsTargets(targetAgents, options, spinner);
-    if (managedResolution.shouldAbort) {
+    if (!managedResolution) {
       await cleanup(tempDir);
       p.outro(pc.red('Installation failed'));
       process.exit(1);
     }
     targetAgents = managedResolution.targetAgents;
-    const managedAgentsAuth = managedResolution.auth;
     if (targetAgents.length === 0) {
       // Upload-only run whose upload was credential-skipped: nothing left to do.
       await cleanup(tempDir);
@@ -2142,45 +2101,22 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // API upload pass for Claude Managed Agents.
     const normalizedSource = directDownload ? null : getOwnerRepo(parsed);
     const lockSource = directDownload ? null : getLockSource(parsed.url, normalizedSource);
-    // Must match the `source` value the lock write below records for this scope.
-    const managedSourceKey = installGlobally
-      ? lockSource || normalizedSource
-      : lockSource || parsed.url;
-    const knownManagedIds = await getKnownManagedSkillIds(installGlobally, cwd);
-    const knownIdForUpload = (name: string): string | undefined => {
-      const known = knownManagedIds.get(name);
-      return known && known.source === managedSourceKey ? known.managedSkillId : undefined;
-    };
-    const uploadOutcomes: ManagedUploadOutcome[] = [];
-    if (managedAgentsAuth) {
-      const uploads: Array<{ name: string; files: SkillUploadFile[]; knownSkillId?: string }> = [];
-      for (const skill of selectedSkills) {
-        const knownSkillId = knownIdForUpload(skill.name);
-        try {
-          if (blobResult && 'files' in skill) {
-            const blobSkill = skill as BlobSkill;
-            uploads.push({
-              name: skill.name,
-              files: blobSkill.files.map((f) => ({ path: f.path, content: f.contents })),
-              knownSkillId,
-            });
-          } else {
-            uploads.push({
-              name: skill.name,
-              files: await collectSkillFiles(skill.path),
-              knownSkillId,
-            });
-          }
-        } catch (error) {
-          uploadOutcomes.push({
-            skill: skill.name,
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error',
-          });
-        }
+    const managed = await runManagedUploads(
+      managedResolution,
+      selectedSkills.map((skill) => ({
+        name: skill.name,
+        files: () =>
+          blobResult && 'files' in skill
+            ? (skill as BlobSkill).files.map((f) => ({ path: f.path, content: f.contents }))
+            : collectSkillFiles(skill.path),
+      })),
+      // sourceKey must match the `source` the lock writes below record for this scope.
+      {
+        installGlobally,
+        cwd,
+        sourceKey: installGlobally ? lockSource || normalizedSource : lockSource || parsed.url,
       }
-      uploadOutcomes.push(...(await uploadSkillsToManagedAgents(uploads, managedAgentsAuth)));
-    }
+    );
 
     spinner.stop('Installation complete');
 
@@ -2250,16 +2186,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     // A skill counts as installed for lock purposes when it reached the
-    // filesystem or the Skills API. Keep a previously recorded API id when
-    // this run didn't touch the upload, so a filesystem-only re-add doesn't
-    // drop it.
-    const { uploadedManagedIds, managedIdFor, isComplete } = buildManagedLockBookkeeping({
-      uploadOutcomes,
-      knownManagedIds,
-      sourceKey: managedSourceKey,
-      uploadRequested: Boolean(managedAgentsAuth) || managedResolution.uploadSkipped,
-      fsRequested: targetAgents.some((a) => isFilesystemAgent(a)),
-    });
+    // filesystem or the Skills API.
+    const { uploadedManagedIds, managedIdFor, isComplete } = managed;
 
     // Add to skill lock file for update tracking (only for global installs)
     if (
@@ -2473,7 +2401,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
-    printManagedUploadOutcomes(uploadOutcomes);
+    printManagedUploadOutcomes(managed.outcomes);
 
     console.log();
     p.outro(

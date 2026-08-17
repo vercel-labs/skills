@@ -2,7 +2,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { xdgConfig } from 'xdg-basedir';
-import type { AgentConfig, AgentType, AgentInstallMethod } from './types.ts';
+import type { AgentConfig, AgentType } from './types.ts';
 
 const home = homedir();
 // Use xdg-basedir (not env-paths) to match OpenCode/Amp/Goose behavior on all platforms.
@@ -875,14 +875,9 @@ export function isUniversalAgent(type: AgentType): boolean {
   return agents[type].skillsDir === '.agents/skills';
 }
 
-/** How skills reach an agent; defaults to a filesystem copy or symlink. */
-export function getInstallMethod(type: AgentType): AgentInstallMethod {
-  return agents[type].install ?? 'filesystem';
-}
-
-/** Agents whose skills are copied or symlinked into a local skills directory. */
+/** Agents whose skills are copied or symlinked into a local skills directory (the default). */
 export function isFilesystemAgent(type: AgentType): boolean {
-  return getInstallMethod(type) === 'filesystem';
+  return (agents[type].install ?? 'filesystem') === 'filesystem';
 }
 
 /**
@@ -890,7 +885,7 @@ export function isFilesystemAgent(type: AgentType): boolean {
  * They have no skills directory and must be selected explicitly.
  */
 export function isApiUploadAgent(type: AgentType): boolean {
-  return getInstallMethod(type) === 'api-upload';
+  return agents[type].install === 'api-upload';
 }
 
 /**
