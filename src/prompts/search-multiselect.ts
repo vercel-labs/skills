@@ -567,6 +567,7 @@ export async function searchMultiselect<T>(
     };
 
     const cleanup = (): void => {
+      rl.removeListener('close', closeHandler);
       process.stdin.removeListener('keypress', keypressHandler);
       if (process.stdin.isTTY) {
         process.stdin.setRawMode(false);
@@ -574,11 +575,15 @@ export async function searchMultiselect<T>(
       rl.close();
     };
 
+    let settled = false;
+
     const submit = (): void => {
+      if (settled) return;
       // If required and no locked items, don't allow submitting with no selection
       if (required && selected.size === 0 && lockedValues.length === 0) {
         return;
       }
+      settled = true;
       render('submit');
       cleanup();
       // Include locked values in the result
@@ -586,9 +591,18 @@ export async function searchMultiselect<T>(
     };
 
     const cancel = (): void => {
+      if (settled) return;
+      settled = true;
       render('cancel');
       cleanup();
       resolve(cancelSymbol);
+    };
+
+    // Treat end of input as a cancel. Without this, a non-TTY stdin (CI,
+    // piped input) that reaches EOF leaves the promise pending forever and
+    // the process exits 0 as if the prompt had succeeded.
+    const closeHandler = (): void => {
+      cancel();
     };
 
     // Handle keypresses
@@ -671,6 +685,15 @@ export async function searchMultiselect<T>(
     };
 
     process.stdin.on('keypress', keypressHandler);
+    rl.on('close', closeHandler);
+
+    // stdin may have already reached EOF before this prompt attached (an
+    // earlier readline consumer, such as a spinner, reads the stream), in
+    // which case the interface above never emits 'close'.
+    if (process.stdin.readableEnded || process.stdin.destroyed) {
+      cancel();
+      return;
+    }
 
     // Initial render
     render();
