@@ -315,7 +315,7 @@ Skills can be installed to any of these agents:
 | Mistral Vibe | `mistral-vibe` | `.vibe/skills/` | `~/.vibe/skills/` |
 | Moxby | `moxby` | `.moxby/skills/` | `~/.moxby/skills/` |
 | Mux | `mux` | `.mux/skills/` | `~/.mux/skills/` |
-| omp (Oh My Pi) | `omp` | `.omp/skills/` | `~/.omp/agent/skills/` |
+| Oh My Pi | `omp` | `.omp/skills/` | `~/.omp/agent/skills/` |
 | OpenCode | `opencode` | `.agents/skills/` | `~/.config/opencode/skills/` |
 | OpenHands | `openhands` | `.openhands/skills/` | `~/.openhands/skills/` |
 | Ona | `ona` | `.ona/skills/` | `~/.ona/skills/` |
@@ -450,6 +450,7 @@ discover `SKILL.md` files outside these container directories (e.g. under
 - `.vibe/skills/`
 - `.moxby/skills/`
 - `.mux/skills/`
+- `.omp/skills/`
 - `.openhands/skills/`
 - `.ona/skills/`
 - `.pi/skills/`

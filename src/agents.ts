@@ -519,6 +519,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.mux'));
     },
   },
+  omp: {
+    name: 'omp',
+    displayName: 'Oh My Pi',
+    skillsDir: '.omp/skills',
+    globalSkillsDir: join(home, '.omp/agent/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.omp/agent'));
+    },
+  },
   opencode: {
     name: 'opencode',
     displayName: 'OpenCode',
@@ -535,15 +544,6 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.openhands/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.openhands'));
-    },
-  },
-  omp: {
-    name: 'omp',
-    displayName: 'omp (Oh My Pi)',
-    skillsDir: '.omp/skills',
-    globalSkillsDir: join(home, '.omp/agent/skills'),
-    detectInstalled: async () => {
-      return existsSync(join(home, '.omp/agent'));
     },
   },
   ona: {
