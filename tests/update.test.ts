@@ -450,6 +450,54 @@ describe('Update Cleanup Unit Tests', () => {
       expect(remove.removeCommand).not.toHaveBeenCalled();
     });
 
+    it('does not delete a skill from the same repo pinned to a different ref', async () => {
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            ref: 'v1',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            skillFolderHash: 'abc',
+            installedAt: '',
+            updatedAt: '',
+          },
+          'skill-b': {
+            source: 'owner/repo',
+            ref: 'v2',
+            skillPath: 'skills/skill-b/SKILL.md',
+            sourceType: 'github',
+            skillFolderHash: 'def',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+
+      // Each ref exposes only its own skill.
+      vi.mocked(blob.fetchRepoTree).mockImplementation(async (_source, ref) => {
+        const isV2 = ref === 'v2';
+        const dir = isV2 ? 'skills/skill-b' : 'skills/skill-a';
+        return {
+          sha: 'rootsha',
+          branch: 'main',
+          tree: [
+            { path: `${dir}/SKILL.md`, type: 'blob', sha: 'blobsha' },
+            { path: dir, type: 'tree', sha: isV2 ? 'def' : 'abc' },
+          ],
+        };
+      });
+      vi.mocked(p.confirm).mockResolvedValue(true);
+
+      await updateGlobalSkills();
+
+      // Before the fix, skill-b was grouped with skill-a by source alone and
+      // checked against v1's tree, then reported deleted upstream and removed.
+      expect(p.confirm).not.toHaveBeenCalled();
+      expect(remove.removeCommand).not.toHaveBeenCalled();
+    });
+
     it('checks a private GitHub update by cloning when authenticated API access is unavailable', async () => {
       vi.mocked(skillLock.readSkillLock).mockResolvedValue({
         version: 3,

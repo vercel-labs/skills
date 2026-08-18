@@ -45,6 +45,8 @@ export interface SearchMultiselectOptions<T> {
   showSelectedSummary?: boolean;
   /** Whether group headings are selectable and toggle every item in the group. */
   selectGroups?: boolean;
+  /** Whether to show a distinct Select All row above the selectable items. */
+  selectAll?: boolean;
 }
 
 export type SearchEntry<T> =
@@ -251,6 +253,31 @@ export function toggleSearchEntry<T>(selected: Set<T>, entry: SearchEntry<T> | u
   }
 }
 
+export type SelectAllState = 'none' | 'partial' | 'all';
+
+/** Return the aggregate selection state represented by a Select All row. */
+export function getSelectAllState<T>(
+  selected: ReadonlySet<T>,
+  items: SearchItem<T>[]
+): SelectAllState {
+  const selectedCount = items.filter((item) => selected.has(item.value)).length;
+  if (selectedCount === 0) return 'none';
+  if (selectedCount === items.length) return 'all';
+  return 'partial';
+}
+
+/** Select every item unless they are all selected, in which case clear them all. */
+export function toggleAllItems<T>(selected: Set<T>, items: SearchItem<T>[]): void {
+  const shouldClear = getSelectAllState(selected, items) === 'all';
+  for (const item of items) {
+    if (shouldClear) {
+      selected.delete(item.value);
+    } else {
+      selected.add(item.value);
+    }
+  }
+}
+
 /**
  * Interactive search multiselect prompt.
  * Allows users to filter a long list by typing and select multiple items.
@@ -271,6 +298,7 @@ export async function searchMultiselect<T>(
     detailLines = 2,
     showSelectedSummary = true,
     selectGroups = false,
+    selectAll = false,
   } = options;
 
   return new Promise((resolve) => {
@@ -312,6 +340,8 @@ export async function searchMultiselect<T>(
       const lines: string[] = [];
       const filtered = getFiltered();
       const entries = buildSearchEntries(filtered, selectGroups, collapsedGroups);
+      const hasSelectAll = selectAll && items.length > 0;
+      const entryCursor = cursor - (hasSelectAll ? 1 : 0);
 
       // Header
       const icon =
@@ -343,21 +373,95 @@ export async function searchMultiselect<T>(
           lines.push(`${S_BAR}`);
         }
 
-        // Items
-        const visibleStart = Math.max(
-          0,
-          Math.min(cursor - Math.floor(maxVisible / 2), entries.length - maxVisible)
-        );
-        const visibleEnd = Math.min(entries.length, visibleStart + maxVisible);
-        const visibleEntries = entries.slice(visibleStart, visibleEnd);
+        if (hasSelectAll) {
+          const selectedCount = items.filter((item) => selected.has(item.value)).length;
+          const selectAllState = getSelectAllState(selected, items);
+          const radio =
+            selectAllState === 'all'
+              ? S_RADIO_ACTIVE
+              : selectAllState === 'partial'
+                ? pc.yellow('◐')
+                : S_RADIO_INACTIVE;
+          const isCursor = cursor === 0;
+          const prefix = isCursor ? pc.cyan('❯') : ' ';
+          const label = isCursor ? pc.underline(pc.bold('Select All')) : pc.bold('Select All');
+          lines.push(
+            `${S_BAR} ${prefix} ${radio} ${label} ${pc.dim(`(${selectedCount}/${items.length})`)}`
+          );
+          lines.push(`${S_BAR}   ${S_BAR_H.repeat(36)}`);
+        }
 
-        if (filtered.length === 0) {
-          lines.push(`${S_BAR}  ${pc.dim('No matches found')}`);
-        } else {
+        const columns =
+          process.stdout.columns && process.stdout.columns > 0 ? process.stdout.columns : 80;
+
+        const buildFooterLines = (
+          includeDetail: boolean,
+          includeSelectedSummary: boolean
+        ): string[] => {
+          const footerLines: string[] = [];
+
+          if (includeDetail) {
+            const entry = entries[entryCursor];
+            const detail =
+              hasSelectAll && cursor === 0
+                ? `Select or clear all ${items.length} skills.`
+                : entry?.type === 'group'
+                  ? `Select all ${entry.items.length} skills in ${entry.group}.`
+                  : entry?.item.detail;
+            // Keep a small margin for the left rail and terminal wrapping behavior.
+            const detailWidth = Math.max(1, columns - 5);
+            footerLines.push(`${S_BAR}`);
+            footerLines.push(`${S_BAR}  ${pc.dim('Description')}`);
+            for (const line of formatDetailLines(detail, detailWidth, detailLines)) {
+              footerLines.push(`${S_BAR}  ${pc.dim(line)}`);
+            }
+          }
+
+          if (includeSelectedSummary) {
+            // Selected summary (include locked items)
+            footerLines.push(`${S_BAR}`);
+            const allSelectedLabels = [
+              ...(lockedSection ? lockedSection.items.map((i) => i.label) : []),
+              ...items.filter((item) => selected.has(item.value)).map((item) => item.label),
+            ];
+            if (allSelectedLabels.length === 0) {
+              footerLines.push(`${S_BAR}  ${pc.dim('Selected: (none)')}`);
+            } else {
+              const summary =
+                allSelectedLabels.length <= 3
+                  ? allSelectedLabels.join(', ')
+                  : `${allSelectedLabels.slice(0, 3).join(', ')} +${allSelectedLabels.length - 3} more`;
+              footerLines.push(`${S_BAR}  ${pc.green('Selected:')} ${summary}`);
+            }
+          }
+
+          if (!searchable) {
+            footerLines.push(`${S_BAR}`);
+            footerLines.push(
+              `${S_BAR}  ${pc.dim('↑↓ move, ←→ collapse/expand, space select, enter confirm')}`
+            );
+          }
+          footerLines.push(`${pc.dim('└')}`);
+          return footerLines;
+        };
+
+        const buildItemLines = (visibleLimit: number): string[] => {
+          if (filtered.length === 0) {
+            return [`${S_BAR}  ${pc.dim('No matches found')}`];
+          }
+
+          const itemLines: string[] = [];
+          const visibleStart = Math.max(
+            0,
+            Math.min(entryCursor - Math.floor(visibleLimit / 2), entries.length - visibleLimit)
+          );
+          const visibleEnd = Math.min(entries.length, visibleStart + visibleLimit);
+          const visibleEntries = entries.slice(visibleStart, visibleEnd);
+
           for (let i = 0; i < visibleEntries.length; i++) {
             const entry = visibleEntries[i]!;
             const actualIndex = visibleStart + i;
-            const isCursor = actualIndex === cursor;
+            const isCursor = actualIndex === entryCursor;
 
             if (entry.type === 'group') {
               const selectedCount = entry.items.filter((item) => selected.has(item.value)).length;
@@ -370,7 +474,7 @@ export async function searchMultiselect<T>(
               const label = isCursor ? pc.underline(pc.bold(entry.group)) : pc.bold(entry.group);
               const prefix = isCursor ? pc.cyan('❯') : ' ';
               const disclosure = pc.dim(entry.collapsed ? '▸' : '▾');
-              lines.push(`${S_BAR} ${prefix} ${disclosure} ${radio} ${label}`);
+              itemLines.push(`${S_BAR} ${prefix} ${disclosure} ${radio} ${label}`);
               continue;
             }
 
@@ -385,62 +489,62 @@ export async function searchMultiselect<T>(
               selectGroups && item.group ? filtered.filter((i) => i.group === item.group) : [];
             const isLastInGroup = groupItems.at(-1) === item;
             const tree = groupItems.length > 0 ? `${pc.dim(isLastInGroup ? '└─' : '├─')} ` : '';
-            lines.push(`${S_BAR} ${prefix} ${tree}${radio} ${label}${hint}`);
+            itemLines.push(`${S_BAR} ${prefix} ${tree}${radio} ${label}${hint}`);
           }
 
-          // Show count if more items
           const hiddenBefore = visibleStart;
           const hiddenAfter = entries.length - visibleEnd;
           if (hiddenBefore > 0 || hiddenAfter > 0) {
             const parts: string[] = [];
             if (hiddenBefore > 0) parts.push(`↑ ${hiddenBefore} more`);
             if (hiddenAfter > 0) parts.push(`↓ ${hiddenAfter} more`);
-            lines.push(`${S_BAR}  ${pc.dim(parts.join('  '))}`);
+            itemLines.push(`${S_BAR}  ${pc.dim(parts.join('  '))}`);
           }
-        }
 
-        if (showDetail) {
-          const entry = entries[cursor];
-          const detail =
-            entry?.type === 'group'
-              ? `Select all ${entry.items.length} skills in ${entry.group}.`
-              : entry?.item.detail;
-          const columns =
-            process.stdout.columns && process.stdout.columns > 0 ? process.stdout.columns : 80;
-          // Keep a small margin for the left rail and terminal wrapping behavior.
-          const detailWidth = Math.max(1, columns - 5);
-          lines.push(`${S_BAR}`);
-          lines.push(`${S_BAR}  ${pc.dim('Description')}`);
-          for (const line of formatDetailLines(detail, detailWidth, detailLines)) {
-            lines.push(`${S_BAR}  ${pc.dim(line)}`);
-          }
-        }
+          return itemLines;
+        };
 
-        if (showSelectedSummary) {
-          // Selected summary (include locked items)
-          lines.push(`${S_BAR}`);
-          const allSelectedLabels = [
-            ...(lockedSection ? lockedSection.items.map((i) => i.label) : []),
-            ...items.filter((item) => selected.has(item.value)).map((item) => item.label),
-          ];
-          if (allSelectedLabels.length === 0) {
-            lines.push(`${S_BAR}  ${pc.dim('Selected: (none)')}`);
-          } else {
-            const summary =
-              allSelectedLabels.length <= 3
-                ? allSelectedLabels.join(', ')
-                : `${allSelectedLabels.slice(0, 3).join(', ')} +${allSelectedLabels.length - 3} more`;
-            lines.push(`${S_BAR}  ${pc.green('Selected:')} ${summary}`);
-          }
-        }
+        const terminalRows =
+          process.stdout.rows && process.stdout.rows > 0 ? process.stdout.rows : undefined;
+        const maxFrameRows = terminalRows ? Math.max(1, terminalRows - 1) : undefined;
 
-        if (!searchable) {
-          lines.push(`${S_BAR}`);
-          lines.push(
-            `${S_BAR}  ${pc.dim('↑↓ move, ←→ collapse/expand, space select, enter confirm')}`
+        const fitFrame = (
+          includeDetail: boolean,
+          includeSelectedSummary: boolean
+        ): { itemLines: string[]; footerLines: string[]; frameRows: number } => {
+          const footerLines = buildFooterLines(includeDetail, includeSelectedSummary);
+          let visibleLimit = Math.max(1, maxVisible);
+          let itemLines = buildItemLines(visibleLimit);
+          let frameRows = countVisualRowsForLines(
+            [...lines, ...itemLines, ...footerLines],
+            columns
           );
+
+          while (maxFrameRows && frameRows > maxFrameRows && visibleLimit > 1) {
+            visibleLimit -= 1;
+            itemLines = buildItemLines(visibleLimit);
+            frameRows = countVisualRowsForLines([...lines, ...itemLines, ...footerLines], columns);
+          }
+
+          return { itemLines, footerLines, frameRows };
+        };
+
+        let includeDetail = showDetail;
+        let includeSelectedSummary = showSelectedSummary;
+        let fitted = fitFrame(includeDetail, includeSelectedSummary);
+
+        // On very short terminals, preserve controls and selectable rows before
+        // optional context panes. The detail returns automatically when space grows.
+        if (maxFrameRows && fitted.frameRows > maxFrameRows && includeDetail) {
+          includeDetail = false;
+          fitted = fitFrame(includeDetail, includeSelectedSummary);
         }
-        lines.push(`${pc.dim('└')}`);
+        if (maxFrameRows && fitted.frameRows > maxFrameRows && includeSelectedSummary) {
+          includeSelectedSummary = false;
+          fitted = fitFrame(includeDetail, includeSelectedSummary);
+        }
+
+        lines.push(...fitted.itemLines, ...fitted.footerLines);
       } else if (state === 'submit') {
         // Final state - show what was selected (including locked)
         const allSelectedLabels = [
@@ -492,6 +596,9 @@ export async function searchMultiselect<T>(
       if (!key) return;
 
       const entries = buildSearchEntries(getFiltered(), selectGroups, collapsedGroups);
+      const hasSelectAll = selectAll && items.length > 0;
+      const cursorOffset = hasSelectAll ? 1 : 0;
+      const entry = entries[cursor - cursorOffset];
 
       if (key.name === 'return') {
         submit();
@@ -510,13 +617,12 @@ export async function searchMultiselect<T>(
       }
 
       if (key.name === 'down') {
-        cursor = Math.min(entries.length - 1, cursor + 1);
+        cursor = Math.min(entries.length + cursorOffset - 1, cursor + 1);
         render();
         return;
       }
 
       if (selectGroups && key.name === 'right') {
-        const entry = entries[cursor];
         if (entry?.type === 'group' && entry.collapsed) {
           collapsedGroups.delete(entry.group);
           render();
@@ -525,22 +631,25 @@ export async function searchMultiselect<T>(
       }
 
       if (selectGroups && key.name === 'left') {
-        const entry = entries[cursor];
         const group = entry?.type === 'group' ? entry.group : entry?.item.group;
         if (group) {
           collapsedGroups.add(group);
           const collapsedEntries = buildSearchEntries(getFiltered(), selectGroups, collapsedGroups);
-          cursor = collapsedEntries.findIndex(
-            (collapsedEntry) => collapsedEntry.type === 'group' && collapsedEntry.group === group
-          );
+          cursor =
+            collapsedEntries.findIndex(
+              (collapsedEntry) => collapsedEntry.type === 'group' && collapsedEntry.group === group
+            ) + cursorOffset;
           render();
         }
         return;
       }
 
       if (key.name === 'space') {
-        const entry = entries[cursor];
-        toggleSearchEntry(selected, entry);
+        if (hasSelectAll && cursor === 0) {
+          toggleAllItems(selected, items);
+        } else {
+          toggleSearchEntry(selected, entry);
+        }
         render();
         return;
       }

@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [72 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [73 more](#supported-agents).
 <!-- agent-list:end -->
 
 [![skills.sh](https://skills.sh/b/vercel-labs/skills)](https://skills.sh/vercel-labs/skills)
@@ -319,6 +319,7 @@ Skills can be installed to any of these agents:
 | OpenHands | `openhands` | `.openhands/skills/` | `~/.openhands/skills/` |
 | Ona | `ona` | `.ona/skills/` | `~/.ona/skills/` |
 | Pi | `pi` | `.pi/skills/` | `~/.pi/agent/skills/` |
+| Posit Assistant | `posit-assistant` | `.posit/assistant/skills/` | `~/.posit/assistant/skills/` |
 | Qoder | `qoder` | `.qoder/skills/` | `~/.qoder/skills/` |
 | Qoder CN | `qoder-cn` | `.qoder/skills/` | `~/.qoder-cn/skills/` |
 | Qwen Code | `qwen-code` | `.qwen/skills/` | `~/.qwen/skills/` |
@@ -452,6 +453,7 @@ discover `SKILL.md` files outside these container directories (e.g. under
 - `.openhands/skills/`
 - `.ona/skills/`
 - `.pi/skills/`
+- `.posit/assistant/skills/`
 - `.qoder/skills/`
 - `.qwen/skills/`
 - `.reasonix/skills/`
@@ -566,6 +568,7 @@ GitHub repository and skill identifiers are sent only for repositories that GitH
 - [Qwen Code Skills Documentation](https://qwenlm.github.io/qwen-code-docs/en/users/features/skills/)
 - [OpenHands Skills Documentation](https://docs.openhands.ai/modules/usage/how-to/using-skills)
 - [Pi Skills Documentation](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/skills.md)
+- [Posit Assistant Skills Documentation](https://assistant.posit.co/docs/features/skills/)
 - [Qoder Skills Documentation](https://docs.qoder.com/cli/Skills)
 - [Replit Skills Documentation](https://docs.replit.com/replitai/skills)
 - [Roo Code Skills Documentation](https://docs.roocode.com/features/skills)

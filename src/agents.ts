@@ -67,6 +67,15 @@ export function isMiniMaxCodeInstalled(
   return pathExists(join(homeDir, '.minimax')) || pathExists('/Applications/MiniMax Code.app');
 }
 
+export function isPositAssistantInstalled(
+  homeDir = home,
+  pathExists: (path: string) => boolean = existsSync
+) {
+  // ~/.positai is the pre-rename config dir, still present on installs
+  // that haven't launched a current version yet.
+  return pathExists(join(homeDir, '.posit/assistant')) || pathExists(join(homeDir, '.positai'));
+}
+
 export const agents: Record<AgentType, AgentConfig> = {
   'aider-desk': {
     name: 'aider-desk',
@@ -553,6 +562,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.pi/agent/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.pi/agent'));
+    },
+  },
+  'posit-assistant': {
+    name: 'posit-assistant',
+    displayName: 'Posit Assistant',
+    skillsDir: '.posit/assistant/skills',
+    globalSkillsDir: join(home, '.posit/assistant/skills'),
+    detectInstalled: async () => {
+      return isPositAssistantInstalled();
     },
   },
   qoder: {

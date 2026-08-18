@@ -31,6 +31,7 @@ const AGENT_PROJECT_SKILL_DIRS = [
   '.opencode/skills',
   '.openhands/skills',
   '.pi/skills',
+  '.posit/assistant/skills',
   '.qoder/skills',
   '.roo/skills',
   '.trae/skills',

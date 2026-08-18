@@ -1,6 +1,6 @@
 {
   "name": "skills",
-  "version": "1.5.22",
+  "version": "1.5.23",
   "description": "The open agent skills ecosystem",
   "type": "module",
   "bin": {
@@ -89,6 +89,7 @@
     "openhands",
     "ona",
     "pi",
+    "posit-assistant",
     "qoder",
     "qoder-cn",
     "qwen-code",

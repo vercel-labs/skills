@@ -22,7 +22,7 @@ function textResponse(body: string): Response {
   });
 }
 
-describe('tryBlobInstall root-level skills', () => {
+describe('tryBlobInstall', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
   let originalFetch: typeof globalThis.fetch;
 
@@ -35,6 +35,16 @@ describe('tryBlobInstall root-level skills', () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+  });
+
+  it('bypasses ref-agnostic snapshots when an explicit ref is requested', async () => {
+    const result = await tryBlobInstall('vercel-labs/skills', {
+      ref: '66a7b901aad3b30f541f646199ff0df3050b764b',
+      skillFilter: 'find-skills',
+    });
+
+    expect(result).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('does not install the full repository snapshot for a root SKILL.md', async () => {

@@ -441,6 +441,78 @@ metadata:
       const result = runCli(['add', testDir, '--list'], testDir);
       expect(result.stdout).toContain('not-internal-skill');
     });
+
+    it('should not include internal skills for the --skill wildcard', () => {
+      const internalDir = join(testDir, 'skills', 'internal-skill');
+      const publicDir = join(testDir, 'skills', 'public-skill');
+      mkdirSync(internalDir, { recursive: true });
+      mkdirSync(publicDir, { recursive: true });
+
+      writeFileSync(
+        join(internalDir, 'SKILL.md'),
+        `---
+name: internal-skill
+description: An internal skill
+metadata:
+  internal: true
+---
+# Internal Skill
+`
+      );
+      writeFileSync(
+        join(publicDir, 'SKILL.md'),
+        `---
+name: public-skill
+description: A public skill
+---
+# Public Skill
+`
+      );
+
+      const result = runCli(['add', testDir, '--skill', '*', '--list'], testDir);
+      expect(result.stdout).toContain('public-skill');
+      expect(result.stdout).not.toContain('internal-skill');
+    });
+
+    it('should include internal skills when explicitly requested by name', () => {
+      const internalDir = join(testDir, 'skills', 'internal-skill');
+      mkdirSync(internalDir, { recursive: true });
+      writeFileSync(
+        join(internalDir, 'SKILL.md'),
+        `---
+name: internal-skill
+description: An internal skill
+metadata:
+  internal: true
+---
+# Internal Skill
+`
+      );
+
+      const result = runCli(['add', testDir, '--skill', 'internal-skill', '--list'], testDir);
+      expect(result.stdout).toContain('internal-skill');
+    });
+
+    it('should include internal skills for the wildcard when INSTALL_INTERNAL_SKILLS=1', () => {
+      const internalDir = join(testDir, 'skills', 'internal-skill');
+      mkdirSync(internalDir, { recursive: true });
+      writeFileSync(
+        join(internalDir, 'SKILL.md'),
+        `---
+name: internal-skill
+description: An internal skill
+metadata:
+  internal: true
+---
+# Internal Skill
+`
+      );
+
+      const result = runCli(['add', testDir, '--skill', '*', '--list'], testDir, {
+        INSTALL_INTERNAL_SKILLS: '1',
+      });
+      expect(result.stdout).toContain('internal-skill');
+    });
   });
 });
 
