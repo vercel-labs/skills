@@ -1,0 +1,3 @@
+name: apple-foundation-models-generation-tuning
+description: Tune generation parameters like temperature, sampling, seeds, and token limits
+tools: []

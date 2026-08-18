@@ -1,0 +1,3 @@
+name: apple-foundation-models-dynamic-schemas
+description: Build generation schemas dynamically at runtime with DynamicGenerationSchema
+tools: []
