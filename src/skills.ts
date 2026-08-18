@@ -327,14 +327,32 @@ export function getSkillDisplayName(skill: Skill): string {
 /**
  * Filter skills based on user input (case-insensitive direct matching).
  * Multi-word skill names must be quoted on the command line.
+ *
+ * When `includeDescription` is true and no name matches are found,
+ * falls back to searching inside the skill description field.
  */
-export function filterSkills(skills: Skill[], inputNames: string[]): Skill[] {
+export function filterSkills(
+  skills: Skill[],
+  inputNames: string[],
+  options?: { includeDescription?: boolean }
+): Skill[] {
   const normalizedInputs = inputNames.map((n) => n.toLowerCase());
 
-  return skills.filter((skill) => {
+  // Try to match by name first
+  const nameMatches = skills.filter((skill) => {
     const name = skill.name.toLowerCase();
     const displayName = getSkillDisplayName(skill).toLowerCase();
-
     return normalizedInputs.some((input) => input === name || input === displayName);
+  });
+
+  // If we found name matches, return them immediately
+  if (nameMatches.length > 0 || !options?.includeDescription) {
+    return nameMatches;
+  }
+
+  // No name matches found — search inside descriptions as fallback
+  return skills.filter((skill) => {
+    const desc = (skill.description || '').toLowerCase();
+    return normalizedInputs.some((input) => desc.includes(input));
   });
 }
