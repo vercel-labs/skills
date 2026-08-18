@@ -310,6 +310,119 @@ describe('Update Cleanup Unit Tests', () => {
       expect(argv).not.toContain('--full-depth');
     });
 
+    it('skips reinstalling a project skill whose upstream hash is unchanged', async () => {
+      vi.mocked(localLock.readLocalLock).mockResolvedValue({
+        version: 1,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            sourceType: 'github',
+            skillPath: 'skills/skill-a/SKILL.md',
+            computedHash: 'same-hash',
+          },
+        },
+      });
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        { name: 'skill-a', path: '/tmp/repo/skills/skill-a', description: 'A', rawContent: '' },
+      ]);
+      vi.mocked(localLock.computeSkillFolderHash).mockResolvedValue('same-hash');
+
+      const result = await updateProjectSkills({ yes: true });
+
+      expect(localLock.computeSkillFolderHash).toHaveBeenCalledWith('/tmp/repo/skills/skill-a');
+      expect(spawnSync).not.toHaveBeenCalled();
+      expect(result).toEqual({ successCount: 0, failCount: 0, foundCount: 1 });
+    });
+
+    it('compares root blob installs using only the installed skill file', async () => {
+      vi.mocked(localLock.readLocalLock).mockResolvedValue({
+        version: 1,
+        skills: {
+          'root-skill': {
+            source: 'owner/repo',
+            sourceType: 'github',
+            skillPath: 'SKILL.md',
+            computedHash: 'same-hash',
+            computedHashScope: 'skill-file',
+          },
+        },
+      });
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        { name: 'root-skill', path: '/tmp/repo', description: 'Root', rawContent: '' },
+      ]);
+      vi.mocked(localLock.computeSkillFileHash).mockResolvedValue('same-hash');
+
+      const result = await updateProjectSkills({ yes: true });
+
+      expect(localLock.computeSkillFileHash).toHaveBeenCalledWith('/tmp/repo', 'SKILL.md');
+      expect(localLock.computeSkillFolderHash).not.toHaveBeenCalled();
+      expect(spawnSync).not.toHaveBeenCalled();
+      expect(result).toEqual({ successCount: 0, failCount: 0, foundCount: 1 });
+    });
+
+    it('reinstalls only project skills whose upstream hash changed', async () => {
+      vi.mocked(localLock.readLocalLock).mockResolvedValue({
+        version: 1,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            sourceType: 'github',
+            skillPath: 'skills/skill-a/SKILL.md',
+            computedHash: 'same-hash',
+          },
+          'skill-b': {
+            source: 'owner/repo',
+            sourceType: 'github',
+            skillPath: 'skills/skill-b/SKILL.md',
+            computedHash: 'old-hash',
+          },
+        },
+      });
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        { name: 'skill-a', path: '/tmp/repo/skills/skill-a', description: 'A', rawContent: '' },
+        { name: 'skill-b', path: '/tmp/repo/skills/skill-b', description: 'B', rawContent: '' },
+      ]);
+      vi.mocked(localLock.computeSkillFolderHash).mockImplementation(async (path) =>
+        path.endsWith('skill-a') ? 'same-hash' : 'new-hash'
+      );
+
+      const result = await updateProjectSkills({ yes: true });
+
+      expect(spawnSync).toHaveBeenCalledTimes(1);
+      const [, argv] = vi.mocked(spawnSync).mock.calls[0]!;
+      expect(argv).toEqual(expect.arrayContaining(['--skill', 'skill-b']));
+      expect(argv).not.toContain('skill-a');
+      expect(result).toEqual({ successCount: 1, failCount: 0, foundCount: 2 });
+    });
+
+    it('reinstalls project skills conservatively when hashing fails', async () => {
+      vi.mocked(localLock.readLocalLock).mockResolvedValue({
+        version: 1,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            sourceType: 'github',
+            skillPath: 'skills/skill-a/SKILL.md',
+            computedHash: 'old-hash',
+          },
+        },
+      });
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        { name: 'skill-a', path: '/tmp/repo/skills/skill-a', description: 'A', rawContent: '' },
+      ]);
+      vi.mocked(localLock.computeSkillFolderHash).mockRejectedValue(new Error('hash failed'));
+
+      const result = await updateProjectSkills({ yes: true });
+
+      expect(spawnSync).toHaveBeenCalledTimes(1);
+      expect(git.cleanupTempDir).toHaveBeenCalledWith('/tmp/repo');
+      expect(result).toEqual({ successCount: 1, failCount: 0, foundCount: 1 });
+    });
+
     it('pins public GitHub project updates to github.com when GH_HOST points elsewhere', async () => {
       vi.stubEnv('GH_HOST', 'github.example.com');
       vi.mocked(localLock.readLocalLock).mockResolvedValue({

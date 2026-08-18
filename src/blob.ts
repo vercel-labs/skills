@@ -649,8 +649,9 @@ export async function tryBlobInstall(
       rawContent: skill.content,
       metadata: skill.metadata,
       files,
-      snapshotHash:
-        files.length === download!.files.length ? download!.hash : computeSnapshotHash(files),
+      // Server hashes may use a different file set or path basis. Compute this
+      // locally so project locks can compare it with cloned folder contents.
+      snapshotHash: computeSnapshotHash(files),
       repoPath: skill.mdPath,
     };
   });

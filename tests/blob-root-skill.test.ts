@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { resetRepoTreeAuthState, tryBlobInstall } from '../src/blob.ts';
+import { computeSkillFolderHash } from '../src/local-lock.ts';
 
 const ROOT_SKILL_MD = `---
 name: eve
@@ -112,6 +116,17 @@ description: Nested skill.
 
     expect(result).not.toBeNull();
     expect(result!.skills[0]!.files.map((file) => file.path)).toEqual(['SKILL.md', 'reference.md']);
-    expect(result!.skills[0]!.snapshotHash).toBe('nested-snapshot-hash');
+    expect(result!.skills[0]!.snapshotHash).not.toBe('nested-snapshot-hash');
+
+    const snapshotDir = await mkdtemp(join(tmpdir(), 'blob-hash-'));
+    try {
+      for (const file of result!.skills[0]!.files) {
+        await mkdir(dirname(join(snapshotDir, file.path)), { recursive: true });
+        await writeFile(join(snapshotDir, file.path), file.contents, 'utf-8');
+      }
+      expect(result!.skills[0]!.snapshotHash).toBe(await computeSkillFolderHash(snapshotDir));
+    } finally {
+      await rm(snapshotDir, { recursive: true, force: true });
+    }
   });
 });

@@ -100,6 +100,13 @@ export function getLockSource(parsedUrl: string, normalizedSource: string | null
 export function getProjectLockSourceUrl(sourceType: string, sourceUrl: string): string | undefined {
   return sourceType === 'git' || sourceType === 'gitlab' ? sourceUrl : undefined;
 }
+
+export function getProjectLockComputedHashScope(
+  isBlobInstall: boolean,
+  skillPath?: string
+): 'skill-file' | undefined {
+  return isBlobInstall && skillPath && !skillPath.includes('/') ? 'skill-file' : undefined;
+}
 export function initTelemetry(version: string): void {
   setVersion(version);
 }
@@ -1912,12 +1919,16 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         const skillDisplayName = getSkillDisplayName(skill);
         if (successfulSkillNames.has(skillDisplayName)) {
           try {
+            const skillPathValue = skillFiles[skill.name];
             // For blob skills, use the snapshot hash; for disk skills, compute from files
             const computedHash =
               blobResult && 'snapshotHash' in skill
                 ? (skill as BlobSkill).snapshotHash
                 : await computeSkillFolderHash(skill.path);
-            const skillPathValue = skillFiles[skill.name];
+            const computedHashScope = getProjectLockComputedHashScope(
+              blobResult !== null,
+              skillPathValue
+            );
             await addSkillToLocalLock(
               skill.name,
               {
@@ -1927,6 +1938,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
                 sourceType: parsed.type,
                 ...(skillPathValue && { skillPath: skillPathValue }),
                 computedHash,
+                ...(computedHashScope && { computedHashScope }),
                 ...(recordSubagents && { subagents: eveSubagents }),
               },
               cwd

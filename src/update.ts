@@ -1,12 +1,17 @@
 import { spawnSync } from 'child_process';
 import { existsSync, readdirSync } from 'fs';
-import { join, dirname, relative, sep } from 'path';
+import { basename, join, dirname, relative, sep } from 'path';
 import { fileURLToPath } from 'url';
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 
 import { readSkillLock, getGitHubToken, type SkillLockEntry } from './skill-lock.ts';
-import { computeSkillFolderHash, readLocalLock, type LocalSkillLockEntry } from './local-lock.ts';
+import {
+  computeSkillFileHash,
+  computeSkillFolderHash,
+  readLocalLock,
+  type LocalSkillLockEntry,
+} from './local-lock.ts';
 import {
   formatSourceInput,
   buildUpdateInstallSource,
@@ -842,6 +847,7 @@ export async function updateProjectSkills(
 
     let tempDir: string | null = null;
     let deletedSkills: string[] = [];
+    let skillsToUpdate = skillsForSource;
 
     if (cloneSource === null) {
       failCount += skillsForSource.length;
@@ -855,10 +861,12 @@ export async function updateProjectSkills(
       tempDir = await cloneRepo(cloneSource, ref);
       const discovered = await discoverSkills(tempDir, undefined, { fullDepth: true });
 
-      const discoveredPaths = discovered.map((s) => {
-        const relPath = relative(tempDir!, s.path);
-        return join(relPath, 'SKILL.md').split(sep).join('/');
-      });
+      const discoveredByPath = new Map<string, string>();
+      for (const discoveredSkill of discovered) {
+        const relPath = relative(tempDir!, discoveredSkill.path);
+        discoveredByPath.set(join(relPath, 'SKILL.md').split(sep).join('/'), discoveredSkill.path);
+      }
+      const discoveredPaths = Array.from(discoveredByPath.keys());
 
       deletedSkills = await checkAndPromptForDeletions(
         source,
@@ -868,7 +876,27 @@ export async function updateProjectSkills(
         options,
         discoveredPaths
       );
+
+      const deletedSkillSet = new Set(deletedSkills);
+      skillsToUpdate = [];
+      for (const skill of skillsForSource) {
+        if (deletedSkillSet.has(skill.name)) continue;
+
+        const discoveredPath = discoveredByPath.get(skill.entry.skillPath!);
+        if (!discoveredPath) continue;
+
+        const latestHash =
+          skill.entry.computedHashScope === 'skill-file'
+            ? await computeSkillFileHash(discoveredPath, basename(skill.entry.skillPath!))
+            : await computeSkillFolderHash(discoveredPath);
+        if (latestHash !== skill.entry.computedHash) {
+          skillsToUpdate.push(skill);
+        }
+      }
     } catch (error) {
+      // Preserve the existing conservative behavior when the source cannot be
+      // checked completely: reinstall every non-deleted skill from this source.
+      skillsToUpdate = skillsForSource;
       console.log(`${DIM}✗ Failed to check for deleted skills from ${source}${RESET}`);
     } finally {
       if (tempDir) {
@@ -876,7 +904,7 @@ export async function updateProjectSkills(
       }
     }
 
-    const remainingSkills = skillsForSource.filter((s) => !deletedSkills.includes(s.name));
+    const remainingSkills = skillsToUpdate.filter((s) => !deletedSkills.includes(s.name));
 
     for (const skill of remainingSkills) {
       const safeName = sanitizeMetadata(skill.name);
