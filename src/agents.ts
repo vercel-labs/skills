@@ -474,6 +474,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.loaf'));
     },
   },
+  manus: {
+    name: 'manus',
+    displayName: 'Manus',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.manus')) || existsSync('/Applications/Manus.app');
+    },
+  },
   mcpjam: {
     name: 'mcpjam',
     displayName: 'MCPJam',
