@@ -269,6 +269,18 @@ function isHostedArtifactUrl(input: string): boolean {
   }
 }
 
+const SKILLS_SHORTHAND_HOSTS = new Set(['skills.sh', 'www.skills.sh']);
+
+function bareSkillsShorthandUrl(input: string): string | null {
+  if (input.includes('://') || input.startsWith('.') || input.startsWith('/')) {
+    return null;
+  }
+  const slash = input.indexOf('/');
+  if (slash <= 0) return null;
+  const host = input.slice(0, slash).toLowerCase();
+  return SKILLS_SHORTHAND_HOSTS.has(host) ? `https://${input}` : null;
+}
+
 export function parseSource(input: string): ParsedSource {
   // Local path: absolute, relative, or current directory
   if (isLocalPath(input)) {
@@ -311,6 +323,11 @@ export function parseSource(input: string): ParsedSource {
         fragmentSkillFilter
       )
     );
+  }
+
+  const skillsShorthandUrl = bareSkillsShorthandUrl(input);
+  if (skillsShorthandUrl) {
+    return { type: 'well-known', url: skillsShorthandUrl };
   }
 
   // Hosted raw files and archive/release assets must be downloaded directly,

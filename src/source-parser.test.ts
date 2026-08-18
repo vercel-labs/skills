@@ -179,4 +179,33 @@ describe('source-parser', () => {
       });
     });
   });
+
+  describe('skills.sh short form', () => {
+    it('parses bare skills.sh/<org>/<pack> as a well-known target', () => {
+      expect(parseSource('skills.sh/vercel-labs/payments-pack')).toEqual({
+        type: 'well-known',
+        url: 'https://skills.sh/vercel-labs/payments-pack',
+      });
+    });
+
+    it('does not treat the skills.sh short form as a GitHub clone', () => {
+      const result = parseSource('skills.sh/acme/my-pack');
+      expect(result.type).toBe('well-known');
+      expect(result.url).not.toContain('github.com');
+    });
+
+    it('supports the www.skills.sh host', () => {
+      expect(parseSource('www.skills.sh/acme/my-pack')).toEqual({
+        type: 'well-known',
+        url: 'https://www.skills.sh/acme/my-pack',
+      });
+    });
+
+    it('keeps explicit https skills.sh URLs as well-known', () => {
+      expect(parseSource('https://skills.sh/acme/my-pack')).toEqual({
+        type: 'well-known',
+        url: 'https://skills.sh/acme/my-pack',
+      });
+    });
+  });
 });

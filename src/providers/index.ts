@@ -9,6 +9,7 @@ export {
   WellKnownProvider,
   wellKnownProvider,
   computeWellKnownSkillDigest,
+  WellKnownAuthError,
   type NormalizedWellKnownEntry,
   type WellKnownIndex,
   type WellKnownSkillEntry,

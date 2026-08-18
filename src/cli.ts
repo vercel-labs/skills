@@ -7,6 +7,8 @@ import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
 import { runFind } from './find.ts';
 import { runInstallFromLock } from './install.ts';
 import { runList } from './list.ts';
+import { runLogin, runLogout, runWhoami } from './login.ts';
+import { runOrgs } from './orgs.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { flushTelemetry } from './telemetry.ts';
@@ -115,6 +117,12 @@ ${BOLD}Manage Skills:${RESET}
   remove [skills]      Remove installed skills
   list, ls             List installed skills
   find [query]         Search for skills interactively
+
+${BOLD}Account:${RESET}
+  login                Sign in to install private skills
+  logout               Sign out and clear the stored token
+  whoami               Show the signed-in account
+  orgs                 List enterprise orgs and packs you can install
 
 ${BOLD}Find Options:${RESET}
   --owner <owner>        Search only repositories from a GitHub owner
@@ -400,6 +408,18 @@ async function main(): Promise<void> {
     case '--version':
     case '-v':
       console.log(VERSION);
+      break;
+    case 'login':
+      await runLogin();
+      break;
+    case 'logout':
+      await runLogout();
+      break;
+    case 'whoami':
+      await runWhoami();
+      break;
+    case 'orgs':
+      await runOrgs();
       break;
 
     default:

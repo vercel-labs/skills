@@ -38,6 +38,9 @@ import {
   computeWellKnownSkillDigest,
   type WellKnownSkill,
 } from './providers/index.ts';
+import { WellKnownAuthError } from './providers/wellknown.ts';
+import { getToken } from './auth-store.ts';
+import { runLogin, DEFAULT_BASE_URL } from './login.ts';
 import { downloadSource } from './download-source.ts';
 import {
   addSkillToLock,
@@ -570,6 +573,21 @@ function isSkillsShPackUrl(url: string): boolean {
   }
 }
 
+export function isTrustedPackUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const base = new URL(DEFAULT_BASE_URL);
+    const normHost = (h: string) => h.replace(/^www\./, '').toLowerCase();
+    const sameOrigin =
+      parsed.protocol === base.protocol &&
+      normHost(parsed.hostname) === normHost(base.hostname) &&
+      parsed.port === base.port;
+    return sameOrigin && /^\/p\/[^/]+/.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
 async function handleWellKnownSkills(
   source: string,
   url: string,
@@ -578,8 +596,56 @@ async function handleWellKnownSkills(
 ): Promise<boolean> {
   spinner.start('Discovering skills from well-known endpoint...');
 
-  // Fetch all skills from the well-known endpoint
-  const skills = await wellKnownProvider.fetchAllSkills(url).catch(() => []);
+  const interactive = process.stdin.isTTY === true && !options.yes;
+  const trusted = isTrustedPackUrl(url);
+
+  const discover = async (): Promise<WellKnownSkill[]> => {
+    const token = trusted ? getToken()?.token : undefined;
+    try {
+      return await wellKnownProvider.fetchAllSkills(url, token ? { token } : undefined);
+    } catch (error) {
+      if (error instanceof WellKnownAuthError) throw error;
+      return [];
+    }
+  };
+
+  let skills: WellKnownSkill[];
+  try {
+    skills = await discover();
+  } catch (error) {
+    if (!trusted || !(error instanceof WellKnownAuthError)) {
+      skills = [];
+    } else if (error.status === 403) {
+      spinner.stop(pc.red('Access denied'));
+      p.outro(pc.red('Your account is not a member of the organization that owns this pack.'));
+      process.exit(1);
+    } else if (!interactive) {
+      spinner.stop(pc.red('Authentication required'));
+      p.outro(
+        pc.red('This pack is private to its organization. Run `skills login` and try again.')
+      );
+      process.exit(1);
+    } else {
+      spinner.stop(pc.yellow('This pack is private to its organization — signing you in…'));
+      await runLogin();
+      if (!getToken()?.token) {
+        p.outro(pc.red('Login did not complete. Try `skills login` again.'));
+        process.exit(1);
+      }
+      spinner.start('Discovering skills from well-known endpoint...');
+      try {
+        skills = await discover();
+      } catch (retryError) {
+        if (retryError instanceof WellKnownAuthError && retryError.status === 403) {
+          spinner.stop(pc.red('Access denied'));
+          p.outro(pc.red('Your account is not a member of the organization that owns this pack.'));
+          process.exit(1);
+        }
+        p.outro(pc.red('Still not authorized for this pack. Try `skills login` again.'));
+        process.exit(1);
+      }
+    }
+  }
 
   if (skills.length === 0) {
     spinner.stop(pc.dim('No well-known skills found; trying direct download...'));

@@ -149,4 +149,19 @@ describe('skills CLI', () => {
       expect(hasLogo(output)).toBe(false);
     }, 60000);
   });
+
+  describe('auth commands', () => {
+    it('help lists login/logout/whoami', () => {
+      const output = runCliOutput(['--help']);
+      expect(output).toContain('login');
+      expect(output).toContain('logout');
+      expect(output).toContain('whoami');
+    });
+
+    it('whoami without a token reports not logged in', () => {
+      const result = runCli(['whoami'], undefined, { SKILLS_DOWNLOAD_URL: 'http://127.0.0.1:9' });
+      expect(result.stdout + result.stderr).toMatch(/Not logged in/);
+      expect(result.exitCode).toBe(1);
+    });
+  });
 });
