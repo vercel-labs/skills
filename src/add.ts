@@ -536,6 +536,46 @@ export interface AddOptions {
    * selects the root agent. Implies installing for Eve.
    */
   subagent?: string[];
+  /** Output results as a JSON array (machine-readable, no ANSI codes). */
+  json?: boolean;
+}
+
+/** One entry per skill in `add --json` output. */
+interface AddJsonResult {
+  name?: string;
+  status: 'installed' | 'skipped' | 'failed';
+  source?: string;
+  ref?: string | null;
+  hash?: string | null;
+  path?: string;
+  scope?: 'project' | 'global';
+  agents?: string[];
+  mode?: InstallMode;
+  security?: {
+    gen?: string;
+    socket?: string;
+    snyk?: string;
+    details?: string;
+  } | null;
+  reason?: string;
+  error?: string;
+}
+
+/** Build the `security` field for a JSON entry from partner audit data. */
+function buildJsonSecurity(
+  auditData: AuditResponse | null,
+  skillName: string,
+  source: string | null
+): AddJsonResult['security'] {
+  const data = auditData?.[skillName];
+  if (!data || Object.keys(data).length === 0) return null;
+  const socketAlerts = data.socket?.alerts ?? 0;
+  return {
+    ...(data.ath && { gen: data.ath.risk }),
+    ...(data.socket && { socket: `${socketAlerts} alert${socketAlerts !== 1 ? 's' : ''}` }),
+    ...(data.snyk && { snyk: data.snyk.risk }),
+    ...(source && { details: `https://skills.sh/${source}` }),
+  };
 }
 
 /**
@@ -890,6 +930,7 @@ async function handleWellKnownSkills(
   console.log();
   const successful = results.filter((r) => r.success);
   const failed = results.filter((r) => !r.success);
+  const successfulSkillNames = new Set(successful.map((r) => r.skill));
 
   // Build skillFiles map: { skillName: sourceUrl }
   const skillFiles: Record<string, string> = {};
@@ -915,7 +956,6 @@ async function handleWellKnownSkills(
 
   // Add to skill lock file for update tracking (only for global installs)
   if (successful.length > 0 && installGlobally) {
-    const successfulSkillNames = new Set(successful.map((r) => r.skill));
     for (const skill of selectedSkills) {
       if (successfulSkillNames.has(skill.installName)) {
         try {
@@ -936,7 +976,6 @@ async function handleWellKnownSkills(
 
   // Add to local lock file for project-scoped installs
   if (successful.length > 0 && !installGlobally) {
-    const successfulSkillNames = new Set(successful.map((r) => r.skill));
     for (const skill of selectedSkills) {
       if (successfulSkillNames.has(skill.installName)) {
         try {
@@ -1038,6 +1077,57 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
   const source = args[0];
   let installTipShown = false;
 
+  // ─── JSON output mode ───
+  // Suppress all decorated stdout (clack banners, spinners, notes) and emit a
+  // single JSON array on stdout instead. Human error text goes to stderr.
+  const jsonMode = options.json === true;
+  const jsonResults: AddJsonResult[] = [];
+  const originalStdoutWrite = process.stdout.write;
+  let stdoutSuppressed = false;
+  if (jsonMode) {
+    process.stdout.write = (() => true) as typeof process.stdout.write;
+    stdoutSuppressed = true;
+  }
+
+  const restoreStdout = (): void => {
+    if (stdoutSuppressed) {
+      process.stdout.write = originalStdoutWrite;
+      stdoutSuppressed = false;
+    }
+  };
+
+  let jsonEmitted = false;
+  const emitJson = (): void => {
+    if (!jsonMode || jsonEmitted) return;
+    jsonEmitted = true;
+    restoreStdout();
+    console.log(JSON.stringify(jsonResults, null, 2));
+  };
+
+  /**
+   * Every exit path must emit exactly one JSON array in json mode.
+   * In non-json mode this is a plain process.exit(code).
+   *
+   * The explicit type annotation (not just a return annotation) is what lets
+   * TypeScript narrow control flow after calls, like `process.exit` does.
+   */
+  const emitJsonAndExit: (code: number, errorMessage?: string) => never = (code, errorMessage) => {
+    if (jsonMode) {
+      if (errorMessage !== undefined) console.error(errorMessage);
+      if (code !== 0 && jsonResults.length === 0) {
+        jsonResults.push({ status: 'failed', error: errorMessage ?? 'Installation failed' });
+      }
+      emitJson();
+    }
+    process.exit(code);
+  };
+
+  if (jsonMode) {
+    // Safety net for exit paths outside this function (e.g. nested helpers):
+    // guarantee stdout carries one parseable array even then.
+    process.once('exit', emitJson);
+  }
+
   const showInstallTip = (): void => {
     if (installTipShown) return;
     p.log.message(
@@ -1058,7 +1148,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     console.log(pc.dim('  Example:'));
     console.log(`    ${pc.cyan('npx skills add')} ${pc.yellow('vercel-labs/agent-skills')}`);
     console.log();
-    process.exit(1);
+    emitJsonAndExit(1, 'Missing required argument: source');
   }
 
   // --all implies --skill '*' and --agent '*' and -y
@@ -1081,6 +1171,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
   }
 
+  // --json is machine-oriented: never prompt. Require an explicit
+  // non-interactive mode instead of hanging on (or cancelling) a prompt.
+  if (jsonMode && !options.yes) {
+    emitJsonAndExit(1, 'The --json flag requires --yes (or --all) to run non-interactively.');
+  }
+
   console.log();
   if (!agentResult.isAgent) {
     p.intro(pc.bgCyan(pc.black(' skills ')));
@@ -1099,7 +1195,15 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
   let tempDir: string | null = null;
 
   try {
-    const spinner = p.spinner();
+    // In json mode, use an inert spinner: clack spinners poll the terminal and
+    // write frames/cursor sequences that must never reach stdout.
+    const spinner = jsonMode
+      ? ({
+          start: () => {},
+          stop: () => {},
+          message: () => {},
+        } as unknown as ReturnType<typeof p.spinner>)
+      : p.spinner();
 
     spinner.start('Parsing source…');
     const parsed = parseSource(source);
@@ -1126,6 +1230,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Handle arbitrary URLs by trying well-known discovery first, then
     // falling back to a direct SKILL.md/archive download.
     if (parsed.type === 'well-known') {
+      if (jsonMode) {
+        // The well-known flow has its own prompts and exit paths that do not
+        // feed the JSON accumulator yet.
+        emitJsonAndExit(1, '--json is not yet supported for well-known skill sources.');
+      }
       const handled = await handleWellKnownSkills(source, parsed.url, options, spinner);
       if (handled) return;
       directDownload = true;
@@ -1159,7 +1268,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       if (!existsSync(parsed.localPath!)) {
         spinner.stop(pc.red('Path not found'));
         p.outro(pc.red(`Local path does not exist: ${parsed.localPath}`));
-        process.exit(1);
+        emitJsonAndExit(1, `Local path does not exist: ${parsed.localPath}`);
       }
       spinner.stop('Local path validated');
 
@@ -1236,7 +1345,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         pc.red('No valid skills found. Skills require a SKILL.md with name and description.')
       );
       await cleanup(tempDir);
-      process.exit(1);
+      emitJsonAndExit(
+        1,
+        'No valid skills found. Skills require a SKILL.md with name and description.'
+      );
     }
 
     if (!blobResult) {
@@ -1290,7 +1402,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       console.log();
       p.outro('Use --skill <name> to install specific skills');
       await cleanup(tempDir);
-      process.exit(0);
+      emitJsonAndExit(0);
     }
 
     let selectedSkills: Skill[];
@@ -1302,6 +1414,19 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     } else if (options.skill && options.skill.length > 0) {
       selectedSkills = filterSkills(skills, options.skill);
 
+      // Requested names that matched nothing are reported as skipped entries.
+      if (jsonMode) {
+        for (const requested of options.skill) {
+          if (filterSkills(skills, [requested]).length === 0) {
+            jsonResults.push({
+              name: requested,
+              status: 'skipped',
+              reason: 'No matching skill found in source',
+            });
+          }
+        }
+      }
+
       if (selectedSkills.length === 0) {
         p.log.error(`No matching skills found for: ${options.skill.join(', ')}`);
         p.log.info('Available skills:');
@@ -1309,7 +1434,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           p.log.message(`  - ${getSkillDisplayName(s)}`);
         }
         await cleanup(tempDir);
-        process.exit(1);
+        emitJsonAndExit(1, `No matching skills found for: ${options.skill.join(', ')}`);
       }
 
       p.log.info(
@@ -1367,7 +1492,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       if (isCancelled(selected)) {
         p.cancel('Installation cancelled');
         await cleanup(tempDir);
-        process.exit(0);
+        emitJsonAndExit(0);
       }
 
       selectedSkills = selected as Skill[];
@@ -1402,7 +1527,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
         p.log.info(`Valid agents: ${validAgents.join(', ')}`);
         await cleanup(tempDir);
-        process.exit(1);
+        emitJsonAndExit(1, `Invalid agents: ${invalidAgents.join(', ')}`);
       }
 
       targetAgents = options.agent as AgentType[];
@@ -1423,7 +1548,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         if (p.isCancel(useEve)) {
           p.cancel('Installation cancelled');
           await cleanup(tempDir);
-          process.exit(0);
+          emitJsonAndExit(0);
         }
 
         if (useEve) {
@@ -1435,7 +1560,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           if (p.isCancel(selected)) {
             p.cancel('Installation cancelled');
             await cleanup(tempDir);
-            process.exit(0);
+            emitJsonAndExit(0);
           }
 
           targetAgents = selected as AgentType[];
@@ -1463,7 +1588,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           if (p.isCancel(selected)) {
             p.cancel('Installation cancelled');
             await cleanup(tempDir);
-            process.exit(0);
+            emitJsonAndExit(0);
           }
 
           targetAgents = selected as AgentType[];
@@ -1485,7 +1610,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         if (p.isCancel(selected)) {
           p.cancel('Installation cancelled');
           await cleanup(tempDir);
-          process.exit(0);
+          emitJsonAndExit(0);
         }
 
         targetAgents = selected as AgentType[];
@@ -1529,7 +1654,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         if (p.isCancel(selectedSubagents)) {
           p.cancel('Installation cancelled');
           await cleanup(tempDir);
-          process.exit(0);
+          emitJsonAndExit(0);
         }
 
         eveSubagentTargets = (selectedSubagents as string[]).map((s) => (s === '' ? undefined : s));
@@ -1563,7 +1688,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       if (p.isCancel(scope)) {
         p.cancel('Installation cancelled');
         await cleanup(tempDir);
-        process.exit(0);
+        emitJsonAndExit(0);
       }
 
       installGlobally = scope as boolean;
@@ -1599,7 +1724,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       if (p.isCancel(modeChoice)) {
         p.cancel('Installation cancelled');
         await cleanup(tempDir);
-        process.exit(0);
+        emitJsonAndExit(0);
       }
 
       installMode = modeChoice as InstallMode;
@@ -1704,8 +1829,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     // Await and display security audit results (started earlier in parallel)
     // Wrapped in try/catch so a failed audit fetch never blocks installation.
+    let auditDataForJson: AuditResponse | null = null;
     try {
       const auditData = await auditPromise;
+      auditDataForJson = auditData;
       if (auditData && ownerRepoForAudit) {
         const securityLines = buildSecurityLines(
           auditData,
@@ -1729,7 +1856,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       if (p.isCancel(confirmed) || !confirmed) {
         p.cancel('Installation cancelled');
         await cleanup(tempDir);
-        process.exit(0);
+        emitJsonAndExit(0);
       }
     }
 
@@ -1785,6 +1912,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     console.log();
     const successful = results.filter((r) => r.success);
     const failed = results.filter((r) => !r.success);
+    const successfulSkillNames = new Set(successful.map((r) => r.skill));
     // Track installation result
     // Build skillFiles map: { skillName: relative path to SKILL.md from repo root }
     const skillFiles: Record<string, string> = {};
@@ -1851,10 +1979,28 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
+    // Content hash per installed skill (blob snapshot or folder hash), for the
+    // project lock below and --json. The global lock derives its own from the
+    // repo tree, so skip the walk when neither consumer needs it.
+    const installedSkillHashes = new Map<string, string>();
+    if (successful.length > 0 && (jsonMode || !installGlobally)) {
+      for (const skill of selectedSkills) {
+        const skillDisplayName = getSkillDisplayName(skill);
+        if (!successfulSkillNames.has(skillDisplayName)) continue;
+        try {
+          const computedHash =
+            blobResult && 'snapshotHash' in skill
+              ? (skill as BlobSkill).snapshotHash
+              : await computeSkillFolderHash(skill.path);
+          installedSkillHashes.set(skillDisplayName, computedHash);
+        } catch {
+          // Hash is informational; lock writing skips skills without one.
+        }
+      }
+    }
+
     // Add to skill lock file for update tracking (only for global installs)
     if (successful.length > 0 && installGlobally && normalizedSource) {
-      const successfulSkillNames = new Set(successful.map((r) => r.skill));
-
       // For GitHub clone installs, fetch the repo tree once and reuse it
       // for all skills — avoids N sequential API calls that take ~400ms each.
       let cachedTree: Awaited<ReturnType<typeof fetchRepoTree>> | undefined;
@@ -1899,7 +2045,6 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     // Add to local lock file for project-scoped installs
     if (successful.length > 0 && !installGlobally && !directDownload) {
-      const successfulSkillNames = new Set(successful.map((r) => r.skill));
       // Record Eve subagent placement (root = '') so `update` can restore it.
       // Only meaningful when Eve is among the targets and a non-root subagent
       // was selected; otherwise omit for a clean, minimal lock entry.
@@ -1912,11 +2057,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         const skillDisplayName = getSkillDisplayName(skill);
         if (successfulSkillNames.has(skillDisplayName)) {
           try {
-            // For blob skills, use the snapshot hash; for disk skills, compute from files
-            const computedHash =
-              blobResult && 'snapshotHash' in skill
-                ? (skill as BlobSkill).snapshotHash
-                : await computeSkillFolderHash(skill.path);
+            // Reuse the hash computed above (blob snapshot or folder hash)
+            const computedHash = installedSkillHashes.get(skillDisplayName);
+            if (computedHash === undefined) continue;
             const skillPathValue = skillFiles[skill.name];
             await addSkillToLocalLock(
               skill.name,
@@ -1936,6 +2079,41 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           }
         }
       }
+    }
+
+    // JSON output: one entry per skill, collapsing per-skill×agent results.
+    // A skill is failed if any target failed, otherwise installed.
+    if (jsonMode) {
+      const jsonSource =
+        normalizedSource ?? (parsed.type === 'local' ? parsed.localPath! : parsed.url);
+      for (const skill of selectedSkills) {
+        const name = getSkillDisplayName(skill);
+        const skillResults = results.filter((r) => r.skill === name);
+        const failures = skillResults.filter((r) => !r.success);
+        if (failures.length > 0) {
+          jsonResults.push({
+            name,
+            status: 'failed',
+            error: failures[0]!.error ?? 'Installation failed',
+          });
+          continue;
+        }
+        jsonResults.push({
+          name,
+          status: 'installed',
+          source: jsonSource,
+          ref: parsed.ref ?? null,
+          hash: installedSkillHashes.get(name) ?? null,
+          path: skillResults[0]?.canonicalPath ?? skillResults[0]?.path,
+          scope: installGlobally ? 'global' : 'project',
+          agents: skillResults.map((r) => r.agent),
+          mode: skillResults[0]?.mode ?? installMode,
+          security: buildJsonSecurity(auditDataForJson, name, ownerRepoForAudit),
+        });
+      }
+      emitJson();
+      if (failed.length > 0) process.exitCode = 1;
+      return; // the finally block handles tempDir cleanup
     }
 
     if (successful.length > 0) {
@@ -2061,8 +2239,15 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
     showInstallTip();
     p.outro(pc.red('Installation failed'));
-    process.exit(1);
+    const errorMessage =
+      error instanceof GitCloneError
+        ? `Failed to clone repository\n${error.message}`
+        : error instanceof Error
+          ? error.message
+          : 'Unknown error occurred';
+    emitJsonAndExit(1, errorMessage);
   } finally {
+    restoreStdout();
     await cleanup(tempDir);
   }
 }
@@ -2208,6 +2393,8 @@ export function parseAddOptions(args: string[]): {
       }
     } else if (arg === '--full-depth') {
       options.fullDepth = true;
+    } else if (arg === '--json') {
+      options.json = true;
     } else if (arg === '--copy') {
       options.copy = true;
     } else if (arg === '--subagent') {
