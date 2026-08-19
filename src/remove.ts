@@ -7,6 +7,7 @@ import { track } from './telemetry.ts';
 import { detectAgent } from './detect-agent.ts';
 import { removeSkillFromLock, getSkillFromLock, readSkillLock } from './skill-lock.ts';
 import { readLocalLock, removeSkillFromLocalLock } from './local-lock.ts';
+import { searchMultiselect, type SearchItem } from './prompts/search-multiselect.ts';
 import type { AgentType } from './types.ts';
 import {
   getInstallPath,
@@ -31,30 +32,107 @@ export interface RemoveOptions {
  * sanitizeName() rewrites — e.g. the ':' in plugin skills such as "ce:review"
  * maps to the folder "ce-review". Matching purely on folder names therefore
  * misses lock-only or name-mismatched skills (and stale lock entries whose
- * folder is already gone). Every candidate is canonicalized by its sanitized
- * name, preferring the lock key, so downstream disk cleanup (which
- * re-sanitizes) and lock removal (which needs the exact key) both target the
- * right thing.
+ * folder is already gone). Removable candidates preserve exact lock keys, including
+ * distinct keys that sanitize to the same folder, while untracked folders are
+ * reconciled with a lock identity where possible. Downstream disk cleanup
+ * re-sanitizes and lock removal needs the exact key, so both target the right thing.
  */
 export function resolveSkillsToRemove(
   requested: string[],
   folderNames: string[],
   lockKeys: string[] = []
 ): string[] {
-  const identityBySanitized = new Map<string, string>();
-  for (const folder of folderNames) {
-    identityBySanitized.set(sanitizeName(folder), folder);
-  }
-  // Lock keys win: they carry the exact key needed for lock removal.
-  for (const key of lockKeys) {
-    identityBySanitized.set(sanitizeName(key), key);
-  }
+  const candidates = getRemovalCandidates(folderNames, lockKeys);
 
   const matched = new Set<string>();
   for (const name of requested) {
-    const hit = identityBySanitized.get(sanitizeName(name));
-    if (hit) matched.add(hit);
+    const sanitizedName = sanitizeName(name);
+    for (const candidate of candidates) {
+      if (sanitizeName(candidate) === sanitizedName) matched.add(candidate);
+    }
   }
+  return Array.from(matched);
+}
+
+type RemoveLockEntry = { source?: string };
+
+function getRemovalCandidates(folderNames: string[], lockKeys: string[]): string[] {
+  const candidates = new Set(lockKeys);
+
+  for (const folder of folderNames) {
+    const sanitizedFolder = sanitizeName(folder);
+    const hasLockIdentity = lockKeys.some((key) => sanitizeName(key) === sanitizedFolder);
+    if (!hasLockIdentity) candidates.add(folder);
+  }
+
+  return Array.from(candidates).sort((a, b) => a.localeCompare(b));
+}
+
+/** Build the grouped choices used by the interactive remove selector. */
+export function buildRemoveChoices(
+  folderNames: string[],
+  lockEntries: Record<string, RemoveLockEntry>
+): SearchItem<string>[] {
+  const lockKeys = Object.keys(lockEntries);
+  const groups = new Map<string, SearchItem<string>[]>();
+
+  for (const skill of getRemovalCandidates(folderNames, lockKeys)) {
+    const group = lockEntries[skill]?.source ?? 'Unknown source';
+    const choices = groups.get(group) || [];
+    choices.push({ value: skill, label: skill, group });
+    groups.set(group, choices);
+  }
+
+  return Array.from(groups.values()).flat();
+}
+
+/** Resolve skill names first, then exact lock-entry source strings. */
+export function resolveRemoveTargets(
+  requested: string[],
+  folderNames: string[],
+  lockEntries: Record<string, RemoveLockEntry>
+): string[] {
+  const lockKeys = Object.keys(lockEntries);
+  const candidates = getRemovalCandidates(folderNames, lockKeys);
+  const identityByName = new Map<string, string>();
+
+  for (const folder of folderNames) {
+    const sanitizedFolder = sanitizeName(folder);
+    const lockKey = lockKeys.find((key) => sanitizeName(key) === sanitizedFolder);
+    identityByName.set(folder.toLowerCase(), lockKey || folder);
+  }
+  // Exact lock keys must retain their own identity, even when another key
+  // sanitizes to the same on-disk folder name.
+  for (const key of lockKeys) {
+    identityByName.set(key.toLowerCase(), key);
+  }
+  for (const candidate of candidates) {
+    identityByName.set(candidate.toLowerCase(), candidate);
+  }
+
+  const matched = new Set<string>();
+  for (const request of requested) {
+    const nameMatch = identityByName.get(request.toLowerCase());
+    if (nameMatch) {
+      matched.add(nameMatch);
+      continue;
+    }
+
+    const sourceMatches = candidates.filter(
+      (candidate) => lockEntries[candidate]?.source === request
+    );
+    if (sourceMatches.length > 0) {
+      for (const candidate of sourceMatches) matched.add(candidate);
+      continue;
+    }
+
+    // Keep the historical sanitized-name fallback for plugin skill names such
+    // as `ce:review` and their on-disk `ce-review` folder.
+    for (const candidate of resolveSkillsToRemove([request], folderNames, lockKeys)) {
+      matched.add(candidate);
+    }
+  }
+
   return Array.from(matched);
 }
 
@@ -133,20 +211,15 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   const installedSkills = Array.from(skillNamesSet).sort();
   spinner.stop(`Found ${installedSkills.length} unique installed skill(s)`);
 
-  // Read lock file keys up front. These are needed both to decide whether there is
-  // anything to remove (a skill may be missing from disk but still leave a stale lock
-  // entry) and to clean up those stale entries below.
-  const lockSkillsKeys = isGlobal
-    ? Object.keys((await readSkillLock()).skills)
-    : Object.keys((await readLocalLock(cwd)).skills);
-
-  const requestedSkills = options.all ? [...installedSkills, ...lockSkillsKeys] : skillNames;
+  // Read the relevant lock file once. Its keys represent stale skills as well as
+  // skills that are still present on disk.
+  const lockEntries = (isGlobal ? await readSkillLock() : await readLocalLock(cwd)).skills;
+  const lockSkillsKeys = Object.keys(lockEntries);
+  const removableSkills = getRemovalCandidates(installedSkills, lockSkillsKeys);
   const resolvedRequestedSkills =
-    options.all || skillNames.length > 0
-      ? resolveSkillsToRemove(requestedSkills, installedSkills, lockSkillsKeys)
-      : [];
+    skillNames.length > 0 ? resolveRemoveTargets(skillNames, installedSkills, lockEntries) : [];
 
-  if (installedSkills.length === 0 && resolvedRequestedSkills.length === 0) {
+  if (removableSkills.length === 0) {
     p.outro(pc.yellow('No skills found to remove.'));
     return;
   }
@@ -166,7 +239,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   let selectedSkills: string[] = [];
 
   if (options.all) {
-    selectedSkills = resolvedRequestedSkills;
+    selectedSkills = removableSkills;
   } else if (skillNames.length > 0) {
     selectedSkills = resolvedRequestedSkills;
 
@@ -175,23 +248,19 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
       return;
     }
   } else {
-    const choices = installedSkills.map((s) => ({
-      value: s,
-      label: s,
-    }));
-
-    const selected = await p.multiselect({
+    const selected = await searchMultiselect({
       message: `Select skills to remove ${pc.dim('(space to toggle)')}`,
-      options: choices,
+      items: buildRemoveChoices(installedSkills, lockEntries),
       required: true,
+      selectGroups: true,
     });
 
-    if (p.isCancel(selected)) {
+    if (typeof selected === 'symbol') {
       p.cancel('Removal cancelled');
       process.exit(0);
     }
 
-    selectedSkills = resolveSkillsToRemove(selected as string[], installedSkills, lockSkillsKeys);
+    selectedSkills = selected as string[];
   }
 
   let targetAgents: AgentType[];
@@ -235,6 +304,12 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   for (const skillName of selectedSkills) {
     try {
       const canonicalPath = getCanonicalPath(skillName, { global: isGlobal, cwd });
+      const sharesPathWithUnselectedSkill = removableSkills.some(
+        (candidate) =>
+          candidate !== skillName &&
+          !selectedSkills.includes(candidate) &&
+          sanitizeName(candidate) === sanitizeName(skillName)
+      );
 
       for (const agentKey of targetAgents) {
         const agent = agents[agentKey];
@@ -258,6 +333,10 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
         }
 
         for (const pathToCleanup of pathsToCleanup) {
+          // A shared sanitized path belongs to an unselected lock identity too.
+          if (sharesPathWithUnselectedSkill) {
+            continue;
+          }
           // Skip if this is the canonical path - we'll handle that after checking all agents
           if (pathToCleanup === canonicalPath) {
             continue;
@@ -293,7 +372,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
         }
       }
 
-      if (!isStillUsed) {
+      if (!sharesPathWithUnselectedSkill && !isStillUsed) {
         await rm(canonicalPath, { recursive: true, force: true });
       }
 

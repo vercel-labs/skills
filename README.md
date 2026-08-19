@@ -213,8 +213,11 @@ npx skills init my-skill
 Remove installed skills from agents.
 
 ```bash
-# Remove interactively (select from installed skills)
+# Remove interactively (select skills grouped by lock source)
 npx skills remove
+
+# Remove all skills from an exact lock source
+npx skills remove owner/repo
 
 # Remove specific skill by name
 npx skills remove web-design-guidelines
