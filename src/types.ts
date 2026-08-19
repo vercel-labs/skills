@@ -61,6 +61,7 @@ export type AgentType =
   | 'reasonix'
   | 'roo'
   | 'rovodev'
+  | 'ruler'
   | 'tabnine-cli'
   | 'terramind'
   | 'tinycloud'

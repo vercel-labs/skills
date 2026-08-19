@@ -637,6 +637,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.roo'));
     },
   },
+  ruler: {
+    name: 'ruler',
+    displayName: 'Ruler',
+    skillsDir: '.ruler/skills',
+    globalSkillsDir: join(home, '.ruler/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.ruler'));
+    },
+  },
   'tabnine-cli': {
     name: 'tabnine-cli',
     displayName: 'Tabnine CLI',
