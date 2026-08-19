@@ -154,6 +154,10 @@ npx skills ls -g
 
 # Filter by specific agents
 npx skills ls -a claude-code -a cursor
+
+# Export install commands (one per line) to replicate these skills on another
+# machine. Skills installed from local paths or node_modules are skipped.
+npx skills ls -g --export > skills.sh
 ```
 
 ### `skills find`
