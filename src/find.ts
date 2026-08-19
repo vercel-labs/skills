@@ -15,6 +15,7 @@ const YELLOW = '\x1b[33m';
 
 // API endpoint for skills search
 const SEARCH_API_BASE = process.env.SKILLS_API_URL || 'https://skills.sh';
+const SEARCH_RESULT_LIMIT = '20';
 
 function formatInstalls(count: number): string {
   if (!count || count <= 0) return '';
@@ -85,7 +86,7 @@ export function parseFindOptions(args: string[]): ParseFindOptionsResult {
 // Search via API
 export async function searchSkillsAPI(query: string, owner?: string): Promise<SearchSkill[]> {
   try {
-    const params = new URLSearchParams({ q: query, limit: '10' });
+    const params = new URLSearchParams({ q: query, limit: SEARCH_RESULT_LIMIT });
     if (owner) params.set('owner', owner);
     const url = `${SEARCH_API_BASE}/api/search?${params.toString()}`;
     const res = await fetch(url);
@@ -164,7 +165,7 @@ async function runSearchPrompt(initialQuery = '', owner?: string): Promise<Searc
     if (!query || query.length < 2) {
       lines.push(`${DIM}Start typing to search (min 2 chars)${RESET}`);
     } else if (results.length === 0 && loading) {
-      lines.push(`${DIM}Searching...${RESET}`);
+      lines.push(`${DIM}Searching…${RESET}`);
     } else if (results.length === 0) {
       lines.push(`${DIM}No skills found${RESET}`);
     } else {
@@ -179,7 +180,7 @@ async function runSearchPrompt(initialQuery = '', owner?: string): Promise<Searc
         const source = skill.source ? ` ${DIM}${skill.source}${RESET}` : '';
         const installs = formatInstalls(skill.installs);
         const installsBadge = installs ? ` ${CYAN}${installs}${RESET}` : '';
-        const loadingIndicator = loading && i === 0 ? ` ${DIM}...${RESET}` : '';
+        const loadingIndicator = loading && i === 0 ? ` ${DIM}…${RESET}` : '';
 
         lines.push(`  ${arrow} ${name}${source}${installsBadge}${loadingIndicator}`);
       }
@@ -356,7 +357,7 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
     console.log(`${DIM}Install with${RESET} npx skills add <owner/repo@skill>`);
     console.log();
 
-    for (const skill of results.slice(0, 6)) {
+    for (const skill of results) {
       const pkg = skill.source || skill.slug;
       const installs = formatInstalls(skill.installs);
       console.log(
@@ -397,7 +398,7 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
   const skillName = selected.name;
 
   console.log();
-  console.log(`${TEXT}Installing ${BOLD}${skillName}${RESET} from ${DIM}${pkg}${RESET}...`);
+  console.log(`${TEXT}Installing ${BOLD}${skillName}${RESET} from ${DIM}${pkg}${RESET}…`);
   console.log();
 
   // Run add directly since we're in the same CLI

@@ -5,6 +5,36 @@ import type { AgentType } from './types.ts';
 let cachedResult: AgentResult | null = null;
 
 /**
+ * @vercel/detect-agent treats any CURSOR_TRACE_ID as a Cursor agent, but that
+ * variable is also present in Cursor's integrated terminal for regular user
+ * sessions. Require stronger execution signals before enabling agent mode.
+ */
+function hasStrongCursorAgentSignal(): boolean {
+  return (
+    Boolean(process.env.CURSOR_AGENT?.trim()) ||
+    process.env.CURSOR_EXTENSION_HOST_ROLE === 'agent-exec'
+  );
+}
+
+function refineAgentResult(result: AgentResult): AgentResult {
+  if (!result.isAgent || !result.agent) {
+    return result;
+  }
+
+  if (result.agent.name === 'cursor' || result.agent.name === 'cursor-cli') {
+    if (!hasStrongCursorAgentSignal()) {
+      return { isAgent: false, agent: undefined };
+    }
+
+    if (result.agent.name === 'cursor') {
+      return { isAgent: true, agent: { name: 'cursor-cli' } };
+    }
+  }
+
+  return result;
+}
+
+/**
  * Map from @vercel/detect-agent names to skills-cli AgentType identifiers.
  * Only includes agents that exist in both systems.
  */
@@ -29,7 +59,7 @@ const agentNameToType: Record<string, AgentType> = {
  */
 export async function detectAgent(): Promise<AgentResult> {
   if (cachedResult) return cachedResult;
-  cachedResult = await determineAgent();
+  cachedResult = refineAgentResult(await determineAgent());
   if (cachedResult.isAgent) {
     setDetectedAgent(cachedResult.agent.name);
   }

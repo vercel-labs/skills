@@ -30,18 +30,21 @@ export type AgentType =
   | 'gemini-cli'
   | 'github-copilot'
   | 'goose'
+  | 'grok'
   | 'hermes-agent'
   | 'inference-sh'
   | 'iflow-cli'
   | 'jazz'
   | 'junie'
   | 'kilo'
+  | 'kimchi'
   | 'kimi-code-cli'
   | 'kiro-cli'
   | 'kode'
   | 'lingma'
   | 'loaf'
   | 'mcpjam'
+  | 'minimax-code'
   | 'mistral-vibe'
   | 'moxby'
   | 'mux'
@@ -50,6 +53,7 @@ export type AgentType =
   | 'openhands'
   | 'ona'
   | 'pi'
+  | 'posit-assistant'
   | 'qoder'
   | 'qoder-cn'
   | 'qwen-code'
@@ -65,6 +69,7 @@ export type AgentType =
   | 'warp'
   | 'windsurf'
   | 'zed'
+  | 'zcode'
   | 'zencoder'
   | 'zenflow'
   | 'pochi'
@@ -97,7 +102,7 @@ export interface AgentConfig {
 }
 
 export interface ParsedSource {
-  type: 'github' | 'gitlab' | 'git' | 'local' | 'well-known';
+  type: 'github' | 'gitlab' | 'git' | 'local' | 'well-known' | 'download';
   url: string;
   subpath?: string;
   localPath?: string;

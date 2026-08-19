@@ -1,7 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { parseSource } from './source-parser.js';
 
 describe('source-parser', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   describe('GitLab Custom Domains & Subgroups', () => {
     it('parses custom gitlab domain with deep subgroup paths', () => {
       const result = parseSource('https://git.corp.com/group/subgroup/project/-/tree/main/src');
@@ -57,10 +61,15 @@ describe('source-parser', () => {
       });
     });
 
-    it('prevents false positives for generic URLs (falls through to well-known)', () => {
+    it('prevents false positives for generic URLs (falls through to well-known handling)', () => {
       const result = parseSource('https://google.com/search/result');
       expect(result.type).toBe('well-known');
       expect(result.url).toBe('https://google.com/search/result');
+    });
+
+    it('treats raw GitHub files as direct downloads', () => {
+      const url = 'https://raw.githubusercontent.com/owner/repo/main/SKILL.md';
+      expect(parseSource(url)).toEqual({ type: 'download', url });
     });
 
     it('retains official gitlab.com parsing for convenience', () => {
@@ -125,6 +134,48 @@ describe('source-parser', () => {
         type: 'git',
         url: 'git@github.com:owner/repo.git',
         ref: 'feature/install',
+      });
+    });
+
+    it('uses GH_HOST for shorthand GitHub Enterprise sources', () => {
+      vi.stubEnv('GH_HOST', 'github.example.com');
+
+      expect(parseSource('acme/agent-skills')).toEqual({
+        type: 'git',
+        url: 'https://github.example.com/acme/agent-skills.git',
+        subpath: undefined,
+      });
+    });
+
+    it('uses GH_HOST for github: prefixed sources', () => {
+      vi.stubEnv('GH_HOST', 'github.example.com');
+
+      expect(parseSource('github:acme/agent-skills@review')).toEqual({
+        type: 'git',
+        url: 'https://github.example.com/acme/agent-skills.git',
+        skillFilter: 'review',
+      });
+    });
+
+    it('parses explicit GitHub Enterprise tree URLs', () => {
+      vi.stubEnv('GH_HOST', 'github.example.com');
+
+      expect(
+        parseSource('https://github.example.com/acme/agent-skills/tree/main/skills/review')
+      ).toEqual({
+        type: 'git',
+        url: 'https://github.example.com/acme/agent-skills.git',
+        ref: 'main',
+        subpath: 'skills/review',
+      });
+    });
+
+    it('does not override explicit github.com URLs with GH_HOST', () => {
+      vi.stubEnv('GH_HOST', 'github.example.com');
+
+      expect(parseSource('https://github.com/owner/repo')).toEqual({
+        type: 'github',
+        url: 'https://github.com/owner/repo.git',
       });
     });
   });

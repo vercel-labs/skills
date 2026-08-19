@@ -4,6 +4,7 @@ import { readLocalLock } from './local-lock.ts';
 import { runAdd } from './add.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { getUniversalAgents } from './agents.ts';
+import { buildLocalUpdateSource } from './update-source.ts';
 
 /**
  * Install all skills from the local skills-lock.json.
@@ -40,7 +41,13 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
       continue;
     }
 
-    const installSource = entry.ref ? `${entry.source}#${entry.ref}` : entry.source;
+    const installSource = buildLocalUpdateSource(entry);
+    if (!installSource) {
+      p.log.error(
+        `Cannot restore ${pc.cyan(skillName)}: skills-lock.json is missing sourceUrl for this generic Git source`
+      );
+      continue;
+    }
     const existing = bySource.get(installSource);
     if (existing) {
       existing.skills.push(skillName);

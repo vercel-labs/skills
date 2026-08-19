@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { WellKnownProvider } from '../src/providers/wellknown.ts';
+import { WellKnownProvider, WellKnownScopeNotFoundError } from '../src/providers/wellknown.ts';
+import { createZip } from './fixtures/zip.ts';
 
 const SCHEMA_V2 = 'https://schemas.agentskills.io/discovery/0.2.0/schema.json';
 
@@ -47,6 +48,7 @@ function createTarGz(files: Record<string, string>): Uint8Array {
 }
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 
@@ -161,6 +163,70 @@ describe('WellKnownProvider', () => {
   });
 
   describe('fetchAllSkills', () => {
+    it('hides internal skills unless explicitly enabled', async () => {
+      vi.stubEnv('INSTALL_INTERNAL_SKILLS', '');
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+          return response({
+            skills: [
+              {
+                name: 'public-skill',
+                description: 'Public skill.',
+                files: ['SKILL.md'],
+              },
+              {
+                name: 'internal-skill',
+                description: 'Internal skill.',
+                files: ['SKILL.md'],
+              },
+            ],
+          });
+        }
+        if (href.endsWith('/public-skill/SKILL.md')) {
+          return response('---\nname: public-skill\ndescription: Public skill.\n---\n# Public');
+        }
+        if (href.endsWith('/internal-skill/SKILL.md')) {
+          return response(
+            '---\nname: internal-skill\ndescription: Internal skill.\nmetadata:\n  internal: true\n---\n# Internal'
+          );
+        }
+        return response('not found', { status: 404 });
+      });
+
+      const defaultSkills = await provider.fetchAllSkills('https://example.com');
+      expect(defaultSkills.map((skill) => skill.installName)).toEqual(['public-skill']);
+
+      vi.stubEnv('INSTALL_INTERNAL_SKILLS', '1');
+      const envEnabledSkills = await provider.fetchAllSkills('https://example.com');
+      expect(envEnabledSkills.map((skill) => skill.installName)).toEqual([
+        'public-skill',
+        'internal-skill',
+      ]);
+
+      vi.stubEnv('INSTALL_INTERNAL_SKILLS', '');
+      const explicitlyIncludedSkills = await provider.fetchAllSkills('https://example.com', {
+        includeInternal: true,
+      });
+      expect(explicitlyIncludedSkills.map((skill) => skill.installName)).toEqual([
+        'public-skill',
+        'internal-skill',
+      ]);
+    });
+
+    it('bounds well-known discovery with a shared timeout signal', async () => {
+      const signal = AbortSignal.abort(new DOMException('timed out', 'TimeoutError'));
+      const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(signal);
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+        expect(init?.signal).toBe(signal);
+        throw signal.reason;
+      });
+
+      await expect(provider.fetchAllSkills('https://example.com/download')).resolves.toEqual([]);
+      expect(timeoutSpy).toHaveBeenCalledTimes(1);
+      expect(fetchSpy).toHaveBeenCalled();
+    });
+
     it('keeps supporting legacy files[] indexes', async () => {
       vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
         const href = String(url);
@@ -218,6 +284,85 @@ describe('WellKnownProvider', () => {
       expect(skills[0]!.sourceUrl).toBe(
         'https://code.claude.com/docs/.well-known/skills/claude/SKILL.md'
       );
+    });
+
+    it('fails instead of falling back to the root index when a scoped path has no index', async () => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+          return response({
+            skills: [
+              { name: 'alpha', description: 'Alpha skill.', files: ['SKILL.md'] },
+              { name: 'beta', description: 'Beta skill.', files: ['SKILL.md'] },
+            ],
+          });
+        }
+        return response('not found', { status: 404 });
+      });
+
+      await expect(provider.fetchAllSkills('https://example.com/s/alpha')).rejects.toThrow(
+        WellKnownScopeNotFoundError
+      );
+      await expect(provider.fetchAllSkills('https://example.com/s/alpha')).rejects.toThrow(
+        /\/s\/alpha/
+      );
+    });
+
+    it('fails when the scoped index exists but lists no skills', async () => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://example.com/s/alpha/.well-known/agent-skills/index.json') {
+          return response({ skills: [] });
+        }
+        if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+          return response({
+            skills: [
+              { name: 'alpha', description: 'Alpha skill.', files: ['SKILL.md'] },
+              { name: 'beta', description: 'Beta skill.', files: ['SKILL.md'] },
+            ],
+          });
+        }
+        return response('not found', { status: 404 });
+      });
+
+      await expect(provider.fetchAllSkills('https://example.com/s/alpha')).rejects.toThrow(
+        WellKnownScopeNotFoundError
+      );
+    });
+
+    it('uses the scoped index without consulting the root index when the scope resolves', async () => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://example.com/s/alpha/.well-known/agent-skills/index.json') {
+          return response({
+            skills: [{ name: 'alpha', description: 'Alpha skill.', files: ['SKILL.md'] }],
+          });
+        }
+        if (href === 'https://example.com/s/alpha/.well-known/agent-skills/alpha/SKILL.md') {
+          return response('---\nname: alpha\ndescription: Alpha skill.\n---\n# Alpha');
+        }
+        if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+          return response({
+            skills: [
+              { name: 'alpha', description: 'Alpha skill.', files: ['SKILL.md'] },
+              { name: 'beta', description: 'Beta skill.', files: ['SKILL.md'] },
+            ],
+          });
+        }
+        return response('not found', { status: 404 });
+      });
+
+      const skills = await provider.fetchAllSkills('https://example.com/s/alpha');
+      expect(skills).toHaveLength(1);
+      expect(skills[0]!.installName).toBe('alpha');
+    });
+
+    it('returns no skills for a scoped path when the host has no index at all', async () => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+        response('not found', { status: 404 })
+      );
+
+      await expect(provider.fetchAllSkills('https://example.com/s/alpha')).resolves.toEqual([]);
     });
 
     it('supports v0.2.0 skill-md entries with relative URL resolution and digest checks', async () => {
@@ -314,6 +459,47 @@ describe('WellKnownProvider', () => {
       const skills = await provider.fetchAllSkills('https://example.com');
       expect(skills).toHaveLength(1);
       expect(skills[0]!.installName).toBe('archive-skill');
+      expect(skills[0]!.files.has('SKILL.md')).toBe(true);
+      expect(skills[0]!.files.has('references/README.md')).toBe(true);
+    });
+
+    it('supports v0.2.0 zip archive entries through the shared archive reader', async () => {
+      const archive = createZip([
+        {
+          path: 'SKILL.md',
+          contents: '---\nname: zip-skill\ndescription: Zip skill.\n---\n# Zip',
+        },
+        {
+          path: 'references/README.md',
+          contents: 'Reference',
+        },
+      ]);
+
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+          return response({
+            $schema: SCHEMA_V2,
+            skills: [
+              {
+                name: 'zip-skill',
+                type: 'archive',
+                description: 'Zip skill.',
+                url: '/downloads/zip-skill.zip',
+                digest: digest(archive),
+              },
+            ],
+          });
+        }
+        if (href === 'https://example.com/downloads/zip-skill.zip') {
+          return response(archive, { headers: { 'content-type': 'application/zip' } });
+        }
+        return response('not found', { status: 404 });
+      });
+
+      const skills = await provider.fetchAllSkills('https://example.com');
+      expect(skills).toHaveLength(1);
+      expect(skills[0]!.installName).toBe('zip-skill');
       expect(skills[0]!.files.has('SKILL.md')).toBe(true);
       expect(skills[0]!.files.has('references/README.md')).toBe(true);
     });

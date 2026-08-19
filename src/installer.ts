@@ -10,6 +10,7 @@ import {
   readFile,
   writeFile,
   stat,
+  chmod,
   realpath,
 } from 'fs/promises';
 import { existsSync } from 'fs';
@@ -376,7 +377,7 @@ export async function installSkillForAgent(
     // actually used in this project. The skill is already available in .agents/skills/.
     if (!isGlobal && !isUniversalAgent(agentType)) {
       const agentRootDir = join(cwd, agents[agentType].skillsDir.split('/')[0]!);
-      if (!existsSync(agentRootDir)) {
+      if (!existsSync(agentRootDir) && agentType !== 'claude-code') {
         return {
           success: true,
           path: canonicalDir,
@@ -491,6 +492,8 @@ async function copyDirectory(src: string, dest: string, agentType?: AgentType): 
               dereference: true,
               recursive: true,
             });
+            const sourceStats = await stat(srcPath);
+            await chmod(destPath, sourceStats.mode & 0o777);
           } catch (err: unknown) {
             // Skip broken symlinks (e.g., pointing to absolute paths on another machine)
             // instead of aborting the entire install.
@@ -1012,10 +1015,12 @@ export async function installBlobSkillForAgent(
     }
 
     // For project-level installs, skip creating symlinks for non-universal agents
-    // whose config directory doesn't already exist in the project.
+    // whose config directory doesn't already exist in the project. Claude Code is
+    // exempted since it can be explicitly selected as the install target even when
+    // .claude/ doesn't exist yet (see installSkillForAgent for the same exemption).
     if (!isGlobal && !isUniversalAgent(agentType)) {
       const agentRootDir = join(cwd, agents[agentType].skillsDir.split('/')[0]!);
-      if (!existsSync(agentRootDir)) {
+      if (!existsSync(agentRootDir) && agentType !== 'claude-code') {
         return {
           success: true,
           path: canonicalDir,

@@ -1,5 +1,5 @@
 import { readFile, writeFile, readdir, stat } from 'fs/promises';
-import { join, relative } from 'path';
+import { isAbsolute, join, relative, resolve, sep } from 'path';
 import { createHash } from 'crypto';
 
 const LOCAL_LOCK_FILE = 'skills-lock.json';
@@ -15,6 +15,8 @@ const CURRENT_VERSION = 1;
 export interface LocalSkillLockEntry {
   /** Where the skill came from: npm package name, owner/repo, local path, etc. */
   source: string;
+  /** Original remote URL, when source was normalized for lock readability. */
+  sourceUrl?: string;
   /** Branch or tag ref used for installation */
   ref?: string;
   /** The provider/source type (e.g., "github", "node_modules", "local") */
@@ -40,6 +42,7 @@ export interface LocalSkillLockEntry {
    * non-Eve installs and for plain Eve root installs (treated as `['']`).
    */
   subagents?: string[];
+  wellKnownDigest?: string;
 }
 
 /**
@@ -69,7 +72,8 @@ export function getLocalLockPath(cwd?: string): string {
  * or is corrupted (e.g., merge conflict markers).
  */
 export async function readLocalLock(cwd?: string): Promise<LocalSkillLockFile> {
-  const lockPath = getLocalLockPath(cwd);
+  const lockDir = cwd || process.cwd();
+  const lockPath = getLocalLockPath(lockDir);
 
   try {
     const content = await readFile(lockPath, 'utf-8');
@@ -83,6 +87,12 @@ export async function readLocalLock(cwd?: string): Promise<LocalSkillLockFile> {
       return createEmptyLocalLock();
     }
 
+    for (const entry of Object.values(parsed.skills)) {
+      if (entry.sourceType === 'local' && !isAbsolute(entry.source)) {
+        entry.source = resolve(lockDir, entry.source);
+      }
+    }
+
     return parsed;
   } catch {
     return createEmptyLocalLock();
@@ -94,17 +104,37 @@ export async function readLocalLock(cwd?: string): Promise<LocalSkillLockFile> {
  * Skills are sorted alphabetically by name for deterministic output.
  */
 export async function writeLocalLock(lock: LocalSkillLockFile, cwd?: string): Promise<void> {
-  const lockPath = getLocalLockPath(cwd);
+  const lockDir = cwd || process.cwd();
+  const lockPath = getLocalLockPath(lockDir);
 
   // Sort skills alphabetically for deterministic output / clean diffs
   const sortedSkills: Record<string, LocalSkillLockEntry> = {};
   for (const key of Object.keys(lock.skills).sort()) {
-    sortedSkills[key] = lock.skills[key]!;
+    const entry = lock.skills[key]!;
+    sortedSkills[key] =
+      entry.sourceType === 'local'
+        ? { ...entry, source: getPortableLocalSource(entry.source, lockDir) }
+        : entry;
   }
 
   const sorted: LocalSkillLockFile = { version: lock.version, skills: sortedSkills };
   const content = JSON.stringify(sorted, null, 2) + '\n';
   await writeFile(lockPath, content, 'utf-8');
+}
+
+function getPortableLocalSource(source: string, lockDir: string): string {
+  const absoluteSource = isAbsolute(source) ? source : resolve(lockDir, source);
+  const relativeSource = relative(lockDir, absoluteSource);
+
+  // Different Windows drives cannot be represented by a relative path.
+  if (isAbsolute(relativeSource)) {
+    return absoluteSource.split(sep).join('/');
+  }
+
+  const portableSource = relativeSource.split(sep).join('/');
+  if (!portableSource) return '.';
+  if (portableSource === '..' || portableSource.startsWith('../')) return portableSource;
+  return `./${portableSource}`;
 }
 
 /**

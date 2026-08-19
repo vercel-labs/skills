@@ -4,28 +4,18 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli, stripAnsi } from './test-utils.ts';
 import { shouldInstallInternalSkills } from './skills.ts';
-import { parseAddOptions, getLockSource, formatEveInstallPromptMessage } from './add.ts';
+import {
+  parseAddOptions,
+  getLockSource,
+  getProjectLockSourceUrl,
+  formatEveInstallPromptMessage,
+} from './add.ts';
 
-const noDetectedAgentEnv = {
-  AI_AGENT: '',
-  ANTIGRAVITY_AGENT: '',
-  AUGMENT_AGENT: '',
-  CLAUDE_CODE: '',
-  CLAUDE_CODE_IS_COWORK: '',
-  CLAUDECODE: '',
-  CODEX_CI: '',
-  CODEX_SANDBOX: '',
-  CODEX_THREAD_ID: '',
-  COPILOT_ALLOW_ALL: '',
-  COPILOT_GITHUB_TOKEN: '',
-  COPILOT_MODEL: '',
-  CURSOR_AGENT: '',
-  CURSOR_EXTENSION_HOST_ROLE: '',
-  CURSOR_TRACE_ID: '',
-  GEMINI_CLI: '',
-  OPENCODE_CLIENT: '',
-  REPL_ID: '',
-};
+function countPathLinesForSkill(text: string, skillName: string): number {
+  return (
+    text.match(new RegExp(`→ .*${skillName.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}`, 'g')) || []
+  ).length;
+}
 
 describe('add command', () => {
   let testDir: string;
@@ -111,6 +101,63 @@ Instructions here.
     expect(result.exitCode).toBe(0);
   });
 
+  it('deduplicates copied install paths for universal agents sharing the same directory', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'skills', 'shared-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: shared-skill
+description: Shared install path regression test
+---
+
+# Shared Skill
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    mkdirSync(projectDir, { recursive: true });
+
+    const result = runCli(
+      ['add', sourceDir, '-y', '--agent', 'codex', 'cursor', 'cline'],
+      projectDir
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Installed 1 skill');
+    expect(result.stdout).toContain('✓ shared-skill (copied)');
+    expect(countPathLinesForSkill(result.stdout, 'shared-skill')).toBe(1);
+  });
+
+  it('preserves distinct copied install paths when --copy targets different agent directories', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'skills', 'multi-target-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: multi-target-skill
+description: Mixed copied destination regression test
+---
+
+# Multi Target Skill
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    mkdirSync(projectDir, { recursive: true });
+
+    const result = runCli(
+      ['add', sourceDir, '-y', '--copy', '--agent', 'codex', 'cursor', 'openclaw'],
+      projectDir
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('✓ multi-target-skill (copied)');
+    expect(countPathLinesForSkill(result.stdout, 'multi-target-skill')).toBe(2);
+  });
+
   it('should describe Eve project installs as for the eve agent to use', () => {
     const sourceDir = join(testDir, 'source');
     const skillDir = join(sourceDir, 'eve-skill');
@@ -135,11 +182,7 @@ Instructions here.
       JSON.stringify({ dependencies: { eve: '^0.11.5' } })
     );
 
-    const result = runCli(
-      ['add', sourceDir, '-y', '--skill', 'eve-skill'],
-      projectDir,
-      noDetectedAgentEnv
-    );
+    const result = runCli(['add', sourceDir, '-y', '--skill', 'eve-skill'], projectDir);
 
     expect(result.stdout).toContain('Installing to: eve agent');
     expect(result.stdout).not.toContain('Installing to: Eve');
@@ -178,6 +221,53 @@ description: Second skill
     const result = runCli(['add', testDir, '--list', '--skill', 'skill-one'], testDir);
     // With --list, it should show only the filtered skill info
     expect(result.stdout).toContain('skill-one');
+  });
+
+  it('finds a selected skill nested under two category levels when shallower skills exist', () => {
+    const sourceDir = join(testDir, 'source');
+    const shallowSkillDir = join(sourceDir, 'skills', 'core-skills', 'amazon-bedrock');
+    mkdirSync(shallowSkillDir, { recursive: true });
+    writeFileSync(
+      join(shallowSkillDir, 'SKILL.md'),
+      `---
+name: amazon-bedrock
+description: Amazon Bedrock skill
+---
+# Amazon Bedrock
+`
+    );
+
+    const skillDir = join(
+      sourceDir,
+      'skills',
+      'specialized-skills',
+      'database-skills',
+      'amazon-dynamodb'
+    );
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: amazon-dynamodb
+description: Amazon DynamoDB skill
+---
+# Amazon DynamoDB
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    mkdirSync(projectDir, { recursive: true });
+
+    const result = runCli(
+      ['add', sourceDir, '--skill', 'amazon-dynamodb', '--agent', 'codex', '--copy', '-y'],
+      projectDir
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Selected 1 skill: amazon-dynamodb');
+    expect(existsSync(join(projectDir, '.agents', 'skills', 'amazon-dynamodb', 'SKILL.md'))).toBe(
+      true
+    );
   });
 
   it('should show error for invalid agent name', () => {
@@ -351,6 +441,78 @@ metadata:
       const result = runCli(['add', testDir, '--list'], testDir);
       expect(result.stdout).toContain('not-internal-skill');
     });
+
+    it('should not include internal skills for the --skill wildcard', () => {
+      const internalDir = join(testDir, 'skills', 'internal-skill');
+      const publicDir = join(testDir, 'skills', 'public-skill');
+      mkdirSync(internalDir, { recursive: true });
+      mkdirSync(publicDir, { recursive: true });
+
+      writeFileSync(
+        join(internalDir, 'SKILL.md'),
+        `---
+name: internal-skill
+description: An internal skill
+metadata:
+  internal: true
+---
+# Internal Skill
+`
+      );
+      writeFileSync(
+        join(publicDir, 'SKILL.md'),
+        `---
+name: public-skill
+description: A public skill
+---
+# Public Skill
+`
+      );
+
+      const result = runCli(['add', testDir, '--skill', '*', '--list'], testDir);
+      expect(result.stdout).toContain('public-skill');
+      expect(result.stdout).not.toContain('internal-skill');
+    });
+
+    it('should include internal skills when explicitly requested by name', () => {
+      const internalDir = join(testDir, 'skills', 'internal-skill');
+      mkdirSync(internalDir, { recursive: true });
+      writeFileSync(
+        join(internalDir, 'SKILL.md'),
+        `---
+name: internal-skill
+description: An internal skill
+metadata:
+  internal: true
+---
+# Internal Skill
+`
+      );
+
+      const result = runCli(['add', testDir, '--skill', 'internal-skill', '--list'], testDir);
+      expect(result.stdout).toContain('internal-skill');
+    });
+
+    it('should include internal skills for the wildcard when INSTALL_INTERNAL_SKILLS=1', () => {
+      const internalDir = join(testDir, 'skills', 'internal-skill');
+      mkdirSync(internalDir, { recursive: true });
+      writeFileSync(
+        join(internalDir, 'SKILL.md'),
+        `---
+name: internal-skill
+description: An internal skill
+metadata:
+  internal: true
+---
+# Internal Skill
+`
+      );
+
+      const result = runCli(['add', testDir, '--skill', '*', '--list'], testDir, {
+        INSTALL_INTERNAL_SKILLS: '1',
+      });
+      expect(result.stdout).toContain('internal-skill');
+    });
   });
 });
 
@@ -367,8 +529,38 @@ describe('getLockSource', () => {
     );
   });
 
-  it('keeps normalized owner/repo for non-SSH remotes', () => {
+  it('keeps normalized owner/repo for GitHub HTTPS remotes', () => {
     expect(getLockSource('https://github.com/owner/repo.git', 'owner/repo')).toBe('owner/repo');
+  });
+
+  it('preserves self-hosted HTTPS Git URLs for lock files', () => {
+    expect(getLockSource('https://gitlab.example.com/acme/skills.git', 'acme/skills')).toBe(
+      'https://gitlab.example.com/acme/skills.git'
+    );
+  });
+
+  it('preserves gitlab.com HTTPS URLs for lock files', () => {
+    expect(getLockSource('https://gitlab.com/acme/skills.git', 'acme/skills')).toBe(
+      'https://gitlab.com/acme/skills.git'
+    );
+  });
+});
+
+describe('getProjectLockSourceUrl', () => {
+  it('records sourceUrl for self-hosted GitLab HTTPS sources installed into project locks', () => {
+    expect(getProjectLockSourceUrl('git', 'https://gitlab.example.com/acme/skills.git')).toBe(
+      'https://gitlab.example.com/acme/skills.git'
+    );
+  });
+
+  it('records sourceUrl for GitLab sources installed into project locks', () => {
+    expect(getProjectLockSourceUrl('gitlab', 'https://gitlab.com/acme/skills.git')).toBe(
+      'https://gitlab.com/acme/skills.git'
+    );
+  });
+
+  it('keeps GitHub project locks compatible with existing shorthand entries', () => {
+    expect(getProjectLockSourceUrl('github', 'https://github.com/owner/repo.git')).toBeUndefined();
   });
 });
 
@@ -478,6 +670,28 @@ describe('parseAddOptions', () => {
     expect(result.options.global).toBe(true);
   });
 
+  it('should parse valid JSON metadata', () => {
+    const metadata = '{"origin":"workflow","runId":42}';
+    const result = parseAddOptions(['source', '--metadata', metadata]);
+
+    expect(result.source).toEqual(['source']);
+    expect(result.options.metadata).toBe(metadata);
+    expect(result.errors).toEqual([]);
+  });
+
+  it('should reject invalid JSON metadata', () => {
+    const result = parseAddOptions(['source', '--metadata', '{not-json}']);
+
+    expect(result.options.metadata).toBeUndefined();
+    expect(result.errors).toEqual(['--metadata must be valid JSON']);
+  });
+
+  it('should reject a missing metadata value', () => {
+    const result = parseAddOptions(['source', '--metadata']);
+
+    expect(result.errors).toEqual(['--metadata requires a JSON value']);
+  });
+
   it('should parse a single --subagent value', () => {
     const result = parseAddOptions(['source', '--subagent', 'research']);
     expect(result.source).toEqual(['source']);
@@ -494,19 +708,6 @@ describe('parseAddOptions', () => {
     const result = parseAddOptions(['source', '--subagent', 'research', '-y']);
     expect(result.source).toEqual(['source']);
     expect(result.options.subagent).toEqual(['research']);
-    expect(result.options.yes).toBe(true);
-  });
-});
-
-describe('obsolete OpenClaw risk bypass flag', () => {
-  it('should not expose the obsolete OpenClaw risk bypass flag', () => {
-    const result = parseAddOptions([
-      'openclaw/skills',
-      '--dangerously-accept-openclaw-risks',
-      '-y',
-    ]);
-    expect(result.source).toEqual(['openclaw/skills']);
-    expect(result.options).not.toHaveProperty('dangerouslyAcceptOpenclawRisks');
     expect(result.options.yes).toBe(true);
   });
 });

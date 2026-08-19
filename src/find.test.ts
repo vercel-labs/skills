@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { parseFindOptions, searchSkillsAPI } from './find.ts';
+import { parseFindOptions, runFind, searchSkillsAPI } from './find.ts';
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
 });
 
 describe('parseFindOptions', () => {
@@ -46,6 +48,30 @@ describe('searchSkillsAPI', () => {
     expect(url.pathname).toBe('/api/search');
     expect(url.searchParams.get('q')).toBe('react native');
     expect(url.searchParams.get('owner')).toBe('vercel');
-    expect(url.searchParams.get('limit')).toBe('10');
+    expect(url.searchParams.get('limit')).toBe('20');
+  });
+
+  it('prints every result returned for a non-interactive query', async () => {
+    const skills = Array.from({ length: 11 }, (_, index) => ({
+      id: `owner/repo/skill-${index + 1}`,
+      name: `skill-${index + 1}`,
+      installs: 11 - index,
+      source: 'owner/repo',
+    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ skills }),
+      })
+    );
+    vi.stubEnv('DISABLE_TELEMETRY', '1');
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await runFind(['owner/repo']);
+
+    const output = log.mock.calls.map((args) => args.join(' ')).join('\n');
+    expect(output).toContain('owner/repo@skill-1');
+    expect(output).toContain('owner/repo@skill-11');
   });
 });

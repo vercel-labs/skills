@@ -1,10 +1,11 @@
 import { readdir, readFile, stat } from 'fs/promises';
 import { join, basename, dirname, resolve, normalize, sep, relative } from 'path';
 import { parseFrontmatter } from './frontmatter.ts';
-import { sanitizeMetadata } from './sanitize.ts';
+import { sanitizeMetadata, stripTerminalEscapes } from './sanitize.ts';
 import type { Skill } from './types.ts';
 import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
 import { readLocalLock } from './local-lock.ts';
+import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
 
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
 
@@ -18,19 +19,24 @@ const AGENT_PROJECT_SKILL_DIRS = [
   '.continue/skills',
   '.github/skills',
   '.goose/skills',
+  '.grok/skills',
   '.iflow/skills',
   '.junie/skills',
   '.kilocode/skills',
+  '.kimchi/skills',
   '.kiro/skills',
+  '.minimax/skills',
   '.mux/skills',
   '.neovate/skills',
   '.opencode/skills',
   '.openhands/skills',
   '.pi/skills',
+  '.posit/assistant/skills',
   '.qoder/skills',
   '.roo/skills',
   '.trae/skills',
   '.windsurf/skills',
+  '.zcode/skills',
   '.zencoder/skills',
 ];
 
@@ -40,6 +46,10 @@ function normalizeSkillName(name: string): string {
 
 function normalizeRelativePath(path: string): string {
   return path.split(sep).join('/').replace(/\/+/g, '/');
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -61,41 +71,63 @@ async function hasSkillMd(dir: string): Promise<boolean> {
   }
 }
 
+function warnSkippedSkill(skillMdPath: string, reason: string): void {
+  console.warn(`⚠ Skipped ${sanitizeMetadata(skillMdPath)} — ${stripTerminalEscapes(reason)}`);
+}
+
 export async function parseSkillMd(
   skillMdPath: string,
   options?: { includeInternal?: boolean }
 ): Promise<Skill | null> {
+  let content: string;
   try {
-    const content = await readFile(skillMdPath, 'utf-8');
-    const { data } = parseFrontmatter(content);
-
-    if (!data.name || !data.description) {
-      return null;
-    }
-
-    // Ensure name and description are strings (YAML can parse numbers, booleans, etc.)
-    if (typeof data.name !== 'string' || typeof data.description !== 'string') {
-      return null;
-    }
-
-    // Skip internal skills unless:
-    // 1. INSTALL_INTERNAL_SKILLS=1 is set, OR
-    // 2. includeInternal option is true (e.g., when user explicitly requests a skill)
-    const isInternal = data.metadata?.internal === true;
-    if (isInternal && !shouldInstallInternalSkills() && !options?.includeInternal) {
-      return null;
-    }
-
-    return {
-      name: sanitizeMetadata(data.name),
-      description: sanitizeMetadata(data.description),
-      path: dirname(skillMdPath),
-      rawContent: content,
-      metadata: data.metadata,
-    };
-  } catch {
+    content = await readFile(skillMdPath, 'utf-8');
+  } catch (err) {
+    warnSkippedSkill(skillMdPath, `failed to read file: ${(err as Error).message}`);
     return null;
   }
+
+  let data: Record<string, unknown>;
+  try {
+    ({ data } = parseFrontmatter(content));
+  } catch (err) {
+    warnSkippedSkill(skillMdPath, `YAML parse error: ${(err as Error).message}`);
+    return null;
+  }
+
+  if (!data.name || !data.description) {
+    const missing: string[] = [];
+    if (!data.name) missing.push('name');
+    if (!data.description) missing.push('description');
+    warnSkippedSkill(skillMdPath, `missing required frontmatter field(s): ${missing.join(', ')}`);
+    return null;
+  }
+
+  // Ensure name and description are strings (YAML can parse numbers, booleans, etc.)
+  if (typeof data.name !== 'string' || typeof data.description !== 'string') {
+    warnSkippedSkill(
+      skillMdPath,
+      `frontmatter "name" and "description" must be strings (got ${typeof data.name} and ${typeof data.description})`
+    );
+    return null;
+  }
+
+  // Skip internal skills unless:
+  // 1. INSTALL_INTERNAL_SKILLS=1 is set, OR
+  // 2. includeInternal option is true (e.g., when user explicitly requests a skill)
+  const metadata = isRecord(data.metadata) ? data.metadata : undefined;
+  const isInternal = metadata?.internal === true;
+  if (isInternal && !shouldInstallInternalSkills() && !options?.includeInternal) {
+    return null;
+  }
+
+  return {
+    name: sanitizeMetadata(data.name),
+    description: sanitizeMetadata(data.description),
+    path: dirname(skillMdPath),
+    rawContent: content,
+    metadata,
+  };
 }
 
 async function findSkillDirs(dir: string, depth = 0, maxDepth = 5): Promise<string[]> {
@@ -148,6 +180,7 @@ export async function discoverSkills(
 ): Promise<Skill[]> {
   const skills: Skill[] = [];
   const seenNames = new Set<string>();
+  const parsedSkillPaths = new Set<string>();
   const localLock = await readLocalLock(basePath);
   const lockedSkillNames = new Set(Object.keys(localLock.skills).map(normalizeSkillName));
 
@@ -187,11 +220,18 @@ export async function discoverSkills(
     return lockedSkillNames.has(skillName) || lockedSkillNames.has(directoryName);
   };
 
+  const parseSkillAt = async (skillDir: string): Promise<Skill | null> => {
+    const skillMdPath = resolve(skillDir, 'SKILL.md');
+    if (parsedSkillPaths.has(skillMdPath)) return null;
+    parsedSkillPaths.add(skillMdPath);
+    return parseSkillMd(skillMdPath, options);
+  };
+
   // If pointing directly at a skill, add it (and return early unless fullDepth is set).
   // If the root SKILL.md is an installed project skill tracked by skills-lock.json,
   // ignore it and continue scanning in case the repo also contains source skills.
   if (await hasSkillMd(searchPath)) {
-    let skill = await parseSkillMd(join(searchPath, 'SKILL.md'), options);
+    let skill = await parseSkillAt(searchPath);
     if (skill) {
       if (!isInstalledProjectSkill(skill)) {
         skill = enhanceSkill(skill);
@@ -215,8 +255,8 @@ export async function discoverSkills(
     ...AGENT_PROJECT_SKILL_DIRS.map((dir) => join(searchPath, dir)),
   ];
 
-  // Known skill container dirs are walked one extra level deep so layouts
-  // like `skills/<category>/<skill>/SKILL.md` are discovered without
+  // Known skill container dirs are walked up to three levels deep so layouts
+  // like `skills/<category>/<category>/<skill>/SKILL.md` are discovered without
   // requiring `--full-depth`. The repo root (first entry) keeps its
   // existing depth-1 behavior to avoid surfacing unrelated `SKILL.md`
   // files (e.g. `examples/foo/SKILL.md`), and plugin-manifest-declared
@@ -228,7 +268,7 @@ export async function discoverSkills(
 
   const tryAddSkillAt = async (skillDir: string): Promise<boolean> => {
     if (!(await hasSkillMd(skillDir))) return false;
-    let skill = await parseSkillMd(join(skillDir, 'SKILL.md'), options);
+    let skill = await parseSkillAt(skillDir);
     if (!skill || seenNames.has(skill.name)) return true;
     if (isInstalledProjectSkill(skill)) return true;
     skill = enhanceSkill(skill);
@@ -237,9 +277,7 @@ export async function discoverSkills(
     return true;
   };
 
-  for (const dir of prioritySearchDirs) {
-    const walkDeep = deepContainerDirs.has(dir);
-
+  const walkSkillDirs = async (dir: string, maxDepth: number, depth = 1): Promise<void> => {
     try {
       const entries = await readdir(dir, { withFileTypes: true });
 
@@ -249,26 +287,20 @@ export async function discoverSkills(
         const childDir = join(dir, entry.name);
         const foundAtChild = await tryAddSkillAt(childDir);
 
-        // Don't descend past a discovered SKILL.md (matches the existing
-        // flat-layout semantics) and don't go deeper inside non-container
-        // priority dirs.
-        if (foundAtChild || !walkDeep) continue;
-        if (SKIP_DIRS.includes(entry.name)) continue;
+        // Preserve flat-layout semantics by stopping below a discovered
+        // skill, and never descend through ignored directories.
+        if (foundAtChild || depth >= maxDepth || SKIP_DIRS.includes(entry.name)) continue;
 
-        // Walk one extra level for catalog layouts.
-        try {
-          const grandEntries = await readdir(childDir, { withFileTypes: true });
-          for (const grand of grandEntries) {
-            if (!grand.isDirectory() || SKIP_DIRS.includes(grand.name)) continue;
-            await tryAddSkillAt(join(childDir, grand.name));
-          }
-        } catch {
-          // Child dir unreadable; skip silently.
-        }
+        await walkSkillDirs(childDir, maxDepth, depth + 1);
       }
     } catch {
-      // Directory doesn't exist
+      // Directory doesn't exist or is unreadable; skip silently.
     }
+  };
+
+  for (const dir of prioritySearchDirs) {
+    const walkDeep = deepContainerDirs.has(dir);
+    await walkSkillDirs(dir, walkDeep ? DEFAULT_SKILL_CONTAINER_DEPTH : 1);
   }
 
   // Fall back to recursive search if nothing found, or if fullDepth is set
@@ -276,7 +308,7 @@ export async function discoverSkills(
     const allSkillDirs = await findSkillDirs(searchPath);
 
     for (const skillDir of allSkillDirs) {
-      let skill = await parseSkillMd(join(skillDir, 'SKILL.md'), options);
+      let skill = await parseSkillAt(skillDir);
       if (skill && !seenNames.has(skill.name) && !isInstalledProjectSkill(skill)) {
         skill = enhanceSkill(skill);
         skills.push(skill);
