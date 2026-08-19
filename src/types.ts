@@ -27,6 +27,7 @@ export type AgentType =
   | 'eve'
   | 'firebender'
   | 'forgecode'
+  | 'fx'
   | 'gemini-cli'
   | 'github-copilot'
   | 'goose'
