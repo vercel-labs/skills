@@ -436,15 +436,25 @@ export function findSkillMdPaths(tree: RepoTree, subpath?: string): string[] {
 /**
  * Fetch a single SKILL.md from raw.githubusercontent.com to get frontmatter.
  * Returns the raw content string, or null on failure.
+ *
+ * When a token is provided, sends it as `Authorization: Bearer <token>`.
+ * Required for private repos: raw.githubusercontent.com returns 404 to
+ * anonymous requests rather than 401.
  */
 async function fetchSkillMdContent(
   ownerRepo: string,
   branch: string,
-  skillMdPath: string
+  skillMdPath: string,
+  token?: string | null
 ): Promise<string | null> {
   try {
     const url = `https://raw.githubusercontent.com/${ownerRepo}/${branch}/${skillMdPath}`;
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
     const response = await fetch(url, {
+      headers,
       signal: AbortSignal.timeout(FETCH_TIMEOUT),
     });
     if (!response.ok) return null;
@@ -551,12 +561,29 @@ export async function tryBlobInstall(
   }
 
   // 4. Fetch SKILL.md content from raw.githubusercontent.com in parallel
-  const mdFetches = await Promise.all(
+  let mdFetches = await Promise.all(
     skillMdPaths.map(async (mdPath) => {
       const content = await fetchSkillMdContent(ownerRepo, tree.branch, mdPath);
       return { mdPath, content };
     })
   );
+
+  // Authentication is lazy here for the same reason as fetchRepoTree: a private
+  // repo answers 404 to anonymous raw.githubusercontent.com requests, so only a
+  // miss is worth a token. The token is resolved once and the misses retried
+  // together, because `getToken` may shell out to `gh auth token` per call.
+  if (options.getToken && mdFetches.some((f) => f.content === null)) {
+    const token = options.getToken();
+    if (token) {
+      mdFetches = await Promise.all(
+        mdFetches.map(async (f) => {
+          if (f.content !== null) return f;
+          const content = await fetchSkillMdContent(ownerRepo, tree.branch, f.mdPath, token);
+          return { mdPath: f.mdPath, content };
+        })
+      );
+    }
+  }
 
   // Parse frontmatter to get skill names
   const parsedSkills: Array<{
