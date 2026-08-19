@@ -252,6 +252,13 @@ export function toggleSearchEntry<T>(selected: Set<T>, entry: SearchEntry<T> | u
     }
   }
 }
+export function toggleSelectAll<T>(selected: Set<T>, filtered: SearchItem<T>[]): void {
+  const allSelected = filtered.every((item) => selected.has(item.value));
+  for (const item of filtered) {
+    if (allSelected) selected.delete(item.value);
+    else selected.add(item.value);
+  }
+}
 
 export type SelectAllState = 'none' | 'partial' | 'all';
 
@@ -369,7 +376,9 @@ export async function searchMultiselect<T>(
         if (searchable) {
           const searchLine = `${S_BAR}  ${pc.dim('Search:')} ${query}${pc.inverse(' ')}`;
           lines.push(searchLine);
-          lines.push(`${S_BAR}  ${pc.dim('↑↓ move, space select, enter confirm')}`);
+          lines.push(
+            `${S_BAR}  ${pc.dim('↑↓ move, space select, ctrl+a select all, enter confirm')}`
+          );
           lines.push(`${S_BAR}`);
         }
 
@@ -649,6 +658,16 @@ export async function searchMultiselect<T>(
           toggleAllItems(selected, items);
         } else {
           toggleSearchEntry(selected, entry);
+        }
+        render();
+        return;
+      }
+      if (key.ctrl && key.name === 'a') {
+        const filtered = getFiltered();
+        const allSelected = filtered.every((item) => selected.has(item.value));
+        for (const item of filtered) {
+          if (allSelected) selected.delete(item.value);
+          else selected.add(item.value);
         }
         render();
         return;
