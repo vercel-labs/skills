@@ -8,6 +8,7 @@ import * as localLock from '../src/local-lock.ts';
 import * as skillLock from '../src/skill-lock.ts';
 import * as remove from '../src/remove.ts';
 import * as p from '@clack/prompts';
+import * as childProcess from 'child_process';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -868,6 +869,58 @@ describe('Update Cleanup Unit Tests', () => {
       await runUpdate(['--project', '--yes']);
 
       expect(process.exitCode).toBeUndefined();
+    });
+
+    it('should print child process output when global update install fails', async () => {
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            sourceUrl: 'https://github.com/owner/repo.git',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            skillFolderHash: 'old-hash',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+
+      vi.mocked(blob.fetchRepoTree).mockResolvedValue({
+        sha: 'rootsha',
+        branch: 'main',
+        tree: [
+          { path: 'skills/skill-a/SKILL.md', type: 'blob', sha: 'sha1' },
+          { path: 'skills/skill-a', type: 'tree', sha: 'new-hash' },
+        ],
+      });
+      vi.mocked(blob.findSkillMdPaths).mockReturnValue(['skills/skill-a/SKILL.md']);
+      vi.mocked(blob.getSkillFolderHashFromTree).mockReturnValue('new-hash');
+      vi.mocked(childProcess.spawnSync).mockReturnValueOnce({
+        status: 1,
+        signal: null,
+        error: undefined,
+        pid: 123,
+        output: [null, 'install stdout detail', 'install stderr detail'],
+        stdout: 'install stdout detail',
+        stderr: 'install stderr detail',
+      });
+
+      try {
+        await updateGlobalSkills({ yes: true });
+
+        const output = consoleSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+        expect(output).toContain('Failed to update skill-a');
+        expect(output).toContain('stderr:');
+        expect(output).toContain('install stderr detail');
+        expect(output).toContain('stdout:');
+        expect(output).toContain('install stdout detail');
+      } finally {
+        consoleSpy.mockRestore();
+      }
     });
   });
 });
