@@ -24,6 +24,7 @@ export interface SyncOptions {
   agent?: string[];
   yes?: boolean;
   force?: boolean;
+  copy?: boolean;
 }
 
 /**
@@ -342,7 +343,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     }
   }
 
-  // 5. Install skills (always project-scoped, always symlink)
+  // 5. Install skills (always project-scoped)
   spinner.start('Syncing skills…');
 
   const results: Array<{
@@ -360,7 +361,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
       const result = await installSkillForAgent(skill, agent, {
         global: false,
         cwd,
-        mode: 'symlink',
+        mode: options.copy ? 'copy' : 'symlink',
       });
       results.push({
         skill: skill.name,

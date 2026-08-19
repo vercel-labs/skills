@@ -15,6 +15,8 @@ describe('skills CLI', () => {
       expect(output).toContain('update');
       expect(output).toContain('Add Options:');
       expect(output).toContain('Use Options:');
+      expect(output).toContain('Experimental Install Options:');
+      expect(output).toContain('--copy');
       expect(output).toContain('-g, --global');
       expect(output).toContain('-a, --agent');
       expect(output).toContain('-s, --skill');
