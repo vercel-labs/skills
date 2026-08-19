@@ -16,6 +16,66 @@ const CLONE_TIMEOUT_MS = (() => {
 })();
 const execFileAsync = promisify(execFile);
 
+/**
+ * Whether a ref is a full 40-character Git commit SHA.
+ *
+ * Used only to decide whether the commit-SHA fetch fallback is worth attempting
+ * after a `--branch` clone fails. The fetch-by-SHA protocol requires the full
+ * 40-char SHA; abbreviated SHAs are rejected by the server, so they are not
+ * matched here. Branch and tag detection is never inferred from the string:
+ * `--branch` is always tried first, so any real branch or tag (including a
+ * hex-looking name like "deadbeef" or a 40-char-hex name) resolves correctly
+ * before the SHA fallback is ever considered.
+ */
+export function isCommitSha(ref: string): boolean {
+  return /^[0-9a-f]{40}$/i.test(ref);
+}
+
+/**
+ * Whether a clone or fetch error means the requested ref does not exist as a
+ * branch or tag. `git clone --branch <sha>` fails this way because `--branch`
+ * only accepts branch or tag names, never a bare commit SHA.
+ *
+ * These messages come from the git client and the server `upload-pack`, not from
+ * the host, so they are identical across GitHub, GitLab, self-hosted git, and
+ * `gh` (which wraps git). Verified on git 2.53. The variants cover the different
+ * code paths a missing ref can surface through:
+ *   - `clone --branch <ref>`            -> "Remote branch <ref> not found in upstream origin"
+ *   - GitHub shorthand fetch path       -> "couldn't find remote ref <ref>"
+ *   - server-side fetch by SHA rejected -> "upload-pack: not our ref <ref>"
+ */
+export function isMissingRefError(message: string): boolean {
+  return (
+    /Remote branch .* not found in upstream origin/i.test(message) ||
+    /couldn't find remote ref/i.test(message) ||
+    /upload-pack: not our ref/i.test(message)
+  );
+}
+
+/**
+ * Clone a repository pinned to a specific commit SHA.
+ *
+ * `git clone --branch` cannot target a bare SHA, and a `--depth 1` clone does
+ * not contain arbitrary commits. Instead, init an empty repo and fetch only the
+ * requested commit, then check it out. This requires the server to allow
+ * fetching reachable commits by SHA (`uploadpack.allowReachableSHA1InWant`),
+ * which GitHub and GitLab.com both enable. If the server rejects it, the caller
+ * falls back to the standard error handling.
+ */
+async function cloneAtSha(
+  url: string,
+  sha: string,
+  tempDir: string,
+  extraEnv?: NodeJS.ProcessEnv
+): Promise<void> {
+  const git = createGitClient(extraEnv);
+  await git.cwd(tempDir);
+  await git.init();
+  await git.addRemote('origin', url);
+  await git.fetch(['--depth', '1', 'origin', sha]);
+  await git.checkout('FETCH_HEAD');
+}
+
 interface GitHubRepoInfo {
   owner: string;
   repo: string;
@@ -101,7 +161,7 @@ function isAuthFailure(message: string): boolean {
   );
 }
 
-function createGitClient(sshCommand?: string) {
+function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
   const git = simpleGit({
     timeout: { block: CLONE_TIMEOUT_MS },
     // When git-lfs is NOT installed, GIT_LFS_SKIP_SMUDGE has no effect —
@@ -163,7 +223,7 @@ function createGitClient(sshCommand?: string) {
     // When git-lfs IS installed, tell it not to download LFS content
     // during checkout. See #952 for context and empirical impact.
     GIT_LFS_SKIP_SMUDGE: '1',
-    ...(sshCommand ? { GIT_SSH_COMMAND: sshCommand } : {}),
+    ...extraEnv,
   });
 
   return git;
@@ -239,6 +299,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
 
   const tempDir = await mkdtemp(join(tmpdir(), 'skills-'));
   const cloneOptions = ref ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
+  const refCanBeSha = !!ref && isCommitSha(ref);
   const repo = parseGitHubRepoUrl(url);
 
   try {
@@ -246,6 +307,21 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
     return tempDir;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
+
+    // `--branch` cannot target a bare commit SHA. If the ref is a full SHA and
+    // the clone failed because the ref was not a branch or tag, retry by
+    // fetching the commit directly. This runs only after `--branch` fails, so a
+    // real branch or tag (any name) is always resolved first.
+    if (refCanBeSha && isMissingRefError(errorMessage)) {
+      try {
+        await resetTempDir(tempDir);
+        await cloneAtSha(url, ref!, tempDir);
+        return tempDir;
+      } catch {
+        // Fall through to the standard error handling below.
+      }
+    }
+
     const isTimeout = errorMessage.includes('block timeout') || errorMessage.includes('timed out');
     const isAuthError = isAuthFailure(errorMessage);
 
@@ -277,11 +353,20 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
 
       try {
         await resetTempDir(tempDir);
-        await createGitClient(process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes').clone(
-          repo.sshUrl,
-          tempDir,
-          cloneOptions
-        );
+        const sshEnv = {
+          GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes',
+        };
+        try {
+          await createGitClient(sshEnv).clone(repo.sshUrl, tempDir, cloneOptions);
+        } catch (sshError) {
+          const sshMessage = sshError instanceof Error ? sshError.message : String(sshError);
+          if (refCanBeSha && isMissingRefError(sshMessage)) {
+            await resetTempDir(tempDir);
+            await cloneAtSha(repo.sshUrl, ref!, tempDir, sshEnv);
+          } else {
+            throw sshError;
+          }
+        }
         return tempDir;
       } catch {
         // Fall through to the targeted auth error below.
