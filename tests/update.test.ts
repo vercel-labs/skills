@@ -869,5 +869,58 @@ describe('Update Cleanup Unit Tests', () => {
 
       expect(process.exitCode).toBeUndefined();
     });
+
+    it('should report skipped global skills when all checkable skills are up to date', async () => {
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      let output = '';
+
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            sourceUrl: 'https://github.com/owner/repo.git',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            skillFolderHash: 'abc',
+            installedAt: '',
+            updatedAt: '',
+          },
+          'well-known-skill': {
+            source: 'example.com',
+            sourceUrl: 'https://example.com/.well-known/agent-skills/well-known-skill/SKILL.md',
+            sourceType: 'well-known',
+            skillFolderHash: '',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+
+      vi.mocked(blob.fetchRepoTree).mockResolvedValue({
+        sha: 'rootsha',
+        branch: 'main',
+        tree: [
+          { path: 'skills/skill-a/SKILL.md', type: 'blob', sha: 'sha1' },
+          { path: 'skills/skill-a', type: 'tree', sha: 'abc' },
+        ],
+      });
+      vi.mocked(blob.findSkillMdPaths).mockReturnValue(['skills/skill-a/SKILL.md']);
+      vi.mocked(blob.getSkillFolderHashFromTree).mockReturnValue('abc');
+
+      try {
+        await updateGlobalSkills({ yes: true });
+      } finally {
+        output = logSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+        logSpy.mockRestore();
+      }
+
+      expect(output).toContain('All checkable global skills are up to date');
+      expect(output).toContain('1 skill(s) cannot be checked automatically');
+      expect(output).toContain('well-known-skill');
+      expect(output).toContain('Well-known skill');
+      expect(output).toContain('To update:');
+      expect(output).toContain('npx skills add https://example.com -g -y');
+    });
   });
 });
