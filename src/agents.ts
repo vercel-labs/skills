@@ -338,6 +338,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.forge'));
     },
   },
+  fx: {
+    name: 'fx',
+    displayName: 'fx',
+    skillsDir: '.fx/skills',
+    globalSkillsDir: join(home, '.fx/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.fx'));
+    },
+  },
   'gemini-cli': {
     name: 'gemini-cli',
     displayName: 'Gemini CLI',
