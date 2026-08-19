@@ -28,6 +28,7 @@ const AGENT_PROJECT_SKILL_DIRS = [
   '.minimax/skills',
   '.mux/skills',
   '.neovate/skills',
+  '.omp/skills',
   '.opencode/skills',
   '.openhands/skills',
   '.pi/skills',
