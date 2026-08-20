@@ -875,11 +875,6 @@ export function isUniversalAgent(type: AgentType): boolean {
   return agents[type].skillsDir === '.agents/skills';
 }
 
-/** Agents whose skills are copied or symlinked into a local skills directory (the default). */
-export function isFilesystemAgent(type: AgentType): boolean {
-  return (agents[type].install ?? 'filesystem') === 'filesystem';
-}
-
 /**
  * Agents whose skills are pushed through an API instead of written to disk.
  * They have no skills directory and must be selected explicitly.
@@ -893,5 +888,5 @@ export function isApiUploadAgent(type: AgentType): boolean {
  * they must be requested explicitly by name.
  */
 export function getWildcardAgents(): AgentType[] {
-  return (Object.keys(agents) as AgentType[]).filter((type) => isFilesystemAgent(type));
+  return (Object.keys(agents) as AgentType[]).filter((type) => !isApiUploadAgent(type));
 }

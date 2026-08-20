@@ -21,7 +21,7 @@ import { wellKnownProvider, computeWellKnownSkillDigest } from './providers/inde
 import { removeCommand } from './remove.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
-import { agents, isUniversalAgent, isApiUploadAgent } from './agents.ts';
+import { agents, isUniversalAgent, getWildcardAgents } from './agents.ts';
 import { isSkillInstalled } from './installer.ts';
 import type { AgentType } from './types.ts';
 
@@ -51,13 +51,21 @@ export interface UpdateCheckOptions {
  * skill subpath. Pin that shorthand to github.com so an ambient GH_HOST for a
  * GitHub Enterprise account cannot redirect an existing public installation.
  */
+function getUpdateChildEnv(sourceType: string): NodeJS.ProcessEnv | undefined {
+  if (sourceType !== 'github') {
+    return undefined;
+  }
+  return { ...process.env, GH_HOST: 'github.com' };
+}
+
 /**
  * Extra `add` flags that refresh a skill's Claude Managed Agents upload,
  * recorded in the lock as `managedSkillId`. A skill that also exists on the
  * filesystem gets the additive `--managed-agents` flag on top of the child's
- * normal agent detection; an upload-only skill (no filesystem install)
- * targets the API-upload agent directly so the refresh doesn't materialize
- * local copies the user never asked for.
+ * normal agent detection; an upload-only skill targets the API-upload agent
+ * directly so the refresh doesn't materialize local copies the user never
+ * asked for, keeping `--managed-agents` so a missing login makes the child
+ * skip the upload instead of aborting the whole update run.
  */
 export async function buildManagedAgentsArgs(
   entry: { managedSkillId?: string; subagents?: string[] },
@@ -65,34 +73,17 @@ export async function buildManagedAgentsArgs(
   isGlobal: boolean
 ): Promise<string[]> {
   if (!entry.managedSkillId) return [];
-  for (const type of Object.keys(agents) as AgentType[]) {
-    if (isApiUploadAgent(type)) continue;
-    if (await isSkillInstalled(skillName, type, { global: isGlobal })) {
-      return ['--managed-agents'];
-    }
-  }
   // Eve installs into per-subagent directories the generic check misses.
-  for (const subagent of entry.subagents ?? []) {
-    if (
-      await isSkillInstalled(skillName, 'eve', {
-        global: isGlobal,
-        ...(subagent && { eveSubagent: subagent }),
-      })
-    ) {
+  const placements: Array<[AgentType, string?]> = [
+    ...getWildcardAgents().map((type): [AgentType] => [type]),
+    ...(entry.subagents ?? []).map((subagent): [AgentType, string] => ['eve', subagent]),
+  ];
+  for (const [type, eveSubagent] of placements) {
+    if (await isSkillInstalled(skillName, type, { global: isGlobal, eveSubagent })) {
       return ['--managed-agents'];
     }
   }
-  // Upload-only: name the API-upload agent so the refresh doesn't materialize
-  // local copies, and keep --managed-agents so a missing login makes the
-  // child skip the upload instead of aborting the whole update run.
   return ['--agent', 'claude-managed-agents', '--managed-agents'];
-}
-
-function getUpdateChildEnv(sourceType: string): NodeJS.ProcessEnv | undefined {
-  if (sourceType !== 'github') {
-    return undefined;
-  }
-  return { ...process.env, GH_HOST: 'github.com' };
 }
 
 export function parseUpdateOptions(args: string[]): UpdateCheckOptions {

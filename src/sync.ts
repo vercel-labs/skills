@@ -13,7 +13,6 @@ import {
   getNonUniversalAgents,
   getWildcardAgents,
   isApiUploadAgent,
-  isFilesystemAgent,
 } from './agents.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 import { addSkillToLocalLock, computeSkillFolderHash, readLocalLock } from './local-lock.ts';
@@ -264,7 +263,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
         p.log.info('Installing to universal agents');
       } else {
         // API-upload agents aren't sync targets.
-        const otherAgents = getNonUniversalAgents().filter((a) => isFilesystemAgent(a));
+        const otherAgents = getNonUniversalAgents().filter((a) => !isApiUploadAgent(a));
 
         const otherChoices = otherAgents.map((a) => ({
           value: a,

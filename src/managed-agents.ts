@@ -1,38 +1,27 @@
 import { execFileSync } from 'child_process';
-import { existsSync } from 'fs';
 import { readFile, readdir, realpath, stat } from 'fs/promises';
 import { homedir } from 'os';
-import { join, sep } from 'path';
-import { sanitizeName, EXCLUDE_FILES, EXCLUDE_DIRS } from './installer.ts';
+import { join } from 'path';
+import { sanitizeName, isExcluded, isPathSafe } from './installer.ts';
+import { readLocalLock } from './local-lock.ts';
+import { readSkillLock } from './skill-lock.ts';
 
 /**
  * Claude Managed Agents support.
  *
  * Skills for the `claude-managed-agents` target are not copied to a directory;
- * they are uploaded to the Anthropic Skills API, where they become available
- * to the user's managed agents (and to the Messages API code-execution
- * container). See https://platform.claude.com/docs/en/managed-agents/skills
- *
- * Endpoints:
- *   POST /v1/skills                     create a skill (multipart `files[]`)
- *   GET  /v1/skills?source=custom       list the workspace's custom skills
- *   POST /v1/skills/{id}/versions       create a new version of a skill
- *
- * Each multipart file part is named `files[]` and its filename carries the
- * skill-relative path prefixed with the skill directory name, e.g.
- * `my-skill/SKILL.md`.
+ * they are uploaded to the Anthropic Skills API (`/v1/skills`), where they
+ * become available to the user's managed agents (and to the Messages API
+ * code-execution container). See https://platform.claude.com/docs/en/managed-agents/skills
  */
 
-const OAUTH_BETA = 'oauth-2025-04-20';
 const ANTHROPIC_VERSION = '2023-06-01';
 const FETCH_TIMEOUT_MS = 30000;
 const ANT_CLI_TIMEOUT_MS = 10000;
 
 export interface AnthropicAuth {
-  /** Credential headers (x-api-key or Authorization, plus workspace binding). */
+  /** Request headers this credential needs (key or bearer token, workspace, betas). */
   headers: Record<string, string>;
-  /** Extra anthropic-beta values required by this credential kind. */
-  betas: string[];
   /** Where the credential came from, for user-facing messages. */
   source: 'ANTHROPIC_API_KEY' | 'ANTHROPIC_AUTH_TOKEN' | 'ant CLI' | 'ant credentials file';
 }
@@ -57,13 +46,15 @@ function authFromOAuthToken(
   source: AnthropicAuth['source']
 ): AnthropicAuth | null {
   if (!credentials.access_token) return null;
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${credentials.access_token}`,
+  return {
+    headers: {
+      Authorization: `Bearer ${credentials.access_token}`,
+      // OAuth access tokens are accepted on the API behind this beta.
+      'anthropic-beta': 'oauth-2025-04-20',
+      ...(credentials.workspace_id && { 'anthropic-workspace-id': credentials.workspace_id }),
+    },
+    source,
   };
-  if (credentials.workspace_id) {
-    headers['anthropic-workspace-id'] = credentials.workspace_id;
-  }
-  return { headers, betas: [OAUTH_BETA], source };
 }
 
 /**
@@ -74,14 +65,10 @@ function authFromOAuthToken(
 async function readAntCredentialsFile(): Promise<AnthropicAuth | null> {
   try {
     const configDir = getAntConfigDir();
-    let profile = process.env.ANTHROPIC_PROFILE?.trim();
-    if (!profile) {
-      const activeConfigPath = join(configDir, 'active_config');
-      profile = existsSync(activeConfigPath)
-        ? (await readFile(activeConfigPath, 'utf-8')).trim() || 'default'
-        : 'default';
-    }
-
+    const profile =
+      process.env.ANTHROPIC_PROFILE?.trim() ||
+      (await readFile(join(configDir, 'active_config'), 'utf-8').catch(() => '')).trim() ||
+      'default';
     const credentialsPath = join(configDir, 'credentials', `${profile}.json`);
     const credentials = JSON.parse(await readFile(credentialsPath, 'utf-8')) as AntCredentials;
 
@@ -118,8 +105,7 @@ function readAntCliCredentials(): AnthropicAuth | null {
       // token refresh; the credentials-file fallback still gets a chance.
       timeout: ANT_CLI_TIMEOUT_MS,
     });
-    const credentials = JSON.parse(output) as AntCredentials;
-    return authFromOAuthToken(credentials, 'ant CLI');
+    return authFromOAuthToken(JSON.parse(output) as AntCredentials, 'ant CLI');
   } catch {
     // ant not installed or not logged in
     return null;
@@ -133,37 +119,23 @@ function readAntCliCredentials(): AnthropicAuth | null {
  */
 export async function resolveAnthropicAuth(): Promise<AnthropicAuth | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
-  if (apiKey) {
-    return { headers: { 'x-api-key': apiKey }, betas: [], source: 'ANTHROPIC_API_KEY' };
-  }
+  if (apiKey) return { headers: { 'x-api-key': apiKey }, source: 'ANTHROPIC_API_KEY' };
 
   const authToken = process.env.ANTHROPIC_AUTH_TOKEN?.trim();
   if (authToken) {
-    return {
-      headers: { Authorization: `Bearer ${authToken}` },
-      betas: [],
-      source: 'ANTHROPIC_AUTH_TOKEN',
-    };
+    return { headers: { Authorization: `Bearer ${authToken}` }, source: 'ANTHROPIC_AUTH_TOKEN' };
   }
 
-  const fromCli = readAntCliCredentials();
-  if (fromCli) return fromCli;
-
-  return readAntCredentialsFile();
+  return readAntCliCredentials() ?? readAntCredentialsFile();
 }
 
 export const MANAGED_AGENTS_AUTH_GUIDANCE =
   'Log in with the Anthropic CLI (`ant auth login`) or set the ANTHROPIC_API_KEY environment variable.';
 
-function getApiBaseUrl(): string {
-  const base = process.env.ANTHROPIC_BASE_URL?.trim();
-  return (base || 'https://api.anthropic.com').replace(/\/+$/, '');
-}
-
 export interface SkillUploadFile {
   /** Path relative to the skill directory, using forward slashes. */
   path: string;
-  content: string | Uint8Array;
+  contents: string | Uint8Array;
 }
 
 /**
@@ -186,9 +158,7 @@ async function collectSkillFilesWithin(
   relativeDir: string
 ): Promise<SkillUploadFile[]> {
   const files: SkillUploadFile[] = [];
-  const entries = await readdir(dir, { withFileTypes: true });
-
-  for (const entry of entries) {
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
     const entryPath = join(dir, entry.name);
     const relativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
 
@@ -201,87 +171,59 @@ async function collectSkillFilesWithin(
         // Broken symlink — skip, matching copyDirectory behavior
         continue;
       }
-      if (target !== rootReal && !target.startsWith(rootReal + sep)) {
+      if (!isPathSafe(rootReal, target)) {
         console.warn(`Skipping symlink outside skill directory: ${relativePath}`);
         continue;
       }
       isDirectory = (await stat(target)).isDirectory();
     }
 
+    if (isExcluded(entry.name, isDirectory)) continue;
     if (isDirectory) {
-      if (EXCLUDE_DIRS.has(entry.name)) continue;
       files.push(...(await collectSkillFilesWithin(entryPath, rootReal, relativePath)));
     } else {
-      if (EXCLUDE_FILES.has(entry.name)) continue;
-      files.push({ path: relativePath, content: await readFile(entryPath) });
+      files.push({ path: relativePath, contents: await readFile(entryPath) });
     }
   }
-
   return files;
 }
 
-/** A non-2xx response from the Skills API. */
-export class ManagedAgentsApiError extends Error {
-  status: number;
-
-  constructor(status: number, message: string) {
-    super(message);
-    this.name = 'ManagedAgentsApiError';
-    this.status = status;
-  }
-
-  static async from(response: Response, context: string): Promise<ManagedAgentsApiError> {
-    let detail = response.statusText;
-    try {
-      const body = (await response.json()) as { error?: { message?: string } };
-      detail = body.error?.message || detail;
-    } catch {
-      // Non-JSON error body; the status text will do.
-    }
-    return new ManagedAgentsApiError(
-      response.status,
-      `${context}: ${detail} (HTTP ${response.status})`
-    );
-  }
+/** Call the Anthropic API with this credential's headers and a timeout. */
+function skillsApi(auth: AnthropicAuth, path: string, init: RequestInit = {}): Promise<Response> {
+  const base = (process.env.ANTHROPIC_BASE_URL?.trim() || 'https://api.anthropic.com').replace(
+    /\/+$/,
+    ''
+  );
+  return fetch(`${base}${path}`, {
+    ...init,
+    headers: { ...auth.headers, 'anthropic-version': ANTHROPIC_VERSION },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
 }
 
-function buildHeaders(auth: AnthropicAuth): Record<string, string> {
-  const headers: Record<string, string> = {
-    ...auth.headers,
-    'anthropic-version': ANTHROPIC_VERSION,
-  };
-  if (auth.betas.length > 0) {
-    headers['anthropic-beta'] = auth.betas.join(',');
+async function apiError(response: Response, context: string): Promise<Error> {
+  let detail = response.statusText;
+  try {
+    const body = (await response.json()) as { error?: { message?: string } };
+    detail = body.error?.message || detail;
+  } catch {
+    // Non-JSON error body; the status text will do.
   }
-  return headers;
+  return new Error(`${context}: ${detail} (HTTP ${response.status})`);
 }
 
+/**
+ * Multipart body for a create or version upload. Each part is named
+ * `files[]`; its filename carries the file's path within the skill, prefixed
+ * with the skill's top-level directory name (e.g. `my-skill/SKILL.md`).
+ */
 function buildSkillForm(directory: string, displayName: string | null, files: SkillUploadFile[]) {
   const form = new FormData();
-  if (displayName !== null) {
-    form.append('display_name', displayName);
-  }
+  if (displayName !== null) form.append('display_name', displayName);
   for (const file of files) {
-    // The multipart filename carries the file's path within the skill,
-    // prefixed with the skill's top-level directory name.
-    const content = typeof file.content === 'string' ? file.content : new Uint8Array(file.content);
-    form.append('files[]', new File([content], `${directory}/${file.path}`));
+    form.append('files[]', new File([file.contents], `${directory}/${file.path}`));
   }
   return form;
-}
-
-interface SkillResponse {
-  id: string;
-  display_name: string;
-}
-
-interface SkillVersionResponse {
-  skill_id: string;
-}
-
-interface SkillListResponse {
-  data: SkillResponse[];
-  next_page: string | null;
 }
 
 const LIST_PAGE_SIZE = 1000; // the API maximum
@@ -309,7 +251,6 @@ export function createManagedSkillLookup(auth: AnthropicAuth): ManagedSkillLooku
  * keeps the first (newest) id seen for each name.
  */
 async function listSkillIdsByDisplayName(auth: AnthropicAuth): Promise<Map<string, string>> {
-  const headers = buildHeaders(auth);
   const ids = new Map<string, string>();
   let page: string | null = null;
 
@@ -317,13 +258,13 @@ async function listSkillIdsByDisplayName(auth: AnthropicAuth): Promise<Map<strin
     const params = new URLSearchParams({ source: 'custom', limit: String(LIST_PAGE_SIZE) });
     if (page) params.set('page', page);
 
-    const response = await fetch(`${getApiBaseUrl()}/v1/skills?${params}`, {
-      headers,
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-    if (!response.ok) throw await ManagedAgentsApiError.from(response, 'Failed to list skills');
+    const response = await skillsApi(auth, `/v1/skills?${params}`);
+    if (!response.ok) throw await apiError(response, 'Failed to list skills');
 
-    const body = (await response.json()) as SkillListResponse;
+    const body = (await response.json()) as {
+      data: Array<{ id: string; display_name: string }>;
+      next_page: string | null;
+    };
     for (const skill of body.data) {
       if (!ids.has(skill.display_name)) ids.set(skill.display_name, skill.id);
     }
@@ -343,70 +284,45 @@ export interface ManagedSkillUploadResult {
   action: 'created' | 'updated';
 }
 
-/** Upload `files` as a new version of an existing skill. */
-async function uploadSkillVersion(
-  skillId: string,
-  directory: string,
-  files: SkillUploadFile[],
-  headers: Record<string, string>
-): Promise<ManagedSkillUploadResult> {
-  const response = await fetch(
-    `${getApiBaseUrl()}/v1/skills/${encodeURIComponent(skillId)}/versions`,
-    {
-      method: 'POST',
-      headers,
-      body: buildSkillForm(directory, null, files),
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    }
-  );
-  if (!response.ok) {
-    throw await ManagedAgentsApiError.from(response, 'Failed to create skill version');
-  }
-  const version = (await response.json()) as SkillVersionResponse;
-  return { skillId: version.skill_id, action: 'updated' };
-}
-
 /**
- * Like uploadSkillVersion, but returns null when the target skill can't take
- * the upload: 404 (deleted, or credentials now point at another workspace)
- * or 400 (malformed id from a hand-edited lock, or a skill whose `name` slug
- * differs from this upload's). The caller then moves on to the next
- * candidate; a 400 caused by the files themselves fails identically at
+ * Upload `files` as a new version of `skillId`. Returns null when that skill
+ * can't take the upload: 404 (deleted, or credentials now point at another
+ * workspace) or 400 (malformed id from a hand-edited lock, or a skill whose
+ * `name` slug differs from this upload's). The caller then moves on to the
+ * next candidate; a 400 caused by the files themselves fails identically at
  * create time and is surfaced there.
  */
 async function tryUploadSkillVersion(
-  ...args: Parameters<typeof uploadSkillVersion>
+  auth: AnthropicAuth,
+  skillId: string,
+  directory: string,
+  files: SkillUploadFile[]
 ): Promise<ManagedSkillUploadResult | null> {
-  try {
-    return await uploadSkillVersion(...args);
-  } catch (error) {
-    const status = error instanceof ManagedAgentsApiError ? error.status : 0;
-    if (status === 404 || status === 400) return null;
-    throw error;
-  }
-}
-
-export interface ManagedSkillUploadOptions {
-  /** Skill id recorded in the lock file by a previous upload of this skill. */
-  knownSkillId?: string;
-  /** Shared display-name lookup; pass one per run to list the workspace once. */
-  lookup?: ManagedSkillLookup;
+  const response = await skillsApi(auth, `/v1/skills/${encodeURIComponent(skillId)}/versions`, {
+    method: 'POST',
+    body: buildSkillForm(directory, null, files),
+  });
+  if (response.status === 404 || response.status === 400) return null;
+  if (!response.ok) throw await apiError(response, 'Failed to create skill version');
+  const version = (await response.json()) as { skill_id: string };
+  return { skillId: version.skill_id, action: 'updated' };
 }
 
 /**
  * Upload a skill to the Anthropic Skills API as a new version of an existing
  * skill when one can be found, otherwise as a new skill.
  *
- * Candidates for versioning, in order: `knownSkillId`, then the newest
- * workspace skill whose display name equals the skill name. The API doesn't
- * enforce unique names, so without the display-name lookup every install
- * from a project with no usable lock entry would create a duplicate skill in
- * the workspace.
+ * Candidates for versioning, in order: `knownSkillId` (recorded in the lock
+ * file by a previous upload), then the newest workspace skill whose display
+ * name equals the skill name. The API doesn't enforce unique names, so
+ * without the display-name lookup every install from a project with no
+ * usable lock entry would create a duplicate skill in the workspace. Pass one
+ * `lookup` per run so the workspace is listed once.
  */
 export async function uploadSkillToManagedAgents(
   skill: { name: string; files: SkillUploadFile[] },
   auth: AnthropicAuth,
-  options: ManagedSkillUploadOptions = {}
+  options: { knownSkillId?: string; lookup?: ManagedSkillLookup } = {}
 ): Promise<ManagedSkillUploadResult> {
   // Case-insensitive filesystems discover a lowercase `skill.md`, but the
   // API requires the exact-case name — normalize instead of rejecting a
@@ -421,27 +337,132 @@ export async function uploadSkillToManagedAgents(
   }
 
   const directory = sanitizeName(skill.name);
-  const headers = buildHeaders(auth);
   const { knownSkillId, lookup = createManagedSkillLookup(auth) } = options;
 
   if (knownSkillId) {
-    const result = await tryUploadSkillVersion(knownSkillId, directory, files, headers);
+    const result = await tryUploadSkillVersion(auth, knownSkillId, directory, files);
     if (result) return result;
   }
 
   const existingId = await lookup(skill.name);
   if (existingId && existingId !== knownSkillId) {
-    const result = await tryUploadSkillVersion(existingId, directory, files, headers);
+    const result = await tryUploadSkillVersion(auth, existingId, directory, files);
     if (result) return result;
   }
 
-  const response = await fetch(`${getApiBaseUrl()}/v1/skills`, {
+  const response = await skillsApi(auth, '/v1/skills', {
     method: 'POST',
-    headers,
     body: buildSkillForm(directory, skill.name, files),
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
-  if (!response.ok) throw await ManagedAgentsApiError.from(response, 'Failed to create skill');
-  const created = (await response.json()) as SkillResponse;
+  if (!response.ok) throw await apiError(response, 'Failed to create skill');
+  const created = (await response.json()) as { id: string };
   return { skillId: created.id, action: 'created' };
+}
+
+/**
+ * Sentinel written in place of a content hash or digest when part of a
+ * requested install (filesystem copy or upload) did not complete. Never
+ * equal to a real hash, so a later `update` sees the entry as changed and
+ * retries the whole install instead of treating the skill as current.
+ */
+export const PENDING_INSTALL_HASH = 'pending-install';
+
+export interface ManagedUploadOutcome {
+  skill: string;
+  success: boolean;
+  skillId?: string;
+  action?: 'created' | 'updated';
+  error?: string;
+}
+
+/**
+ * Skills API ids a previous run recorded in the lock, restricted to entries
+ * whose source matches this run's, so a same-named skill from another source
+ * doesn't take the recorded id as a direct-version shortcut.
+ */
+export function knownManagedIds(
+  entries: Record<string, { source: string; managedSkillId?: string }>,
+  sourceKey: string | null
+): Map<string, string> {
+  const ids = new Map<string, string>();
+  for (const [name, entry] of Object.entries(entries)) {
+    if (entry.managedSkillId && entry.source === sourceKey) ids.set(name, entry.managedSkillId);
+  }
+  return ids;
+}
+
+/**
+ * Shape one run's upload outcomes for the lock writes. `requested` says
+ * which halves of the install (filesystem copy, upload) this run asked for.
+ */
+export function summarizeManagedUploads(
+  outcomes: ManagedUploadOutcome[],
+  knownIds: Map<string, string>,
+  requested: { upload: boolean; fs: boolean }
+) {
+  const uploaded = new Map(
+    outcomes.filter((o) => o.success && o.skillId).map((o) => [o.skill, o.skillId!])
+  );
+  return {
+    outcomes,
+    /** Number of skills that reached the Skills API this run. */
+    uploads: uploaded.size,
+    /**
+     * Lock bookkeeping for one skill, or null when neither its copy nor its
+     * upload landed. `hash` swaps in PENDING_INSTALL_HASH when a requested
+     * half didn't complete, so `update` retries it; `managedSkillId` is this
+     * run's upload, else the id already recorded for this source.
+     */
+    lockEntry(name: string, fsSucceeded: boolean) {
+      if (!fsSucceeded && !uploaded.has(name)) return null;
+      const complete = (!requested.fs || fsSucceeded) && (!requested.upload || uploaded.has(name));
+      return {
+        hash: (real: string) => (complete ? real : PENDING_INSTALL_HASH),
+        managedSkillId: uploaded.get(name) ?? knownIds.get(name),
+      };
+    },
+  };
+}
+
+export type ManagedUploadPass = ReturnType<typeof summarizeManagedUploads>;
+
+/**
+ * Upload pass for the Claude Managed Agents target. Skills with an id
+ * recorded in this scope's lock are versioned directly; the rest are matched
+ * by display name or created. One skill at a time; a failure doesn't stop
+ * the rest. Without credentials nothing is uploaded, but recorded ids still
+ * flow into `lockEntry` so a filesystem-only re-add keeps them in the lock.
+ */
+export async function runManagedUploads(
+  run: { auth: AnthropicAuth | null; uploadRequested: boolean; fsRequested: boolean },
+  skills: Array<{ name: string; files: () => SkillUploadFile[] | Promise<SkillUploadFile[]> }>,
+  scope: { installGlobally: boolean; cwd: string; sourceKey: string | null }
+): Promise<ManagedUploadPass> {
+  const lock = scope.installGlobally ? await readSkillLock() : await readLocalLock(scope.cwd);
+  const knownIds = knownManagedIds(lock.skills, scope.sourceKey);
+
+  const outcomes: ManagedUploadOutcome[] = [];
+  if (run.auth) {
+    const lookup = createManagedSkillLookup(run.auth);
+    for (const skill of skills) {
+      try {
+        const result = await uploadSkillToManagedAgents(
+          { name: skill.name, files: await skill.files() },
+          run.auth,
+          { knownSkillId: knownIds.get(skill.name), lookup }
+        );
+        outcomes.push({ skill: skill.name, success: true, ...result });
+      } catch (error) {
+        outcomes.push({
+          skill: skill.name,
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    }
+  }
+  return summarizeManagedUploads(outcomes, knownIds, {
+    upload: run.uploadRequested,
+    fs: run.fsRequested,
+  });
 }

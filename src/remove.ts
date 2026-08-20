@@ -2,13 +2,7 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { readdir, rm, lstat } from 'fs/promises';
 import { join } from 'path';
-import {
-  agents,
-  detectInstalledAgents,
-  getEveSubagents,
-  isApiUploadAgent,
-  isFilesystemAgent,
-} from './agents.ts';
+import { agents, detectInstalledAgents, getEveSubagents, isApiUploadAgent } from './agents.ts';
 import { track } from './telemetry.ts';
 import { detectAgent } from './detect-agent.ts';
 import { removeSkillFromLock, getSkillFromLock, readSkillLock } from './skill-lock.ts';
@@ -203,7 +197,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     // instead of reporting a successful no-op removal.
     const apiUploadRequested = targetAgents.filter((a) => isApiUploadAgent(a));
     if (apiUploadRequested.length > 0) {
-      targetAgents = targetAgents.filter((a) => isFilesystemAgent(a));
+      targetAgents = targetAgents.filter((a) => !isApiUploadAgent(a));
       p.log.warn(
         `${apiUploadRequested.map((a) => agents[a].displayName).join(', ')} skills are managed through the Anthropic API and are not removed by this command.`
       );

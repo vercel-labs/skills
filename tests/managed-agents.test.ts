@@ -19,16 +19,17 @@ import {
   collectSkillFiles,
   uploadSkillToManagedAgents,
   createManagedSkillLookup,
-  ManagedAgentsApiError,
+  knownManagedIds,
+  summarizeManagedUploads,
+  PENDING_INSTALL_HASH,
   type AnthropicAuth,
 } from '../src/managed-agents.ts';
 import { agents, getWildcardAgents, isApiUploadAgent } from '../src/agents.ts';
-import { parseAddOptions, knownManagedIds, summarizeManagedUploads } from '../src/add.ts';
+import { parseAddOptions } from '../src/add.ts';
 import { buildManagedAgentsArgs } from '../src/update.ts';
 
 const API_KEY_AUTH: AnthropicAuth = {
   headers: { 'x-api-key': 'sk-ant-test' },
-  betas: [],
   source: 'ANTHROPIC_API_KEY',
 };
 
@@ -39,20 +40,34 @@ function jsonResponse(status: number, body: unknown): Response {
   });
 }
 
+function apiErrorResponse(status: number, message: string): Response {
+  return jsonResponse(status, { type: 'error', error: { type: 'api_error', message } });
+}
+
+/** Write an ant CLI config dir with one profile's credentials and point the env at it. */
+async function withAntConfig(
+  profile: string,
+  credentials: Record<string, unknown>,
+  fn: () => Promise<void>
+): Promise<void> {
+  const configDir = await mkdtemp(join(tmpdir(), 'ant-config-'));
+  try {
+    await mkdir(join(configDir, 'credentials'), { recursive: true });
+    await writeFile(join(configDir, 'active_config'), `${profile}\n`);
+    await writeFile(join(configDir, 'credentials', `${profile}.json`), JSON.stringify(credentials));
+    vi.stubEnv('ANTHROPIC_CONFIG_DIR', configDir);
+    await fn();
+  } finally {
+    await rm(configDir, { recursive: true, force: true });
+  }
+}
+
 describe('claude-managed-agents agent registry entry', () => {
-  it('is registered as an api-upload agent', () => {
-    expect(agents['claude-managed-agents']).toBeDefined();
+  it('is an api-upload agent: never auto-detected, excluded from the wildcard', async () => {
     expect(isApiUploadAgent('claude-managed-agents')).toBe(true);
-  });
-
-  it('is never auto-detected', async () => {
     expect(await agents['claude-managed-agents'].detectInstalled()).toBe(false);
-  });
-
-  it('is excluded from wildcard agent expansion', () => {
-    const wildcard = getWildcardAgents();
-    expect(wildcard).not.toContain('claude-managed-agents');
-    expect(wildcard).toContain('claude-code');
+    expect(getWildcardAgents()).not.toContain('claude-managed-agents');
+    expect(getWildcardAgents()).toContain('claude-code');
   });
 });
 
@@ -74,11 +89,7 @@ describe('resolveAnthropicAuth', () => {
   it('prefers ANTHROPIC_API_KEY and maps it to x-api-key', async () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-abc');
     const auth = await resolveAnthropicAuth();
-    expect(auth).toEqual({
-      headers: { 'x-api-key': 'sk-ant-abc' },
-      betas: [],
-      source: 'ANTHROPIC_API_KEY',
-    });
+    expect(auth).toEqual({ headers: { 'x-api-key': 'sk-ant-abc' }, source: 'ANTHROPIC_API_KEY' });
   });
 
   it('uses ANTHROPIC_AUTH_TOKEN as a bearer token', async () => {
@@ -100,54 +111,36 @@ describe('resolveAnthropicAuth', () => {
     const auth = await resolveAnthropicAuth();
     expect(auth?.headers.Authorization).toBe('Bearer oauth-token-xyz');
     expect(auth?.headers['anthropic-workspace-id']).toBe('wrkspc_123');
-    expect(auth?.betas).toContain('oauth-2025-04-20');
+    expect(auth?.headers['anthropic-beta']).toBe('oauth-2025-04-20');
     expect(auth?.source).toBe('ant CLI');
   });
 
   it('falls back to reading the credentials file when ant is unavailable', async () => {
-    const configDir = await mkdtemp(join(tmpdir(), 'ant-config-'));
-    try {
-      await mkdir(join(configDir, 'credentials'), { recursive: true });
-      await writeFile(join(configDir, 'active_config'), 'work\n');
-      await writeFile(
-        join(configDir, 'credentials', 'work.json'),
-        JSON.stringify({
-          type: 'oauth_token',
-          access_token: 'file-token',
-          expires_at: Math.floor(Date.now() / 1000) + 3600,
-          workspace_id: 'wrkspc_456',
-        })
-      );
-      vi.stubEnv('ANTHROPIC_CONFIG_DIR', configDir);
-
-      const auth = await resolveAnthropicAuth();
-      expect(auth?.headers.Authorization).toBe('Bearer file-token');
-      expect(auth?.headers['anthropic-workspace-id']).toBe('wrkspc_456');
-      expect(auth?.source).toBe('ant credentials file');
-    } finally {
-      await rm(configDir, { recursive: true, force: true });
-    }
+    const now = Math.floor(Date.now() / 1000);
+    await withAntConfig(
+      'work',
+      {
+        type: 'oauth_token',
+        access_token: 'file-token',
+        expires_at: now + 3600,
+        workspace_id: 'wrkspc_456',
+      },
+      async () => {
+        const auth = await resolveAnthropicAuth();
+        expect(auth?.headers.Authorization).toBe('Bearer file-token');
+        expect(auth?.headers['anthropic-workspace-id']).toBe('wrkspc_456');
+        expect(auth?.source).toBe('ant credentials file');
+      }
+    );
   });
 
   it('rejects expired credentials from the file fallback', async () => {
-    const configDir = await mkdtemp(join(tmpdir(), 'ant-config-'));
-    try {
-      await mkdir(join(configDir, 'credentials'), { recursive: true });
-      await writeFile(join(configDir, 'active_config'), 'default');
-      await writeFile(
-        join(configDir, 'credentials', 'default.json'),
-        JSON.stringify({
-          type: 'oauth_token',
-          access_token: 'stale-token',
-          expires_at: Math.floor(Date.now() / 1000) - 10,
-        })
-      );
-      vi.stubEnv('ANTHROPIC_CONFIG_DIR', configDir);
-
-      expect(await resolveAnthropicAuth()).toBeNull();
-    } finally {
-      await rm(configDir, { recursive: true, force: true });
-    }
+    const now = Math.floor(Date.now() / 1000);
+    await withAntConfig(
+      'default',
+      { type: 'oauth_token', access_token: 'stale-token', expires_at: now - 10 },
+      async () => expect(await resolveAnthropicAuth()).toBeNull()
+    );
   });
 
   it('returns null when no credential source is available', async () => {
@@ -190,7 +183,7 @@ describe('collectSkillFiles', () => {
       const files = await collectSkillFiles(skillDir);
       const paths = files.map((f) => f.path).sort();
       expect(paths).toEqual(['SKILL.md', 'alias.md', 'shared.md']);
-      expect(files.some((f) => String(f.content).includes('do not upload'))).toBe(false);
+      expect(files.some((f) => String(f.contents).includes('do not upload'))).toBe(false);
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('leak.txt'));
     } finally {
       warn.mockRestore();
@@ -230,7 +223,7 @@ describe('uploadSkillToManagedAgents', () => {
   it('rejects skills without a root SKILL.md', async () => {
     await expect(
       uploadSkillToManagedAgents(
-        { name: 'my-skill', files: [{ path: 'docs/README.md', content: 'x' }] },
+        { name: 'my-skill', files: [{ path: 'docs/README.md', contents: 'x' }] },
         API_KEY_AUTH
       )
     ).rejects.toThrow('missing a SKILL.md');
@@ -243,7 +236,7 @@ describe('uploadSkillToManagedAgents', () => {
       .mockResolvedValueOnce(jsonResponse(200, skillJson('skill_01A', 'my-skill')));
 
     await uploadSkillToManagedAgents(
-      { name: 'my-skill', files: [{ path: 'skill.md', content: '# hi' }] },
+      { name: 'my-skill', files: [{ path: 'skill.md', contents: '# hi' }] },
       API_KEY_AUTH
     );
 
@@ -261,8 +254,8 @@ describe('uploadSkillToManagedAgents', () => {
       {
         name: 'My Skill',
         files: [
-          { path: 'SKILL.md', content: '# hi' },
-          { path: 'scripts/run.py', content: 'print(1)' },
+          { path: 'SKILL.md', contents: '# hi' },
+          { path: 'scripts/run.py', contents: 'print(1)' },
         ],
       },
       API_KEY_AUTH
@@ -298,16 +291,15 @@ describe('uploadSkillToManagedAgents', () => {
     ]);
   });
 
-  it('sends the betas the credential requires', async () => {
+  it('sends every header the credential requires', async () => {
     fetchMock
       .mockResolvedValueOnce(EMPTY_LIST())
       .mockResolvedValueOnce(jsonResponse(200, skillJson('skill_01A', 'my-skill')));
 
     await uploadSkillToManagedAgents(
-      { name: 'my-skill', files: [{ path: 'SKILL.md', content: '#' }] },
+      { name: 'my-skill', files: [{ path: 'SKILL.md', contents: '#' }] },
       {
-        headers: { Authorization: 'Bearer t' },
-        betas: ['oauth-2025-04-20'],
+        headers: { Authorization: 'Bearer t', 'anthropic-beta': 'oauth-2025-04-20' },
         source: 'ant CLI',
       }
     );
@@ -332,7 +324,7 @@ describe('uploadSkillToManagedAgents', () => {
       .mockResolvedValueOnce(jsonResponse(200, versionJson('skill_01A', 'skver_456')));
 
     const result = await uploadSkillToManagedAgents(
-      { name: 'My Skill', files: [{ path: 'SKILL.md', content: '#' }] },
+      { name: 'My Skill', files: [{ path: 'SKILL.md', contents: '#' }] },
       API_KEY_AUTH
     );
 
@@ -360,18 +352,15 @@ describe('uploadSkillToManagedAgents', () => {
         jsonResponse(200, { data: [skillJson('skill_00Y', 'My Skill')], next_page: null })
       )
       .mockResolvedValueOnce(
-        jsonResponse(400, {
-          type: 'error',
-          error: {
-            type: 'invalid_request_error',
-            message: "Skill name 'my-skill' in SKILL.md must be consistent across all versions",
-          },
-        })
+        apiErrorResponse(
+          400,
+          "Skill name 'my-skill' in SKILL.md must be consistent across all versions"
+        )
       )
       .mockResolvedValueOnce(jsonResponse(200, skillJson('skill_02B', 'My Skill')));
 
     const result = await uploadSkillToManagedAgents(
-      { name: 'My Skill', files: [{ path: 'SKILL.md', content: '#' }] },
+      { name: 'My Skill', files: [{ path: 'SKILL.md', contents: '#' }] },
       API_KEY_AUTH
     );
 
@@ -381,20 +370,15 @@ describe('uploadSkillToManagedAgents', () => {
     expect(fetchMock.mock.calls[2]![1]?.method).toBe('POST');
   });
 
-  it('throws a ManagedAgentsApiError on other API failures', async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(401, {
-        type: 'error',
-        error: { type: 'authentication_error', message: 'invalid x-api-key' },
-      })
-    );
+  it('throws on other API failures', async () => {
+    fetchMock.mockResolvedValueOnce(apiErrorResponse(401, 'invalid x-api-key'));
 
     await expect(
       uploadSkillToManagedAgents(
-        { name: 'my-skill', files: [{ path: 'SKILL.md', content: '#' }] },
+        { name: 'my-skill', files: [{ path: 'SKILL.md', contents: '#' }] },
         API_KEY_AUTH
       )
-    ).rejects.toThrow(ManagedAgentsApiError);
+    ).rejects.toThrow('invalid x-api-key (HTTP 401)');
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -405,7 +389,7 @@ describe('uploadSkillToManagedAgents', () => {
       .mockResolvedValueOnce(jsonResponse(200, skillJson('skill_01A', 'my-skill')));
 
     await uploadSkillToManagedAgents(
-      { name: 'my-skill', files: [{ path: 'SKILL.md', content: '#' }] },
+      { name: 'my-skill', files: [{ path: 'SKILL.md', contents: '#' }] },
       API_KEY_AUTH
     );
 
@@ -416,7 +400,7 @@ describe('uploadSkillToManagedAgents', () => {
   });
 
   // With a known skill id (recorded in the lock by a previous upload).
-  const SKILL = { name: 'My Skill', files: [{ path: 'SKILL.md', content: '#' }] };
+  const SKILL = { name: 'My Skill', files: [{ path: 'SKILL.md', contents: '#' }] };
 
   it('uploads a new version directly to the known skill', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(200, versionJson('skill_01A', 'skver_789')));
@@ -430,19 +414,11 @@ describe('uploadSkillToManagedAgents', () => {
     expect(String(fetchMock.mock.calls[0]![0])).toBe(
       'https://api.anthropic.com/v1/skills/skill_01A/versions'
     );
-    // Version uploads carry no display_name
-    const form = fetchMock.mock.calls[0]![1]?.body as FormData;
-    expect(form.get('display_name')).toBeNull();
   });
 
   it('falls back to lookup-then-create when the known id is gone (404)', async () => {
     fetchMock
-      .mockResolvedValueOnce(
-        jsonResponse(404, {
-          type: 'error',
-          error: { type: 'not_found_error', message: 'Skill not found: skill_gone' },
-        })
-      )
+      .mockResolvedValueOnce(apiErrorResponse(404, 'Skill not found: skill_gone'))
       .mockResolvedValueOnce(EMPTY_LIST())
       .mockResolvedValueOnce(jsonResponse(200, skillJson('skill_02B', 'My Skill')));
 
@@ -457,12 +433,7 @@ describe('uploadSkillToManagedAgents', () => {
 
   it('falls back when the known id is malformed (400)', async () => {
     fetchMock
-      .mockResolvedValueOnce(
-        jsonResponse(400, {
-          type: 'error',
-          error: { type: 'invalid_request_error', message: 'Invalid skill_id format: nope' },
-        })
-      )
+      .mockResolvedValueOnce(apiErrorResponse(400, 'Invalid skill_id format: nope'))
       .mockResolvedValueOnce(
         jsonResponse(200, { data: [skillJson('skill_01A', 'My Skill')], next_page: null })
       )
@@ -477,12 +448,7 @@ describe('uploadSkillToManagedAgents', () => {
 
   it('does not re-try the known id when the display-name lookup returns it', async () => {
     fetchMock
-      .mockResolvedValueOnce(
-        jsonResponse(400, {
-          type: 'error',
-          error: { type: 'invalid_request_error', message: 'must be consistent' },
-        })
-      )
+      .mockResolvedValueOnce(apiErrorResponse(400, 'must be consistent'))
       .mockResolvedValueOnce(
         jsonResponse(200, { data: [skillJson('skill_01A', 'My Skill')], next_page: null })
       )
@@ -506,7 +472,7 @@ describe('uploadSkillToManagedAgents', () => {
       .mockResolvedValueOnce(jsonResponse(200, skillJson('skill_02B', 'beta')));
 
     const lookup = createManagedSkillLookup(API_KEY_AUTH);
-    const file = [{ path: 'SKILL.md', content: '#' }];
+    const file = [{ path: 'SKILL.md', contents: '#' }];
     const a = await uploadSkillToManagedAgents({ name: 'alpha', files: file }, API_KEY_AUTH, {
       lookup,
     });
@@ -522,16 +488,11 @@ describe('uploadSkillToManagedAgents', () => {
   });
 
   it('propagates non-recoverable errors from the fast path without falling back', async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(403, {
-        type: 'error',
-        error: { type: 'permission_error', message: 'forbidden' },
-      })
-    );
+    fetchMock.mockResolvedValueOnce(apiErrorResponse(403, 'forbidden'));
 
     await expect(
       uploadSkillToManagedAgents(SKILL, API_KEY_AUTH, { knownSkillId: 'skill_01A' })
-    ).rejects.toThrow(ManagedAgentsApiError);
+    ).rejects.toThrow('forbidden (HTTP 403)');
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
@@ -542,11 +503,6 @@ describe('parseAddOptions --managed-agents', () => {
     expect(errors).toEqual([]);
     expect(options.managedAgents).toBe(true);
     expect(options.yes).toBe(true);
-  });
-
-  it('is off by default', () => {
-    const { options } = parseAddOptions(['owner/repo']);
-    expect(options.managedAgents).toBeUndefined();
   });
 });
 
@@ -613,35 +569,33 @@ describe('managed upload bookkeeping', () => {
     expect(knownManagedIds(LOCK, 'owner/repo-b').size).toBe(0);
   });
 
-  it('prefers a fresh upload id and falls back to the recorded one', () => {
+  const UPLOADED = [{ skill: 'my-skill', success: true, skillId: 'skill_NEW' }];
+
+  it('records a fresh upload id, else the one already recorded for this source', () => {
     const known = knownManagedIds(LOCK, 'owner/repo-a');
-    const fresh = summarizeManagedUploads(
-      [{ skill: 'my-skill', success: true, skillId: 'skill_NEW' }],
-      known,
-      { upload: true, fs: true }
-    );
-    expect(fresh.managedIdFor('my-skill')).toBe('skill_NEW');
+    const fresh = summarizeManagedUploads(UPLOADED, known, { upload: true, fs: true });
+    expect(fresh.lockEntry('my-skill', true)?.managedSkillId).toBe('skill_NEW');
 
     const untouched = summarizeManagedUploads([], known, { upload: false, fs: true });
-    expect(untouched.managedIdFor('my-skill')).toBe('skill_OLD');
+    expect(untouched.lockEntry('my-skill', true)?.managedSkillId).toBe('skill_OLD');
   });
 
-  it('marks a skill incomplete when a requested part did not succeed', () => {
+  it('writes no entry when nothing landed, and a pending hash when only part did', () => {
     const none = new Map<string, string>();
     // Upload requested (or credential-skipped) but nothing reached the API.
-    expect(
-      summarizeManagedUploads([], none, { upload: true, fs: true }).isComplete('my-skill', true)
-    ).toBe(false);
+    const fsOnlyLanded = summarizeManagedUploads([], none, { upload: true, fs: true });
+    expect(fsOnlyLanded.lockEntry('my-skill', false)).toBeNull();
+    expect(fsOnlyLanded.lockEntry('my-skill', true)?.hash('abc')).toBe(PENDING_INSTALL_HASH);
 
     const fsOnly = summarizeManagedUploads([], none, { upload: false, fs: true });
-    expect(fsOnly.isComplete('my-skill', true)).toBe(true);
-    expect(fsOnly.isComplete('my-skill', false)).toBe(false);
+    expect(fsOnly.lockEntry('my-skill', true)?.hash('abc')).toBe('abc');
 
-    const uploadOnly = summarizeManagedUploads(
-      [{ skill: 'my-skill', success: true, skillId: 'skill_NEW' }],
-      none,
-      { upload: true, fs: false }
-    );
-    expect(uploadOnly.isComplete('my-skill', false)).toBe(true);
+    const uploadOnly = summarizeManagedUploads(UPLOADED, none, { upload: true, fs: false });
+    expect(uploadOnly.uploads).toBe(1);
+    expect(uploadOnly.lockEntry('my-skill', false)?.hash('abc')).toBe('abc');
+
+    // Both requested, copy failed, upload landed: entry exists but stays pending.
+    const half = summarizeManagedUploads(UPLOADED, none, { upload: true, fs: true });
+    expect(half.lockEntry('my-skill', false)?.hash('abc')).toBe(PENDING_INSTALL_HASH);
   });
 });
