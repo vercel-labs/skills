@@ -8,6 +8,7 @@ import { runFind } from './find.ts';
 import { runInstallFromLock } from './install.ts';
 import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
+import { runStatus } from './status.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { flushTelemetry } from './telemetry.ts';
 import { isRunningInAgent } from './detect-agent.ts';
@@ -79,6 +80,9 @@ function showBanner(): void {
     `  ${DIM}$${RESET} ${TEXT}npx skills list${RESET}                 ${DIM}List installed skills${RESET}`
   );
   console.log(
+    `  ${DIM}$${RESET} ${TEXT}npx skills status${RESET}               ${DIM}Check installed skill state${RESET}`
+  );
+  console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills find ${DIM}[query]${RESET}         ${DIM}Search for skills${RESET}`
   );
   console.log();
@@ -114,6 +118,7 @@ ${BOLD}Manage Skills:${RESET}
                        Generate a prompt for using one skill without installing it
   remove [skills]      Remove installed skills
   list, ls             List installed skills
+  status               Check installed skill state
   find [query]         Search for skills interactively
 
 ${BOLD}Find Options:${RESET}
@@ -164,6 +169,11 @@ ${BOLD}List Options:${RESET}
   -g, --global           List global skills (default: project)
   -a, --agent <agents>   Filter by specific agents
   --json                 Output as JSON (machine-readable, no ANSI codes)
+  --audit                Append security audit summary in text mode
+
+${BOLD}Status Options:${RESET}
+  -g, --global           Check global skills (default: project)
+  --json                 Output as JSON
 
 ${BOLD}Options:${RESET}
   --help, -h        Show this help message
@@ -183,6 +193,8 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills ls -g                         ${DIM}# list global skills${RESET}
   ${DIM}$${RESET} skills ls -a claude-code             ${DIM}# filter by agent${RESET}
   ${DIM}$${RESET} skills ls --json                      ${DIM}# JSON output${RESET}
+  ${DIM}$${RESET} skills status                        ${DIM}# check project skill state${RESET}
+  ${DIM}$${RESET} skills status -g                     ${DIM}# check global skill state${RESET}
   ${DIM}$${RESET} skills find                          ${DIM}# interactive search${RESET}
   ${DIM}$${RESET} skills find typescript               ${DIM}# search by keyword${RESET}
   ${DIM}$${RESET} skills find react --owner vercel     ${DIM}# search within an owner${RESET}
@@ -387,6 +399,9 @@ async function main(): Promise<void> {
     case 'list':
     case 'ls':
       await runList(restArgs);
+      break;
+    case 'status':
+      await runStatus(restArgs);
       break;
     case 'check':
     case 'update':
