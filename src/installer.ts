@@ -459,6 +459,16 @@ function stripIgnoredEveFrontmatter(raw: string): string {
   return `---\n${frontmatter}\n---\n${content.replace(/^\r?\n/u, '')}`;
 }
 
+async function symlinkTargetIsAncestor(linkPath: string): Promise<boolean> {
+  try {
+    const targetReal = await realpath(linkPath);
+    const parentReal = await realpath(dirname(linkPath));
+    return parentReal === targetReal || parentReal.startsWith(targetReal + sep);
+  } catch {
+    return false;
+  }
+}
+
 async function copyDirectory(src: string, dest: string, agentType?: AgentType): Promise<void> {
   await mkdir(dest, { recursive: true });
 
@@ -471,6 +481,12 @@ async function copyDirectory(src: string, dest: string, agentType?: AgentType): 
       .map(async (entry) => {
         const srcPath = join(src, entry.name);
         const destPath = join(dest, entry.name);
+
+        // Skip cyclic symlinks; dereferencing an ancestor-pointing link recurses to ENAMETOOLONG.
+        if (entry.isSymbolicLink() && (await symlinkTargetIsAncestor(srcPath))) {
+          console.warn(`Skipping self-referential symlink: ${srcPath}`);
+          return;
+        }
 
         if (entry.isDirectory()) {
           await copyDirectory(srcPath, destPath, agentType);
