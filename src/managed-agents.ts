@@ -273,11 +273,9 @@ function buildSkillForm(directory: string, displayName: string | null, files: Sk
 interface SkillResponse {
   id: string;
   display_name: string;
-  latest_version_id: string;
 }
 
 interface SkillVersionResponse {
-  id: string;
   skill_id: string;
 }
 
@@ -286,21 +284,37 @@ interface SkillListResponse {
   next_page: string | null;
 }
 
+const LIST_PAGE_SIZE = 1000; // the API maximum
+const MAX_LIST_PAGES = 10;
+
+/** Resolves a display name to the id of the newest custom skill carrying it. */
+export type ManagedSkillLookup = (displayName: string) => Promise<string | null>;
+
 /**
- * Find the workspace's most recently created custom skill with this display
- * name. Display names are not unique, so this is a best-effort match used
- * only when the lock has no recorded skill id; the list is newest-first.
+ * A lookup that lists the workspace's custom skills once, on first use, and
+ * answers every later query from that snapshot — one listing per run rather
+ * than one per uploaded skill.
  */
-async function findSkillByDisplayName(
-  displayName: string,
-  auth: AnthropicAuth
-): Promise<SkillResponse | null> {
+export function createManagedSkillLookup(auth: AnthropicAuth): ManagedSkillLookup {
+  let listing: Promise<Map<string, string>> | undefined;
+  return async (displayName) => {
+    listing ??= listSkillIdsByDisplayName(auth);
+    return (await listing).get(displayName) ?? null;
+  };
+}
+
+/**
+ * List the workspace's custom skills into a display name → skill id map.
+ * Display names are not unique; the API lists newest first and the map
+ * keeps the first (newest) id seen for each name.
+ */
+async function listSkillIdsByDisplayName(auth: AnthropicAuth): Promise<Map<string, string>> {
   const headers = buildHeaders(auth);
+  const ids = new Map<string, string>();
   let page: string | null = null;
 
-  // Paginate defensively; workspaces can accumulate many custom skills.
-  for (let i = 0; i < 20; i++) {
-    const params = new URLSearchParams({ source: 'custom', limit: '100' });
+  for (let i = 0; i < MAX_LIST_PAGES; i++) {
+    const params = new URLSearchParams({ source: 'custom', limit: String(LIST_PAGE_SIZE) });
     if (page) params.set('page', page);
 
     const response = await fetch(`${getApiBaseUrl()}/v1/skills?${params}`, {
@@ -310,18 +324,22 @@ async function findSkillByDisplayName(
     if (!response.ok) throw await ManagedAgentsApiError.from(response, 'Failed to list skills');
 
     const body = (await response.json()) as SkillListResponse;
-    const match = body.data.find((skill) => skill.display_name === displayName);
-    if (match) return match;
-    if (!body.next_page) return null;
+    for (const skill of body.data) {
+      if (!ids.has(skill.display_name)) ids.set(skill.display_name, skill.id);
+    }
+    if (!body.next_page) return ids;
     page = body.next_page;
   }
 
-  return null;
+  console.warn(
+    `Only the newest ${MAX_LIST_PAGES * LIST_PAGE_SIZE} custom skills were listed; ` +
+      'an older skill with a matching name would be re-created rather than versioned.'
+  );
+  return ids;
 }
 
 export interface ManagedSkillUploadResult {
   skillId: string;
-  versionId: string;
   action: 'created' | 'updated';
 }
 
@@ -345,7 +363,7 @@ async function uploadSkillVersion(
     throw await ManagedAgentsApiError.from(response, 'Failed to create skill version');
   }
   const version = (await response.json()) as SkillVersionResponse;
-  return { skillId: version.skill_id, versionId: version.id, action: 'updated' };
+  return { skillId: version.skill_id, action: 'updated' };
 }
 
 /**
@@ -368,20 +386,27 @@ async function tryUploadSkillVersion(
   }
 }
 
+export interface ManagedSkillUploadOptions {
+  /** Skill id recorded in the lock file by a previous upload of this skill. */
+  knownSkillId?: string;
+  /** Shared display-name lookup; pass one per run to list the workspace once. */
+  lookup?: ManagedSkillLookup;
+}
+
 /**
  * Upload a skill to the Anthropic Skills API as a new version of an existing
  * skill when one can be found, otherwise as a new skill.
  *
- * Candidates for versioning, in order: `knownSkillId` (recorded in the lock
- * file by a previous upload), then the newest workspace skill whose display
- * name equals the skill name. The API doesn't enforce unique names, so
- * without the display-name lookup every install from a project with no lock
- * entry would create a duplicate skill in the workspace.
+ * Candidates for versioning, in order: `knownSkillId`, then the newest
+ * workspace skill whose display name equals the skill name. The API doesn't
+ * enforce unique names, so without the display-name lookup every install
+ * from a project with no usable lock entry would create a duplicate skill in
+ * the workspace.
  */
 export async function uploadSkillToManagedAgents(
   skill: { name: string; files: SkillUploadFile[] },
   auth: AnthropicAuth,
-  knownSkillId?: string
+  options: ManagedSkillUploadOptions = {}
 ): Promise<ManagedSkillUploadResult> {
   // Case-insensitive filesystems discover a lowercase `skill.md`, but the
   // API requires the exact-case name — normalize instead of rejecting a
@@ -397,15 +422,16 @@ export async function uploadSkillToManagedAgents(
 
   const directory = sanitizeName(skill.name);
   const headers = buildHeaders(auth);
+  const { knownSkillId, lookup = createManagedSkillLookup(auth) } = options;
 
   if (knownSkillId) {
     const result = await tryUploadSkillVersion(knownSkillId, directory, files, headers);
     if (result) return result;
   }
 
-  const existing = await findSkillByDisplayName(skill.name, auth);
-  if (existing && existing.id !== knownSkillId) {
-    const result = await tryUploadSkillVersion(existing.id, directory, files, headers);
+  const existingId = await lookup(skill.name);
+  if (existingId && existingId !== knownSkillId) {
+    const result = await tryUploadSkillVersion(existingId, directory, files, headers);
     if (result) return result;
   }
 
@@ -417,5 +443,5 @@ export async function uploadSkillToManagedAgents(
   });
   if (!response.ok) throw await ManagedAgentsApiError.from(response, 'Failed to create skill');
   const created = (await response.json()) as SkillResponse;
-  return { skillId: created.id, versionId: created.latest_version_id, action: 'created' };
+  return { skillId: created.id, action: 'created' };
 }

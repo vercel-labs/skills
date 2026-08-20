@@ -31,6 +31,7 @@ import {
 import {
   resolveAnthropicAuth,
   uploadSkillToManagedAgents,
+  createManagedSkillLookup,
   collectSkillFiles,
   MANAGED_AGENTS_AUTH_GUIDANCE,
   type AnthropicAuth,
@@ -460,7 +461,6 @@ interface ManagedUploadOutcome {
   skill: string;
   success: boolean;
   skillId?: string;
-  versionId?: string;
   action?: 'created' | 'updated';
   error?: string;
 }
@@ -481,8 +481,9 @@ interface ManagedUploadPass {
 
 /**
  * Skills API ids a previous run recorded in the lock, restricted to entries
- * whose source matches this run's: a same-named skill installed from another
- * source must not inherit (and version over) the earlier upload.
+ * whose source matches this run's. A same-named skill from another source
+ * doesn't get the recorded id as a direct-version shortcut; it goes through
+ * the workspace display-name lookup like any first upload.
  */
 export function knownManagedIds(
   entries: Record<string, { source: string; managedSkillId?: string }>,
@@ -529,12 +530,13 @@ async function runManagedUploads(
 
   const outcomes: ManagedUploadOutcome[] = [];
   if (resolution.auth) {
+    const lookup = createManagedSkillLookup(resolution.auth);
     for (const skill of skills) {
       try {
         const result = await uploadSkillToManagedAgents(
           { name: skill.name, files: await skill.files() },
           resolution.auth,
-          knownIds.get(skill.name)
+          { knownSkillId: knownIds.get(skill.name), lookup }
         );
         outcomes.push({ skill: skill.name, success: true, ...result });
       } catch (error) {

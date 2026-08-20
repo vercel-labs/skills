@@ -66,14 +66,14 @@ export function resolveSkillsToRemove(
 
 /**
  * Deleting a lock entry that records a Claude Managed Agents upload orphans
- * the uploaded skill: it stays live in the user's Anthropic organization,
+ * the uploaded skill: it stays live in the user's Anthropic workspace,
  * and the recorded id (the direct re-upload path) is lost. Say so instead of
  * letting the removal read as complete.
  */
 function warnAboutManagedUpload(skillName: string, managedSkillId: string | undefined): void {
   if (!managedSkillId) return;
   p.log.warn(
-    `${skillName} was uploaded to Claude Managed Agents (${managedSkillId}). The uploaded skill remains in your Anthropic organization; manage it via the Anthropic API.`
+    `${skillName} was uploaded to Claude Managed Agents (${managedSkillId}). The uploaded skill remains in your Anthropic workspace; manage it via the Anthropic API.`
   );
 }
 
@@ -199,7 +199,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     targetAgents = options.agent as AgentType[];
 
     // API-upload agents have no local files; their skills live in the user's
-    // Anthropic organization and are not deleted by this command. Say so
+    // Anthropic workspace and are not deleted by this command. Say so
     // instead of reporting a successful no-op removal.
     const apiUploadRequested = targetAgents.filter((a) => isApiUploadAgent(a));
     if (apiUploadRequested.length > 0) {
