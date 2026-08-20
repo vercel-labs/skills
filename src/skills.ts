@@ -22,6 +22,7 @@ const AGENT_PROJECT_SKILL_DIRS = [
   '.grok/skills',
   '.iflow/skills',
   '.junie/skills',
+  '.kilo/skills',
   '.kilocode/skills',
   '.kimchi/skills',
   '.kiro/skills',

@@ -422,10 +422,12 @@ export const agents: Record<AgentType, AgentConfig> = {
   kilo: {
     name: 'kilo',
     displayName: 'Kilo Code',
-    skillsDir: '.kilocode/skills',
-    globalSkillsDir: join(home, '.kilocode/skills'),
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.kilo/skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.kilocode'));
+      // `.kilocode` is the legacy config directory, kept here so existing
+      // installs are still detected.
+      return existsSync(join(home, '.kilo')) || existsSync(join(home, '.kilocode'));
     },
   },
   kimchi: {
