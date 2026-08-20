@@ -301,7 +301,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   droid: {
     name: 'droid',
     displayName: 'Droid',
-    skillsDir: '.factory/skills',
+    // Droid reads .agents/skills and ~/.agents/skills as compatibility
+    // locations, so installing there avoids defining the same skill twice.
+    // globalSkillsDir stays on ~/.factory/skills so `remove` still cleans up
+    // skills placed there by earlier versions.
+    skillsDir: '.agents/skills',
     globalSkillsDir: join(home, '.factory/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.factory'));
