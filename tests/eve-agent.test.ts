@@ -79,8 +79,8 @@ describe('Eve agent support', () => {
         join(projectDir, 'agent/skills/test-skill/SKILL.md'),
         'utf-8'
       );
-      expect(installed).toContain('description: "Test skill"');
-      expect(installed).not.toContain('name:');
+      expect(installed).toContain('description: Test skill');
+      expect(installed).toContain('name: test-skill');
     } finally {
       await rm(projectDir, { recursive: true, force: true });
       await rm(root, { recursive: true, force: true });
@@ -112,8 +112,8 @@ describe('Eve agent support', () => {
         join(projectDir, 'agent/skills/blob-skill/SKILL.md'),
         'utf-8'
       );
-      expect(installed).toContain('description: "Blob skill"');
-      expect(installed).not.toContain('name:');
+      expect(installed).toContain('description: Blob skill');
+      expect(installed).toContain('name: blob-skill');
     } finally {
       await rm(projectDir, { recursive: true, force: true });
     }
@@ -179,7 +179,7 @@ describe('Eve subagents', () => {
         join(projectDir, 'agent/subagents/research/skills/subagent-skill/SKILL.md'),
         'utf-8'
       );
-      expect(installed).toContain('description: "subagent-skill skill"');
+      expect(installed).toContain('description: subagent-skill skill');
 
       // The root agent dir should be untouched.
       await expect(access(join(projectDir, 'agent/skills/subagent-skill'))).rejects.toBeTruthy();
@@ -243,10 +243,7 @@ describe('Eve subagents', () => {
     const projectDir = await makeEveProject();
     await addEveSubagent(projectDir, 'research');
 
-    // Place a packaged skill (with a parseable SKILL.md) directly in the
-    // subagent skills dir. We write it directly rather than via the eve
-    // installer because eve strips the `name:` field, which parseSkillMd
-    // requires — that is a separate, pre-existing eve quirk.
+    // Place a packaged skill directly in the subagent skills dir.
     const subagentSkillDir = join(getEveSubagentSkillsDir('research', projectDir), 'listed-skill');
     await mkdir(subagentSkillDir, { recursive: true });
     await writeFile(
@@ -263,6 +260,39 @@ describe('Eve subagents', () => {
     } finally {
       process.chdir(previousCwd);
       await rm(projectDir, { recursive: true, force: true });
+    }
+  });
+  it('keeps name/version/metadata when writing the universal eve copy', async () => {
+    const projectDir = await makeEveProject();
+    const { root, skillDir } = await makeSourceSkill('full-skill');
+
+    try {
+      const result = await installSkillForAgent(
+        { name: 'full-skill', description: 'full-skill skill', path: skillDir },
+        'eve',
+        { cwd: projectDir, mode: 'copy', global: false }
+      );
+
+      expect(result.success).toBe(true);
+
+      const installed = await readFile(
+        join(projectDir, 'agent/skills/full-skill/SKILL.md'),
+        'utf-8'
+      );
+      expect(installed).toContain('name: full-skill');
+      expect(installed).toContain('description:');
+
+      const prevCwd = process.cwd();
+      process.chdir(projectDir);
+      try {
+        const listed = await listInstalledSkills({ cwd: projectDir, global: false });
+        expect(listed.map((s) => s.name)).toContain('full-skill');
+      } finally {
+        process.chdir(prevCwd);
+      }
+    } finally {
+      await rm(projectDir, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
     }
   });
 });
