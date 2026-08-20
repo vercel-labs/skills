@@ -11,11 +11,11 @@ import { sanitizeName, EXCLUDE_FILES, EXCLUDE_DIRS } from './installer.ts';
  * Skills for the `claude-managed-agents` target are not copied to a directory;
  * they are uploaded to the Anthropic Skills API, where they become available
  * to the user's managed agents (and to the Messages API code-execution
- * container). See https://platform.claude.com/docs/en/agents-and-tools/agent-skills
+ * container). See https://platform.claude.com/docs/en/managed-agents/skills
  *
- * Endpoints (beta `skills-2025-10-02`):
+ * Endpoints:
  *   POST /v1/skills                     create a skill (multipart `files[]`)
- *   GET  /v1/skills?source=custom       list custom skills
+ *   GET  /v1/skills?source=custom       list the workspace's custom skills
  *   POST /v1/skills/{id}/versions       create a new version of a skill
  *
  * Each multipart file part is named `files[]` and its filename carries the
@@ -23,7 +23,6 @@ import { sanitizeName, EXCLUDE_FILES, EXCLUDE_DIRS } from './installer.ts';
  * `my-skill/SKILL.md`.
  */
 
-const SKILLS_BETA = 'skills-2025-10-02';
 const OAUTH_BETA = 'oauth-2025-04-20';
 const ANTHROPIC_VERSION = '2023-06-01';
 const FETCH_TIMEOUT_MS = 30000;
@@ -247,17 +246,20 @@ export class ManagedAgentsApiError extends Error {
 }
 
 function buildHeaders(auth: AnthropicAuth): Record<string, string> {
-  return {
+  const headers: Record<string, string> = {
     ...auth.headers,
     'anthropic-version': ANTHROPIC_VERSION,
-    'anthropic-beta': [...auth.betas, SKILLS_BETA].join(','),
   };
+  if (auth.betas.length > 0) {
+    headers['anthropic-beta'] = auth.betas.join(',');
+  }
+  return headers;
 }
 
-function buildSkillForm(directory: string, displayTitle: string | null, files: SkillUploadFile[]) {
+function buildSkillForm(directory: string, displayName: string | null, files: SkillUploadFile[]) {
   const form = new FormData();
-  if (displayTitle !== null) {
-    form.append('display_title', displayTitle);
+  if (displayName !== null) {
+    form.append('display_name', displayName);
   }
   for (const file of files) {
     // The multipart filename carries the file's path within the skill,
@@ -270,36 +272,36 @@ function buildSkillForm(directory: string, displayTitle: string | null, files: S
 
 interface SkillResponse {
   id: string;
-  display_title: string | null;
-  latest_version: string | null;
+  display_name: string;
+  latest_version_id: string;
 }
 
 interface SkillVersionResponse {
+  id: string;
   skill_id: string;
-  version: string;
 }
 
 interface SkillListResponse {
   data: SkillResponse[];
-  has_more: boolean;
-  last_id: string | null;
+  next_page: string | null;
 }
 
 /**
- * Find an existing custom skill by display title. Used to upgrade a create
- * into a new-version upload when the skill already exists.
+ * Find the workspace's most recently created custom skill with this display
+ * name. Display names are not unique, so this is a best-effort match used
+ * only when the lock has no recorded skill id; the list is newest-first.
  */
-async function findSkillByDisplayTitle(
-  displayTitle: string,
+async function findSkillByDisplayName(
+  displayName: string,
   auth: AnthropicAuth
 ): Promise<SkillResponse | null> {
   const headers = buildHeaders(auth);
-  let afterId: string | null = null;
+  let page: string | null = null;
 
-  // Paginate defensively; orgs can accumulate many custom skills.
-  for (let page = 0; page < 20; page++) {
-    const params = new URLSearchParams({ beta: 'true', source: 'custom', limit: '100' });
-    if (afterId) params.set('after_id', afterId);
+  // Paginate defensively; workspaces can accumulate many custom skills.
+  for (let i = 0; i < 20; i++) {
+    const params = new URLSearchParams({ source: 'custom', limit: '100' });
+    if (page) params.set('page', page);
 
     const response = await fetch(`${getApiBaseUrl()}/v1/skills?${params}`, {
       headers,
@@ -308,10 +310,10 @@ async function findSkillByDisplayTitle(
     if (!response.ok) throw await ManagedAgentsApiError.from(response, 'Failed to list skills');
 
     const body = (await response.json()) as SkillListResponse;
-    const match = body.data.find((skill) => skill.display_title === displayTitle);
+    const match = body.data.find((skill) => skill.display_name === displayName);
     if (match) return match;
-    if (!body.has_more || !body.last_id) return null;
-    afterId = body.last_id;
+    if (!body.next_page) return null;
+    page = body.next_page;
   }
 
   return null;
@@ -319,7 +321,7 @@ async function findSkillByDisplayTitle(
 
 export interface ManagedSkillUploadResult {
   skillId: string;
-  version: string;
+  versionId: string;
   action: 'created' | 'updated';
 }
 
@@ -331,7 +333,7 @@ async function uploadSkillVersion(
   headers: Record<string, string>
 ): Promise<ManagedSkillUploadResult> {
   const response = await fetch(
-    `${getApiBaseUrl()}/v1/skills/${encodeURIComponent(skillId)}/versions?beta=true`,
+    `${getApiBaseUrl()}/v1/skills/${encodeURIComponent(skillId)}/versions`,
     {
       method: 'POST',
       headers,
@@ -343,19 +345,38 @@ async function uploadSkillVersion(
     throw await ManagedAgentsApiError.from(response, 'Failed to create skill version');
   }
   const version = (await response.json()) as SkillVersionResponse;
-  return { skillId: version.skill_id, version: version.version, action: 'updated' };
+  return { skillId: version.skill_id, versionId: version.id, action: 'updated' };
 }
 
 /**
- * Upload a skill to the Anthropic Skills API. Creates the skill if it doesn't
- * exist; if a skill with the same display title already exists, uploads the
- * files as a new version of that skill instead.
+ * Like uploadSkillVersion, but returns null when the target skill can't take
+ * the upload: 404 (deleted, or credentials now point at another workspace)
+ * or 400 (malformed id from a hand-edited lock, or a skill whose `name` slug
+ * differs from this upload's). The caller then moves on to the next
+ * candidate; a 400 caused by the files themselves fails identically at
+ * create time and is surfaced there.
+ */
+async function tryUploadSkillVersion(
+  ...args: Parameters<typeof uploadSkillVersion>
+): Promise<ManagedSkillUploadResult | null> {
+  try {
+    return await uploadSkillVersion(...args);
+  } catch (error) {
+    const status = error instanceof ManagedAgentsApiError ? error.status : 0;
+    if (status === 404 || status === 400) return null;
+    throw error;
+  }
+}
+
+/**
+ * Upload a skill to the Anthropic Skills API as a new version of an existing
+ * skill when one can be found, otherwise as a new skill.
  *
- * When `knownSkillId` (recorded in the lock file by a previous upload) is
- * provided, a new version is uploaded to that skill directly, skipping the
- * create attempt and display-title lookup. A 404 for the id (deleted skill,
- * or credentials now pointing at a different org) falls back to the normal
- * create-or-version flow.
+ * Candidates for versioning, in order: `knownSkillId` (recorded in the lock
+ * file by a previous upload), then the newest workspace skill whose display
+ * name equals the skill name. The API doesn't enforce unique names, so
+ * without the display-name lookup every install from a project with no lock
+ * entry would create a duplicate skill in the workspace.
  */
 export async function uploadSkillToManagedAgents(
   skill: { name: string; files: SkillUploadFile[] },
@@ -373,42 +394,28 @@ export async function uploadSkillToManagedAgents(
   if (!files.some((file) => file.path === 'SKILL.md')) {
     throw new Error('Skill is missing a SKILL.md at its root');
   }
-  skill = { ...skill, files };
 
   const directory = sanitizeName(skill.name);
   const headers = buildHeaders(auth);
 
   if (knownSkillId) {
-    try {
-      return await uploadSkillVersion(knownSkillId, directory, skill.files, headers);
-    } catch (error) {
-      // 404: the skill was deleted or the credentials point at a different
-      // org. 400: the recorded id is malformed (e.g. a hand-edited lock).
-      // Both mean the id is unusable — fall through to the create-or-version
-      // flow, which self-heals the lock; a 400 caused by the files themselves
-      // fails there identically and is surfaced then.
-      const status = error instanceof ManagedAgentsApiError ? error.status : 0;
-      if (status !== 404 && status !== 400) throw error;
-    }
+    const result = await tryUploadSkillVersion(knownSkillId, directory, files, headers);
+    if (result) return result;
   }
 
-  const createResponse = await fetch(`${getApiBaseUrl()}/v1/skills?beta=true`, {
+  const existing = await findSkillByDisplayName(skill.name, auth);
+  if (existing && existing.id !== knownSkillId) {
+    const result = await tryUploadSkillVersion(existing.id, directory, files, headers);
+    if (result) return result;
+  }
+
+  const response = await fetch(`${getApiBaseUrl()}/v1/skills`, {
     method: 'POST',
     headers,
-    body: buildSkillForm(directory, skill.name, skill.files),
+    body: buildSkillForm(directory, skill.name, files),
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
-  if (createResponse.ok) {
-    const created = (await createResponse.json()) as SkillResponse;
-    return { skillId: created.id, version: created.latest_version ?? 'latest', action: 'created' };
-  }
-
-  // A skill with this display title already exists — upload a new version of it.
-  const createError = await ManagedAgentsApiError.from(createResponse, 'Failed to create skill');
-  const existing =
-    createError.status === 400 && /display_title/i.test(createError.message)
-      ? await findSkillByDisplayTitle(skill.name, auth)
-      : null;
-  if (!existing) throw createError;
-  return uploadSkillVersion(existing.id, directory, skill.files, headers);
+  if (!response.ok) throw await ManagedAgentsApiError.from(response, 'Failed to create skill');
+  const created = (await response.json()) as SkillResponse;
+  return { skillId: created.id, versionId: created.latest_version_id, action: 'created' };
 }

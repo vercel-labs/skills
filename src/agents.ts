@@ -158,7 +158,7 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: undefined,
     install: 'api-upload',
     installHint: 'Uploads to the Anthropic Skills API',
-    // Uploading to the user's Anthropic organization must be an explicit
+    // Uploading to the user's Anthropic workspace must be an explicit
     // choice, so this target is never auto-detected.
     detectInstalled: async () => false,
   },

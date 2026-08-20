@@ -356,8 +356,8 @@ which agents to install to.
 ### Claude Managed Agents
 
 `claude-managed-agents` is an API target rather than a directory: each selected skill is uploaded to the
-[Anthropic Skills API](https://platform.claude.com/docs/en/agents-and-tools/agent-skills), where it becomes available
-to your [Claude managed agents](https://platform.claude.com/docs/en/agents-and-tools/managed-agents) (and to the
+[Anthropic Skills API](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview), where it becomes available
+to your [Claude managed agents](https://platform.claude.com/docs/en/managed-agents/skills) (and to the
 Messages API code-execution container) as a custom skill.
 
 ```bash
@@ -373,10 +373,10 @@ Credentials are resolved in this order:
 
 Behavior notes:
 
-- Adding a skill that already exists in your organization (matched by display title) uploads a new version of that
-  skill instead of failing.
+- Adding a skill that already exists in your workspace (matched by the id recorded in the lock file, otherwise by
+  display name) uploads a new version of that skill instead of creating a duplicate.
 - This target is never auto-detected and is excluded from `--agent '*'` and `--all`, so bulk installs can't upload to
-  your Anthropic organization by accident. Select it explicitly with `--agent claude-managed-agents` or in the
+  your Anthropic workspace by accident. Select it explicitly with `--agent claude-managed-agents` or in the
   interactive prompt.
 - `ANTHROPIC_BASE_URL` is honored for non-default API endpoints.
 

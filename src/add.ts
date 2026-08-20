@@ -460,7 +460,7 @@ interface ManagedUploadOutcome {
   skill: string;
   success: boolean;
   skillId?: string;
-  version?: string;
+  versionId?: string;
   action?: 'created' | 'updated';
   error?: string;
 }
@@ -514,8 +514,8 @@ export function summarizeManagedUploads(
 
 /**
  * Upload pass for the Claude Managed Agents target. Skills with an id
- * recorded in this scope's lock are versioned directly; the rest are created
- * or resolved by display title. One skill at a time; a failure doesn't stop
+ * recorded in this scope's lock are versioned directly; the rest are matched
+ * by display name or created. One skill at a time; a failure doesn't stop
  * the rest. Without credentials nothing is uploaded, but recorded ids are
  * still returned so a filesystem-only re-add keeps them in the lock.
  */

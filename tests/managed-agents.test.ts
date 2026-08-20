@@ -201,6 +201,21 @@ describe('collectSkillFiles', () => {
 describe('uploadSkillToManagedAgents', () => {
   const fetchMock = vi.fn<typeof fetch>();
 
+  const EMPTY_LIST = () => jsonResponse(200, { data: [], next_page: null });
+  const skillJson = (id: string, displayName: string) => ({
+    type: 'skill',
+    id,
+    display_name: displayName,
+    latest_version_id: `skver_${id}`,
+    source: { type: 'custom' },
+  });
+  const versionJson = (skillId: string, versionId: string) => ({
+    type: 'skill_version',
+    id: versionId,
+    skill_id: skillId,
+    name: 'my-skill',
+  });
+
   beforeEach(() => {
     fetchMock.mockReset();
     vi.stubGlobal('fetch', fetchMock);
@@ -222,24 +237,24 @@ describe('uploadSkillToManagedAgents', () => {
   });
 
   it('normalizes a lowercase skill.md from case-insensitive filesystems', async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(200, { id: 'skill_01A', display_title: 'my-skill', latest_version: '1' })
-    );
+    fetchMock
+      .mockResolvedValueOnce(EMPTY_LIST())
+      .mockResolvedValueOnce(jsonResponse(200, skillJson('skill_01A', 'my-skill')));
 
     await uploadSkillToManagedAgents(
       { name: 'my-skill', files: [{ path: 'skill.md', content: '# hi' }] },
       API_KEY_AUTH
     );
 
-    const form = fetchMock.mock.calls[0]![1]?.body as FormData;
+    const form = fetchMock.mock.calls[1]![1]?.body as FormData;
     const files = form.getAll('files[]') as File[];
     expect(files.map((f) => f.name)).toEqual(['my-skill/SKILL.md']);
   });
 
   it('creates a skill with a multipart form of dir-prefixed files', async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(200, { id: 'skill_01A', display_title: 'My Skill', latest_version: '123' })
-    );
+    fetchMock
+      .mockResolvedValueOnce(EMPTY_LIST())
+      .mockResolvedValueOnce(jsonResponse(200, skillJson('skill_01A', 'My Skill')));
 
     const result = await uploadSkillToManagedAgents(
       {
@@ -252,20 +267,32 @@ describe('uploadSkillToManagedAgents', () => {
       API_KEY_AUTH
     );
 
-    expect(result).toEqual({ skillId: 'skill_01A', version: '123', action: 'created' });
+    expect(result).toEqual({
+      skillId: 'skill_01A',
+      versionId: 'skver_skill_01A',
+      action: 'created',
+    });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0]!;
-    expect(String(url)).toBe('https://api.anthropic.com/v1/skills?beta=true');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    // No recorded id: look the skill up by display name first...
+    const [listUrl, listInit] = fetchMock.mock.calls[0]!;
+    expect(String(listUrl)).toBe('https://api.anthropic.com/v1/skills?source=custom&limit=100');
+    expect(listInit?.method ?? 'GET').toBe('GET');
+
+    // ...then create it, since nothing matched.
+    const [url, init] = fetchMock.mock.calls[1]!;
+    expect(String(url)).toBe('https://api.anthropic.com/v1/skills');
     expect(init?.method).toBe('POST');
 
     const headers = init?.headers as Record<string, string>;
     expect(headers['x-api-key']).toBe('sk-ant-test');
     expect(headers['anthropic-version']).toBe('2023-06-01');
-    expect(headers['anthropic-beta']).toBe('skills-2025-10-02');
+    // The Skills API is GA: no beta header unless the credential needs one.
+    expect(headers['anthropic-beta']).toBeUndefined();
 
     const form = init?.body as FormData;
-    expect(form.get('display_title')).toBe('My Skill');
+    expect(form.get('display_name')).toBe('My Skill');
     const files = form.getAll('files[]') as File[];
     // Directory name is the sanitized skill name
     expect(files.map((f) => f.name).sort()).toEqual([
@@ -274,10 +301,10 @@ describe('uploadSkillToManagedAgents', () => {
     ]);
   });
 
-  it('appends the skills beta to auth-required betas', async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(200, { id: 'skill_01A', display_title: null, latest_version: '1' })
-    );
+  it('sends the betas the credential requires', async () => {
+    fetchMock
+      .mockResolvedValueOnce(EMPTY_LIST())
+      .mockResolvedValueOnce(jsonResponse(200, skillJson('skill_01A', 'my-skill')));
 
     await uploadSkillToManagedAgents(
       { name: 'my-skill', files: [{ path: 'SKILL.md', content: '#' }] },
@@ -288,50 +315,77 @@ describe('uploadSkillToManagedAgents', () => {
       }
     );
 
-    const headers = fetchMock.mock.calls[0]![1]?.headers as Record<string, string>;
-    expect(headers['anthropic-beta']).toBe('oauth-2025-04-20,skills-2025-10-02');
+    for (const [, init] of fetchMock.mock.calls) {
+      const headers = init?.headers as Record<string, string>;
+      expect(headers['anthropic-beta']).toBe('oauth-2025-04-20');
+    }
   });
 
-  it('uploads a new version when the display title already exists', async () => {
+  it('uploads a new version when a skill with the display name already exists', async () => {
     fetchMock
       .mockResolvedValueOnce(
-        jsonResponse(400, {
-          type: 'error',
-          error: {
-            type: 'invalid_request_error',
-            message: 'Skill cannot reuse an existing display_title: My Skill',
-          },
-        })
+        jsonResponse(200, { data: [skillJson('skill_00Z', 'Other')], next_page: 'page_2' })
       )
       .mockResolvedValueOnce(
         jsonResponse(200, {
-          data: [
-            { id: 'skill_00Z', display_title: 'Other', latest_version: '1' },
-            { id: 'skill_01A', display_title: 'My Skill', latest_version: '1' },
-          ],
-          has_more: false,
-          last_id: 'skill_01A',
+          data: [skillJson('skill_01A', 'My Skill'), skillJson('skill_00Y', 'My Skill')],
+          next_page: null,
         })
       )
-      .mockResolvedValueOnce(jsonResponse(200, { skill_id: 'skill_01A', version: '456' }));
+      .mockResolvedValueOnce(jsonResponse(200, versionJson('skill_01A', 'skver_456')));
 
     const result = await uploadSkillToManagedAgents(
       { name: 'My Skill', files: [{ path: 'SKILL.md', content: '#' }] },
       API_KEY_AUTH
     );
 
-    expect(result).toEqual({ skillId: 'skill_01A', version: '456', action: 'updated' });
+    // The newest (first-listed) match wins.
+    expect(result).toEqual({ skillId: 'skill_01A', versionId: 'skver_456', action: 'updated' });
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
-    const listUrl = String(fetchMock.mock.calls[1]![0]);
-    expect(listUrl).toContain('/v1/skills?');
-    expect(listUrl).toContain('source=custom');
-    const versionUrl = String(fetchMock.mock.calls[2]![0]);
-    expect(versionUrl).toBe('https://api.anthropic.com/v1/skills/skill_01A/versions?beta=true');
+    expect(String(fetchMock.mock.calls[1]![0])).toBe(
+      'https://api.anthropic.com/v1/skills?source=custom&limit=100&page=page_2'
+    );
+    const [versionUrl, versionInit] = fetchMock.mock.calls[2]!;
+    expect(String(versionUrl)).toBe('https://api.anthropic.com/v1/skills/skill_01A/versions');
+    expect(versionInit?.method).toBe('POST');
 
-    // Version uploads carry no display_title
-    const versionForm = fetchMock.mock.calls[2]![1]?.body as FormData;
-    expect(versionForm.get('display_title')).toBeNull();
+    // Version uploads carry no display_name
+    const versionForm = versionInit?.body as FormData;
+    expect(versionForm.get('display_name')).toBeNull();
+  });
+
+  it('creates a new skill when the display-name match rejects the upload (400)', async () => {
+    // e.g. an unrelated skill that shares the display name but has a
+    // different `name` slug in its SKILL.md.
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(200, { data: [skillJson('skill_00Y', 'My Skill')], next_page: null })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(400, {
+          type: 'error',
+          error: {
+            type: 'invalid_request_error',
+            message: "Skill name 'my-skill' in SKILL.md must be consistent across all versions",
+          },
+        })
+      )
+      .mockResolvedValueOnce(jsonResponse(200, skillJson('skill_02B', 'My Skill')));
+
+    const result = await uploadSkillToManagedAgents(
+      { name: 'My Skill', files: [{ path: 'SKILL.md', content: '#' }] },
+      API_KEY_AUTH
+    );
+
+    expect(result).toEqual({
+      skillId: 'skill_02B',
+      versionId: 'skver_skill_02B',
+      action: 'created',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(String(fetchMock.mock.calls[2]![0])).toBe('https://api.anthropic.com/v1/skills');
+    expect(fetchMock.mock.calls[2]![1]?.method).toBe('POST');
   });
 
   it('throws a ManagedAgentsApiError on other API failures', async () => {
@@ -348,13 +402,14 @@ describe('uploadSkillToManagedAgents', () => {
         API_KEY_AUTH
       )
     ).rejects.toThrow(ManagedAgentsApiError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('honors ANTHROPIC_BASE_URL', async () => {
     vi.stubEnv('ANTHROPIC_BASE_URL', 'https://api.staging.example/');
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(200, { id: 'skill_01A', display_title: null, latest_version: '1' })
-    );
+    fetchMock
+      .mockResolvedValueOnce(EMPTY_LIST())
+      .mockResolvedValueOnce(jsonResponse(200, skillJson('skill_01A', 'my-skill')));
 
     await uploadSkillToManagedAgents(
       { name: 'my-skill', files: [{ path: 'SKILL.md', content: '#' }] },
@@ -362,65 +417,89 @@ describe('uploadSkillToManagedAgents', () => {
     );
 
     expect(String(fetchMock.mock.calls[0]![0])).toBe(
-      'https://api.staging.example/v1/skills?beta=true'
+      'https://api.staging.example/v1/skills?source=custom&limit=100'
     );
+    expect(String(fetchMock.mock.calls[1]![0])).toBe('https://api.staging.example/v1/skills');
   });
 
   // With a known skill id (recorded in the lock by a previous upload).
   const SKILL = { name: 'My Skill', files: [{ path: 'SKILL.md', content: '#' }] };
 
   it('uploads a new version directly to the known skill', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse(200, { skill_id: 'skill_01A', version: '789' }));
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, versionJson('skill_01A', 'skver_789')));
 
     const result = await uploadSkillToManagedAgents(SKILL, API_KEY_AUTH, 'skill_01A');
 
-    expect(result).toEqual({ skillId: 'skill_01A', version: '789', action: 'updated' });
+    expect(result).toEqual({ skillId: 'skill_01A', versionId: 'skver_789', action: 'updated' });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0]![0])).toBe(
-      'https://api.anthropic.com/v1/skills/skill_01A/versions?beta=true'
+      'https://api.anthropic.com/v1/skills/skill_01A/versions'
     );
-    // Version uploads carry no display_title
+    // Version uploads carry no display_name
     const form = fetchMock.mock.calls[0]![1]?.body as FormData;
-    expect(form.get('display_title')).toBeNull();
+    expect(form.get('display_name')).toBeNull();
   });
 
-  it('falls back to the create flow when the known id is gone', async () => {
+  it('falls back to lookup-then-create when the known id is gone (404)', async () => {
     fetchMock
       .mockResolvedValueOnce(
         jsonResponse(404, {
           type: 'error',
-          error: { type: 'not_found_error', message: 'skill not found' },
+          error: { type: 'not_found_error', message: 'Skill not found: skill_gone' },
         })
       )
-      .mockResolvedValueOnce(
-        jsonResponse(200, { id: 'skill_02B', display_title: 'My Skill', latest_version: '1' })
-      );
+      .mockResolvedValueOnce(EMPTY_LIST())
+      .mockResolvedValueOnce(jsonResponse(200, skillJson('skill_02B', 'My Skill')));
 
     const result = await uploadSkillToManagedAgents(SKILL, API_KEY_AUTH, 'skill_gone');
 
-    expect(result).toEqual({ skillId: 'skill_02B', version: '1', action: 'created' });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(String(fetchMock.mock.calls[1]![0])).toBe(
-      'https://api.anthropic.com/v1/skills?beta=true'
-    );
+    expect(result).toEqual({
+      skillId: 'skill_02B',
+      versionId: 'skver_skill_02B',
+      action: 'created',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(String(fetchMock.mock.calls[2]![0])).toBe('https://api.anthropic.com/v1/skills');
   });
 
-  it('falls back to the create flow when the known id is malformed (400)', async () => {
+  it('falls back when the known id is malformed (400)', async () => {
     fetchMock
       .mockResolvedValueOnce(
         jsonResponse(400, {
           type: 'error',
-          error: { type: 'invalid_request_error', message: 'invalid skill id' },
+          error: { type: 'invalid_request_error', message: 'Invalid skill_id format: nope' },
         })
       )
       .mockResolvedValueOnce(
-        jsonResponse(200, { id: 'skill_02B', display_title: 'My Skill', latest_version: '1' })
-      );
+        jsonResponse(200, { data: [skillJson('skill_01A', 'My Skill')], next_page: null })
+      )
+      .mockResolvedValueOnce(jsonResponse(200, versionJson('skill_01A', 'skver_9')));
 
-    const result = await uploadSkillToManagedAgents(SKILL, API_KEY_AUTH, 'not-a-skill-id');
+    const result = await uploadSkillToManagedAgents(SKILL, API_KEY_AUTH, 'nope');
 
-    expect(result).toEqual({ skillId: 'skill_02B', version: '1', action: 'created' });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // The display-name match self-heals the lock's stale id.
+    expect(result).toEqual({ skillId: 'skill_01A', versionId: 'skver_9', action: 'updated' });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not re-try the known id when the display-name lookup returns it', async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(400, {
+          type: 'error',
+          error: { type: 'invalid_request_error', message: 'must be consistent' },
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, { data: [skillJson('skill_01A', 'My Skill')], next_page: null })
+      )
+      .mockResolvedValueOnce(jsonResponse(200, skillJson('skill_02B', 'My Skill')));
+
+    const result = await uploadSkillToManagedAgents(SKILL, API_KEY_AUTH, 'skill_01A');
+
+    expect(result.action).toBe('created');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(String(fetchMock.mock.calls[2]![0])).toBe('https://api.anthropic.com/v1/skills');
   });
 
   it('propagates non-recoverable errors from the fast path without falling back', async () => {
