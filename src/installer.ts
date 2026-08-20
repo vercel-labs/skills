@@ -151,6 +151,55 @@ export function getAgentBaseDir(
 function resolveSymlinkTarget(linkPath: string, linkTarget: string): string {
   return resolve(dirname(linkPath), linkTarget);
 }
+/**
+ * Find direct child directories of `dirPath` that each contain their own
+ * SKILL.md. A directory with such children is an agent "category" directory
+ * (e.g. Hermes `~/.hermes/skills/<category>/<skill>/SKILL.md`), which is
+ * managed by the agent and must never be replaced by an installed skill —
+ * doing so would delete unrelated nested skills (#1723).
+ *
+ * Returns an empty array when `dirPath` is missing, not a directory, or
+ * contains no nested skills.
+ */
+async function findCategorySkillNames(dirPath: string): Promise<string[]> {
+  let entries;
+  try {
+    entries = await readdir(dirPath, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const nested: string[] = [];
+  for (const entry of entries) {
+    const entryPath = join(dirPath, entry.name);
+    if (!(await isDirEntryOrSymlinkToDir(entry, entryPath))) continue;
+    try {
+      await stat(join(entryPath, 'SKILL.md'));
+      nested.push(entry.name);
+    } catch {
+      // Child directory has no SKILL.md at its top level — not a nested skill.
+    }
+  }
+  return nested;
+}
+
+/**
+ * Throw if `dirPath` is an agent category directory containing nested skills.
+ * Called before any recursive delete of an install target so the installer can
+ * never destroy unrelated skills an agent manages. A clear, actionable error
+ * is surfaced to the user and no paths are removed (#1723).
+ */
+async function assertNoCategoryOverwrite(dirPath: string): Promise<void> {
+  const nested = await findCategorySkillNames(dirPath);
+  if (nested.length === 0) return;
+
+  const listed = nested.slice(0, 8).join(', ') + (nested.length > 8 ? ', …' : '');
+  throw new Error(
+    `Refusing to overwrite '${dirPath}': it is a category directory containing nested skills (${listed}). ` +
+      `Installing a skill named '${basename(dirPath)}' would delete them. ` +
+      `Move the category directory or install the skill under a different name.`
+  );
+}
 
 /**
  * Cleans and recreates a directory for skill installation.
@@ -161,6 +210,10 @@ function resolveSymlinkTarget(linkPath: string, linkTarget: string): string {
  *    when canonical and agent paths resolve to the same location
  */
 async function cleanAndCreateDirectory(path: string): Promise<void> {
+  // Never recursively delete a category directory containing nested skills —
+  // that would destroy unrelated skills the agent manages (#1723).
+  await assertNoCategoryOverwrite(path);
+
   try {
     await rm(path, { recursive: true, force: true });
   } catch {
@@ -195,6 +248,9 @@ async function resolveParentSymlinks(path: string): Promise<string> {
  * Returns true if symlink was created, false if fallback to copy is needed
  */
 async function createSymlink(target: string, linkPath: string): Promise<boolean> {
+  // Refuse to replace an agent category directory (nested skills) with a
+  // symlink — deleting it would destroy unrelated skills the agent manages (#1723).
+  await assertNoCategoryOverwrite(linkPath);
   try {
     const resolvedTarget = resolve(target);
     const resolvedLinkPath = resolve(linkPath);
