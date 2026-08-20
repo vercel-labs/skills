@@ -101,6 +101,37 @@ Instructions here.
     expect(result.exitCode).toBe(0);
   });
 
+  it('should exit non-zero when the agent prompt cannot run without a TTY', () => {
+    // Create a test skill
+    const skillDir = join(testDir, 'skills', 'my-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: my-skill
+description: My test skill
+---
+
+# My Skill
+
+Instructions here.
+`
+    );
+
+    const targetDir = join(testDir, 'project');
+    mkdirSync(targetDir, { recursive: true });
+
+    // No agents are detected in the isolated test home, and stdin is a pipe
+    // that hits EOF immediately, so the agent picker cannot collect input.
+    // The CLI previously exited 0 here with nothing installed.
+    const result = runCli(['add', testDir], targetDir);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stdout).toContain('Installation cancelled');
+    expect(result.stderr).toContain('not a TTY');
+    expect(existsSync(join(targetDir, '.claude', 'skills', 'my-skill'))).toBe(false);
+    expect(existsSync(join(targetDir, '.agents', 'skills', 'my-skill'))).toBe(false);
+  });
+
   it('deduplicates copied install paths for universal agents sharing the same directory', () => {
     const sourceDir = join(testDir, 'source');
     const skillDir = join(sourceDir, 'skills', 'shared-skill');

@@ -398,6 +398,26 @@ function buildResultLines(
 }
 
 /**
+ * Exit after an installation prompt was cancelled before anything was installed.
+ *
+ * Without a TTY the prompt cannot collect input at all: stdin EOF cancels it
+ * immediately. Exiting 0 there reports success to scripts and CI even though
+ * nothing was installed, so exit non-zero and point at the non-interactive
+ * flags instead. A deliberate interactive cancel still exits 0.
+ */
+function exitInstallationCancelled(): never {
+  p.cancel('Installation cancelled');
+  if (!process.stdin.isTTY) {
+    console.error(
+      'Interactive prompt required but stdin is not a TTY. Nothing was installed. ' +
+        `Use --agent <name> (or --agent '*') and -y to run non-interactively.`
+    );
+    process.exit(1);
+  }
+  process.exit(0);
+}
+
+/**
  * Prompts the user to select agents using interactive search.
  * Pre-selects the last used agents if available.
  * Saves the selection for future use.
@@ -657,8 +677,7 @@ async function handleWellKnownSkills(
     });
 
     if (isCancelled(selected)) {
-      p.cancel('Installation cancelled');
-      process.exit(0);
+      exitInstallationCancelled();
     }
 
     selectedSkills = selected as WellKnownSkill[];
@@ -706,9 +725,8 @@ async function handleWellKnownSkills(
           allAgentChoices
         );
 
-        if (p.isCancel(selected)) {
-          p.cancel('Installation cancelled');
-          process.exit(0);
+        if (isCancelled(selected)) {
+          exitInstallationCancelled();
         }
 
         targetAgents = selected as AgentType[];
@@ -727,9 +745,8 @@ async function handleWellKnownSkills(
     } else {
       const selected = await selectAgentsInteractive({ global: options.global });
 
-      if (p.isCancel(selected)) {
-        p.cancel('Installation cancelled');
-        process.exit(0);
+      if (isCancelled(selected)) {
+        exitInstallationCancelled();
       }
 
       targetAgents = selected as AgentType[];
@@ -759,8 +776,7 @@ async function handleWellKnownSkills(
     });
 
     if (p.isCancel(scope)) {
-      p.cancel('Installation cancelled');
-      process.exit(0);
+      exitInstallationCancelled();
     }
 
     installGlobally = scope as boolean;
@@ -787,8 +803,7 @@ async function handleWellKnownSkills(
     });
 
     if (p.isCancel(modeChoice)) {
-      p.cancel('Installation cancelled');
-      process.exit(0);
+      exitInstallationCancelled();
     }
 
     installMode = modeChoice as InstallMode;
@@ -849,8 +864,7 @@ async function handleWellKnownSkills(
     const confirmed = await p.confirm({ message: 'Proceed with installation?' });
 
     if (p.isCancel(confirmed) || !confirmed) {
-      p.cancel('Installation cancelled');
-      process.exit(0);
+      exitInstallationCancelled();
     }
   }
 
@@ -1365,9 +1379,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       });
 
       if (isCancelled(selected)) {
-        p.cancel('Installation cancelled');
         await cleanup(tempDir);
-        process.exit(0);
+        exitInstallationCancelled();
       }
 
       selectedSkills = selected as Skill[];
@@ -1421,9 +1434,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             });
 
         if (p.isCancel(useEve)) {
-          p.cancel('Installation cancelled');
           await cleanup(tempDir);
-          process.exit(0);
+          exitInstallationCancelled();
         }
 
         if (useEve) {
@@ -1432,10 +1444,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         } else {
           const selected = await selectAgentsInteractive({ global: options.global });
 
-          if (p.isCancel(selected)) {
-            p.cancel('Installation cancelled');
+          if (isCancelled(selected)) {
             await cleanup(tempDir);
-            process.exit(0);
+            exitInstallationCancelled();
           }
 
           targetAgents = selected as AgentType[];
@@ -1460,10 +1471,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             allAgentChoices
           );
 
-          if (p.isCancel(selected)) {
-            p.cancel('Installation cancelled');
+          if (isCancelled(selected)) {
             await cleanup(tempDir);
-            process.exit(0);
+            exitInstallationCancelled();
           }
 
           targetAgents = selected as AgentType[];
@@ -1482,10 +1492,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       } else {
         const selected = await selectAgentsInteractive({ global: options.global });
 
-        if (p.isCancel(selected)) {
-          p.cancel('Installation cancelled');
+        if (isCancelled(selected)) {
           await cleanup(tempDir);
-          process.exit(0);
+          exitInstallationCancelled();
         }
 
         targetAgents = selected as AgentType[];
@@ -1527,9 +1536,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         });
 
         if (p.isCancel(selectedSubagents)) {
-          p.cancel('Installation cancelled');
           await cleanup(tempDir);
-          process.exit(0);
+          exitInstallationCancelled();
         }
 
         eveSubagentTargets = (selectedSubagents as string[]).map((s) => (s === '' ? undefined : s));
@@ -1561,9 +1569,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       });
 
       if (p.isCancel(scope)) {
-        p.cancel('Installation cancelled');
         await cleanup(tempDir);
-        process.exit(0);
+        exitInstallationCancelled();
       }
 
       installGlobally = scope as boolean;
@@ -1597,9 +1604,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       });
 
       if (p.isCancel(modeChoice)) {
-        p.cancel('Installation cancelled');
         await cleanup(tempDir);
-        process.exit(0);
+        exitInstallationCancelled();
       }
 
       installMode = modeChoice as InstallMode;
@@ -1727,9 +1733,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       const confirmed = await p.confirm({ message: 'Proceed with installation?' });
 
       if (p.isCancel(confirmed) || !confirmed) {
-        p.cancel('Installation cancelled');
         await cleanup(tempDir);
-        process.exit(0);
+        exitInstallationCancelled();
       }
     }
 
