@@ -12,6 +12,7 @@ import {
   stat,
   chmod,
   realpath,
+  rename,
 } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, basename, normalize, resolve, sep, relative, dirname, extname } from 'path';
@@ -1068,6 +1069,81 @@ export interface InstalledSkill {
   canonicalPath: string;
   scope: 'project' | 'global';
   agents: AgentType[];
+  disabled?: boolean;
+}
+
+const DISABLED_SKILL_FILE = 'SKILL.md.disabled';
+
+/**
+ * Toggle an installed skill without deleting its files or lock entry.
+ *
+ * Agents discover skills through an exact `SKILL.md` filename. Renaming that
+ * file keeps the installation intact and reversible while preventing agents
+ * from loading it. Every canonical, copied, and agent-specific installation is
+ * toggled together so a skill cannot remain partially enabled.
+ */
+export async function setInstalledSkillEnabled(
+  skill: InstalledSkill,
+  enabled: boolean,
+  options: { cwd?: string } = {}
+): Promise<number> {
+  const cwd = options.cwd || process.cwd();
+  const isGlobal = skill.scope === 'global';
+  const directories = new Set<string>([
+    skill.canonicalPath,
+    skill.path,
+    getCanonicalPath(skill.name, { global: isGlobal, cwd }),
+  ]);
+
+  for (const agentType of Object.keys(agents) as AgentType[]) {
+    if (isGlobal && agents[agentType].globalSkillsDir === undefined) continue;
+    directories.add(getInstallPath(skill.name, agentType, { global: isGlobal, cwd }));
+    if (!isGlobal && agentType === 'eve') {
+      for (const subagent of getEveSubagents(cwd)) {
+        directories.add(join(getEveSubagentSkillsDir(subagent, cwd), sanitizeName(skill.name)));
+      }
+    }
+  }
+
+  const fromName = enabled ? DISABLED_SKILL_FILE : 'SKILL.md';
+  const toName = enabled ? 'SKILL.md' : DISABLED_SKILL_FILE;
+  const plans: Array<{ from: string; to: string }> = [];
+  const seenFiles = new Set<string>();
+
+  for (const directory of directories) {
+    const from = join(directory, fromName);
+    const to = join(directory, toName);
+    const sourceStats = await stat(from).catch(() => null);
+    if (!sourceStats?.isFile()) continue;
+
+    const resolvedSource = await realpath(from).catch(() => resolve(from));
+    if (seenFiles.has(resolvedSource)) continue;
+    seenFiles.add(resolvedSource);
+
+    const targetStats = await stat(to).catch(() => null);
+    if (targetStats) {
+      throw new Error(`Cannot ${enabled ? 'enable' : 'disable'} ${skill.name}: ${toName} exists.`);
+    }
+    plans.push({ from, to });
+  }
+
+  if (plans.length === 0) {
+    throw new Error(`${skill.name} is already ${enabled ? 'enabled' : 'disabled'}.`);
+  }
+
+  const completed: Array<{ from: string; to: string }> = [];
+  try {
+    for (const plan of plans) {
+      await rename(plan.from, plan.to);
+      completed.push(plan);
+    }
+    return completed.length;
+  } catch (error) {
+    for (const plan of completed.reverse()) {
+      await rename(plan.to, plan.from).catch(() => undefined);
+    }
+    throw error;
+  }
 }
 
 /**
@@ -1174,14 +1250,23 @@ export async function listInstalledSkills(
         const skillDir = join(scope.path, entry.name);
         if (!(await isDirEntryOrSymlinkToDir(entry, skillDir))) continue;
 
-        const skillMdPath = join(skillDir, 'SKILL.md');
+        const activeSkillMdPath = join(skillDir, 'SKILL.md');
+        const disabledSkillMdPath = join(skillDir, DISABLED_SKILL_FILE);
+        let skillMdPath = activeSkillMdPath;
+        let disabled = false;
 
-        // Check if SKILL.md exists
+        // Disabled skills keep their definition under SKILL.md.disabled so
+        // they remain visible and can be enabled again from management UIs.
         try {
-          await stat(skillMdPath);
+          await stat(activeSkillMdPath);
         } catch {
-          // SKILL.md doesn't exist, skip this directory
-          continue;
+          try {
+            await stat(disabledSkillMdPath);
+            skillMdPath = disabledSkillMdPath;
+            disabled = true;
+          } catch {
+            continue;
+          }
         }
 
         // Parse the skill
@@ -1200,6 +1285,7 @@ export async function listInstalledSkills(
             if (!existing.agents.includes(scope.agentType)) {
               existing.agents.push(scope.agentType);
             }
+            existing.disabled = Boolean(existing.disabled && disabled);
           } else {
             skillsMap.set(skillKey, {
               name: skill.name,
@@ -1208,6 +1294,7 @@ export async function listInstalledSkills(
               canonicalPath: skillDir,
               scope: scopeKey,
               agents: [scope.agentType],
+              disabled,
             });
           }
           continue;
@@ -1292,6 +1379,7 @@ export async function listInstalledSkills(
               existing.agents.push(agent);
             }
           }
+          existing.disabled = Boolean(existing.disabled && disabled);
         } else {
           skillsMap.set(skillKey, {
             name: skill.name,
@@ -1300,6 +1388,7 @@ export async function listInstalledSkills(
             canonicalPath: skillDir,
             scope: scopeKey,
             agents: installedAgents,
+            disabled,
           });
         }
       }
