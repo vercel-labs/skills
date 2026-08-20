@@ -288,6 +288,14 @@ export function parseSource(input: string): ParsedSource {
   } = parseFragmentRef(input);
   input = inputWithoutFragment;
 
+  // Preserve any userinfo (e.g. `x-access-token:TOKEN@` or `user:pass@`) embedded
+  // in an HTTPS URL. Without this, normalization below reconstructs the URL without
+  // the credentials the caller deliberately threaded through, and clones of private
+  // repos fail (or prompt) even when correctly authenticated. Captured from the
+  // original input, before alias resolution replaces it.
+  const authMatch = input.match(/^https?:\/\/([^/@]+@)/);
+  const auth = authMatch ? authMatch[1]! : '';
+
   // Resolve source aliases before parsing
   const alias = SOURCE_ALIASES[input];
   if (alias) {
@@ -354,7 +362,7 @@ export function parseSource(input: string): ParsedSource {
     const [, owner, repo, ref, subpath] = githubTreeWithPathMatch;
     return {
       type: 'github',
-      url: `https://github.com/${owner}/${repo}.git`,
+      url: `https://${auth}github.com/${owner}/${repo}.git`,
       ref: ref || fragmentRef,
       subpath: subpath ? sanitizeSubpath(subpath) : subpath,
     };
@@ -366,7 +374,7 @@ export function parseSource(input: string): ParsedSource {
     const [, owner, repo, ref] = githubTreeMatch;
     return {
       type: 'github',
-      url: `https://github.com/${owner}/${repo}.git`,
+      url: `https://${auth}github.com/${owner}/${repo}.git`,
       ref: ref || fragmentRef,
     };
   }
@@ -378,7 +386,7 @@ export function parseSource(input: string): ParsedSource {
     const cleanRepo = repo!.replace(/\.git$/, '');
     return {
       type: 'github',
-      url: `https://github.com/${owner}/${cleanRepo}.git`,
+      url: `https://${auth}github.com/${owner}/${cleanRepo}.git`,
       ...(fragmentRef ? { ref: fragmentRef } : {}),
     };
   }
@@ -394,6 +402,7 @@ export function parseSource(input: string): ParsedSource {
     if (hostname !== 'github.com' && repoPath) {
       return {
         type: 'gitlab',
+        // hostname already includes any userinfo (the anchored regex captures it).
         url: `${protocol}://${hostname}/${repoPath.replace(/\.git$/, '')}.git`,
         ref: ref || fragmentRef,
         subpath: subpath ? sanitizeSubpath(subpath) : subpath,
@@ -408,6 +417,7 @@ export function parseSource(input: string): ParsedSource {
     if (hostname !== 'github.com' && repoPath) {
       return {
         type: 'gitlab',
+        // hostname already includes any userinfo (the anchored regex captures it).
         url: `${protocol}://${hostname}/${repoPath.replace(/\.git$/, '')}.git`,
         ref: ref || fragmentRef,
       };
@@ -424,7 +434,7 @@ export function parseSource(input: string): ParsedSource {
     if (repoPath.includes('/')) {
       return {
         type: 'gitlab',
-        url: `https://gitlab.com/${repoPath}.git`,
+        url: `https://${auth}gitlab.com/${repoPath}.git`,
         ...(fragmentRef ? { ref: fragmentRef } : {}),
       };
     }
