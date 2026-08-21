@@ -70,7 +70,7 @@ export function sanitizeName(name: string): string {
  * @param targetPath - The path to validate
  * @returns true if targetPath is within basePath
  */
-function isPathSafe(basePath: string, targetPath: string): boolean {
+export function isPathSafe(basePath: string, targetPath: string): boolean {
   const normalizedBase = normalize(resolve(basePath));
   const normalizedTarget = normalize(resolve(targetPath));
 
@@ -423,7 +423,7 @@ export async function installSkillForAgent(
 const EXCLUDE_FILES = new Set(['metadata.json']);
 const EXCLUDE_DIRS = new Set(['.git', '__pycache__', '__pypackages__']);
 
-const isExcluded = (name: string, isDirectory: boolean = false): boolean => {
+export const isExcluded = (name: string, isDirectory: boolean = false): boolean => {
   if (EXCLUDE_FILES.has(name)) return true;
   if (isDirectory && EXCLUDE_DIRS.has(name)) return true;
   return false;

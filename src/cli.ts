@@ -135,12 +135,16 @@ ${BOLD}Project:${RESET}
 ${BOLD}Add Options:${RESET}
   -g, --global           Install skill globally (user-level) instead of project-level
   -a, --agent <agents>   Specify agents to install to (use '*' for all agents)
+                         'claude-managed-agents' uploads to the Anthropic Skills API
+                         (requires \`ant auth login\` or ANTHROPIC_API_KEY)
   -s, --skill <skills>   Specify skill names to install (use '*' for all skills)
   -l, --list             List available skills in the repository without installing
   -y, --yes              Skip confirmation prompts
   --copy                 Copy files instead of symlinking to agent directories
   --metadata <json>      Attach valid JSON to the install telemetry event
   --subagent <names>     Install to Eve subagents (use 'root' for the root agent)
+  --managed-agents       Also upload to Claude Managed Agents on top of the
+                         selected agents (skipped with a warning if no credentials)
   --all                  Shorthand for --skill '*' --agent '*' -y
   --full-depth           Search all subdirectories even when a root SKILL.md exists
 

@@ -1,6 +1,6 @@
 import { homedir } from 'os';
 import type { AgentType } from './types.ts';
-import { agents } from './agents.ts';
+import { agents, isApiUploadAgent } from './agents.ts';
 import { listInstalledSkills, sanitizeName, type InstalledSkill } from './installer.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { getAllLockedSkills } from './skill-lock.ts';
@@ -92,6 +92,18 @@ export async function runList(args: string[]): Promise<void> {
     }
 
     agentFilter = options.agent as AgentType[];
+
+    // API-upload agents' skills live in the Anthropic API, not on disk, so a
+    // listing filtered to them would silently show the wrong thing.
+    if (agentFilter.some((a) => isApiUploadAgent(a))) {
+      console.log(
+        `${YELLOW}Claude Managed Agents skills are managed through the Anthropic API and cannot be listed locally.${RESET}`
+      );
+      agentFilter = agentFilter.filter((a) => !isApiUploadAgent(a));
+      if (agentFilter.length === 0) {
+        process.exit(1);
+      }
+    }
   }
 
   const installedSkills = await listInstalledSkills({

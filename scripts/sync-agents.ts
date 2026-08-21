@@ -20,7 +20,7 @@ function generateAgentNames(): string {
 }
 
 function generateAvailableAgentsTable(): string {
-  // Group agents by their paths
+  // Group agents by their paths (API-upload agents by their install hint).
   const pathGroups = new Map<
     string,
     {
@@ -28,17 +28,19 @@ function generateAvailableAgentsTable(): string {
       displayNames: string[];
       skillsDir: string;
       globalSkillsDir: string | undefined;
+      installHint?: string;
     }
   >();
 
   for (const [key, a] of Object.entries(agents)) {
-    const pathKey = `${a.skillsDir}|${a.globalSkillsDir}`;
+    const pathKey = `${a.skillsDir}|${a.globalSkillsDir}|${a.installHint ?? ''}`;
     if (!pathGroups.has(pathKey)) {
       pathGroups.set(pathKey, {
         keys: [],
         displayNames: [],
         skillsDir: a.skillsDir,
         globalSkillsDir: a.globalSkillsDir,
+        installHint: a.installHint,
       });
     }
     const group = pathGroups.get(pathKey)!;
@@ -47,11 +49,14 @@ function generateAvailableAgentsTable(): string {
   }
 
   const rows = Array.from(pathGroups.values()).map((group) => {
+    const names = group.displayNames.join(', ');
+    const keys = group.keys.map((k) => `\`${k}\``).join(', ');
+    if (group.installHint) {
+      return `| ${names} | ${keys} | ${group.installHint} | ${group.installHint} |`;
+    }
     const globalPath = group.globalSkillsDir
       ? `\`${group.globalSkillsDir.replace(homedir(), '~')}/\``
       : 'N/A (project-only)';
-    const names = group.displayNames.join(', ');
-    const keys = group.keys.map((k) => `\`${k}\``).join(', ');
     return `| ${names} | ${keys} | \`${group.skillsDir}/\` | ${globalPath} |`;
   });
   return [
@@ -70,7 +75,13 @@ function generateSkillDiscoveryPaths(): string {
     '- `skills/.system/`',
   ];
 
-  const agentPaths = [...new Set(Object.values(agents).map((a) => a.skillsDir))]
+  const agentPaths = [
+    ...new Set(
+      Object.values(agents)
+        .filter((a) => a.install !== 'api-upload')
+        .map((a) => a.skillsDir)
+    ),
+  ]
     .filter((p) => p !== 'skills') // Filter out the standard `skills/` path
     .map((p) => `- \`${p}/\``);
 

@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [73 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [74 more](#supported-agents).
 <!-- agent-list:end -->
 
 [![skills.sh](https://skills.sh/b/vercel-labs/skills)](https://skills.sh/vercel-labs/skills)
@@ -278,6 +278,7 @@ Skills can be installed to any of these agents:
 | Augment | `augment` | `.augment/skills/` | `~/.augment/skills/` |
 | IBM Bob | `bob` | `.bob/skills/` | `~/.bob/skills/` |
 | Claude Code | `claude-code` | `.claude/skills/` | `~/.claude/skills/` |
+| Claude Managed Agents | `claude-managed-agents` | Uploads to the Anthropic Skills API | Uploads to the Anthropic Skills API |
 | OpenClaw | `openclaw` | `skills/` | `~/.openclaw/skills/` |
 | Cline, Dexto, Kimi Code CLI, Loaf, Warp, Zed | `cline`, `dexto`, `kimi-code-cli`, `loaf`, `warp`, `zed` | `.agents/skills/` | `~/.agents/skills/` |
 | CodeArts Agent | `codearts-agent` | `.codeartsdoer/skills/` | `~/.codeartsdoer/skills/` |
@@ -352,6 +353,33 @@ Skills can be installed to any of these agents:
 
 The CLI automatically detects which coding agents you have installed. If none are detected, you'll be prompted to select
 which agents to install to.
+
+### Claude Managed Agents
+
+`claude-managed-agents` is an API target rather than a directory: each selected skill is uploaded to the
+[Anthropic Skills API](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview), where it becomes available
+to your [Claude managed agents](https://platform.claude.com/docs/en/managed-agents/skills) (and to the
+Messages API code-execution container) as a custom skill.
+
+```bash
+npx skills add vercel-labs/agent-skills --agent claude-managed-agents
+```
+
+Credentials are resolved in this order:
+
+1. `ANTHROPIC_API_KEY` environment variable
+2. `ANTHROPIC_AUTH_TOKEN` environment variable
+3. The Anthropic CLI's stored login (run `ant auth login`); expired tokens are refreshed automatically
+4. The Anthropic CLI credentials file (`~/.config/anthropic`), when the `ant` binary isn't on `PATH`
+
+Behavior notes:
+
+- Adding a skill that already exists in your workspace (matched by the id recorded in the lock file, otherwise by
+  display name) uploads a new version of that skill instead of creating a duplicate.
+- This target is never auto-detected and is excluded from `--agent '*'` and `--all`, so bulk installs can't upload to
+  your Anthropic workspace by accident. Select it explicitly with `--agent claude-managed-agents` or in the
+  interactive prompt.
+- `ANTHROPIC_BASE_URL` is honored for non-default API endpoints.
 
 ## Creating Skills
 

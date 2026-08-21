@@ -8,6 +8,7 @@ export type AgentType =
   | 'augment'
   | 'bob'
   | 'claude-code'
+  | 'claude-managed-agents'
   | 'openclaw'
   | 'cline'
   | 'codearts-agent'
@@ -99,6 +100,15 @@ export interface AgentConfig {
   showInUniversalList?: boolean;
   /** Whether to display this universal agent in the interactive locked section. Defaults to true. */
   showInUniversalPrompt?: boolean;
+  /**
+   * How skills reach this agent. By default they are copied or symlinked
+   * into `skillsDir`. `'api-upload'` pushes the skill through a dedicated API
+   * instead: such agents have no skills directory, are never auto-detected,
+   * are excluded from `--agent '*'` expansion, and must be selected explicitly.
+   */
+  install?: 'api-upload';
+  /** Hint shown in interactive agent selection instead of a skills directory. */
+  installHint?: string;
 }
 
 export interface ParsedSource {

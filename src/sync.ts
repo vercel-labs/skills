@@ -11,6 +11,8 @@ import {
   getUniversalAgents,
   getVisibleUniversalAgents,
   getNonUniversalAgents,
+  getWildcardAgents,
+  isApiUploadAgent,
 } from './agents.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 import { addSkillToLocalLock, computeSkillFolderHash, readLocalLock } from './local-lock.ts';
@@ -231,13 +233,21 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   const visibleUniversalAgents = getVisibleUniversalAgents();
 
   if (options.agent?.includes('*')) {
-    targetAgents = validAgents as AgentType[];
+    // Covers filesystem agents only; API-upload agents need an explicit -a.
+    targetAgents = getWildcardAgents();
     p.log.info(`Installing to all ${targetAgents.length} agents`);
   } else if (options.agent && options.agent.length > 0) {
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
     if (invalidAgents.length > 0) {
       p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
       p.log.info(`Valid agents: ${validAgents.join(', ')}`);
+      process.exit(1);
+    }
+    const apiUploadRequested = options.agent.filter((a) => isApiUploadAgent(a as AgentType));
+    if (apiUploadRequested.length > 0) {
+      p.log.error(
+        `${apiUploadRequested.join(', ')} is not supported by experimental_sync; use \`skills add\` to upload skills`
+      );
       process.exit(1);
     }
     targetAgents = options.agent as AgentType[];
@@ -252,7 +262,8 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
         targetAgents = universalAgents;
         p.log.info('Installing to universal agents');
       } else {
-        const otherAgents = getNonUniversalAgents();
+        // API-upload agents aren't sync targets.
+        const otherAgents = getNonUniversalAgents().filter((a) => !isApiUploadAgent(a));
 
         const otherChoices = otherAgents.map((a) => ({
           value: a,
