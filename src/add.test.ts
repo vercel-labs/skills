@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { existsSync, rmSync, mkdirSync, writeFileSync } from 'fs';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli, stripAnsi } from './test-utils.ts';
@@ -99,6 +107,40 @@ Instructions here.
     expect(result.stdout).toContain('my-skill');
     expect(result.stdout).toContain('Done!');
     expect(result.exitCode).toBe(0);
+  });
+
+  it('refuses non-TTY overwrites and preserves an existing symlink', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'skills', 'theme-factory');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: theme-factory
+description: Incoming skill
+---
+
+# Incoming Skill
+`
+    );
+
+    const isolatedHome = join(testDir, 'home');
+    const userSkillDir = join(isolatedHome, 'user-skills', 'theme-factory');
+    const agentSkillDir = join(isolatedHome, '.claude', 'skills', 'theme-factory');
+    mkdirSync(userSkillDir, { recursive: true });
+    writeFileSync(join(userSkillDir, 'SKILL.md'), '# User-owned skill\n');
+    mkdirSync(join(isolatedHome, '.claude', 'skills'), { recursive: true });
+    symlinkSync(userSkillDir, agentSkillDir);
+
+    const result = runCli(['add', sourceDir, '--global', '--agent', 'claude-code'], testDir, {
+      HOME: isolatedHome,
+      USERPROFILE: isolatedHome,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('Re-run with -y/--yes or --force');
+    expect(lstatSync(agentSkillDir).isSymbolicLink()).toBe(true);
+    expect(readFileSync(join(userSkillDir, 'SKILL.md'), 'utf8')).toContain('User-owned skill');
   });
 
   it('deduplicates copied install paths for universal agents sharing the same directory', () => {
@@ -654,6 +696,12 @@ describe('parseAddOptions', () => {
     expect(result.options.global).toBe(true);
     expect(result.options.skill).toEqual(['*']);
     expect(result.options.yes).toBe(true);
+  });
+
+  it('should parse --force flag', () => {
+    const result = parseAddOptions(['source', '--force']);
+    expect(result.source).toEqual(['source']);
+    expect(result.options.force).toBe(true);
   });
 
   it('should parse --full-depth flag', () => {

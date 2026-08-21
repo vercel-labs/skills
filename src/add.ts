@@ -524,6 +524,10 @@ export interface AddOptions {
   global?: boolean;
   agent?: string[];
   yes?: boolean;
+  /** Overwrite existing same-name skills without prompting about the conflict. */
+  force?: boolean;
+  /** @internal Whether overwrite consent was supplied before agent auto-detection. */
+  explicitOverwrite?: boolean;
   skill?: string[];
   /** Valid JSON to attach to the install telemetry event. */
   metadata?: string;
@@ -536,6 +540,76 @@ export interface AddOptions {
    * selects the root agent. Implies installing for Eve.
    */
   subagent?: string[];
+}
+
+interface OverwriteConflict {
+  skillName: string;
+  targetKey: string;
+  targetLabel: string;
+}
+
+/**
+ * Resolve existing install destinations before any installer can remove them.
+ * In a non-TTY, an implicit agent-mode `yes` is not enough: callers must pass
+ * `-y` or `--force` explicitly so a user's symlink or directory is never
+ * replaced accidentally.
+ */
+async function resolveOverwriteConflicts(
+  conflicts: OverwriteConflict[],
+  options: { explicitOverwrite: boolean }
+): Promise<Set<string>> {
+  const uniqueConflicts = new Map<string, OverwriteConflict>();
+  for (const conflict of conflicts) {
+    uniqueConflicts.set(`${conflict.skillName}\0${conflict.targetKey}`, conflict);
+  }
+
+  if (uniqueConflicts.size === 0 || options.explicitOverwrite) {
+    return new Set();
+  }
+
+  const conflictList = [...uniqueConflicts.values()];
+  const display = conflictList
+    .map((conflict) => `${conflict.skillName} → ${conflict.targetLabel}`)
+    .join(', ');
+
+  if (!process.stdin.isTTY) {
+    p.log.error(
+      `Existing skill${conflictList.length === 1 ? '' : 's'} found (${display}). ` +
+        'Re-run with -y/--yes or --force to explicitly overwrite.'
+    );
+    process.exit(1);
+  }
+
+  const choice = await p.select({
+    message: `Existing skill${conflictList.length === 1 ? '' : 's'} found. What should happen?`,
+    options: [
+      {
+        value: 'keep',
+        label: 'Keep existing',
+        hint: 'Skip only the conflicting destinations',
+      },
+      {
+        value: 'overwrite',
+        label: 'Overwrite',
+        hint: 'Replace the existing skill after confirmation',
+      },
+      { value: 'cancel', label: 'Cancel', hint: 'Do not install any skills' },
+    ],
+  });
+
+  if (p.isCancel(choice) || choice === 'cancel') {
+    p.cancel('Installation cancelled');
+    process.exit(0);
+  }
+
+  if (choice === 'keep') {
+    p.log.info(
+      `Keeping ${conflictList.length} existing skill destination${conflictList.length === 1 ? '' : 's'}.`
+    );
+    return new Set(conflictList.map((conflict) => `${conflict.skillName}\0${conflict.targetKey}`));
+  }
+
+  return new Set();
 }
 
 /**
@@ -845,6 +919,17 @@ async function handleWellKnownSkills(
   console.log();
   p.note(summaryLines.join('\n'), 'Installation Summary');
 
+  const skipConflicts = await resolveOverwriteConflicts(
+    overwriteChecks
+      .filter(({ installed }) => installed)
+      .map(({ skillName, agent }) => ({
+        skillName,
+        targetKey: agent,
+        targetLabel: agents[agent].displayName,
+      })),
+    { explicitOverwrite: options.explicitOverwrite ?? options.force === true }
+  );
+
   if (!options.yes) {
     const confirmed = await p.confirm({ message: 'Proceed with installation?' });
 
@@ -873,6 +958,7 @@ async function handleWellKnownSkills(
 
   for (const skill of selectedSkills) {
     for (const agent of targetAgents) {
+      if (skipConflicts.has(`${skill.installName}\0${agent}`)) continue;
       const result = await installWellKnownSkillForAgent(skill, agent, {
         global: installGlobally,
         mode: installMode,
@@ -1067,6 +1153,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     options.agent = ['*'];
     options.yes = true;
   }
+
+  // Capture explicit consent before agent detection can enable `yes` implicitly.
+  options.explicitOverwrite ??=
+    options.yes === true || options.force === true || options.all === true;
 
   // Auto-enable non-interactive mode when running inside an AI agent
   const agentResult = await detectAgent();
@@ -1702,6 +1792,17 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     console.log();
     p.note(summaryLines.join('\n'), 'Installation Summary');
 
+    const skipConflicts = await resolveOverwriteConflicts(
+      overwriteChecks
+        .filter(({ installed }) => installed)
+        .map(({ skillName, target }) => ({
+          skillName,
+          targetKey: targetKey(target),
+          targetLabel: targetDisplayName(target),
+        })),
+      { explicitOverwrite: options.explicitOverwrite === true }
+    );
+
     // Await and display security audit results (started earlier in parallel)
     // Wrapped in try/catch so a failed audit fetch never blocks installation.
     try {
@@ -1749,6 +1850,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     for (const skill of selectedSkills) {
       for (const target of installTargets) {
+        if (skipConflicts.has(`${skill.name}\0${targetKey(target)}`)) continue;
         const { agent, subagent } = target;
         let result;
         if (blobResult && 'files' in skill) {
@@ -2170,6 +2272,8 @@ export function parseAddOptions(args: string[]): {
       options.global = true;
     } else if (arg === '-y' || arg === '--yes') {
       options.yes = true;
+    } else if (arg === '--force') {
+      options.force = true;
     } else if (arg === '-l' || arg === '--list') {
       options.list = true;
     } else if (arg === '--all') {
