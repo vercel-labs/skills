@@ -1,5 +1,6 @@
 import { spawnSync } from 'child_process';
 import { existsSync, readdirSync } from 'fs';
+import { lstat } from 'fs/promises';
 import { join, dirname, relative, sep } from 'path';
 import { fileURLToPath } from 'url';
 import * as p from '@clack/prompts';
@@ -21,12 +22,158 @@ import { wellKnownProvider, computeWellKnownSkillDigest } from './providers/inde
 import { removeCommand } from './remove.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
-import { agents, isUniversalAgent } from './agents.ts';
+import {
+  agents,
+  isUniversalAgent,
+  getUniversalAgents,
+  getNonUniversalAgents,
+  getEveSubagents,
+  detectInstalledAgents,
+} from './agents.ts';
+import { getInstallPath, getCanonicalPath } from './installer.ts';
 import type { AgentType } from './types.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const RESET = '\x1b[0m';
+
+/**
+ * Result of validating the `agents` lock field.
+ *
+ * - `ok`      — valid agent IDs found; `args` is the `--agent` argv fragment.
+ * - `missing` — no `agents` field (or empty); caller should infer from disk.
+ * - `invalid` — `agents` exists but is malformed (wrong type) or contains no
+ *   valid agent IDs; caller should skip the skill with an error rather than
+ *   fall back to broad auto-detection.
+ */
+type AgentArgsResult = { kind: 'ok'; args: string[] } | { kind: 'missing' } | { kind: 'invalid' };
+
+/**
+ * Validate the `agents` lock field and produce the `--agent` argv fragment.
+ *
+ * The lock file is trusted input (project locks are checked into git), but a
+ * malicious or corrupted entry could include CLI flags like `-g` or `--all`
+ * that would be injected into the spawned `add` command's argv. Only known
+ * agent IDs are passed through. If the field exists but contains no valid
+ * IDs (or is the wrong type), the caller must skip the skill rather than
+ * silently fall back to broad auto-detection.
+ */
+export function safeAgentArgs(recordedAgents: unknown): AgentArgsResult {
+  if (recordedAgents == null) return { kind: 'missing' };
+  if (!Array.isArray(recordedAgents)) return { kind: 'invalid' };
+  if (recordedAgents.length === 0) return { kind: 'missing' };
+  const valid = new Set(Object.keys(agents));
+  const filtered = recordedAgents.filter((a): a is string => typeof a === 'string' && valid.has(a));
+  if (filtered.length === 0) return { kind: 'invalid' };
+  return { kind: 'ok', args: ['--agent', ...filtered] };
+}
+
+/**
+ * Infer which agents currently have a skill installed on disk. Used for lazy
+ * migration of legacy lock entries that predate the `agents` field: instead
+ * of falling back to broad agent detection, we inspect actual skill paths so
+ * the first update targets only agents that really have the skill.
+ *
+ * Checks agent-specific paths (symlink or copy), the shared universal
+ * `.agents/skills` canonical path, and Eve root/subagent paths. Universal
+ * agents share the canonical path. Prefer detected universal agents when any
+ * are detected; otherwise fall back to all universal agents because the
+ * canonical placement itself is sufficient evidence that the skill exists.
+ *
+ * For Eve, both the root (`agent/skills`) and each named subagent
+ * (`agent/subagents/<name>/skills`) are checked. The subagent names that
+ * contain the skill are returned so the caller can replay them via
+ * `--subagent` — otherwise a legacy Eve-subagent-only installation would be
+ * silently reinstalled to Eve root on the first update.
+ */
+async function inferInstalledAgents(
+  skillName: string,
+  isGlobal: boolean,
+  cwd: string
+): Promise<{ agents: AgentType[]; eveSubagents: string[] }> {
+  const found = new Set<AgentType>();
+  const eveSubagents: string[] = [];
+  const exists = (p: string) => lstat(p).catch(() => null);
+
+  // Non-universal agents have their own skills directory.
+  for (const agentType of getNonUniversalAgents()) {
+    if (isGlobal && agents[agentType].globalSkillsDir === undefined) continue;
+    if (agentType === 'eve') {
+      // Eve root skills directory.
+      const rootPath = getInstallPath(skillName, 'eve', { global: isGlobal, cwd });
+      if (await exists(rootPath)) {
+        found.add('eve');
+        eveSubagents.push('');
+      }
+      // Eve named subagents (project only).
+      if (!isGlobal) {
+        for (const subagent of getEveSubagents(cwd)) {
+          const path = getInstallPath(skillName, 'eve', {
+            global: false,
+            cwd,
+            eveSubagent: subagent,
+          });
+          if (await exists(path)) {
+            found.add('eve');
+            eveSubagents.push(subagent);
+          }
+        }
+      }
+    } else {
+      const path = getInstallPath(skillName, agentType, { global: isGlobal, cwd });
+      if (await exists(path)) found.add(agentType);
+    }
+  }
+
+  // Universal agents share the canonical .agents/skills path. If the skill is
+  // there, it is accessible to every detected universal agent.
+  const canonicalPath = getCanonicalPath(skillName, { global: isGlobal, cwd });
+  if (await exists(canonicalPath)) {
+    const detected = await detectInstalledAgents();
+    const detectedUniversal = detected.filter(isUniversalAgent);
+    const universalTargets =
+      detectedUniversal.length > 0 ? detectedUniversal : getUniversalAgents();
+    for (const agentType of universalTargets) {
+      if (isGlobal && agents[agentType].globalSkillsDir === undefined) continue;
+      found.add(agentType);
+    }
+  }
+
+  return { agents: [...found], eveSubagents };
+}
+
+/**
+ * Resolve the `--agent` argv fragment for an update.
+ *
+ * - Valid `agents` field → use it directly.
+ * - Malformed / all-invalid `agents` field → fail closed (return `invalid`).
+ * - Missing `agents` field (legacy entry) → infer placement from disk. If no
+ *   placement can be inferred, return `no-placement` so the caller skips with
+ *   an error instead of auto-installing broadly.
+ *
+ * For legacy entries, `eveSubagents` carries the inferred Eve subagent names
+ * (root = `''`) so the caller can replay them via `--subagent`. For modern
+ * entries, `eveSubagents` is empty — the caller uses the lock's `subagents`
+ * field instead.
+ */
+async function resolveAgentArgs(
+  recordedAgents: unknown,
+  skillName: string,
+  isGlobal: boolean,
+  cwd: string
+): Promise<
+  | { ok: true; args: string[]; eveSubagents: string[] }
+  | { ok: false; reason: 'invalid' | 'no-placement' }
+> {
+  const result = safeAgentArgs(recordedAgents);
+  if (result.kind === 'ok') return { ok: true, args: result.args, eveSubagents: [] };
+  if (result.kind === 'invalid') return { ok: false, reason: 'invalid' };
+  // Legacy entry: infer current placement from disk.
+  const { agents: inferred, eveSubagents } = await inferInstalledAgents(skillName, isGlobal, cwd);
+  if (inferred.length === 0) return { ok: false, reason: 'no-placement' };
+  return { ok: true, args: ['--agent', ...inferred], eveSubagents };
+}
+
 const BOLD = '\x1b[1m';
 const DIM = '\x1b[38;5;102m';
 const TEXT = '\x1b[38;5;145m';
@@ -310,6 +457,7 @@ export interface WellKnownUpdateItem {
   name: string;
   digest: string;
   subagents?: string[];
+  agents?: string[];
 }
 
 export type WellKnownCheckResult =
@@ -437,11 +585,30 @@ export async function processWellKnownUpdates(
       const safeName = sanitizeMetadata(name);
       console.log(`${TEXT}Updating ${safeName}…${RESET}`);
 
-      const subagents = itemByName.get(name)?.subagents;
-      const subagentArgs =
-        !isGlobal && subagents?.length
-          ? ['--subagent', ...subagents.map((s) => (s === '' ? 'root' : s))]
-          : [];
+      const item = itemByName.get(name);
+      const subagents = !isGlobal ? item?.subagents : undefined;
+
+      const agentResult = await resolveAgentArgs(item?.agents, name, isGlobal, process.cwd());
+      if (!agentResult.ok) {
+        failCount++;
+        const reason =
+          agentResult.reason === 'invalid'
+            ? 'agents field in lock file is malformed or has no valid agent IDs'
+            : 'no agent placement could be inferred from disk';
+        console.log(`  ${DIM}✗ Skipped ${safeName}: ${reason}${RESET}`);
+        continue;
+      }
+
+      // Use recorded subagents if present (modern); else inferred Eve subagents
+      // (legacy). Root is stored as '' and mapped to the `root` keyword.
+      const effectiveSubagents = isGlobal
+        ? undefined
+        : subagents?.length
+          ? subagents
+          : agentResult.eveSubagents;
+      const subagentArgs = effectiveSubagents?.length
+        ? ['--subagent', ...effectiveSubagents.map((s) => (s === '' ? 'root' : s))]
+        : [];
 
       const spawnResult = spawnSync(
         process.execPath,
@@ -452,6 +619,7 @@ export async function processWellKnownUpdates(
           '--skill',
           name,
           ...subagentArgs,
+          ...agentResult.args,
           ...(isGlobal ? ['-g'] : []),
           '-y',
         ],
@@ -504,7 +672,7 @@ export async function updateGlobalSkills(
 
     if (entry.sourceType === 'well-known' && entry.sourceBaseUrl && entry.wellKnownDigest) {
       const group = wellKnownGroups.get(entry.sourceBaseUrl) || [];
-      group.push({ name: skillName, digest: entry.wellKnownDigest });
+      group.push({ name: skillName, digest: entry.wellKnownDigest, agents: entry.agents });
       wellKnownGroups.set(entry.sourceBaseUrl, group);
       continue;
     }
@@ -695,9 +863,36 @@ export async function updateGlobalSkills(
       continue;
     }
     const fullDepthArgs = shouldUseFullDepthForUpdate(update.entry) ? ['--full-depth'] : [];
+
+    const agentResult = await resolveAgentArgs(
+      update.entry.agents,
+      update.name,
+      true,
+      process.cwd()
+    );
+    if (!agentResult.ok) {
+      failCount++;
+      const reason =
+        agentResult.reason === 'invalid'
+          ? 'agents field in lock file is malformed or has no valid agent IDs'
+          : 'no agent placement could be inferred from disk';
+      console.log(`  ${DIM}✗ Skipped ${safeName}: ${reason}${RESET}`);
+      continue;
+    }
+
     const result = spawnSync(
       process.execPath,
-      [cliEntry, 'add', installUrl, '--skill', update.name, ...fullDepthArgs, '-g', '-y'],
+      [
+        cliEntry,
+        'add',
+        installUrl,
+        '--skill',
+        update.name,
+        ...fullDepthArgs,
+        ...agentResult.args,
+        '-g',
+        '-y',
+      ],
       {
         stdio: ['inherit', 'pipe', 'pipe'],
         encoding: 'utf-8',
@@ -751,6 +946,7 @@ export async function updateProjectSkills(
         name: skill.name,
         digest: entry.wellKnownDigest,
         subagents: entry.subagents,
+        agents: entry.agents,
       });
       wellKnownGroups.set(entry.sourceUrl, group);
     } else {
@@ -890,11 +1086,32 @@ export async function updateProjectSkills(
         continue;
       }
 
-      // Preserve Eve subagent placement recorded at install time. The lock stores
-      // '' for the root agent, which maps to the `root` keyword for `add --subagent`.
-      const subagentArgs = skill.entry.subagents?.length
-        ? ['--subagent', ...skill.entry.subagents.map((s) => (s === '' ? 'root' : s))]
+      const agentResult = await resolveAgentArgs(
+        skill.entry.agents,
+        skill.name,
+        false,
+        process.cwd()
+      );
+      if (!agentResult.ok) {
+        failCount++;
+        const reason =
+          agentResult.reason === 'invalid'
+            ? 'agents field in lock file is malformed or has no valid agent IDs'
+            : 'no agent placement could be inferred from disk';
+        console.log(`  ${DIM}✗ Skipped ${safeName}: ${reason}${RESET}`);
+        continue;
+      }
+
+      // Preserve Eve subagent placement. Use recorded subagents if present
+      // (modern); else inferred Eve subagents (legacy). Root is stored as ''
+      // and mapped to the `root` keyword for `add --subagent`.
+      const effectiveSubagents = skill.entry.subagents?.length
+        ? skill.entry.subagents
+        : agentResult.eveSubagents;
+      const subagentArgs = effectiveSubagents?.length
+        ? ['--subagent', ...effectiveSubagents.map((s) => (s === '' ? 'root' : s))]
         : [];
+
       const fullDepthArgs = shouldUseFullDepthForUpdate(skill.entry) ? ['--full-depth'] : [];
 
       const result = spawnSync(
@@ -907,6 +1124,7 @@ export async function updateProjectSkills(
           skill.name,
           ...subagentArgs,
           ...fullDepthArgs,
+          ...agentResult.args,
           '-y',
         ],
         {

@@ -43,12 +43,13 @@ import { downloadSource } from './download-source.ts';
 import {
   addSkillToLock,
   getGitHubToken,
+  getSkillFromLock,
   isPromptDismissed,
   dismissPrompt,
   getLastSelectedAgents,
   saveSelectedAgents,
 } from './skill-lock.ts';
-import { addSkillToLocalLock, computeSkillFolderHash } from './local-lock.ts';
+import { addSkillToLocalLock, computeSkillFolderHash, readLocalLock } from './local-lock.ts';
 import type { Skill, AgentType } from './types.ts';
 import {
   tryBlobInstall,
@@ -63,6 +64,37 @@ import packageJson from '../package.json' with { type: 'json' };
 // Helper to check if a value is a cancel symbol (works with both clack and our custom prompts)
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
 const EVE_AGENT_LABEL = 'eve agent';
+
+/**
+ * Compute the union of existing lock-entry agents and agents that were
+ * successfully installed in this run.
+ *
+ * Results carry the stable `agentType` ID (not a display name), so no
+ * display-name-to-type mapping is needed. Agents that failed to install
+ * (`success: false`) are excluded. Skipped installs (`success: true,
+ * skipped: true`) are included — a skipped result means the skill already
+ * occupies the destination, which is a valid placement. Agents already in
+ * the lock entry (from a prior install) are preserved so a later `add` for
+ * a different agent doesn't drop them — `update` would otherwise stop
+ * updating the still-installed copies.
+ */
+export function computeRecordedAgents(
+  skillName: string,
+  targetAgents: AgentType[],
+  results: Array<{ skill: string; agentType: AgentType; success: boolean; skipped?: boolean }>,
+  existingAgents?: string[]
+): string[] {
+  const succeeded = new Set(
+    results.filter((r) => r.success && r.skill === skillName).map((r) => r.agentType)
+  );
+  const union = new Set<string>(existingAgents ?? []);
+  for (const agent of targetAgents) {
+    if (succeeded.has(agent)) {
+      union.add(agent);
+    }
+  }
+  return [...union];
+}
 
 /**
  * Check if a source identifier (owner/repo format) represents a private GitHub repo.
@@ -863,7 +895,9 @@ async function handleWellKnownSkills(
   const results: {
     skill: string;
     agent: string;
+    agentType: AgentType;
     success: boolean;
+    skipped?: boolean;
     path: string;
     canonicalPath?: string;
     mode: InstallMode;
@@ -880,6 +914,7 @@ async function handleWellKnownSkills(
       results.push({
         skill: skill.installName,
         agent: agents[agent].displayName,
+        agentType: agent,
         ...result,
       });
     }
@@ -919,6 +954,13 @@ async function handleWellKnownSkills(
     for (const skill of selectedSkills) {
       if (successfulSkillNames.has(skill.installName)) {
         try {
+          const existing = await getSkillFromLock(skill.installName);
+          const recordedAgents = computeRecordedAgents(
+            skill.installName,
+            targetAgents,
+            results,
+            existing?.agents
+          );
           await addSkillToLock(skill.installName, {
             source: sourceIdentifier,
             sourceType: 'well-known',
@@ -926,6 +968,7 @@ async function handleWellKnownSkills(
             skillFolderHash: '',
             sourceBaseUrl: url,
             wellKnownDigest: computeWellKnownSkillDigest(skill),
+            ...(recordedAgents.length > 0 && { agents: recordedAgents }),
           });
         } catch {
           // Don't fail installation if lock file update fails
@@ -944,6 +987,13 @@ async function handleWellKnownSkills(
           const installDir = matchingResult?.canonicalPath || matchingResult?.path;
           if (installDir) {
             const computedHash = await computeSkillFolderHash(installDir);
+            const existingLocal = (await readLocalLock(cwd)).skills[skill.installName];
+            const recordedAgents = computeRecordedAgents(
+              skill.installName,
+              targetAgents,
+              results,
+              existingLocal?.agents
+            );
             await addSkillToLocalLock(
               skill.installName,
               {
@@ -952,6 +1002,7 @@ async function handleWellKnownSkills(
                 sourceType: 'well-known',
                 computedHash,
                 wellKnownDigest: computeWellKnownSkillDigest(skill),
+                ...(recordedAgents.length > 0 && { agents: recordedAgents }),
               },
               cwd
             );
@@ -1738,7 +1789,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     const results: {
       skill: string;
       agent: string;
+      agentType: AgentType;
       success: boolean;
+      skipped?: boolean;
       path: string;
       canonicalPath?: string;
       mode: InstallMode;
@@ -1774,6 +1827,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         results.push({
           skill: getSkillDisplayName(skill),
           agent: targetDisplayName(target),
+          agentType: agent,
           pluginName: skill.pluginName,
           ...result,
         });
@@ -1889,6 +1943,14 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               skillPath: skillPathValue,
               skillFolderHash,
               pluginName: skill.pluginName,
+              ...(targetAgents.length > 0 && {
+                agents: computeRecordedAgents(
+                  skillDisplayName,
+                  targetAgents,
+                  results,
+                  (await getSkillFromLock(skill.name))?.agents
+                ),
+              }),
             });
           } catch {
             // Don't fail installation if lock file update fails
@@ -1918,6 +1980,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
                 ? (skill as BlobSkill).snapshotHash
                 : await computeSkillFolderHash(skill.path);
             const skillPathValue = skillFiles[skill.name];
+            const existingLocal = (await readLocalLock(cwd)).skills[skill.name];
             await addSkillToLocalLock(
               skill.name,
               {
@@ -1928,6 +1991,14 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
                 ...(skillPathValue && { skillPath: skillPathValue }),
                 computedHash,
                 ...(recordSubagents && { subagents: eveSubagents }),
+                ...(targetAgents.length > 0 && {
+                  agents: computeRecordedAgents(
+                    skillDisplayName,
+                    targetAgents,
+                    results,
+                    existingLocal?.agents
+                  ),
+                }),
               },
               cwd
             );
