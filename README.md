@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [73 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [74 more](#supported-agents).
 <!-- agent-list:end -->
 
 [![skills.sh](https://skills.sh/b/vercel-labs/skills)](https://skills.sh/vercel-labs/skills)
@@ -335,6 +335,7 @@ Skills can be installed to any of these agents:
 | ZCode | `zcode` | `.zcode/skills/` | `~/.zcode/skills/` |
 | Zencoder, Zenflow | `zencoder`, `zenflow` | `.zencoder/skills/` | `~/.zencoder/skills/` |
 | Neovate | `neovate` | `.neovate/skills/` | `~/.neovate/skills/` |
+| Nexrall Code | `nexrall-code` | `.nexrall/skills/` | `~/.nexrall/skills/` |
 | Pochi | `pochi` | `.pochi/skills/` | `~/.pochi/skills/` |
 | PromptScript | `promptscript` | `.agents/skills/` | N/A (project-only) |
 | AdaL | `adal` | `.adal/skills/` | `~/.adal/skills/` |
@@ -467,6 +468,7 @@ discover `SKILL.md` files outside these container directories (e.g. under
 - `.zcode/skills/`
 - `.zencoder/skills/`
 - `.neovate/skills/`
+- `.nexrall/skills/`
 - `.pochi/skills/`
 - `.adal/skills/`
 <!-- skill-discovery:end -->
