@@ -173,6 +173,40 @@ export function isSubpathSafe(basePath: string, subpath: string): boolean {
   return normalizedTarget.startsWith(normalizedBase + sep) || normalizedTarget === normalizedBase;
 }
 
+/**
+ * Resolve a relative directory to its real on-disk casing.
+ *
+ * `join(base, 'skills')` resolves a differently-cased real directory (`Skills/`)
+ * on case-insensitive filesystems (macOS, Windows), and every path derived from
+ * it then carries the fabricated casing. Those paths are recorded as
+ * `skillPath` in the lock file, where they fail the case-sensitive compares
+ * against a git tree — leaving skills untrackable and reported as deleted
+ * upstream. Prefer an exact match, fall back to a case-insensitive one, and
+ * return the naive join when the directory does not exist.
+ */
+async function resolveRealCase(base: string, relPath: string): Promise<string> {
+  let current = base;
+
+  for (const segment of relPath.split('/')) {
+    let entries;
+    try {
+      entries = await readdir(current, { withFileTypes: true });
+    } catch {
+      return join(base, relPath);
+    }
+
+    const lower = segment.toLowerCase();
+    const match =
+      entries.find((entry) => entry.name === segment) ??
+      entries.find((entry) => entry.name.toLowerCase() === lower);
+    if (!match) return join(base, relPath);
+
+    current = join(current, match.name);
+  }
+
+  return current;
+}
+
 export async function discoverSkills(
   basePath: string,
   subpath?: string,
@@ -248,11 +282,15 @@ export async function discoverSkills(
   // Search common skill locations first
   const prioritySearchDirs = [
     searchPath,
-    join(searchPath, 'skills'),
-    join(searchPath, 'skills/.curated'),
-    join(searchPath, 'skills/.experimental'),
-    join(searchPath, 'skills/.system'),
-    ...AGENT_PROJECT_SKILL_DIRS.map((dir) => join(searchPath, dir)),
+    ...(await Promise.all(
+      [
+        'skills',
+        'skills/.curated',
+        'skills/.experimental',
+        'skills/.system',
+        ...AGENT_PROJECT_SKILL_DIRS,
+      ].map((dir) => resolveRealCase(searchPath, dir))
+    )),
   ];
 
   // Known skill container dirs are walked up to three levels deep so layouts

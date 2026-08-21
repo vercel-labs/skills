@@ -296,7 +296,14 @@ export function getSkillFolderHashFromTree(tree: RepoTree, skillPath: string): s
     return tree.sha;
   }
 
-  const entry = tree.tree.find((e) => e.type === 'tree' && e.path === folderPath);
+  // Locks written before skill discovery preserved on-disk casing can hold a
+  // differently-cased folder path (`skills/x` for a repo's `Skills/x`). Fall
+  // back to a case-insensitive match so those skills stay trackable instead of
+  // being reported as coming from a private or deleted repo.
+  const lowerFolderPath = folderPath.toLowerCase();
+  const entry =
+    tree.tree.find((e) => e.type === 'tree' && e.path === folderPath) ??
+    tree.tree.find((e) => e.type === 'tree' && e.path.toLowerCase() === lowerFolderPath);
   return entry?.sha ?? null;
 }
 
