@@ -185,6 +185,29 @@ This is a test skill.
       expect(existsSync(join(skillsDir, 'skill-three'))).toBe(false);
     });
 
+    it('should refuse --all combined with a named skill (mass-delete footgun)', () => {
+      const result = runCli(['remove', '--skill', 'skill-one', '--all', '-y'], testDir);
+
+      expect(result.stdout + result.stderr).toContain(
+        'Cannot combine --all with specific skill names'
+      );
+      expect(result.exitCode).toBe(1);
+
+      // Named skill and siblings must still be present
+      expect(existsSync(join(skillsDir, 'skill-one'))).toBe(true);
+      expect(existsSync(join(skillsDir, 'skill-two'))).toBe(true);
+      expect(existsSync(join(skillsDir, 'skill-three'))).toBe(true);
+    });
+
+    it('should remove a skill specified with --skill', () => {
+      const result = runCli(['remove', '--skill', 'skill-two', '-y'], testDir);
+
+      expect(result.stdout).toContain('Successfully removed');
+      expect(existsSync(join(skillsDir, 'skill-one'))).toBe(true);
+      expect(existsSync(join(skillsDir, 'skill-two'))).toBe(false);
+      expect(existsSync(join(skillsDir, 'skill-three'))).toBe(true);
+    });
+
     it('should show error for non-existent skill name when skills exist', () => {
       const result = runCli(['remove', 'non-existent', '-y'], testDir);
 

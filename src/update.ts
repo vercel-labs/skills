@@ -573,16 +573,21 @@ export async function updateGlobalSkills(
   successCount += wkSuccessCount;
   failCount += wkFailCount;
 
+  // Key by source AND ref: two skills from the same repo pinned to different
+  // refs must each be checked against their own ref's tree. Grouping by source
+  // alone checks the whole group against the first entry's ref, which falsely
+  // reports the other-ref skills as deleted upstream (and then removes them).
   const bySource = new Map<string, typeof checkable>();
   for (const item of checkable) {
-    const source = item.entry.source;
-    const existing = bySource.get(source) || [];
+    const key = `${item.entry.source}\n${item.entry.ref ?? ''}`;
+    const existing = bySource.get(key) || [];
     existing.push(item);
-    bySource.set(source, existing);
+    bySource.set(key, existing);
   }
 
-  for (const [source, itemsForSource] of bySource) {
+  for (const [, itemsForSource] of bySource) {
     const firstEntry = itemsForSource[0]!.entry;
+    const source = firstEntry.source;
     const sourceUrl = firstEntry.sourceUrl || firstEntry.source;
     let tempDir: string | null = null;
 
@@ -600,7 +605,7 @@ export async function updateGlobalSkills(
             .map((entry) => entry.path);
 
           const allLockedForSource = Object.entries(lock.skills)
-            .filter(([_, entry]) => entry.source === source)
+            .filter(([_, entry]) => entry.source === source && entry.ref === firstEntry.ref)
             .map(([name, _]) => name);
 
           const deletedSkills = await checkAndPromptForDeletions(
@@ -637,7 +642,7 @@ export async function updateGlobalSkills(
       );
 
       const allLockedForSource = Object.entries(lock.skills)
-        .filter(([_, entry]) => entry.source === source)
+        .filter(([_, entry]) => entry.source === source && entry.ref === firstEntry.ref)
         .map(([name, _]) => name);
 
       const deletedSkills = await checkAndPromptForDeletions(
@@ -852,12 +857,15 @@ export async function updateProjectSkills(
   successCount += wkSuccessCount;
   failCount += wkFailCount;
 
+  // Key by source AND ref (see updateGlobalSkills) so skills from one repo
+  // pinned to different refs are each checked against their own ref's tree.
   const bySource = new Map<string, typeof updatable>();
   for (const skill of updatable) {
     const source = skill.entry.sourceUrl || skill.entry.source;
-    const existing = bySource.get(source) || [];
+    const key = `${source}\n${skill.entry.ref ?? ''}`;
+    const existing = bySource.get(key) || [];
     existing.push(skill);
-    bySource.set(source, existing);
+    bySource.set(key, existing);
   }
 
   const localLock = await readLocalLock();
@@ -872,13 +880,14 @@ export async function updateProjectSkills(
     };
   }
 
-  for (const [source, skillsForSource] of bySource) {
+  for (const [, skillsForSource] of bySource) {
     const firstEntry = skillsForSource[0]!.entry;
+    const source = firstEntry.sourceUrl || firstEntry.source;
     const cloneSource = buildLocalCloneSource(firstEntry);
     const ref = firstEntry.ref;
 
     const allLockedForSource = Object.entries(localLock.skills)
-      .filter(([_, entry]) => (entry.sourceUrl || entry.source) === source)
+      .filter(([_, entry]) => (entry.sourceUrl || entry.source) === source && entry.ref === ref)
       .map(([name, _]) => name);
 
     let tempDir: string | null = null;
