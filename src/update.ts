@@ -296,10 +296,14 @@ export async function checkAndPromptForDeletions(
   options: UpdateCheckOptions,
   discoveredPaths: string[]
 ): Promise<string[]> {
+  // Compared case-insensitively: a lock path that differs from the repo only in
+  // casing is a stale recording, not a deletion. An exact compare would offer to
+  // remove skills that are still present upstream.
+  const discoveredLower = new Set(discoveredPaths.map((path) => path.toLowerCase()));
   const deletedSkills = allLockedForSource.filter((name) => {
     const entry = lockSkills[name];
     if (!entry?.skillPath) return false;
-    return !discoveredPaths.includes(entry.skillPath);
+    return !discoveredLower.has(entry.skillPath.toLowerCase());
   });
 
   await promptDeletions(source, deletedSkills, isGlobal, options);
