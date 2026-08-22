@@ -124,16 +124,6 @@ export function getAgentBaseDir(
   cwd?: string,
   eveSubagent?: string
 ): string {
-  if (isUniversalAgent(agentType)) {
-    return getCanonicalSkillsDir(global, cwd);
-  }
-
-  // Eve subagents are inherently project-scoped — they live under the project's
-  // agent/ directory, so the `global` flag does not apply here.
-  if (agentType === 'eve' && eveSubagent) {
-    return getEveSubagentSkillsDir(eveSubagent, cwd);
-  }
-
   const agent = agents[agentType];
   const baseDir = global ? homedir() : cwd || process.cwd();
 
@@ -143,6 +133,16 @@ export function getAgentBaseDir(
       return join(baseDir, agent.skillsDir);
     }
     return agent.globalSkillsDir;
+  }
+
+  if (isUniversalAgent(agentType)) {
+    return getCanonicalSkillsDir(global, cwd);
+  }
+
+  // Eve subagents are inherently project-scoped — they live under the project's
+  // agent/ directory, so the `global` flag does not apply here.
+  if (agentType === 'eve' && eveSubagent) {
+    return getEveSubagentSkillsDir(eveSubagent, cwd);
   }
 
   return join(baseDir, agent.skillsDir);
