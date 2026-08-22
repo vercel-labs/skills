@@ -637,6 +637,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.roo'));
     },
   },
+  sentineldesk: {
+    name: 'sentineldesk',
+    displayName: 'SentinelDesk',
+    skillsDir: '.sentineldesk/skills',
+    globalSkillsDir: join(home, '.sentineldesk/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.sentineldesk'));
+    },
+  },
   'tabnine-cli': {
     name: 'tabnine-cli',
     displayName: 'Tabnine CLI',
