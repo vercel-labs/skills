@@ -1224,6 +1224,11 @@ export async function listInstalledSkills(
             continue;
           }
 
+          if (isUniversalAgent(agentType)) {
+            installedAgents.push(agentType);
+            continue;
+          }
+
           const agentBase = getAgentBaseDir(agentType, scope.global, cwd);
           let found = false;
 
