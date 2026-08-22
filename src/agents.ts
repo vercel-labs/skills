@@ -154,6 +154,8 @@ export const agents: Record<AgentType, AgentConfig> = {
     displayName: 'Claude Code',
     skillsDir: '.claude/skills',
     globalSkillsDir: join(claudeHome, 'skills'),
+    agentsDir: '.claude/agents',
+    globalAgentsDir: join(claudeHome, 'agents'),
     detectInstalled: async () => {
       return existsSync(claudeHome);
     },

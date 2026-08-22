@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { existsSync, rmSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, rmSync, mkdirSync, writeFileSync, readFileSync, lstatSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli, stripAnsi } from './test-utils.ts';
@@ -99,6 +99,247 @@ Instructions here.
     expect(result.stdout).toContain('my-skill');
     expect(result.stdout).toContain('Done!');
     expect(result.exitCode).toBe(0);
+  });
+
+  it('installs subagent definition files from an agents/ directory alongside skills', () => {
+    const skillDir = join(testDir, 'skills', 'my-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: my-skill
+description: My test skill
+---
+
+Instructions here.
+`
+    );
+
+    const agentsSrcDir = join(testDir, 'agents');
+    mkdirSync(agentsSrcDir, { recursive: true });
+    writeFileSync(
+      join(agentsSrcDir, 'architect.md'),
+      `---
+name: architect
+description: Plans the implementation
+---
+
+You are an architect subagent.
+`
+    );
+
+    const targetDir = join(testDir, 'project');
+    mkdirSync(targetDir, { recursive: true });
+    const testHome = join(testDir, 'home');
+
+    const result = runCli(['add', testDir, '-y', '-g', '--agent', 'claude-code'], targetDir, {
+      HOME: testHome,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Installed 1 agent file');
+
+    const installedPath = join(testHome, '.claude', 'agents', 'architect.md');
+    expect(existsSync(installedPath)).toBe(true);
+    expect(readFileSync(installedPath, 'utf-8')).toContain('You are an architect subagent.');
+  });
+
+  it('installs subagent definition files to the project-scoped .claude/agents directory', () => {
+    const skillDir = join(testDir, 'skills', 'my-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: my-skill
+description: My test skill
+---
+
+Instructions here.
+`
+    );
+
+    const agentsSrcDir = join(testDir, 'agents');
+    mkdirSync(agentsSrcDir, { recursive: true });
+    writeFileSync(
+      join(agentsSrcDir, 'reviewer.md'),
+      `---
+name: reviewer
+description: Reviews code changes
+---
+
+You are a reviewer subagent.
+`
+    );
+
+    const targetDir = join(testDir, 'project');
+    mkdirSync(targetDir, { recursive: true });
+
+    const result = runCli(['add', testDir, '-y', '--agent', 'claude-code'], targetDir);
+
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(join(targetDir, '.claude', 'agents', 'reviewer.md'))).toBe(true);
+  });
+
+  it('symlinks subagent definitions from a canonical .agents/agents/ location when multiple target dirs are in play', () => {
+    const skillDir = join(testDir, 'skills', 'my-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: my-skill
+description: My test skill
+---
+
+Instructions here.
+`
+    );
+
+    const agentsSrcDir = join(testDir, 'agents');
+    mkdirSync(agentsSrcDir, { recursive: true });
+    writeFileSync(
+      join(agentsSrcDir, 'architect.md'),
+      `---
+name: architect
+description: Plans the implementation
+---
+
+You are an architect subagent.
+`
+    );
+
+    const targetDir = join(testDir, 'project');
+    mkdirSync(targetDir, { recursive: true });
+
+    // claude-code (.claude/skills) and cursor (.agents/skills) have distinct
+    // skillsDir values, so the run defaults to symlink mode without prompting.
+    const result = runCli(['add', testDir, '-y', '--agent', 'claude-code', 'cursor'], targetDir);
+
+    expect(result.exitCode).toBe(0);
+
+    const canonicalPath = join(targetDir, '.agents', 'agents', 'architect.md');
+    const linkPath = join(targetDir, '.claude', 'agents', 'architect.md');
+
+    expect(existsSync(canonicalPath)).toBe(true);
+    expect(readFileSync(canonicalPath, 'utf-8')).toContain('You are an architect subagent.');
+    expect(lstatSync(linkPath).isSymbolicLink()).toBe(true);
+    expect(readFileSync(linkPath, 'utf-8')).toContain('You are an architect subagent.');
+  });
+
+  it('skips subagent definition files when no selected agent supports them', () => {
+    const skillDir = join(testDir, 'skills', 'my-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: my-skill
+description: My test skill
+---
+
+Instructions here.
+`
+    );
+
+    const agentsSrcDir = join(testDir, 'agents');
+    mkdirSync(agentsSrcDir, { recursive: true });
+    writeFileSync(
+      join(agentsSrcDir, 'architect.md'),
+      `---
+name: architect
+description: Plans the implementation
+---
+
+You are an architect subagent.
+`
+    );
+
+    const targetDir = join(testDir, 'project');
+    mkdirSync(targetDir, { recursive: true });
+    const testHome = join(testDir, 'home');
+
+    const result = runCli(['add', testDir, '-y', '-g', '--agent', 'cursor'], targetDir, {
+      HOME: testHome,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('no selected tool supports installing them yet');
+    expect(existsSync(join(testHome, '.claude'))).toBe(false);
+  });
+
+  it('--no-agent-files skips discovering and installing subagent definitions', () => {
+    const skillDir = join(testDir, 'skills', 'my-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: my-skill
+description: My test skill
+---
+
+Instructions here.
+`
+    );
+
+    const agentsSrcDir = join(testDir, 'agents');
+    mkdirSync(agentsSrcDir, { recursive: true });
+    writeFileSync(
+      join(agentsSrcDir, 'architect.md'),
+      `---
+name: architect
+description: Plans the implementation
+---
+
+You are an architect subagent.
+`
+    );
+
+    const targetDir = join(testDir, 'project');
+    mkdirSync(targetDir, { recursive: true });
+    const testHome = join(testDir, 'home');
+
+    const result = runCli(
+      ['add', testDir, '-y', '-g', '--agent', 'claude-code', '--no-agent-files'],
+      targetDir,
+      { HOME: testHome }
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).not.toContain('agent file');
+    expect(existsSync(join(testHome, '.claude', 'agents', 'architect.md'))).toBe(false);
+  });
+
+  it('lists discovered subagent definitions under --list', () => {
+    const skillDir = join(testDir, 'skills', 'my-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: my-skill
+description: My test skill
+---
+
+Instructions here.
+`
+    );
+
+    const agentsSrcDir = join(testDir, 'agents');
+    mkdirSync(agentsSrcDir, { recursive: true });
+    writeFileSync(
+      join(agentsSrcDir, 'architect.md'),
+      `---
+name: architect
+description: Plans the implementation
+---
+
+You are an architect subagent.
+`
+    );
+
+    const result = runCli(['add', testDir, '--list'], testDir);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Agent Files');
+    expect(result.stdout).toContain('architect');
+    expect(result.stdout).toContain('Plans the implementation');
   });
 
   it('deduplicates copied install paths for universal agents sharing the same directory', () => {
@@ -654,6 +895,12 @@ describe('parseAddOptions', () => {
     expect(result.options.global).toBe(true);
     expect(result.options.skill).toEqual(['*']);
     expect(result.options.yes).toBe(true);
+  });
+
+  it('should parse --no-agent-files flag', () => {
+    const result = parseAddOptions(['source', '--no-agent-files']);
+    expect(result.source).toEqual(['source']);
+    expect(result.options.noAgentFiles).toBe(true);
   });
 
   it('should parse --full-depth flag', () => {

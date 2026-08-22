@@ -71,7 +71,7 @@ async function hasSkillMd(dir: string): Promise<boolean> {
   }
 }
 
-function warnSkippedSkill(skillMdPath: string, reason: string): void {
+export function warnSkippedSkill(skillMdPath: string, reason: string): void {
   console.warn(`⚠ Skipped ${sanitizeMetadata(skillMdPath)} — ${stripTerminalEscapes(reason)}`);
 }
 

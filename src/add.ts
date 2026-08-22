@@ -8,12 +8,16 @@ import { stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
 import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
+import { discoverSubagentDefinitions } from './subagents.ts';
 import {
   installSkillForAgent,
   installBlobSkillForAgent,
   isSkillInstalled,
   getCanonicalPath,
   installWellKnownSkillForAgent,
+  installSubagentDefinition,
+  isSubagentInstalled,
+  getCanonicalAgentsPath,
   type InstallMode,
 } from './installer.ts';
 import {
@@ -49,7 +53,7 @@ import {
   saveSelectedAgents,
 } from './skill-lock.ts';
 import { addSkillToLocalLock, computeSkillFolderHash } from './local-lock.ts';
-import type { Skill, AgentType } from './types.ts';
+import type { Skill, AgentType, SubagentDefinition } from './types.ts';
 import {
   tryBlobInstall,
   BLOB_ALLOWED_REPOS,
@@ -536,6 +540,11 @@ export interface AddOptions {
    * selects the root agent. Implies installing for Eve.
    */
   subagent?: string[];
+  /**
+   * Skip discovering/installing subagent definition files from the
+   * source repo's `agents/` directory (see SubagentDefinition).
+   */
+  noAgentFiles?: boolean;
 }
 
 /**
@@ -1151,6 +1160,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     );
 
     let skills: Skill[];
+    let subagentDefs: SubagentDefinition[] = [];
     let blobResult: BlobInstallResult | null = null;
 
     if (parsed.type === 'local') {
@@ -1168,6 +1178,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         includeInternal,
         fullDepth: options.fullDepth,
       });
+      subagentDefs = await discoverSubagentDefinitions(parsed.localPath!, parsed.subpath);
     } else if (parsed.type === 'well-known' || parsed.type === 'download') {
       spinner.start('Downloading source...');
       const downloaded = await downloadSource(parsed.url);
@@ -1179,6 +1190,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         includeInternal,
         fullDepth: options.fullDepth,
       });
+      subagentDefs = await discoverSubagentDefinitions(downloaded.rootDir, parsed.subpath);
     } else if (parsed.type === 'github' && !options.fullDepth) {
       // Try the blob-based fast install for GitHub sources; skip for --full-depth.
       // Eligible per repo (a BLOB_ALLOWED_REPOS entry = self-hosted download URL) or
@@ -1216,6 +1228,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           includeInternal,
           fullDepth: options.fullDepth,
         });
+        subagentDefs = await discoverSubagentDefinitions(tempDir, parsed.subpath);
       }
     } else {
       // GitLab, git URL, or --full-depth: always clone
@@ -1228,6 +1241,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         includeInternal,
         fullDepth: options.fullDepth,
       });
+      subagentDefs = await discoverSubagentDefinitions(tempDir, parsed.subpath);
+    }
+
+    if (options.noAgentFiles) {
+      subagentDefs = [];
     }
 
     if (skills.length === 0) {
@@ -1284,6 +1302,15 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         for (const skill of ungroupedSkills) {
           p.log.message(`  ${pc.cyan(getSkillDisplayName(skill))}`);
           p.log.message(`    ${pc.dim(skill.description)}`);
+        }
+      }
+
+      if (subagentDefs.length > 0) {
+        console.log();
+        console.log(pc.bold('Agent Files'));
+        for (const def of subagentDefs) {
+          p.log.message(`  ${pc.cyan(def.name)}`);
+          p.log.message(`    ${pc.dim(def.description)}`);
         }
       }
 
@@ -1608,6 +1635,17 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       installMode = 'copy';
     }
 
+    // Subagent definition files (agents/*.md) only install to tools that
+    // declare an agentsDir/globalAgentsDir for the selected scope.
+    const subagentTargetAgents = targetAgents.filter((a) =>
+      installGlobally ? agents[a].globalAgentsDir !== undefined : agents[a].agentsDir !== undefined
+    );
+    if (subagentDefs.length > 0 && subagentTargetAgents.length === 0) {
+      p.log.info(
+        `Found ${subagentDefs.length} agent file${subagentDefs.length === 1 ? '' : 's'} in agents/, but no selected tool supports installing them yet.`
+      );
+    }
+
     const cwd = process.cwd();
 
     // Build installation summary
@@ -1702,6 +1740,38 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     console.log();
     p.note(summaryLines.join('\n'), 'Installation Summary');
 
+    if (subagentDefs.length > 0 && subagentTargetAgents.length > 0) {
+      const subagentOverwrites = await Promise.all(
+        subagentDefs.flatMap((def) =>
+          subagentTargetAgents.map(async (agentType) => ({
+            name: def.name,
+            agentType,
+            installed: await isSubagentInstalled(def.name, agentType, { global: installGlobally }),
+          }))
+        )
+      );
+      const subagentSummaryLines: string[] = [];
+      for (const def of subagentDefs) {
+        if (subagentSummaryLines.length > 0) subagentSummaryLines.push('');
+
+        const shortCanonical = shortenPath(
+          getCanonicalAgentsPath(def.name, { global: installGlobally }),
+          cwd
+        );
+        const targets = formatList(subagentTargetAgents.map((a) => agents[a].displayName));
+        subagentSummaryLines.push(`${pc.cyan(shortCanonical)}`);
+        subagentSummaryLines.push(`  ${pc.dim(`${installMode} →`)} ${targets}`);
+
+        const overwriteAgents = subagentOverwrites
+          .filter((o) => o.name === def.name && o.installed)
+          .map((o) => agents[o.agentType].displayName);
+        if (overwriteAgents.length > 0) {
+          subagentSummaryLines.push(`  ${pc.yellow('overwrites:')} ${formatList(overwriteAgents)}`);
+        }
+      }
+      p.note(subagentSummaryLines.join('\n'), 'Agent Files');
+    }
+
     // Await and display security audit results (started earlier in parallel)
     // Wrapped in try/catch so a failed audit fetch never blocks installation.
     try {
@@ -1775,6 +1845,32 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           skill: getSkillDisplayName(skill),
           agent: targetDisplayName(target),
           pluginName: skill.pluginName,
+          ...result,
+        });
+      }
+    }
+
+    const subagentResults: {
+      name: string;
+      agent: string;
+      success: boolean;
+      path: string;
+      canonicalPath?: string;
+      mode: InstallMode;
+      symlinkFailed?: boolean;
+      skipped?: boolean;
+      error?: string;
+    }[] = [];
+
+    for (const def of subagentDefs) {
+      for (const agentType of subagentTargetAgents) {
+        const result = await installSubagentDefinition(def, agentType, {
+          global: installGlobally,
+          mode: installMode,
+        });
+        subagentResults.push({
+          name: def.name,
+          agent: agents[agentType].displayName,
           ...result,
         });
       }
@@ -2041,6 +2137,45 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
+    const successfulSubagents = subagentResults.filter((r) => r.success && !r.skipped);
+    if (successfulSubagents.length > 0) {
+      const bySubagentName = new Map<string, typeof subagentResults>();
+      for (const r of successfulSubagents) {
+        const existing = bySubagentName.get(r.name) || [];
+        existing.push(r);
+        bySubagentName.set(r.name, existing);
+      }
+
+      const subagentResultLines: string[] = [];
+      for (const [name, entries] of bySubagentName) {
+        const firstResult = entries[0]!;
+        const displayPath = firstResult.canonicalPath ?? firstResult.path;
+        subagentResultLines.push(
+          `${pc.green('✓')} ${name} ${pc.dim('→')} ${shortenPath(displayPath, cwd)}`
+        );
+        if (entries.some((r) => r.mode === 'symlink' && r.symlinkFailed)) {
+          subagentResultLines.push(`  ${pc.dim('(symlink failed, copied instead)')}`);
+        }
+      }
+
+      console.log();
+      p.note(
+        subagentResultLines.join('\n'),
+        pc.green(
+          `Installed ${bySubagentName.size} agent file${bySubagentName.size !== 1 ? 's' : ''}`
+        )
+      );
+    }
+
+    const failedSubagents = subagentResults.filter((r) => !r.success);
+    if (failedSubagents.length > 0) {
+      console.log();
+      p.log.error(pc.red(`Failed to install ${failedSubagents.length} agent file(s)`));
+      for (const r of failedSubagents) {
+        p.log.message(`  ${pc.red('✗')} ${r.name} → ${r.agent}: ${pc.dim(r.error)}`);
+      }
+    }
+
     console.log();
     p.outro(
       pc.green('Done!') +
@@ -2208,6 +2343,8 @@ export function parseAddOptions(args: string[]): {
       }
     } else if (arg === '--full-depth') {
       options.fullDepth = true;
+    } else if (arg === '--no-agent-files') {
+      options.noAgentFiles = true;
     } else if (arg === '--copy') {
       options.copy = true;
     } else if (arg === '--subagent') {
