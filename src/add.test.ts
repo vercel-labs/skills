@@ -261,7 +261,8 @@ You are an architect subagent.
     });
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('no selected tool supports installing them yet');
+    expect(result.stdout).toContain('none of the selected tools (Cursor) support installing them');
+    expect(result.stdout).toContain('Supported: Claude Code');
     expect(existsSync(join(testHome, '.claude'))).toBe(false);
   });
 
@@ -337,7 +338,7 @@ You are an architect subagent.
     const result = runCli(['add', testDir, '--list'], testDir);
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('Agent Files');
+    expect(result.stdout).toContain('Subagents');
     expect(result.stdout).toContain('architect');
     expect(result.stdout).toContain('Plans the implementation');
   });
