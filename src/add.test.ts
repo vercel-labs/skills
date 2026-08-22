@@ -9,6 +9,7 @@ import {
   getLockSource,
   getProjectLockSourceUrl,
   formatEveInstallPromptMessage,
+  computeRecordedAgents,
 } from './add.ts';
 
 function countPathLinesForSkill(text: string, skillName: string): number {
@@ -751,5 +752,38 @@ This is a test skill for -y flag mode testing.
     expect(result.stdout).not.toContain("One-time prompt - you won't be asked again");
     // Should complete successfully
     expect(result.exitCode).toBe(0);
+  });
+});
+
+describe('computeRecordedAgents', () => {
+  it('unions successful installs with existing lock agents so repeated add preserves prior placements', () => {
+    const first = computeRecordedAgents(
+      'my-skill',
+      ['claude-code'],
+      [{ skill: 'my-skill', agentType: 'claude-code', success: true }]
+    );
+    expect(first).toEqual(['claude-code']);
+
+    // A later `add` for a different agent must keep agents recorded by the
+    // prior install, otherwise `update` would stop updating those copies.
+    const second = computeRecordedAgents(
+      'my-skill',
+      ['cursor'],
+      [{ skill: 'my-skill', agentType: 'cursor', success: true }],
+      first
+    );
+    expect(second.sort()).toEqual(['claude-code', 'cursor']);
+  });
+
+  it('excludes failed placements from the recorded agents', () => {
+    const recorded = computeRecordedAgents(
+      'my-skill',
+      ['claude-code', 'codex'],
+      [
+        { skill: 'my-skill', agentType: 'claude-code', success: true },
+        { skill: 'my-skill', agentType: 'codex', success: false },
+      ]
+    );
+    expect(recorded).toEqual(['claude-code']);
   });
 });

@@ -575,3 +575,104 @@ describe('remove -a with a subset of agents', { timeout: 30000 }, () => {
     expect(updatedLock.skills[skillName]).toBeDefined();
   });
 });
+
+describe('remove --agent lock metadata', { timeout: 30000 }, () => {
+  let testDir: string;
+  let fakeHome: string;
+
+  beforeEach(() => {
+    testDir = join(tmpdir(), `skills-remove-meta-${Date.now()}`);
+    fakeHome = join(testDir, 'home');
+    mkdirSync(join(fakeHome, '.claude'), { recursive: true });
+    mkdirSync(join(fakeHome, '.codex'), { recursive: true });
+  });
+
+  afterEach(() => {
+    if (existsSync(testDir)) rmSync(testDir, { recursive: true, force: true });
+  });
+
+  const SKILL_MD = (name: string) => `---\nname: ${name}\ndescription: x\n---\n`;
+  // Place a skill copy at an agent-specific path.
+  function placeSkill(dir: string, name: string) {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'SKILL.md'), SKILL_MD(name));
+  }
+  // Write a local lock entry; extra fields merge onto a base entry.
+  function writeLock(project: string, name: string, extra: Record<string, unknown> = {}) {
+    writeFileSync(
+      join(project, 'skills-lock.json'),
+      JSON.stringify(
+        {
+          version: 1,
+          skills: {
+            [name]: { source: 'owner/repo', sourceType: 'github', computedHash: 'h', ...extra },
+          },
+        },
+        null,
+        2
+      )
+    );
+  }
+  function readLockEntry(project: string, name: string) {
+    return JSON.parse(readFileSync(join(project, 'skills-lock.json'), 'utf-8')).skills[name];
+  }
+
+  it('subtracts the removed agent from the modern agents field', () => {
+    const project = join(testDir, 'project');
+    const name = 'shared-skill';
+    const canonical = join(project, '.agents', 'skills', name);
+    const claudeCopy = join(project, '.claude', 'skills', name);
+    placeSkill(canonical, name); // codex (universal) canonical copy — survives
+    placeSkill(claudeCopy, name); // claude-code copy — removed
+    writeLock(project, name, { agents: ['claude-code', 'codex'] });
+
+    const result = runCli(['remove', name, '-a', 'claude-code', '-y'], project, {
+      HOME: fakeHome,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(claudeCopy)).toBe(false);
+    expect(existsSync(canonical)).toBe(true);
+    expect(readLockEntry(project, name).agents).toEqual(['codex']);
+  });
+
+  it('clears Eve subagent metadata when Eve is removed (but keeps other agents)', () => {
+    const project = join(testDir, 'project');
+    const name = 'eve-skill';
+    const canonical = join(project, '.agents', 'skills', name);
+    const eveRoot = join(project, 'agent', 'skills', name);
+    placeSkill(canonical, name); // codex canonical copy — survives
+    placeSkill(eveRoot, name); // eve root copy — removed
+    writeLock(project, name, { agents: ['eve', 'codex'], subagents: ['', 'research'] });
+
+    const result = runCli(['remove', name, '-a', 'eve', '-y'], project, { HOME: fakeHome });
+
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(eveRoot)).toBe(false);
+    expect(existsSync(canonical)).toBe(true);
+    // subagents must be deleted so a later update doesn't reinstall Eve via --subagent.
+    const entry = readLockEntry(project, name);
+    expect(entry.agents).toEqual(['codex']);
+    expect(entry.subagents).toBeUndefined();
+  });
+
+  it('legacy removal records only remaining on-disk placements', () => {
+    const project = join(testDir, 'project');
+    const name = 'legacy-skill';
+    const canonical = join(project, '.agents', 'skills', name);
+    const claudeCopy = join(project, '.claude', 'skills', name);
+    placeSkill(canonical, name); // codex canonical copy — survives
+    placeSkill(claudeCopy, name); // claude-code copy — removed
+    writeLock(project, name); // no agents field — legacy entry
+
+    const result = runCli(['remove', name, '-a', 'claude-code', '-y'], project, {
+      HOME: fakeHome,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(claudeCopy)).toBe(false);
+    expect(existsSync(canonical)).toBe(true);
+    // Next update should target codex only, not the removed claude-code copy.
+    expect(readLockEntry(project, name).agents).toEqual(['codex']);
+  });
+});

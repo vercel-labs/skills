@@ -35,6 +35,8 @@ export interface SkillLockEntry {
   pluginName?: string;
   sourceBaseUrl?: string;
   wellKnownDigest?: string;
+  /** Agents the skill was installed to (for placement-preserving updates). */
+  agents?: string[];
 }
 
 /**
@@ -205,6 +207,39 @@ export async function removeSkillFromLock(skillName: string): Promise<boolean> {
   delete lock.skills[skillName];
   await writeSkillLock(lock);
   return true;
+}
+
+/**
+ * Remove specific agents from a skill's recorded `agents` field.
+ * Used by `skills remove --agent <name>` so the next `update` doesn't
+ * reinstall to the agent the user just removed the skill from.
+ * If the resulting list is empty, the field is deleted entirely.
+ *
+ * For legacy entries created before the `agents` field existed, the
+ * `detectedAgents` parameter (on-disk placements discovered by the remove
+ * command) is used to seed the field so the remaining placements are
+ * preserved going forward.
+ */
+export async function removeAgentsFromLockEntry(
+  skillName: string,
+  agentsToRemove: string[],
+  detectedAgents?: string[]
+): Promise<void> {
+  const lock = await readSkillLock();
+  const entry = lock.skills[skillName];
+  if (!entry) return;
+  if (entry.agents) {
+    entry.agents = entry.agents.filter((a) => !agentsToRemove.includes(a));
+    if (entry.agents.length === 0) delete entry.agents;
+  } else if (detectedAgents && detectedAgents.length > 0) {
+    // Legacy entry without agents field: persist the remaining on-disk
+    // placements so the next update doesn't reinstall to removed agents.
+    const remaining = detectedAgents.filter((a) => !agentsToRemove.includes(a));
+    if (remaining.length > 0) {
+      entry.agents = remaining;
+    }
+  }
+  await writeSkillLock(lock);
 }
 
 /**

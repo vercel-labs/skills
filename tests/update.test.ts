@@ -1,14 +1,21 @@
 import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest';
 import { spawnSync } from 'child_process';
-import { updateProjectSkills, updateGlobalSkills, runUpdate } from '../src/update.ts';
+import {
+  updateProjectSkills,
+  updateGlobalSkills,
+  runUpdate,
+  processWellKnownUpdates,
+} from '../src/update.ts';
 import * as git from '../src/git.ts';
 import * as skills from '../src/skills.ts';
 import * as blob from '../src/blob.ts';
 import * as localLock from '../src/local-lock.ts';
 import * as skillLock from '../src/skill-lock.ts';
 import * as remove from '../src/remove.ts';
+import { detectInstalledAgents, getEveSubagents, getUniversalAgents } from '../src/agents.ts';
 import * as p from '@clack/prompts';
 import { readFileSync } from 'fs';
+import { lstat } from 'fs/promises';
 import { join } from 'path';
 
 // Mock dependencies
@@ -19,6 +26,27 @@ vi.mock('../src/local-lock.ts');
 vi.mock('../src/skill-lock.ts');
 vi.mock('../src/remove.ts');
 vi.mock('@clack/prompts');
+vi.mock('../src/providers/index.ts', () => ({
+  wellKnownProvider: { fetchIndex: vi.fn(), fetchSkillByEntry: vi.fn() },
+  computeWellKnownSkillDigest: vi.fn(),
+}));
+
+// Control detectInstalledAgents/getEveSubagents so legacy inference gets
+// predictable results regardless of what is actually installed on the host.
+vi.mock('../src/agents.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/agents.ts')>();
+  return {
+    ...actual,
+    detectInstalledAgents: vi.fn().mockResolvedValue(['claude-code']),
+    getEveSubagents: vi.fn().mockReturnValue([]),
+  };
+});
+
+// Allow per-test control of lstat (used by inferInstalledAgents for legacy entries).
+vi.mock('fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs/promises')>();
+  return { ...actual, lstat: vi.fn(actual.lstat) };
+});
 
 // Mock fs to prevent actual file checks during test
 vi.mock('fs', async (importOriginal) => {
@@ -78,6 +106,14 @@ describe('Update Cleanup Unit Tests', () => {
     Object.defineProperty(process.stdin, 'isTTY', {
       value: true,
       configurable: true,
+    });
+    // Default: skill exists in Claude Code's skills dir only, so legacy lock
+    // entries (without an `agents` field) infer claude-code as the placement.
+    vi.mocked(lstat).mockImplementation((path) => {
+      if (typeof path === 'string' && path.includes('.claude')) {
+        return Promise.resolve({} as never);
+      }
+      return Promise.reject(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
     });
   });
 
@@ -868,6 +904,221 @@ describe('Update Cleanup Unit Tests', () => {
       await runUpdate(['--project', '--yes']);
 
       expect(process.exitCode).toBeUndefined();
+    });
+  });
+
+  describe('agent placement preservation', () => {
+    const ENOENT = () => Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+
+    // Resolve lstat only for paths containing every segment; with no segments,
+    // reject everything (nothing on disk).
+    function lstatExistsFor(...segments: string[]) {
+      vi.mocked(lstat).mockImplementation((path) => {
+        if (
+          segments.length > 0 &&
+          typeof path === 'string' &&
+          segments.every((s) => path.includes(s))
+        ) {
+          return Promise.resolve({} as never);
+        }
+        return Promise.reject(ENOENT());
+      });
+    }
+
+    // Return the argv of the spawned `add` reinstall command, or undefined.
+    function findAddArgv(): string[] | undefined {
+      const call = vi
+        .mocked(spawnSync)
+        .mock.calls.find((c) => Array.isArray(c[1]) && (c[1] as string[]).includes('add'));
+      return call ? (call[1] as string[]) : undefined;
+    }
+
+    // Assert the exact ordered `--agent <ids...>` fragment within argv.
+    function expectAgentFragment(argv: string[], ...agentIds: string[]) {
+      const idx = argv.indexOf('--agent');
+      expect(idx).toBeGreaterThanOrEqual(0);
+      expect(argv.slice(idx, idx + agentIds.length + 1)).toEqual(['--agent', ...agentIds]);
+    }
+
+    function githubGlobalLock(agents?: string[]) {
+      return {
+        version: 3 as const,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            sourceUrl: 'https://github.com/owner/repo.git',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            skillFolderHash: 'old-hash',
+            installedAt: '',
+            updatedAt: '',
+            ...(agents && { agents }),
+          },
+        },
+      };
+    }
+    function githubProjectLock(agents?: string[]) {
+      return {
+        version: 1 as const,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            sourceUrl: 'https://github.com/owner/repo.git',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            computedHash: 'old-hash',
+            ...(agents && { agents }),
+          },
+        },
+      };
+    }
+    function mockTreeUpdate() {
+      vi.mocked(blob.fetchRepoTree).mockResolvedValue({
+        sha: 'rootsha',
+        branch: 'main',
+        tree: [{ path: 'skills/skill-a/SKILL.md', type: 'blob', sha: 'sha1' }],
+      });
+      vi.mocked(blob.findSkillMdPaths).mockReturnValue(['skills/skill-a/SKILL.md']);
+      vi.mocked(blob.getSkillFolderHashFromTree).mockReturnValue('new-hash');
+    }
+    function mockCloneUpdate() {
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        { name: 'skill-a', path: '/tmp/repo/skills/skill-a', description: 'x', rawContent: '' },
+      ]);
+      vi.mocked(localLock.computeSkillFolderHash).mockResolvedValue('new-hash');
+    }
+
+    beforeEach(() => {
+      vi.mocked(spawnSync).mockReturnValue({ status: 0 } as ReturnType<typeof spawnSync>);
+      lstatExistsFor(); // nothing on disk by default
+    });
+
+    it('replays recorded agents during global GitHub updates', async () => {
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue(
+        githubGlobalLock(['claude-code', 'cursor'])
+      );
+      mockTreeUpdate();
+      await updateGlobalSkills({ yes: true });
+      const argv = findAddArgv();
+      expect(argv).toBeDefined();
+      expectAgentFragment(argv!, 'claude-code', 'cursor');
+      expect(argv).toContain('-g');
+      expect(argv).toContain('-y');
+    });
+
+    it('replays recorded agents during project GitHub updates (no -g)', async () => {
+      vi.mocked(localLock.readLocalLock).mockResolvedValue(
+        githubProjectLock(['claude-code', 'cursor'])
+      );
+      mockCloneUpdate();
+      await updateProjectSkills({ yes: true });
+      const argv = findAddArgv();
+      expect(argv).toBeDefined();
+      expectAgentFragment(argv!, 'claude-code', 'cursor');
+      expect(argv).toContain('-y');
+      expect(argv).not.toContain('-g');
+    });
+
+    it('replays recorded agents during well-known updates', async () => {
+      const { wellKnownProvider } = await import('../src/providers/index.ts');
+      vi.mocked(wellKnownProvider.fetchIndex).mockResolvedValue({
+        baseUrl: 'https://example.com',
+        entries: [{ name: 'skill-a', version: '0.2.0', digest: 'new-digest' }],
+      });
+      const groups = new Map([
+        [
+          'https://example.com',
+          [{ name: 'skill-a', digest: 'old-digest', agents: ['claude-code', 'cursor'] }],
+        ],
+      ]);
+      await processWellKnownUpdates(groups, true, { yes: true });
+      const argv = findAddArgv();
+      expect(argv).toBeDefined();
+      expectAgentFragment(argv!, 'claude-code', 'cursor');
+      expect(argv).toContain('-g');
+      expect(argv).toContain('-y');
+    });
+
+    // safeAgentArgs validation: only known agent IDs pass through; CLI flags
+    // like -g/--all are stripped. A malformed or all-invalid field fails closed
+    // (skill skipped) rather than falling back to broad auto-detection.
+    it.each<{ label: string; agents: unknown; expected: string[] | null }>([
+      {
+        label: 'mixed valid and CLI-flag values',
+        agents: ['claude-code', '-g', '--all', 'cursor'],
+        expected: ['claude-code', 'cursor'],
+      },
+      { label: 'not an array', agents: 'claude-code', expected: null },
+      { label: 'all invalid IDs', agents: ['-g', '--all', 'not-an-agent'], expected: null },
+    ])('agents field validation: $label', async ({ agents, expected }) => {
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue(githubGlobalLock(agents as string[]));
+      mockTreeUpdate();
+      await updateGlobalSkills({ yes: true });
+      const argv = findAddArgv();
+      if (expected) {
+        expect(argv).toBeDefined();
+        expectAgentFragment(argv!, ...expected);
+      } else {
+        expect(argv).toBeUndefined();
+      }
+    });
+
+    it('legacy lock: infers agent placement from disk (global)', async () => {
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue(githubGlobalLock());
+      mockTreeUpdate();
+      lstatExistsFor('claude', 'skill-a');
+      await updateGlobalSkills({ yes: true });
+      const argv = findAddArgv();
+      expect(argv).toBeDefined();
+      expectAgentFragment(argv!, 'claude-code');
+      expect(argv).toContain('-g');
+    });
+
+    it('legacy lock: a detected Cursor lacking the skill is not targeted (only Claude)', async () => {
+      vi.mocked(localLock.readLocalLock).mockResolvedValue(githubProjectLock());
+      mockCloneUpdate();
+      // Skill exists in .claude/skills/skill-a but NOT in .agents/skills/skill-a.
+      // Cursor is universal (uses .agents/skills), so it must not be targeted.
+      lstatExistsFor('.claude', 'skill-a');
+      await updateProjectSkills({ yes: true });
+      const argv = findAddArgv();
+      expect(argv).toBeDefined();
+      expectAgentFragment(argv!, 'claude-code');
+      expect(argv).not.toContain('cursor');
+    });
+
+    it('legacy lock: canonical placement falls back to universal agents when none are detected', async () => {
+      vi.mocked(localLock.readLocalLock).mockResolvedValue(githubProjectLock());
+      mockCloneUpdate();
+      vi.mocked(detectInstalledAgents).mockResolvedValue([]);
+      lstatExistsFor('.agents', 'skills', 'skill-a');
+      await updateProjectSkills({ yes: true });
+      const argv = findAddArgv();
+      expect(argv).toBeDefined();
+      expectAgentFragment(argv!, ...getUniversalAgents());
+    });
+
+    it('legacy lock with no inferable placement is skipped', async () => {
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue(githubGlobalLock());
+      mockTreeUpdate();
+      lstatExistsFor(); // nothing on disk
+      await updateGlobalSkills({ yes: true });
+      expect(findAddArgv()).toBeUndefined();
+    });
+
+    it('legacy lock: infers Eve subagent placement and replays --subagent', async () => {
+      vi.mocked(localLock.readLocalLock).mockResolvedValue(githubProjectLock());
+      mockCloneUpdate();
+      vi.mocked(getEveSubagents).mockReturnValue(['research']);
+      // Skill exists only in the Eve "research" subagent directory.
+      lstatExistsFor('subagents', 'research');
+      await updateProjectSkills({ yes: true });
+      const argv = findAddArgv();
+      expect(argv).toBeDefined();
+      expectAgentFragment(argv!, 'eve');
+      const subIdx = argv!.indexOf('--subagent');
+      expect(argv!.slice(subIdx, subIdx + 2)).toEqual(['--subagent', 'research']);
     });
   });
 });

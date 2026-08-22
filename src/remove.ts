@@ -5,8 +5,17 @@ import { join } from 'path';
 import { agents, detectInstalledAgents, getEveSubagents } from './agents.ts';
 import { track } from './telemetry.ts';
 import { detectAgent } from './detect-agent.ts';
-import { removeSkillFromLock, getSkillFromLock, readSkillLock } from './skill-lock.ts';
-import { readLocalLock, removeSkillFromLocalLock } from './local-lock.ts';
+import {
+  removeSkillFromLock,
+  getSkillFromLock,
+  readSkillLock,
+  removeAgentsFromLockEntry,
+} from './skill-lock.ts';
+import {
+  readLocalLock,
+  removeSkillFromLocalLock,
+  removeAgentsFromLocalLockEntry,
+} from './local-lock.ts';
 import type { AgentType } from './types.ts';
 import {
   getInstallPath,
@@ -281,17 +290,51 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
       // Only remove the canonical path if no other installed agents are using it.
       // This prevents breaking other agents when uninstalling from a specific agent (#287).
       const installedAgents = await detectInstalledAgents();
-      const remainingAgents = installedAgents.filter((a) => !targetAgents.includes(a));
+      // Also include agents recorded in the lock entry — a harness may not be
+      // detected (e.g. Eve without a package.json dependency) but the skill
+      // can still be installed in its directory.
+      const lockEntryForCandidates = isGlobal
+        ? await getSkillFromLock(skillName)
+        : (await readLocalLock(cwd)).skills[skillName];
+      const lockAgentSet = new Set((lockEntryForCandidates?.agents as string[] | undefined) ?? []);
+      const validAgentIds = new Set(Object.keys(agents));
+      const candidateAgents = [...new Set([...installedAgents, ...lockAgentSet])]
+        .filter((a) => validAgentIds.has(a))
+        .filter((a) => !targetAgents.includes(a as AgentType)) as AgentType[];
 
-      let isStillUsed = false;
-      for (const agentKey of remainingAgents) {
+      // `detectInstalledAgents()` returns every detected harness on the system,
+      // not only those that actually contain this skill. Narrow to the agents
+      // that still have the skill on disk before recording them in the lock —
+      // otherwise the next `update` would reinstall the skill into harnesses
+      // that never had it.
+      const remainingAgents: string[] = [];
+      for (const agentKey of candidateAgents) {
         const path = getInstallPath(skillName, agentKey, { global: isGlobal, cwd });
         const exists = await lstat(path).catch(() => null);
         if (exists) {
-          isStillUsed = true;
-          break;
+          remainingAgents.push(agentKey);
+          continue;
+        }
+        // Eve subagents keep skills in separate directories
+        // (agent/subagents/<name>/skills). The root check above misses
+        // subagent-only installations, so check each subagent path too.
+        if (agentKey === 'eve' && !isGlobal) {
+          for (const subagent of getEveSubagents(cwd)) {
+            const subagentPath = getInstallPath(skillName, 'eve', {
+              global: false,
+              cwd,
+              eveSubagent: subagent,
+            });
+            const subExists = await lstat(subagentPath).catch(() => null);
+            if (subExists) {
+              remainingAgents.push(agentKey);
+              break;
+            }
+          }
         }
       }
+
+      const isStillUsed = remainingAgents.length > 0;
 
       if (!isStillUsed) {
         await rm(canonicalPath, { recursive: true, force: true });
@@ -309,6 +352,12 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
         effectiveSourceType = lockEntry?.sourceType || 'local';
         if (!isStillUsed) {
           await removeSkillFromLock(skillName);
+        } else if (options.agent && options.agent.length > 0) {
+          // Partial removal: subtract the targeted agents from the lock's
+          // agents field so the next `update` doesn't reinstall to them.
+          // Pass remaining on-disk placements for legacy entries that
+          // predate the agents field.
+          await removeAgentsFromLockEntry(skillName, options.agent, remainingAgents);
         }
       } else {
         const localLock = await readLocalLock(cwd);
@@ -317,6 +366,8 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
         effectiveSourceType = lockEntry?.sourceType || 'local';
         if (!isStillUsed) {
           await removeSkillFromLocalLock(skillName, cwd);
+        } else if (options.agent && options.agent.length > 0) {
+          await removeAgentsFromLocalLockEntry(skillName, options.agent, cwd, remainingAgents);
         }
       }
 
