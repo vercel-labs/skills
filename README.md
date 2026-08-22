@@ -80,6 +80,7 @@ For GitHub tree lookups, `skills` first tries the API anonymously, then an expli
 | `--copy`                  | Copy files instead of symlinking to agent directories                                                                                              |
 | `-y, --yes`               | Skip all confirmation prompts                                                                                                                      |
 | `--all`                   | Install all skills to all agents without prompts                                                                                                   |
+| `--no-agent-files`        | Skip installing subagent definitions from an `agents/` directory (see [Subagent Files](#subagent-files))                                          |
 
 ### Examples
 
@@ -492,6 +493,28 @@ If `.claude-plugin/marketplace.json` or `.claude-plugin/plugin.json` exists, ski
 This enables compatibility with the [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-marketplaces) ecosystem. Skill paths declared in a manifest are searched at their declared depth and are not subject to the bounded depth-3 catalog walk described above.
 
 If no skills are found in standard locations, a recursive search is performed.
+
+### Subagent Files
+
+If a repository also has an `agents/` directory containing flat `.md` files (Claude Code [subagent](https://docs.claude.com/en/docs/claude-code/sub-agents) definitions, one file per subagent with `name`/`description` frontmatter), those are installed alongside skills for agents that support them:
+
+```
+my-repo/
+|-- agents/
+|    |-- architect.md
+|    |-- reviewer.md
+|-- skills/
+    |-- foo/
+    |    |-- SKILL.md
+    |-- bar/
+         |-- SKILL.md
+```
+
+```bash
+npx skills add my-org/my-repo -g -a claude-code
+```
+
+installs `architect.md` and `reviewer.md` to `~/.claude/agents/` (or `.claude/agents/` for a project install), in addition to installing `foo` and `bar` to `~/.claude/skills/`. Currently only Claude Code supports installing subagent files; pass `--no-agent-files` to skip them entirely.
 
 ## Compatibility
 

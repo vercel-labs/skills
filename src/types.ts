@@ -88,6 +88,20 @@ export interface Skill {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * A Claude Code-style subagent definition: a flat `.md` file (with
+ * `name`/`description` frontmatter) found directly under a source repo's
+ * `agents/` directory, distinct from a `Skill` (which lives in its own
+ * folder with a `SKILL.md`).
+ */
+export interface SubagentDefinition {
+  name: string;
+  description: string;
+  path: string;
+  /** Raw file content, written as-is to the install destination. */
+  rawContent: string;
+}
+
 export interface AgentConfig {
   name: string;
   displayName: string;
@@ -99,6 +113,13 @@ export interface AgentConfig {
   showInUniversalList?: boolean;
   /** Whether to display this universal agent in the interactive locked section. Defaults to true. */
   showInUniversalPrompt?: boolean;
+  /**
+   * Directory (relative to project root) where subagent definition `.md`
+   * files are installed. Undefined if this tool doesn't support them.
+   */
+  agentsDir?: string;
+  /** Global subagent definitions directory. Undefined if not supported. */
+  globalAgentsDir?: string;
 }
 
 export interface ParsedSource {
