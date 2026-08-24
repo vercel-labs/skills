@@ -68,6 +68,7 @@ export type AgentType =
   | 'trae-cn'
   | 'warp'
   | 'windsurf'
+  | 'workbuddy'
   | 'zed'
   | 'zcode'
   | 'zencoder'
