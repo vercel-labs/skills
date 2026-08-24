@@ -60,6 +60,13 @@ export function isKimchiInstalled(
   return pathExists(join(homeDir, '.config', 'kimchi'));
 }
 
+export function isOhMyPiInstalled(
+  homeDir = home,
+  pathExists: (path: string) => boolean = existsSync
+): boolean {
+  return pathExists(join(homeDir, '.omp', 'agent'));
+}
+
 export function isMiniMaxCodeInstalled(
   homeDir = home,
   pathExists: (path: string) => boolean = existsSync
@@ -553,6 +560,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.ona/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.ona'));
+    },
+  },
+  omp: {
+    name: 'omp',
+    displayName: 'Oh My Pi',
+    skillsDir: '.omp/skills',
+    globalSkillsDir: join(home, '.omp/agent/skills'),
+    detectInstalled: async () => {
+      return isOhMyPiInstalled();
     },
   },
   pi: {

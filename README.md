@@ -318,6 +318,7 @@ Skills can be installed to any of these agents:
 | OpenCode | `opencode` | `.agents/skills/` | `~/.config/opencode/skills/` |
 | OpenHands | `openhands` | `.openhands/skills/` | `~/.openhands/skills/` |
 | Ona | `ona` | `.ona/skills/` | `~/.ona/skills/` |
+| Oh My Pi | `omp` | `.omp/skills/` | `~/.omp/agent/skills/` |
 | Pi | `pi` | `.pi/skills/` | `~/.pi/agent/skills/` |
 | Posit Assistant | `posit-assistant` | `.posit/assistant/skills/` | `~/.posit/assistant/skills/` |
 | Qoder | `qoder` | `.qoder/skills/` | `~/.qoder/skills/` |
@@ -452,6 +453,7 @@ discover `SKILL.md` files outside these container directories (e.g. under
 - `.mux/skills/`
 - `.openhands/skills/`
 - `.ona/skills/`
+- `.omp/skills/`
 - `.pi/skills/`
 - `.posit/assistant/skills/`
 - `.qoder/skills/`

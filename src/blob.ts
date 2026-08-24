@@ -329,6 +329,7 @@ const PRIORITY_PREFIXES = [
   '.neovate/skills/',
   '.opencode/skills/',
   '.openhands/skills/',
+  '.omp/skills/',
   '.pi/skills/',
   '.posit/assistant/skills/',
   '.qoder/skills/',
