@@ -289,6 +289,7 @@ Skills can be installed to any of these agents:
 | Continue | `continue` | `.continue/skills/` | `~/.continue/skills/` |
 | Cortex Code | `cortex` | `.cortex/skills/` | `~/.snowflake/cortex/skills/` |
 | Crush | `crush` | `.crush/skills/` | `~/.config/crush/skills/` |
+| CUGA | `cuga` | `.cuga/skills/` | `~/.cuga/skills/` |
 | Cursor | `cursor` | `.agents/skills/` | `~/.cursor/skills/` |
 | Deep Agents | `deepagents` | `.agents/skills/` | `~/.deepagents/agent/skills/` |
 | Devin for Terminal | `devin` | `.devin/skills/` | `~/.config/devin/skills/` |
@@ -429,6 +430,7 @@ discover `SKILL.md` files outside these container directories (e.g. under
 - `.continue/skills/`
 - `.cortex/skills/`
 - `.crush/skills/`
+- `.cuga/skills/`
 - `.devin/skills/`
 - `.factory/skills/`
 - `agent/skills/`

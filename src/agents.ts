@@ -261,6 +261,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.config/crush'));
     },
   },
+  cuga: {
+    name: 'cuga',
+    displayName: 'CUGA',
+    skillsDir: '.cuga/skills',
+    globalSkillsDir: join(home, '.cuga/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.cuga'));
+    },
+  },
   cursor: {
     name: 'cursor',
     displayName: 'Cursor',
