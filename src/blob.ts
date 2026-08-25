@@ -421,8 +421,43 @@ export function findSkillMdPaths(tree: RepoTree, subpath?: string): string[] {
     }
   }
 
-  // If we found skills in priority dirs, return those
-  if (priorityResults.length > 0) return priorityResults;
+  // A recognized container name (e.g. "skills/") can also appear at a
+  // directory boundary deeper than the repo/subpath root, when a custom
+  // layout wraps it (e.g. "plugins/<name>/skills/<skill>/SKILL.md"). The
+  // loop above only ever anchors at `prefix`, so it misses these; find them
+  // too instead of silently dropping them, using the same direct/1-level
+  // rules as above.
+  const nestedResults: string[] = [];
+  for (const skillMd of filtered) {
+    if (seen.has(skillMd)) continue;
+
+    for (const priorityPrefix of PRIORITY_PREFIXES) {
+      if (priorityPrefix === '') continue; // root anchor already handled above
+      const anchor = skillMd.indexOf('/' + priorityPrefix);
+      if (anchor < 0) continue; // not present at a nested directory boundary
+
+      const rest = skillMd.slice(anchor + 1 + priorityPrefix.length);
+
+      if (rest.toLowerCase() === 'skill.md') {
+        nestedResults.push(skillMd);
+        seen.add(skillMd);
+        break;
+      }
+
+      const parts = rest.split('/');
+      if (parts.length === 2 && parts[1]!.toLowerCase() === 'skill.md') {
+        nestedResults.push(skillMd);
+        seen.add(skillMd);
+        break;
+      }
+    }
+  }
+
+  // Union priority-dir matches with nested-container matches instead of
+  // discarding the latter whenever the former is non-empty.
+  if (priorityResults.length > 0 || nestedResults.length > 0) {
+    return [...priorityResults, ...nestedResults];
+  }
 
   // Fallback: return all SKILL.md files found (limited to 5 levels deep)
   return filtered.filter((p) => {
