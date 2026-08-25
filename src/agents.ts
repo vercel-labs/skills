@@ -455,6 +455,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.kiro'));
     },
   },
+  kogniterm: {
+    name: 'kogniterm',
+    displayName: 'KogniTerm',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents', 'skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.kogniterm'));
+    },
+  },
   kode: {
     name: 'kode',
     displayName: 'Kode',

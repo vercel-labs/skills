@@ -40,6 +40,7 @@ export type AgentType =
   | 'kimchi'
   | 'kimi-code-cli'
   | 'kiro-cli'
+  | 'kogniterm'
   | 'kode'
   | 'lingma'
   | 'loaf'
