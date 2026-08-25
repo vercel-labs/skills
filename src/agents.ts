@@ -781,6 +781,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.adal'));
     },
   },
+  nanobot: {
+    name: 'nanobot',
+    displayName: 'Nanobot',
+    skillsDir: '.nanobot/workspace/skills',
+    globalSkillsDir: join(home, '.nanobot/workspace/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.nanobot/config.json'));
+    },
+  },
   universal: {
     name: 'universal',
     displayName: 'Universal',

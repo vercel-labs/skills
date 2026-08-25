@@ -75,6 +75,7 @@ export type AgentType =
   | 'pochi'
   | 'promptscript'
   | 'adal'
+  | 'nanobot'
   | 'universal';
 
 export interface Skill {
