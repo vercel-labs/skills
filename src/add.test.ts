@@ -752,4 +752,37 @@ This is a test skill for -y flag mode testing.
     // Should complete successfully
     expect(result.exitCode).toBe(0);
   });
+
+  it('should not install find-skills when running inside an agent', () => {
+    const skillDir = join(testDir, 'test-skill');
+    const homeDir = join(testDir, 'home');
+    mkdirSync(skillDir, { recursive: true });
+    mkdirSync(homeDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: agent-mode-test-skill
+description: A test skill for agent mode testing
+---
+
+# Agent Mode Test Skill
+
+This is a test skill for agent mode testing.
+`
+    );
+
+    const result = runCli(['add', testDir, '--skill', 'agent-mode-test-skill'], testDir, {
+      AI_AGENT: 'claude',
+      HOME: homeDir,
+      XDG_CONFIG_HOME: join(homeDir, '.config'),
+      XDG_STATE_HOME: join(homeDir, '.local', 'state'),
+    });
+
+    expect(result.stdout).toContain('Agent detected — installing non-interactively');
+    expect(result.stdout).not.toContain('Install the find-skills skill');
+    expect(result.stdout).not.toContain('Installing find-skills skill');
+    expect(existsSync(join(homeDir, '.claude', 'skills', 'find-skills'))).toBe(false);
+    expect(existsSync(join(homeDir, '.agents', 'skills', 'find-skills'))).toBe(false);
+    expect(result.exitCode).toBe(0);
+  });
 });
