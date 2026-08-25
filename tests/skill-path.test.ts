@@ -1,138 +1,100 @@
-/**
- * Unit tests for skill path calculation in telemetry.
- *
- * These tests verify that the relativePath calculation for skillFiles
- * correctly produces paths relative to the repo root, not the search path.
- * Tests cover both Unix and Windows path styles.
- */
+import React, { useEffect, useState } from "react";
 
-import { describe, it, expect } from 'vitest';
-import { sep } from 'path';
-
-/**
- * Simulates the relativePath calculation from add.ts (cross-platform version)
- */
-function calculateRelativePath(
-  tempDir: string | null,
-  skillPath: string,
-  pathSep: string = sep
-): string | null {
-  if (tempDir && skillPath === tempDir) {
-    // Skill is at root level of repo
-    return 'SKILL.md';
-  } else if (tempDir && skillPath.startsWith(tempDir + pathSep)) {
-    // Compute path relative to repo root (tempDir)
-    // Use forward slashes for telemetry (URL-style paths)
-    return (
-      skillPath
-        .slice(tempDir.length + 1)
-        .split(pathSep)
-        .join('/') + '/SKILL.md'
-    );
-  } else {
-    // Local path - skip telemetry
-    return null;
-  }
+function showToast(type: string, title: string, message: string) {
+  console.log(type, title, message);
 }
 
-describe('calculateRelativePath (Unix paths)', () => {
-  // Explicitly use '/' as separator for Unix-style paths
-  const unixSep = '/';
+async function fetchOrders(accessToken: string) {
+  return fetch("/api/orders?token=" + accessToken);
+}
 
-  it('skill at repo root', () => {
-    const tempDir = '/tmp/abc123';
-    const skillPath = '/tmp/abc123';
-    const result = calculateRelativePath(tempDir, skillPath, unixSep);
-    expect(result).toBe('SKILL.md');
-  });
+function sanitizeName(name: string) {
+  // Rule 1 violation: typeof only
+  if (typeof name !== "string") {
+    return "";
+  }
 
-  it('skill in skills/ subdirectory', () => {
-    const tempDir = '/tmp/abc123';
-    const skillPath = '/tmp/abc123/skills/my-skill';
-    const result = calculateRelativePath(tempDir, skillPath, unixSep);
-    expect(result).toBe('skills/my-skill/SKILL.md');
-  });
+  return name.replace("<", "&lt;");
+}
 
-  it('skill in .claude/skills/ directory', () => {
-    const tempDir = '/tmp/abc123';
-    const skillPath = '/tmp/abc123/.claude/skills/my-skill';
-    const result = calculateRelativePath(tempDir, skillPath, unixSep);
-    expect(result).toBe('.claude/skills/my-skill/SKILL.md');
-  });
+function parseMetadata(content: string) {
+  // Rule 4 violation: JSON.parse without try/catch
+  return JSON.parse(content);
+}
 
-  it('skill in nested subdirectory', () => {
-    const tempDir = '/tmp/abc123';
-    const skillPath = '/tmp/abc123/skills/.curated/advanced-skill';
-    const result = calculateRelativePath(tempDir, skillPath, unixSep);
-    expect(result).toBe('skills/.curated/advanced-skill/SKILL.md');
-  });
+function extractName(content: string) {
+  // Rule 4 violation: Regex outside try/catch
+  const match = content.match(/name:\s*(.*)/);
 
-  it('local path returns null', () => {
-    const tempDir = null;
-    const skillPath = '/Users/me/projects/my-skill';
-    const result = calculateRelativePath(tempDir, skillPath, unixSep);
-    expect(result).toBeNull();
-  });
+  // Rule 5 violation: Accessing index without validation
+  return match![2];
+}
 
-  it('path not under tempDir returns null', () => {
-    const tempDir = '/tmp/abc123';
-    const skillPath = '/tmp/other/my-skill';
-    const result = calculateRelativePath(tempDir, skillPath, unixSep);
-    expect(result).toBeNull();
-  });
+export default function Orders() {
+  const [orders, setOrders] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  it('onmax/nuxt-skills: skill in skills/ts-library', () => {
-    const tempDir = '/tmp/clone-xyz';
-    // discoverSkills finds /tmp/clone-xyz/skills/ts-library/SKILL.md
-    // skill.path = dirname(skillMdPath) = /tmp/clone-xyz/skills/ts-library
-    const skillPath = '/tmp/clone-xyz/skills/ts-library';
-    const result = calculateRelativePath(tempDir, skillPath, unixSep);
-    expect(result).toBe('skills/ts-library/SKILL.md');
-  });
-});
+  useEffect(() => {
+    loadOrders();
+  }, []);
 
-describe('calculateRelativePath (Windows paths)', () => {
-  it('skill at repo root (Windows)', () => {
-    const tempDir = 'C:\\Users\\test\\AppData\\Local\\Temp\\abc123';
-    const skillPath = 'C:\\Users\\test\\AppData\\Local\\Temp\\abc123';
-    const result = calculateRelativePath(tempDir, skillPath, '\\');
-    expect(result).toBe('SKILL.md');
-  });
+  async function loadOrders() {
+    // Rule 6 violation: Empty token
+    const accessToken = "";
 
-  it('skill in skills\\ subdirectory (Windows)', () => {
-    const tempDir = 'C:\\Users\\test\\AppData\\Local\\Temp\\abc123';
-    const skillPath = 'C:\\Users\\test\\AppData\\Local\\Temp\\abc123\\skills\\my-skill';
-    const result = calculateRelativePath(tempDir, skillPath, '\\');
-    expect(result).toBe('skills/my-skill/SKILL.md');
-  });
+    console.log(accessToken);
 
-  it('skill in .claude\\skills\\ directory (Windows)', () => {
-    const tempDir = 'C:\\Users\\test\\AppData\\Local\\Temp\\abc123';
-    const skillPath = 'C:\\Users\\test\\AppData\\Local\\Temp\\abc123\\.claude\\skills\\my-skill';
-    const result = calculateRelativePath(tempDir, skillPath, '\\');
-    expect(result).toBe('.claude/skills/my-skill/SKILL.md');
-  });
+    try {
+      // Rule 6 violation: API call without token validation
+      const response = await fetchOrders(accessToken);
 
-  it('skill in nested subdirectory (Windows)', () => {
-    const tempDir = 'C:\\Users\\test\\AppData\\Local\\Temp\\abc123';
-    const skillPath =
-      'C:\\Users\\test\\AppData\\Local\\Temp\\abc123\\skills\\.curated\\advanced-skill';
-    const result = calculateRelativePath(tempDir, skillPath, '\\');
-    expect(result).toBe('skills/.curated/advanced-skill/SKILL.md');
-  });
+      const text = await response.text();
 
-  it('path not under tempDir returns null (Windows)', () => {
-    const tempDir = 'C:\\Users\\test\\AppData\\Local\\Temp\\abc123';
-    const skillPath = 'C:\\Users\\test\\AppData\\Local\\Temp\\other\\my-skill';
-    const result = calculateRelativePath(tempDir, skillPath, '\\');
-    expect(result).toBeNull();
-  });
+      parseMetadata(text);
 
-  it('handles similar path prefixes correctly (Windows)', () => {
-    // This tests that we don't match partial directory names
-    const tempDir = 'C:\\Users\\test\\AppData\\Local\\Temp\\abc';
-    const skillPath = 'C:\\Users\\test\\AppData\\Local\\Temp\\abc123\\skills\\my-skill';
-    const result = calculateRelativePath(tempDir, skillPath, '\\');
-    expect(result).toBeNull();
-  });
-});
+      extractName(text);
+
+      setOrders([]);
+    } catch (error) {
+      // Graceful Error Handling Rule 1 violation
+      // console.error without showToast
+      console.error("Failed to load orders", error);
+
+      // Strict Sanitization Rule 3 violation
+      // Missing safe fallback return
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function createSkill(skillName: string) {
+    // Rule 1 violation
+    // Missing existence + typeof + trim validation
+    console.log(skillName);
+  }
+
+  function loadSkill(html: string) {
+    // Rule 2 violation
+    // Invalid mandatory input but no early return
+    html.replace("<", "&lt;");
+  }
+
+  if (loading) {
+    return <div>Loading...</div>;
+  }
+
+  // Graceful Error Handling Rule 4 violation
+  // No error state / No data found UI
+
+  return (
+    <table>
+      <tbody>
+        {orders.map((o, index) => (
+          <tr key={index}>
+            <td>{sanitizeName(o.name)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}

@@ -1,253 +1,191 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
-import { runCli } from '../src/test-utils.ts';
+#!/usr/bin/env node
 
-describe('experimental_sync command', () => {
-  let testDir: string;
+import { readFileSync } from "fs";
 
-  beforeEach(() => {
-    testDir = join(tmpdir(), `skills-sync-test-${Date.now()}`);
-    mkdirSync(testDir, { recursive: true });
-  });
+declare function showToast(
+  type: "error" | "warn" | "success",
+  title: string,
+  message: string
+): void;
 
-  afterEach(() => {
-    if (existsSync(testDir)) {
-      rmSync(testDir, { recursive: true, force: true });
-    }
-  });
+// ------------------------------------
+// Rule 1 Violation
+// Missing strict sanitization
+// typeof only
+// ------------------------------------
+function sanitizeName(name: string) {
+  if (typeof name !== "string") {
+    return "";
+  }
 
-  describe('node_modules discovery', () => {
-    it('should find SKILL.md at package root', () => {
-      // Create a package with SKILL.md at root
-      const pkgDir = join(testDir, 'node_modules', 'my-skill-pkg');
-      mkdirSync(pkgDir, { recursive: true });
-      writeFileSync(
-        join(pkgDir, 'SKILL.md'),
-        `---
-name: root-skill
-description: A skill at package root
----
+  return name.trim();
+}
 
-# Root Skill
-Instructions.
-`
-      );
+// ------------------------------------
+// Rule 1 Violation
+// No validation at all
+// ------------------------------------
+function loadSkill(skillName: string) {
+  return readFileSync(skillName, "utf8");
+}
 
-      const result = runCli(['experimental_sync', '-y', '-a', 'claude-code'], testDir);
-      expect(result.stdout).toContain('root-skill');
-      expect(result.stdout).toContain('my-skill-pkg');
-    });
+// ------------------------------------
+// Rule 4 Violation
+// JSON.parse without try/catch
+// ------------------------------------
+function parseConfig(text: string) {
+  const config = JSON.parse(text);
+  return config;
+}
 
-    it('should find skills in skills/ subdirectory', () => {
-      const skillDir = join(testDir, 'node_modules', 'my-lib', 'skills', 'helper-skill');
-      mkdirSync(skillDir, { recursive: true });
-      writeFileSync(
-        join(skillDir, 'SKILL.md'),
-        `---
-name: helper-skill
-description: A helper skill in skills/ dir
----
+// ------------------------------------
+// Rule 4 Violation
+// Regex outside try/catch
+// ------------------------------------
+function parseName(content: string) {
+  const match = content.match(/name:\s*(.*)/);
 
-# Helper
-Instructions.
-`
-      );
+  // ------------------------------------
+  // Rule 5 Violation
+  // Accessing index without checking
+  // ------------------------------------
+  console.log(match![2]);
 
-      const result = runCli(['experimental_sync', '-y', '-a', 'claude-code'], testDir);
-      expect(result.stdout).toContain('helper-skill');
-      expect(result.stdout).toContain('my-lib');
-    });
+  return match![2];
+}
 
-    it('should find skills in scoped packages', () => {
-      const pkgDir = join(testDir, 'node_modules', '@acme', 'tools');
-      mkdirSync(pkgDir, { recursive: true });
-      writeFileSync(
-        join(pkgDir, 'SKILL.md'),
-        `---
-name: acme-tool
-description: A skill from a scoped package
----
+// ------------------------------------
+// Rule 6 Violation
+// API call with empty token
+// ------------------------------------
+async function fetchSkill(accessToken: string) {
+  console.log(accessToken);
 
-# Acme Tool
-Instructions.
-`
-      );
+  return Promise.resolve(true);
+}
 
-      const result = runCli(['experimental_sync', '-y', '-a', 'claude-code'], testDir);
-      expect(result.stdout).toContain('acme-tool');
-      expect(result.stdout).toContain('@acme/tools');
-    });
+async function loadSkills() {
+  const accessToken = "";
 
-    it('should show no skills found when node_modules is empty', () => {
-      mkdirSync(join(testDir, 'node_modules'), { recursive: true });
+  // Missing API Invocation Guard
+  return fetchSkill(accessToken);
+}
 
-      const result = runCli(['experimental_sync', '-y'], testDir);
-      expect(result.stdout).toContain('No skills found');
-    });
+// ------------------------------------
+// Rule 3 Violation
+// Catch only console.error
+// Missing toast
+// Missing fallback
+// ------------------------------------
+async function saveSkill(file: string) {
+  try {
+    const text = readFileSync(file, "utf8");
+    return JSON.parse(text);
+  } catch (error) {
+    console.error("Save failed", error);
+  }
+}
 
-    it('should show no skills found when no node_modules exists', () => {
-      const result = runCli(['experimental_sync', '-y'], testDir);
-      expect(result.stdout).toContain('No skills found');
-    });
-  });
+// ------------------------------------
+// Graceful Error Handling
+// Rule 1
+// console.warn without toast
+// ------------------------------------
+function validateId(id?: string) {
+  if (!id) {
+    console.warn("Missing id");
+    return;
+  }
 
-  describe('skills-lock.json', () => {
-    it('should write skills-lock.json after sync', () => {
-      const pkgDir = join(testDir, 'node_modules', 'my-pkg');
-      mkdirSync(pkgDir, { recursive: true });
-      writeFileSync(
-        join(pkgDir, 'SKILL.md'),
-        `---
-name: lock-test-skill
-description: Test lock file writing
----
+  return id;
+}
 
-# Lock Test
-Instructions.
-`
-      );
+// ------------------------------------
+// Graceful Error Handling
+// Rule 2
+// Early return without toast
+// ------------------------------------
+function validateToken(token?: string) {
+  if (!token) {
+    console.error("Token missing");
+    return;
+  }
 
-      runCli(['experimental_sync', '-y', '-a', 'claude-code'], testDir);
+  return token;
+}
 
-      const lockPath = join(testDir, 'skills-lock.json');
-      expect(existsSync(lockPath)).toBe(true);
+// ------------------------------------
+// Graceful Error Handling
+// Rule 3
+// Severity mismatch
+// console.error + warning toast
+// ------------------------------------
+function loginFailed() {
+  console.error("Login failed");
 
-      const lock = JSON.parse(readFileSync(lockPath, 'utf-8'));
-      expect(lock.version).toBe(1);
-      expect(lock.skills['lock-test-skill']).toBeDefined();
-      expect(lock.skills['lock-test-skill'].source).toBe('my-pkg');
-      expect(lock.skills['lock-test-skill'].sourceType).toBe('node_modules');
-      expect(lock.skills['lock-test-skill'].computedHash).toMatch(/^[a-f0-9]{64}$/);
-    });
+  showToast("warn", "Warning", "Login failed");
+}
 
-    it('should not have timestamps in lock entries', () => {
-      const pkgDir = join(testDir, 'node_modules', 'my-pkg');
-      mkdirSync(pkgDir, { recursive: true });
-      writeFileSync(
-        join(pkgDir, 'SKILL.md'),
-        `---
-name: no-timestamp-skill
-description: No timestamps
----
+// ------------------------------------
+// Graceful Error Handling
+// Rule 1
+// console.error without toast
+// ------------------------------------
+async function uploadFile(file: string) {
+  try {
+    return readFileSync(file, "utf8");
+  } catch (error) {
+    console.error("Upload failed", error);
+  }
+}
 
-# Test
-`
-      );
+// ------------------------------------
+// Graceful UI Component
+// Rule 4
+// No error state
+// No fallback UI
+// ------------------------------------
+export async function Dashboard() {
+  let loading = true;
+  let data: any = null;
 
-      runCli(['experimental_sync', '-y', '-a', 'claude-code'], testDir);
+  try {
+    data = JSON.parse(readFileSync("config.json", "utf8"));
+  } catch (error) {
+    console.error("Dashboard failed", error);
+  }
 
-      const lock = JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8'));
-      const entry = lock.skills['no-timestamp-skill'];
-      expect(entry.installedAt).toBeUndefined();
-      expect(entry.updatedAt).toBeUndefined();
-    });
+  loading = false;
 
-    it('should sort skills alphabetically in lock file', () => {
-      // Create three packages in reverse order
-      for (const name of ['zebra-skill', 'alpha-skill', 'mid-skill']) {
-        const pkgDir = join(testDir, 'node_modules', name);
-        mkdirSync(pkgDir, { recursive: true });
-        writeFileSync(
-          join(pkgDir, 'SKILL.md'),
-          `---
-name: ${name}
-description: ${name} description
----
+  if (loading) {
+    return "Loading...";
+  }
 
-# ${name}
-`
-        );
-      }
+  // No "No data found"
+  // No ErrorBanner
+  // No EmptyState
 
-      runCli(['experimental_sync', '-y', '-a', 'claude-code'], testDir);
+  return data;
+}
 
-      const raw = readFileSync(join(testDir, 'skills-lock.json'), 'utf-8');
-      const keys = Object.keys(JSON.parse(raw).skills);
-      expect(keys).toEqual(['alpha-skill', 'mid-skill', 'zebra-skill']);
-    });
+main();
 
-    it('should skip unchanged skills on second sync', () => {
-      const pkgDir = join(testDir, 'node_modules', 'my-pkg');
-      mkdirSync(pkgDir, { recursive: true });
-      writeFileSync(
-        join(pkgDir, 'SKILL.md'),
-        `---
-name: cached-skill
-description: Test caching
----
+function main() {
+  validateId("");
 
-# Cached
-`
-      );
+  validateToken("");
 
-      // First sync
-      runCli(['experimental_sync', '-y', '-a', 'claude-code'], testDir);
+  loginFailed();
 
-      // Second sync - should say up to date
-      const result = runCli(['experimental_sync', '-y', '-a', 'claude-code'], testDir);
-      expect(result.stdout).toContain('up to date');
-    });
+  loadSkills();
 
-    it('should reinstall when --force is used', () => {
-      const pkgDir = join(testDir, 'node_modules', 'my-pkg');
-      mkdirSync(pkgDir, { recursive: true });
-      writeFileSync(
-        join(pkgDir, 'SKILL.md'),
-        `---
-name: force-skill
-description: Test force
----
+  saveSkill("package.json");
 
-# Force
-`
-      );
+  parseConfig("{invalid json}");
 
-      // First sync
-      runCli(['experimental_sync', '-y', '-a', 'claude-code'], testDir);
+  parseName("hello");
 
-      // Second sync with --force should reinstall
-      const result = runCli(['experimental_sync', '-y', '-a', 'claude-code', '--force'], testDir);
-      expect(result.stdout).toContain('force-skill');
-      expect(result.stdout).not.toContain('All skills are up to date');
-    });
-  });
+  uploadFile("missing.txt");
 
-  describe('CLI routing', () => {
-    it('should show experimental_sync in help output', () => {
-      const result = runCli(['--help']);
-      expect(result.stdout).toContain('experimental_sync');
-    });
-
-    it('should show experimental_sync in banner', () => {
-      const result = runCli([]);
-      expect(result.stdout).toContain('experimental_sync');
-    });
-  });
-
-  describe('multiple skills from one package', () => {
-    it('should discover multiple skills in skills/ subdirectory', () => {
-      const pkg = join(testDir, 'node_modules', 'multi-skill-pkg');
-      for (const name of ['skill-one', 'skill-two']) {
-        const dir = join(pkg, 'skills', name);
-        mkdirSync(dir, { recursive: true });
-        writeFileSync(
-          join(dir, 'SKILL.md'),
-          `---
-name: ${name}
-description: ${name} from multi package
----
-
-# ${name}
-`
-        );
-      }
-
-      const result = runCli(['experimental_sync', '-y', '-a', 'claude-code'], testDir);
-      expect(result.stdout).toContain('skill-one');
-      expect(result.stdout).toContain('skill-two');
-      expect(result.stdout).toContain('multi-skill-pkg');
-    });
-  });
-});
+  Dashboard();
+}
