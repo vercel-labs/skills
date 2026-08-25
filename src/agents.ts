@@ -77,6 +77,18 @@ export function isPositAssistantInstalled(
 }
 
 export const agents: Record<AgentType, AgentConfig> = {
+  aeon: {
+    name: 'aeon',
+    displayName: 'Aeon',
+    // Aeon reads skills from `skills/<name>/SKILL.md` at the instance repo root.
+    skillsDir: 'skills',
+    // Runs per-repo in GitHub Actions; no global (~) install target.
+    globalSkillsDir: undefined,
+    detectInstalled: async () => {
+      const cwd = process.cwd();
+      return existsSync(join(cwd, 'aeon.yml')) && existsSync(join(cwd, 'skills'));
+    },
+  },
   'aider-desk': {
     name: 'aider-desk',
     displayName: 'AiderDesk',
