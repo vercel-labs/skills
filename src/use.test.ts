@@ -14,6 +14,7 @@ import {
   type AgentProcess,
   type AgentSpawn,
   type UseSkill,
+  type UseTelemetryTracker,
 } from './use.ts';
 
 describe('use command', () => {
@@ -29,6 +30,7 @@ describe('use command', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     for (const dir of cleanupDirs.splice(0)) {
       if (existsSync(dir)) {
         rmSync(dir, { recursive: true, force: true });
@@ -233,6 +235,58 @@ describe('use command', () => {
   });
 
   describe('CLI behavior', () => {
+    it('tracks a successful well-known skill download as a use event', async () => {
+      const sourceUrl = 'https://example.com/docs';
+      const telemetryEvents: Parameters<UseTelemetryTracker>[0][] = [];
+
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://example.com/docs/.well-known/agent-skills/index.json') {
+          return Response.json({
+            skills: [
+              {
+                name: 'example-skill',
+                description: 'Example skill.',
+                files: ['SKILL.md', 'reference.md'],
+              },
+            ],
+          });
+        }
+        if (href === 'https://example.com/docs/.well-known/agent-skills/example-skill/SKILL.md') {
+          return new Response(
+            '---\nname: example-skill\ndescription: Example skill.\n---\n# Example'
+          );
+        }
+        if (
+          href === 'https://example.com/docs/.well-known/agent-skills/example-skill/reference.md'
+        ) {
+          return new Response('Reference');
+        }
+        return new Response('not found', { status: 404 });
+      });
+
+      const writes: string[] = [];
+      vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: unknown) => {
+        writes.push(String(chunk));
+        return true;
+      }) as typeof process.stdout.write);
+
+      await runUse([sourceUrl], {}, [], (event) => telemetryEvents.push(event));
+
+      const supportDir = extractSupportDir(writes.join(''));
+      if (supportDir) cleanupDirs.push(join(supportDir, '..'));
+      expect(telemetryEvents).toEqual([
+        {
+          event: 'use',
+          source: 'example.com',
+          skills: 'example-skill',
+          sourceType: 'well-known',
+          downloadMethod: 'well-known',
+          mode: 'prompt',
+        },
+      ]);
+    });
+
     it('uses a direct archive when well-known discovery misses', async () => {
       const archiveRoot = join(testDir, 'direct-archive');
       writeSkill(archiveRoot, 'direct-skill', 'Direct archive body.');
@@ -263,14 +317,16 @@ describe('use command', () => {
       vi.spyOn(process, 'exit').mockImplementation((() => {
         throw new Error('process.exit called');
       }) as never);
+      const trackUse = vi.fn<UseTelemetryTracker>();
 
-      await runUse([directUrl]);
+      await runUse([directUrl], {}, [], trackUse);
 
       const stdout = writes.join('');
       const supportDir = extractSupportDir(stdout);
       if (supportDir) cleanupDirs.push(join(supportDir, '..'));
       expect(stdout).toContain('Direct archive body.');
       expect(supportDir).toBeTruthy();
+      expect(trackUse).not.toHaveBeenCalled();
     });
 
     it('prints only the generated prompt for a single local skill', () => {

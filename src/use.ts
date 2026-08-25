@@ -9,8 +9,9 @@ import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
 import { sanitizeName } from './installer.ts';
 import { getGitHubToken } from './skill-lock.ts';
 import { discoverSkills, filterSkills, getSkillDisplayName } from './skills.ts';
-import { getOwnerRepo, parseSource } from './source-parser.ts';
-import type { AgentType, Skill } from './types.ts';
+import { getOwnerRepo, isRepoPrivate, parseOwnerRepo, parseSource } from './source-parser.ts';
+import { track, type UseTelemetryData } from './telemetry.ts';
+import type { AgentType, ParsedSource, Skill } from './types.ts';
 import { downloadSource } from './download-source.ts';
 import {
   wellKnownProvider,
@@ -71,6 +72,8 @@ export type AgentSpawn = (
   args: string[],
   options: { stdio: 'inherit' }
 ) => AgentProcess;
+
+export type UseTelemetryTracker = (data: UseTelemetryData) => void;
 
 interface UseAgentConfig {
   command: string;
@@ -183,7 +186,8 @@ export async function materializeUseSkill(skill: UseSkill): Promise<Materialized
 export async function runUse(
   sourceArgs: string[],
   options: UseOptions = {},
-  parseErrors: string[] = []
+  parseErrors: string[] = [],
+  trackUse: UseTelemetryTracker = track
 ): Promise<void> {
   let cloneTempDir: string | null = null;
 
@@ -213,6 +217,7 @@ export async function runUse(
     const source = sourceArgs[0]!;
     const parsed = parseSource(source);
 
+    const repoPrivacyPromise = getUseRepoPrivacy(parsed, ownerRepoRaw);
     const selector = resolveSelector(parsed.skillFilter, options.skill);
     const includeInternal = selector !== undefined;
 
@@ -324,6 +329,20 @@ export async function runUse(
       hasSupportingFiles: materialized.hasSupportingFiles,
     });
 
+    const telemetrySource = getUseTelemetrySource(parsed, ownerRepoRaw, selectedSkill);
+    const canTrackSource = parsed.type !== 'github' || (await repoPrivacyPromise) === false;
+    if (telemetrySource && canTrackSource) {
+      trackUse({
+        event: 'use',
+        source: telemetrySource,
+        skills: selectedSkill.directoryName,
+        ...(useAgent && { agents: useAgent }),
+        sourceType: parsed.type,
+        downloadMethod: getUseDownloadMethod(parsed, selectedSkill),
+        mode: useAgent ? 'agent' : 'prompt',
+      });
+    }
+
     if (useAgent) {
       const exitCode = await launchAgentInteractively(useAgent, prompt);
       if (exitCode !== 0) {
@@ -343,6 +362,53 @@ export async function runUse(
     }
     fail(error instanceof Error ? error.message : 'Unknown error');
   }
+}
+
+function getUseRepoPrivacy(
+  parsed: ParsedSource,
+  ownerRepo: string | null
+): Promise<boolean | null> {
+  if (parsed.type !== 'github' || !ownerRepo) {
+    return Promise.resolve(null);
+  }
+
+  const parsedOwnerRepo = parseOwnerRepo(ownerRepo);
+  if (!parsedOwnerRepo) {
+    return Promise.resolve(null);
+  }
+
+  return isRepoPrivate(parsedOwnerRepo.owner, parsedOwnerRepo.repo).catch(() => null);
+}
+
+function getUseTelemetrySource(
+  parsed: ParsedSource,
+  ownerRepo: string | null,
+  skill: UseSkill
+): string | null {
+  if (parsed.type === 'local' || parsed.type === 'download') {
+    return null;
+  }
+
+  if (parsed.type === 'well-known') {
+    // Arbitrary HTTP URLs use the well-known parser first, then fall back to
+    // a direct archive/SKILL.md download. Only the public discovery path is
+    // safe to identify in telemetry; direct URLs may be private or signed.
+    if (skill.kind !== 'well-known') return null;
+    const source = wellKnownProvider.getSourceIdentifier(parsed.url);
+    return source === 'unknown' ? null : source;
+  }
+
+  return ownerRepo;
+}
+
+function getUseDownloadMethod(
+  parsed: ParsedSource,
+  skill: UseSkill
+): UseTelemetryData['downloadMethod'] {
+  if (skill.kind === 'blob') return 'blob';
+  if (skill.kind === 'well-known') return 'well-known';
+  if (parsed.type === 'well-known' || parsed.type === 'download') return 'download';
+  return 'git';
 }
 
 export async function launchAgentInteractively(
