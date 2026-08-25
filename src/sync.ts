@@ -4,7 +4,7 @@ import { readdir, stat } from 'fs/promises';
 import { join, sep } from 'path';
 import { homedir } from 'os';
 import { parseSkillMd } from './skills.ts';
-import { installSkillForAgent, getCanonicalPath } from './installer.ts';
+import { createInstallSession, installSkillForAgent, getCanonicalPath } from './installer.ts';
 import {
   detectInstalledAgents,
   agents,
@@ -356,11 +356,13 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   }> = [];
 
   for (const skill of toInstall) {
+    const session = createInstallSession();
     for (const agent of targetAgents) {
       const result = await installSkillForAgent(skill, agent, {
         global: false,
         cwd,
         mode: 'symlink',
+        session,
       });
       results.push({
         skill: skill.name,

@@ -31,6 +31,24 @@ import { parseSkillMd } from './skills.ts';
 
 export type InstallMode = 'symlink' | 'copy';
 
+/** Coordinates writes while one skill is installed to multiple agent targets. */
+export interface InstallSession {
+  writes: Map<string, Promise<void>>;
+}
+
+export interface InstallOptions {
+  global?: boolean;
+  cwd?: string;
+  mode?: InstallMode;
+  eveSubagent?: string;
+  /** Reuse one session for every target of the same skill. */
+  session?: InstallSession;
+}
+
+export function createInstallSession(): InstallSession {
+  return { writes: new Map() };
+}
+
 interface InstallResult {
   success: boolean;
   path: string;
@@ -169,6 +187,47 @@ async function cleanAndCreateDirectory(path: string): Promise<void> {
   await mkdir(path, { recursive: true });
 }
 
+async function runInstallWriteOnce(
+  path: string,
+  session: InstallSession | undefined,
+  write: () => Promise<void>
+): Promise<void> {
+  if (!session) {
+    await write();
+    return;
+  }
+
+  const key = resolve(path);
+  const existingWrite = session.writes.get(key);
+  if (existingWrite) {
+    await existingWrite;
+    return;
+  }
+
+  const pendingWrite = write();
+  session.writes.set(key, pendingWrite);
+
+  try {
+    await pendingWrite;
+  } catch (error) {
+    if (session.writes.get(key) === pendingWrite) {
+      session.writes.delete(key);
+    }
+    throw error;
+  }
+}
+
+async function replaceInstallDirectoryOnce(
+  path: string,
+  session: InstallSession | undefined,
+  writeFiles: () => Promise<void>
+): Promise<void> {
+  await runInstallWriteOnce(path, session, async () => {
+    await cleanAndCreateDirectory(path);
+    await writeFiles();
+  });
+}
+
 /**
  * Resolve a path's parent directory through symlinks, keeping the final component.
  * This handles the case where a parent directory (e.g., ~/.claude/skills) is a symlink
@@ -265,7 +324,7 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
 export async function installSkillForAgent(
   skill: Skill,
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode; eveSubagent?: string } = {}
+  options: InstallOptions = {}
 ): Promise<InstallResult> {
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
@@ -335,8 +394,9 @@ export async function installSkillForAgent(
 
     // For copy mode, skip canonical directory and copy directly to agent location
     if (installMode === 'copy') {
-      await cleanAndCreateDirectory(agentDir);
-      await copyDirectory(skill.path, agentDir, agentType);
+      await replaceInstallDirectoryOnce(agentDir, options.session, () =>
+        copyDirectory(skill.path, agentDir, agentType)
+      );
 
       return {
         success: true,
@@ -356,8 +416,9 @@ export async function installSkillForAgent(
     }
 
     // Symlink mode: copy to canonical location and symlink to agent location
-    await cleanAndCreateDirectory(canonicalDir);
-    await copyDirectory(skill.path, canonicalDir, agentType);
+    await replaceInstallDirectoryOnce(canonicalDir, options.session, () =>
+      copyDirectory(skill.path, canonicalDir, agentType)
+    );
 
     // For universal agents with global install, the skill is already in the canonical
     // ~/.agents/skills directory. Skip creating a symlink to the agent-specific global dir
@@ -392,8 +453,9 @@ export async function installSkillForAgent(
 
     if (!symlinkCreated) {
       // Symlink failed, fall back to copy
-      await cleanAndCreateDirectory(agentDir);
-      await copyDirectory(skill.path, agentDir, agentType);
+      await replaceInstallDirectoryOnce(agentDir, options.session, () =>
+        copyDirectory(skill.path, agentDir, agentType)
+      );
 
       return {
         success: true,
@@ -616,7 +678,7 @@ export function getCanonicalPath(
 export async function installRemoteSkillForAgent(
   skill: RemoteSkill,
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode; eveSubagent?: string } = {}
+  options: InstallOptions = {}
 ): Promise<InstallResult> {
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
@@ -670,15 +732,16 @@ export async function installRemoteSkillForAgent(
   try {
     // For copy mode, write directly to agent location
     if (installMode === 'copy') {
-      await cleanAndCreateDirectory(agentDir);
-      const skillFileName =
-        agentType === 'eve' ? toEveFlatSkillFileName(skill.installName) : 'SKILL.md';
-      const skillMdPath = join(agentDir, skillFileName);
-      await writeFile(
-        skillMdPath,
-        agentType === 'eve' ? stripIgnoredEveFrontmatter(skill.content) : skill.content,
-        'utf-8'
-      );
+      await replaceInstallDirectoryOnce(agentDir, options.session, async () => {
+        const skillFileName =
+          agentType === 'eve' ? toEveFlatSkillFileName(skill.installName) : 'SKILL.md';
+        const skillMdPath = join(agentDir, skillFileName);
+        await writeFile(
+          skillMdPath,
+          agentType === 'eve' ? stripIgnoredEveFrontmatter(skill.content) : skill.content,
+          'utf-8'
+        );
+      });
 
       return {
         success: true,
@@ -688,15 +751,16 @@ export async function installRemoteSkillForAgent(
     }
 
     // Symlink mode: write to canonical location and symlink to agent location
-    await cleanAndCreateDirectory(canonicalDir);
-    const skillFileName =
-      agentType === 'eve' ? toEveFlatSkillFileName(skill.installName) : 'SKILL.md';
-    const skillMdPath = join(canonicalDir, skillFileName);
-    await writeFile(
-      skillMdPath,
-      agentType === 'eve' ? stripIgnoredEveFrontmatter(skill.content) : skill.content,
-      'utf-8'
-    );
+    await replaceInstallDirectoryOnce(canonicalDir, options.session, async () => {
+      const skillFileName =
+        agentType === 'eve' ? toEveFlatSkillFileName(skill.installName) : 'SKILL.md';
+      const skillMdPath = join(canonicalDir, skillFileName);
+      await writeFile(
+        skillMdPath,
+        agentType === 'eve' ? stripIgnoredEveFrontmatter(skill.content) : skill.content,
+        'utf-8'
+      );
+    });
 
     // For universal agents with global install, skip creating agent-specific symlink
     if (isGlobal && isUniversalAgent(agentType)) {
@@ -712,15 +776,16 @@ export async function installRemoteSkillForAgent(
 
     if (!symlinkCreated) {
       // Symlink failed, fall back to copy
-      await cleanAndCreateDirectory(agentDir);
-      const agentSkillFileName =
-        agentType === 'eve' ? toEveFlatSkillFileName(skill.installName) : 'SKILL.md';
-      const agentSkillMdPath = join(agentDir, agentSkillFileName);
-      await writeFile(
-        agentSkillMdPath,
-        agentType === 'eve' ? stripIgnoredEveFrontmatter(skill.content) : skill.content,
-        'utf-8'
-      );
+      await replaceInstallDirectoryOnce(agentDir, options.session, async () => {
+        const agentSkillFileName =
+          agentType === 'eve' ? toEveFlatSkillFileName(skill.installName) : 'SKILL.md';
+        const agentSkillMdPath = join(agentDir, agentSkillFileName);
+        await writeFile(
+          agentSkillMdPath,
+          agentType === 'eve' ? stripIgnoredEveFrontmatter(skill.content) : skill.content,
+          'utf-8'
+        );
+      });
 
       return {
         success: true,
@@ -757,7 +822,7 @@ export async function installRemoteSkillForAgent(
 export async function installWellKnownSkillForAgent(
   skill: WellKnownSkill,
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode; eveSubagent?: string } = {}
+  options: InstallOptions = {}
 ): Promise<InstallResult> {
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
@@ -839,8 +904,7 @@ export async function installWellKnownSkillForAgent(
   try {
     // For copy mode, write directly to agent location
     if (installMode === 'copy') {
-      await cleanAndCreateDirectory(agentDir);
-      await writeSkillFiles(agentDir);
+      await replaceInstallDirectoryOnce(agentDir, options.session, () => writeSkillFiles(agentDir));
 
       return {
         success: true,
@@ -850,8 +914,9 @@ export async function installWellKnownSkillForAgent(
     }
 
     // Symlink mode: write to canonical location and symlink to agent location
-    await cleanAndCreateDirectory(canonicalDir);
-    await writeSkillFiles(canonicalDir);
+    await replaceInstallDirectoryOnce(canonicalDir, options.session, () =>
+      writeSkillFiles(canonicalDir)
+    );
 
     // For universal agents with global install, skip creating agent-specific symlink
     if (isGlobal && isUniversalAgent(agentType)) {
@@ -867,8 +932,7 @@ export async function installWellKnownSkillForAgent(
 
     if (!symlinkCreated) {
       // Symlink failed, fall back to copy
-      await cleanAndCreateDirectory(agentDir);
-      await writeSkillFiles(agentDir);
+      await replaceInstallDirectoryOnce(agentDir, options.session, () => writeSkillFiles(agentDir));
 
       return {
         success: true,
@@ -903,7 +967,7 @@ export async function installWellKnownSkillForAgent(
 export async function installBlobSkillForAgent(
   skill: { installName: string; files: Array<{ path: string; contents: string }> },
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode; eveSubagent?: string } = {}
+  options: InstallOptions = {}
 ): Promise<InstallResult> {
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
@@ -935,9 +999,11 @@ export async function installBlobSkillForAgent(
     }
 
     try {
-      await mkdir(agentBase, { recursive: true });
-      await rm(flatSkillPath, { recursive: true, force: true });
-      await writeFile(flatSkillPath, getEveFlatSkillMarkdown(skill.files), 'utf-8');
+      await runInstallWriteOnce(flatSkillPath, options.session, async () => {
+        await mkdir(agentBase, { recursive: true });
+        await rm(flatSkillPath, { recursive: true, force: true });
+        await writeFile(flatSkillPath, getEveFlatSkillMarkdown(skill.files), 'utf-8');
+      });
       return { success: true, path: flatSkillPath, mode: 'copy' };
     } catch (error) {
       return {
@@ -996,14 +1062,14 @@ export async function installBlobSkillForAgent(
 
   try {
     if (installMode === 'copy') {
-      await cleanAndCreateDirectory(agentDir);
-      await writeSkillFiles(agentDir);
+      await replaceInstallDirectoryOnce(agentDir, options.session, () => writeSkillFiles(agentDir));
       return { success: true, path: agentDir, mode: 'copy' };
     }
 
     // Symlink mode
-    await cleanAndCreateDirectory(canonicalDir);
-    await writeSkillFiles(canonicalDir);
+    await replaceInstallDirectoryOnce(canonicalDir, options.session, () =>
+      writeSkillFiles(canonicalDir)
+    );
 
     if (isGlobal && isUniversalAgent(agentType)) {
       return {
@@ -1034,8 +1100,7 @@ export async function installBlobSkillForAgent(
     const symlinkCreated = await createSymlink(canonicalDir, agentDir);
 
     if (!symlinkCreated) {
-      await cleanAndCreateDirectory(agentDir);
-      await writeSkillFiles(agentDir);
+      await replaceInstallDirectoryOnce(agentDir, options.session, () => writeSkillFiles(agentDir));
       return {
         success: true,
         path: agentDir,

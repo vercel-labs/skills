@@ -16,7 +16,11 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { installSkillForAgent, installBlobSkillForAgent } from '../src/installer.ts';
+import {
+  createInstallSession,
+  installSkillForAgent,
+  installBlobSkillForAgent,
+} from '../src/installer.ts';
 
 async function makeSkillSource(root: string, name: string): Promise<string> {
   const dir = join(root, 'source-skill');
@@ -211,6 +215,46 @@ describe('installer symlink regression', () => {
 
       const contents = await readFile(join(claudeSkillDir, 'SKILL.md'), 'utf-8');
       expect(contents).toContain(`name: ${skillName}`);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('writes a shared canonical directory once per install session', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
+    const projectDir = join(root, 'project');
+    await mkdir(join(projectDir, '.continue'), { recursive: true });
+
+    const skillName = 'shared-canonical-skill';
+    const skillDir = await makeSkillSource(root, skillName);
+    const skill = { name: skillName, description: 'test', path: skillDir };
+    const session = createInstallSession();
+    const canonicalDir = join(projectDir, '.agents/skills', skillName);
+    const markerPath = join(canonicalDir, 'written-once.txt');
+
+    try {
+      const claudeResult = await installSkillForAgent(skill, 'claude-code', {
+        cwd: projectDir,
+        mode: 'symlink',
+        global: false,
+        session,
+      });
+      expect(claudeResult.success).toBe(true);
+
+      await writeFile(markerPath, 'preserved\n', 'utf-8');
+
+      const continueResult = await installSkillForAgent(skill, 'continue', {
+        cwd: projectDir,
+        mode: 'symlink',
+        global: false,
+        session,
+      });
+      expect(continueResult.success).toBe(true);
+
+      await expect(readFile(markerPath, 'utf-8')).resolves.toBe('preserved\n');
+      expect((await lstat(join(projectDir, '.continue/skills', skillName))).isSymbolicLink()).toBe(
+        true
+      );
     } finally {
       await rm(root, { recursive: true, force: true });
     }

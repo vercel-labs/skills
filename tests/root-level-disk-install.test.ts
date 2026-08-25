@@ -155,4 +155,20 @@ describe('root-level disk install (issue #1603)', () => {
       '# guide\n'
     );
   });
+
+  it('shares one install session across agents for the same skill', async () => {
+    await mkdir(join(project, '.continue'), { recursive: true });
+
+    await runAdd(['someowner/somerepo'], {
+      yes: true,
+      agent: ['claude-code', 'continue'],
+      global: false,
+    });
+
+    expect(spy).toHaveBeenCalledTimes(2);
+    const firstSession = spy.mock.calls[0]?.[2]?.session;
+    const secondSession = spy.mock.calls[1]?.[2]?.session;
+    expect(firstSession).toBeDefined();
+    expect(secondSession).toBe(firstSession);
+  });
 });
