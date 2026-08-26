@@ -279,12 +279,11 @@ Skills can be installed to any of these agents:
 | IBM Bob | `bob` | `.bob/skills/` | `~/.bob/skills/` |
 | Claude Code | `claude-code` | `.claude/skills/` | `~/.claude/skills/` |
 | OpenClaw | `openclaw` | `skills/` | `~/.openclaw/skills/` |
-| Cline, Dexto, Kimi Code CLI, Loaf, Warp, Zed | `cline`, `dexto`, `kimi-code-cli`, `loaf`, `warp`, `zed` | `.agents/skills/` | `~/.agents/skills/` |
+| Cline, Codex, Dexto, Kimi Code CLI, Loaf, Warp, Zed | `cline`, `codex`, `dexto`, `kimi-code-cli`, `loaf`, `warp`, `zed` | `.agents/skills/` | `~/.agents/skills/` |
 | CodeArts Agent | `codearts-agent` | `.codeartsdoer/skills/` | `~/.codeartsdoer/skills/` |
 | CodeBuddy | `codebuddy` | `.codebuddy/skills/` | `~/.codebuddy/skills/` |
 | Codemaker | `codemaker` | `.codemaker/skills/` | `~/.codemaker/skills/` |
 | Code Studio | `codestudio` | `.codestudio/skills/` | `~/.codestudio/skills/` |
-| Codex | `codex` | `.agents/skills/` | `~/.codex/skills/` |
 | Command Code | `command-code` | `.commandcode/skills/` | `~/.commandcode/skills/` |
 | Continue | `continue` | `.continue/skills/` | `~/.continue/skills/` |
 | Cortex Code | `cortex` | `.cortex/skills/` | `~/.snowflake/cortex/skills/` |
