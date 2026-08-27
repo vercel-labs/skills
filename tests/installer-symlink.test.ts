@@ -11,6 +11,7 @@ import {
   lstat,
   readFile,
   readlink,
+  realpath,
   symlink,
   readdir,
 } from 'node:fs/promises';
@@ -293,6 +294,138 @@ describe('installer symlink regression', () => {
       const stats = await lstat(installedPath);
       expect(stats.isDirectory()).toBe(true);
       expect(stats.isSymbolicLink()).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// Regression tests for #2071: a project install used to drop the symlink for any
+// non-universal agent other than claude-code whose config dir was absent, even when
+// the user had selected that agent by hand.
+describe('project installs for an explicitly selected agent', () => {
+  async function exists(path: string): Promise<boolean> {
+    return lstat(path).then(
+      () => true,
+      () => false
+    );
+  }
+
+  it('creates the symlink when the agent config dir does not exist yet', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
+    const projectDir = join(root, 'project');
+    await mkdir(projectDir, { recursive: true });
+
+    const skillName = 'explicit-kiro-skill';
+    const skillDir = await makeSkillSource(root, skillName);
+
+    try {
+      const result = await installSkillForAgent(
+        { name: skillName, description: 'test', path: skillDir },
+        'kiro-cli',
+        { cwd: projectDir, mode: 'symlink', global: false, agentExplicitlySelected: true }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.skipped).toBeUndefined();
+      expect(result.symlinkFailed).toBeUndefined();
+
+      const kiroSkillDir = join(projectDir, '.kiro/skills', skillName);
+      expect((await lstat(kiroSkillDir)).isSymbolicLink()).toBe(true);
+      // The link points at the canonical copy rather than a second copy of the skill.
+      expect(await realpath(kiroSkillDir)).toBe(
+        await realpath(join(projectDir, '.agents/skills', skillName))
+      );
+
+      const contents = await readFile(join(kiroSkillDir, 'SKILL.md'), 'utf-8');
+      expect(contents).toContain(`name: ${skillName}`);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('creates the symlink for blob installs when the agent config dir does not exist yet', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
+    const projectDir = join(root, 'project');
+    await mkdir(projectDir, { recursive: true });
+
+    const skillName = 'explicit-kiro-blob-skill';
+
+    try {
+      const result = await installBlobSkillForAgent(
+        {
+          installName: skillName,
+          files: [
+            { path: 'SKILL.md', contents: `---\nname: ${skillName}\ndescription: test\n---\n` },
+          ],
+        },
+        'kiro-cli',
+        { cwd: projectDir, mode: 'symlink', global: false, agentExplicitlySelected: true }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.skipped).toBeUndefined();
+      expect(result.symlinkFailed).toBeUndefined();
+
+      const kiroSkillDir = join(projectDir, '.kiro/skills', skillName);
+      expect((await lstat(kiroSkillDir)).isSymbolicLink()).toBe(true);
+
+      const contents = await readFile(join(kiroSkillDir, 'SKILL.md'), 'utf-8');
+      expect(contents).toContain(`name: ${skillName}`);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  // The heuristic still has a job to do: a default sweep across every agent must not
+  // scatter config directories through a project that never asked for them.
+  it('still skips an agent that was not explicitly selected', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
+    const projectDir = join(root, 'project');
+    await mkdir(projectDir, { recursive: true });
+
+    const skillName = 'swept-kiro-skill';
+    const skillDir = await makeSkillSource(root, skillName);
+
+    try {
+      const result = await installSkillForAgent(
+        { name: skillName, description: 'test', path: skillDir },
+        'kiro-cli',
+        { cwd: projectDir, mode: 'symlink', global: false }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.skipped).toBe(true);
+      expect(await exists(join(projectDir, '.kiro'))).toBe(false);
+
+      // The skill is still available in the canonical directory.
+      const canonicalSkillDir = join(projectDir, '.agents/skills', skillName);
+      expect((await lstat(canonicalSkillDir)).isDirectory()).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('still creates the symlink when the agent config dir already exists', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
+    const projectDir = join(root, 'project');
+    await mkdir(join(projectDir, '.kiro'), { recursive: true });
+
+    const skillName = 'existing-kiro-dir-skill';
+    const skillDir = await makeSkillSource(root, skillName);
+
+    try {
+      const result = await installSkillForAgent(
+        { name: skillName, description: 'test', path: skillDir },
+        'kiro-cli',
+        { cwd: projectDir, mode: 'symlink', global: false }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.skipped).toBeUndefined();
+      expect((await lstat(join(projectDir, '.kiro/skills', skillName))).isSymbolicLink()).toBe(
+        true
+      );
     } finally {
       await rm(root, { recursive: true, force: true });
     }

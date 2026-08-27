@@ -1390,6 +1390,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     let targetAgents: AgentType[];
     const validAgents = Object.keys(agents);
+    // Whether the target agents are the user's own choice (named with -a, or picked
+    // in the agent prompt) rather than a broad sweep or an auto-detected default.
+    // installSkillForAgent needs this to know that a missing project config dir is
+    // not evidence the agent is unused (#2071).
+    let agentsExplicitlySelected = false;
 
     if (options.agent?.includes('*')) {
       // --agent '*' selects all agents
@@ -1406,6 +1411,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
 
       targetAgents = options.agent as AgentType[];
+      agentsExplicitlySelected = true;
     } else {
       spinner.start('Loading agents…');
       const installedAgents = await detectInstalledAgents();
@@ -1439,6 +1445,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           }
 
           targetAgents = selected as AgentType[];
+          agentsExplicitlySelected = true;
         }
       } else if (installedAgents.length === 0) {
         if (options.yes) {
@@ -1467,6 +1474,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           }
 
           targetAgents = selected as AgentType[];
+          agentsExplicitlySelected = true;
         }
       } else if (installedAgents.length === 1 || options.yes) {
         // Auto-select detected agents + ensure universal agents are included
@@ -1489,6 +1497,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         }
 
         targetAgents = selected as AgentType[];
+        agentsExplicitlySelected = true;
       }
     }
 
@@ -1757,7 +1766,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           result = await installBlobSkillForAgent(
             { installName: blobSkill.name, files: blobSkill.files },
             agent,
-            { global: installGlobally, mode: installMode, eveSubagent: subagent }
+            {
+              global: installGlobally,
+              mode: installMode,
+              eveSubagent: subagent,
+              agentExplicitlySelected: agentsExplicitlySelected,
+            }
           );
         } else {
           // Disk-based install: copy from cloned/local directory.
@@ -1769,6 +1783,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             global: installGlobally,
             mode: installMode,
             eveSubagent: subagent,
+            agentExplicitlySelected: agentsExplicitlySelected,
           });
         }
         results.push({
