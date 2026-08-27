@@ -174,6 +174,18 @@ async function resetTempDir(dir: string): Promise<void> {
   await mkdir(dir, { recursive: true });
 }
 
+async function initializeSubmodules(repoDir: string, sshCommand?: string): Promise<void> {
+  try {
+    const git = createGitClient(sshCommand);
+    await git.cwd(repoDir);
+    await git.submoduleUpdate(['--init', '--recursive', '--depth', '1']);
+  } catch {
+    console.warn(
+      'Warning: failed to initialize Git submodules; installed skills may be incomplete.'
+    );
+  }
+}
+
 async function tryGhClone(repo: GitHubRepoInfo, tempDir: string, ref?: string): Promise<boolean> {
   let cloneTarget = repo.slug;
   const host = repo.sshUrl.match(/^git@([^:]+):/)?.[1] || 'github.com';
@@ -243,6 +255,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
 
   try {
     await createGitClient().clone(url, tempDir, cloneOptions);
+    await initializeSubmodules(tempDir);
     return tempDir;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -269,6 +282,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
       try {
         await resetTempDir(tempDir);
         if (await tryGhClone(repo, tempDir, ref)) {
+          await initializeSubmodules(tempDir);
           return tempDir;
         }
       } catch {
@@ -282,6 +296,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
           tempDir,
           cloneOptions
         );
+        await initializeSubmodules(tempDir, process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes');
         return tempDir;
       } catch {
         // Fall through to the targeted auth error below.
