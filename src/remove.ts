@@ -257,6 +257,12 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
           }
         }
 
+        // Agents whose project skills dir is a plain (non-hidden) path — e.g.
+        // openclaw's `skills` — can collide with the user's own source tree
+        // (a repo that keeps skill sources in version control). Only clean up
+        // entries that are managed installs there (#1771).
+        const collisionProneDir = !isGlobal && !agent.skillsDir.startsWith('.');
+
         for (const pathToCleanup of pathsToCleanup) {
           // Skip if this is the canonical path - we'll handle that after checking all agents
           if (pathToCleanup === canonicalPath) {
@@ -266,6 +272,16 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
           try {
             const stats = await lstat(pathToCleanup).catch(() => null);
             if (stats) {
+              if (
+                collisionProneDir &&
+                !stats.isSymbolicLink() &&
+                !lockSkillsKeys.includes(skillName)
+              ) {
+                p.log.warn(
+                  `Skipping ${pathToCleanup}: not a managed install (not a symlink and not in the lock file)`
+                );
+                continue;
+              }
               await rm(pathToCleanup, { recursive: true, force: true });
             }
           } catch (err) {

@@ -574,4 +574,29 @@ describe('remove -a with a subset of agents', { timeout: 30000 }, () => {
     const updatedLock = JSON.parse(readFileSync(lockPath, 'utf-8'));
     expect(updatedLock.skills[skillName]).toBeDefined();
   });
+
+  describe('unmanaged source directories (#1771)', () => {
+    it("remove --all must not delete the repo's own skills/ source", () => {
+      // A repo that keeps its own skill sources in skills/ as plain
+      // directories: never installed via the CLI, absent from the lock file.
+      const sourceDir = join(testDir, 'skills', 'my-source-skill');
+      mkdirSync(sourceDir, { recursive: true });
+      writeFileSync(
+        join(sourceDir, 'SKILL.md'),
+        `---
+name: my-source-skill
+description: repo-owned source
+---
+
+# source
+`
+      );
+
+      const result = runCli(['remove', '--all', '-y'], testDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(sourceDir)).toBe(true);
+      expect(existsSync(join(sourceDir, 'SKILL.md'))).toBe(true);
+    });
+  });
 });
