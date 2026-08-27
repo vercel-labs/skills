@@ -494,6 +494,44 @@ function computeSnapshotHash(files: SkillSnapshotFile[]): string {
   return hash.digest('hex');
 }
 
+function getSkillFolderPath(skillMdPath: string): string {
+  const pathLower = skillMdPath.toLowerCase();
+  if (pathLower.endsWith('/skill.md')) return skillMdPath.slice(0, -9);
+  if (pathLower === 'skill.md') return '';
+  return skillMdPath.slice(0, -(1 + 'SKILL.md'.length));
+}
+
+// Keep these exclusions aligned with copyDirectory() in installer.ts. Cached
+// snapshots do not need files that the normal clone installer intentionally
+// omits, but every other repository blob in a nested skill must be present.
+const SNAPSHOT_EXCLUDED_FILES = new Set(['metadata.json']);
+const SNAPSHOT_EXCLUDED_DIRS = new Set(['.git', '__pycache__', '__pypackages__']);
+
+function isInstallableSnapshotPath(path: string): boolean {
+  const parts = path.split('/');
+  const fileName = parts.at(-1);
+  if (!fileName || SNAPSHOT_EXCLUDED_FILES.has(fileName)) return false;
+  return parts.slice(0, -1).every((part) => !SNAPSHOT_EXCLUDED_DIRS.has(part));
+}
+
+function hasCompleteNestedSnapshot(
+  tree: RepoTree,
+  skillMdPath: string,
+  files: SkillSnapshotFile[]
+): boolean {
+  const folderPath = getSkillFolderPath(skillMdPath);
+  if (!folderPath) return true;
+
+  const folderPrefix = `${folderPath}/`;
+  const snapshotPaths = new Set(files.map((file) => file.path));
+
+  return tree.tree.every((entry) => {
+    if (entry.type !== 'blob' || !entry.path.startsWith(folderPrefix)) return true;
+    const relativePath = entry.path.slice(folderPrefix.length);
+    return !isInstallableSnapshotPath(relativePath) || snapshotPaths.has(relativePath);
+  });
+}
+
 /**
  * Attempt to resolve skills from blob storage instead of cloning.
  *
@@ -620,15 +658,18 @@ export async function tryBlobInstall(
   const allSucceeded = downloads.every((d) => d.download !== null);
   if (!allSucceeded) return null;
 
+  // A successful response can still be incomplete (for example, when the
+  // snapshot service cannot represent a binary supporting file). In that case
+  // use the existing clone path instead of silently installing a partial skill.
+  const allComplete = downloads.every(({ skill, download }) =>
+    hasCompleteNestedSnapshot(tree, skill.mdPath, download!.files)
+  );
+  if (!allComplete) return null;
+
   // 6. Convert to BlobSkill objects
   const blobSkills: BlobSkill[] = downloads.map(({ skill, download }) => {
     // Compute the folder path from the SKILL.md path (e.g., "skills/react-best-practices")
-    const mdPathLower = skill.mdPath.toLowerCase();
-    const folderPath = mdPathLower.endsWith('/skill.md')
-      ? skill.mdPath.slice(0, -9)
-      : mdPathLower === 'skill.md'
-        ? ''
-        : skill.mdPath.slice(0, -(1 + 'SKILL.md'.length));
+    const folderPath = getSkillFolderPath(skill.mdPath);
 
     // A root-level SKILL.md means the repository root is a skill entrypoint,
     // not that the entire repository is installable skill payload. Some cached
