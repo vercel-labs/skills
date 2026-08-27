@@ -265,7 +265,13 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
 export async function installSkillForAgent(
   skill: Skill,
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode; eveSubagent?: string } = {}
+  options: {
+    global?: boolean;
+    cwd?: string;
+    mode?: InstallMode;
+    eveSubagent?: string;
+    agentExplicitlySelected?: boolean;
+  } = {}
 ): Promise<InstallResult> {
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
@@ -375,7 +381,11 @@ export async function installSkillForAgent(
     // whose config directory doesn't already exist in the project. This prevents
     // creating directories like .windsurf/, .kiro/, etc. when those agents aren't
     // actually used in this project. The skill is already available in .agents/skills/.
-    if (!isGlobal && !isUniversalAgent(agentType)) {
+    //
+    // An agent the user chose by hand is exempt: they asked for that agent, so a
+    // missing directory is not evidence the agent is unused (#2071). Without this,
+    // an explicit selection is silently dropped and the agent never sees the skill.
+    if (!isGlobal && !isUniversalAgent(agentType) && !options.agentExplicitlySelected) {
       const agentRootDir = join(cwd, agents[agentType].skillsDir.split('/')[0]!);
       if (!existsSync(agentRootDir) && agentType !== 'claude-code') {
         return {
@@ -903,7 +913,13 @@ export async function installWellKnownSkillForAgent(
 export async function installBlobSkillForAgent(
   skill: { installName: string; files: Array<{ path: string; contents: string }> },
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode; eveSubagent?: string } = {}
+  options: {
+    global?: boolean;
+    cwd?: string;
+    mode?: InstallMode;
+    eveSubagent?: string;
+    agentExplicitlySelected?: boolean;
+  } = {}
 ): Promise<InstallResult> {
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
@@ -1015,10 +1031,10 @@ export async function installBlobSkillForAgent(
     }
 
     // For project-level installs, skip creating symlinks for non-universal agents
-    // whose config directory doesn't already exist in the project. Claude Code is
-    // exempted since it can be explicitly selected as the install target even when
-    // .claude/ doesn't exist yet (see installSkillForAgent for the same exemption).
-    if (!isGlobal && !isUniversalAgent(agentType)) {
+    // whose config directory doesn't already exist in the project. An explicitly
+    // selected agent, and Claude Code, are exempt (see installSkillForAgent for the
+    // same two exemptions).
+    if (!isGlobal && !isUniversalAgent(agentType) && !options.agentExplicitlySelected) {
       const agentRootDir = join(cwd, agents[agentType].skillsDir.split('/')[0]!);
       if (!existsSync(agentRootDir) && agentType !== 'claude-code') {
         return {
