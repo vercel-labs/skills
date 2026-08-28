@@ -361,6 +361,37 @@ describe('Update Cleanup Unit Tests', () => {
       expect(git.cloneRepo).not.toHaveBeenCalled();
       expect(spawnSync).not.toHaveBeenCalled();
     });
+
+    it('does not target Eve or create stray agent/ directory when updating project skills with no agents detected (#2058)', async () => {
+      vi.mocked(localLock.readLocalLock).mockResolvedValue({
+        version: 1,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            computedHash: 'abc',
+          },
+        },
+      });
+
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        { name: 'skill-a', path: '/tmp/repo/skills/skill-a', description: 'A', rawContent: '' },
+      ]);
+
+      await updateProjectSkills({ yes: true });
+
+      const installCall = vi
+        .mocked(spawnSync)
+        .mock.calls.find((call) => Array.isArray(call[1]) && call[1].includes('add'));
+      expect(installCall).toBeDefined();
+      const [, argv] = installCall!;
+      expect(argv).toEqual(
+        expect.arrayContaining(['add', 'owner/repo/skills/skill-a', '--skill', 'skill-a', '-y'])
+      );
+      expect(argv).not.toContain('--agent');
+    });
   });
 
   describe('updateGlobalSkills', () => {
