@@ -713,7 +713,7 @@ async function handleWellKnownSkills(
 
         targetAgents = selected as AgentType[];
       }
-    } else if (installedAgents.length === 1 || options.yes) {
+    } else if (installedAgents.length >= 1) {
       // Auto-select detected agents + ensure universal agents are included
       targetAgents = ensureUniversalAgents(installedAgents);
       if (installedAgents.length === 1) {
@@ -724,15 +724,6 @@ async function handleWellKnownSkills(
           `Installing to: ${installedAgents.map((a) => pc.cyan(agents[a].displayName)).join(', ')}`
         );
       }
-    } else {
-      const selected = await selectAgentsInteractive({ global: options.global });
-
-      if (p.isCancel(selected)) {
-        p.cancel('Installation cancelled');
-        process.exit(0);
-      }
-
-      targetAgents = selected as AgentType[];
     }
   }
 
@@ -1468,7 +1459,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
           targetAgents = selected as AgentType[];
         }
-      } else if (installedAgents.length === 1 || options.yes) {
+      } else if (installedAgents.length >= 1) {
         // Auto-select detected agents + ensure universal agents are included
         targetAgents = ensureUniversalAgents(installedAgents);
         if (installedAgents.length === 1) {
@@ -1479,16 +1470,6 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             `Installing to: ${installedAgents.map((a) => pc.cyan(agents[a].displayName)).join(', ')}`
           );
         }
-      } else {
-        const selected = await selectAgentsInteractive({ global: options.global });
-
-        if (p.isCancel(selected)) {
-          p.cancel('Installation cancelled');
-          await cleanup(tempDir);
-          process.exit(0);
-        }
-
-        targetAgents = selected as AgentType[];
       }
     }
 

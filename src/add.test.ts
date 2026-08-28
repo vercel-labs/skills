@@ -753,3 +753,63 @@ This is a test skill for -y flag mode testing.
     expect(result.exitCode).toBe(0);
   });
 });
+
+describe('auto-select detected agents without -a flag', () => {
+  let testDir: string;
+
+  beforeEach(() => {
+    testDir = join(tmpdir(), `skills-agent-detect-test-${Date.now()}`);
+    mkdirSync(testDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    if (existsSync(testDir)) {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should not hang when no -a flag is provided with piped stdio', () => {
+    const skillDir = join(testDir, 'test-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: agent-detect-skill
+description: Test skill for agent auto-detection
+---
+
+# Agent Detect Skill
+
+Instructions here.
+`
+    );
+
+    // Run without -a flag — should auto-select detected agents, not hang
+    const result = runCli(['add', testDir, '-y', '-g', '--skill', 'agent-detect-skill'], testDir);
+
+    // Should complete without timeout (runCli has 30s timeout)
+    // and should not show the interactive agent selection prompt
+    expect(result.stdout).not.toContain('Which agents do you want to install to?');
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('should show installing message with auto-detected agents', () => {
+    const skillDir = join(testDir, 'test-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: auto-agent-skill
+description: Test auto agent selection
+---
+
+# Auto Agent Skill
+`
+    );
+
+    const result = runCli(['add', testDir, '-y', '-g', '--skill', 'auto-agent-skill'], testDir);
+
+    expect(result.stdout).toContain('Installing to:');
+    expect(result.exitCode).toBe(0);
+  });
+});
