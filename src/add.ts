@@ -2165,6 +2165,7 @@ export function parseAddOptions(args: string[]): {
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
+    if (!arg) continue;
 
     if (arg === '-g' || arg === '--global') {
       options.global = true;
@@ -2184,6 +2185,16 @@ export function parseAddOptions(args: string[]): {
         nextArg = args[i];
       }
       i--; // Back up one since the loop will increment
+    } else if (arg.startsWith('--agent=') || arg.startsWith('-a=')) {
+      options.agent = options.agent || [];
+      const val = arg.startsWith('--agent=')
+        ? arg.slice('--agent='.length)
+        : arg.slice('-a='.length);
+      const parts = val
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      options.agent.push(...parts);
     } else if (arg === '-s' || arg === '--skill') {
       options.skill = options.skill || [];
       i++;
@@ -2194,9 +2205,31 @@ export function parseAddOptions(args: string[]): {
         nextArg = args[i];
       }
       i--; // Back up one since the loop will increment
+    } else if (arg.startsWith('--skill=') || arg.startsWith('-s=')) {
+      options.skill = options.skill || [];
+      const val = arg.startsWith('--skill=')
+        ? arg.slice('--skill='.length)
+        : arg.slice('-s='.length);
+      const parts = val
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      options.skill.push(...parts);
     } else if (arg === '--metadata') {
       const metadata = args[++i];
       if (metadata === undefined) {
+        errors.push('--metadata requires a JSON value');
+      } else {
+        try {
+          JSON.parse(metadata);
+          options.metadata = metadata;
+        } catch {
+          errors.push('--metadata must be valid JSON');
+        }
+      }
+    } else if (arg.startsWith('--metadata=')) {
+      const metadata = arg.slice('--metadata='.length);
+      if (!metadata) {
         errors.push('--metadata requires a JSON value');
       } else {
         try {
@@ -2220,6 +2253,14 @@ export function parseAddOptions(args: string[]): {
         nextArg = args[i];
       }
       i--; // Back up one since the loop will increment
+    } else if (arg.startsWith('--subagent=')) {
+      options.subagent = options.subagent || [];
+      const val = arg.slice('--subagent='.length);
+      const parts = val
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      options.subagent.push(...parts);
     } else if (arg && !arg.startsWith('-')) {
       source.push(arg);
     }

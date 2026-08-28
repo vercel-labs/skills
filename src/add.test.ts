@@ -710,6 +710,67 @@ describe('parseAddOptions', () => {
     expect(result.options.subagent).toEqual(['research']);
     expect(result.options.yes).toBe(true);
   });
+
+  it('should parse --skill=<name> and -s=<name> equals-form', () => {
+    const result1 = parseAddOptions(['source', '--skill=my-skill']);
+    expect(result1.source).toEqual(['source']);
+    expect(result1.options.skill).toEqual(['my-skill']);
+
+    const result2 = parseAddOptions(['source', '-s=my-skill']);
+    expect(result2.source).toEqual(['source']);
+    expect(result2.options.skill).toEqual(['my-skill']);
+
+    const result3 = parseAddOptions(['--skill=my-skill', 'source']);
+    expect(result3.source).toEqual(['source']);
+    expect(result3.options.skill).toEqual(['my-skill']);
+
+    const result4 = parseAddOptions(['source', '--skill=skill1,skill2']);
+    expect(result4.source).toEqual(['source']);
+    expect(result4.options.skill).toEqual(['skill1', 'skill2']);
+  });
+
+  it('should parse --agent=<agents> and -a=<agents> equals-form', () => {
+    const result1 = parseAddOptions(['source', '--agent=claude-code']);
+    expect(result1.source).toEqual(['source']);
+    expect(result1.options.agent).toEqual(['claude-code']);
+
+    const result2 = parseAddOptions(['source', '-a=cursor']);
+    expect(result2.source).toEqual(['source']);
+    expect(result2.options.agent).toEqual(['cursor']);
+
+    const result3 = parseAddOptions(['source', '--agent=claude-code,cursor']);
+    expect(result3.source).toEqual(['source']);
+    expect(result3.options.agent).toEqual(['claude-code', 'cursor']);
+
+    const result4 = parseAddOptions(['source', '--agent=*']);
+    expect(result4.source).toEqual(['source']);
+    expect(result4.options.agent).toEqual(['*']);
+  });
+
+  it('should parse --subagent=<names> equals-form', () => {
+    const result1 = parseAddOptions(['source', '--subagent=research']);
+    expect(result1.source).toEqual(['source']);
+    expect(result1.options.subagent).toEqual(['research']);
+
+    const result2 = parseAddOptions(['source', '--subagent=root,research,writer']);
+    expect(result2.source).toEqual(['source']);
+    expect(result2.options.subagent).toEqual(['root', 'research', 'writer']);
+  });
+
+  it('should parse --metadata=<json> equals-form', () => {
+    const metadata = '{"origin":"workflow","runId":42}';
+    const result = parseAddOptions(['source', `--metadata=${metadata}`]);
+    expect(result.source).toEqual(['source']);
+    expect(result.options.metadata).toBe(metadata);
+    expect(result.errors).toEqual([]);
+
+    const invalid = parseAddOptions(['source', '--metadata={not-json}']);
+    expect(invalid.options.metadata).toBeUndefined();
+    expect(invalid.errors).toEqual(['--metadata must be valid JSON']);
+
+    const empty = parseAddOptions(['source', '--metadata=']);
+    expect(empty.errors).toEqual(['--metadata requires a JSON value']);
+  });
 });
 
 describe('find-skills prompt with -y flag', () => {

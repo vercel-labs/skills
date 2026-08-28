@@ -99,31 +99,70 @@ export function parseUseOptions(args: string[]): ParseUseOptionsResult {
       options.help = true;
     } else if (arg === '--full-depth') {
       options.fullDepth = true;
-    } else if (arg === '--skill' || arg === '-s') {
-      const value = args[i + 1];
-      if (!value || value.startsWith('-')) {
-        errors.push(`${arg} requires a skill name`);
+    } else if (
+      arg === '--skill' ||
+      arg === '-s' ||
+      arg.startsWith('--skill=') ||
+      arg.startsWith('-s=')
+    ) {
+      const isEquals = arg.startsWith('--skill=') || arg.startsWith('-s=');
+      const flagName = arg.startsWith('--skill') ? '--skill' : '-s';
+      let value: string | undefined;
+
+      if (isEquals) {
+        value = arg.startsWith('--skill=') ? arg.slice('--skill='.length) : arg.slice('-s='.length);
+      } else {
+        const nextValue = args[i + 1];
+        if (nextValue && !nextValue.startsWith('-')) {
+          value = nextValue;
+          i++;
+        }
+      }
+
+      if (!value) {
+        errors.push(`${flagName} requires a skill name`);
       } else if (options.skill) {
         errors.push('Only one --skill value can be provided');
-        i++;
       } else {
         options.skill = value;
-        i++;
       }
-    } else if (arg === '--agent' || arg === '-a') {
+    } else if (
+      arg === '--agent' ||
+      arg === '-a' ||
+      arg.startsWith('--agent=') ||
+      arg.startsWith('-a=')
+    ) {
+      const isEquals = arg.startsWith('--agent=') || arg.startsWith('-a=');
+      const flagName = arg.startsWith('--agent') ? '--agent' : '-a';
       options.agent = options.agent || [];
-      i++;
-      let nextArg = args[i];
-      const startCount = options.agent.length;
-      while (i < args.length && nextArg && !nextArg.startsWith('-')) {
-        options.agent.push(nextArg);
+
+      if (isEquals) {
+        const val = arg.startsWith('--agent=')
+          ? arg.slice('--agent='.length)
+          : arg.slice('-a='.length);
+        const parts = val
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (parts.length === 0) {
+          errors.push(`${flagName} requires an agent name`);
+        } else {
+          options.agent.push(...parts);
+        }
+      } else {
+        const startCount = options.agent.length;
         i++;
-        nextArg = args[i];
+        let nextArg = args[i];
+        while (i < args.length && nextArg && !nextArg.startsWith('-')) {
+          options.agent.push(nextArg);
+          i++;
+          nextArg = args[i];
+        }
+        if (options.agent.length === startCount) {
+          errors.push(`${flagName} requires an agent name`);
+        }
+        i--;
       }
-      if (options.agent.length === startCount) {
-        errors.push(`${arg} requires an agent name`);
-      }
-      i--;
     } else if (arg.startsWith('-')) {
       errors.push(`Unknown option: ${arg}`);
     } else {
