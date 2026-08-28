@@ -349,7 +349,9 @@ export function parseSource(input: string): ParsedSource {
   }
 
   // GitHub URL with path: https://github.com/owner/repo/tree/branch/path/to/skill
-  const githubTreeWithPathMatch = input.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/);
+  const githubTreeWithPathMatch = input.match(
+    /^(?:https?:\/\/)?(?:www\.)?github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)$/
+  );
   if (githubTreeWithPathMatch) {
     const [, owner, repo, ref, subpath] = githubTreeWithPathMatch;
     return {
@@ -361,7 +363,9 @@ export function parseSource(input: string): ParsedSource {
   }
 
   // GitHub URL with branch only: https://github.com/owner/repo/tree/branch
-  const githubTreeMatch = input.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)$/);
+  const githubTreeMatch = input.match(
+    /^(?:https?:\/\/)?(?:www\.)?github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)$/
+  );
   if (githubTreeMatch) {
     const [, owner, repo, ref] = githubTreeMatch;
     return {
@@ -372,7 +376,9 @@ export function parseSource(input: string): ParsedSource {
   }
 
   // GitHub URL: https://github.com/owner/repo
-  const githubRepoMatch = input.match(/github\.com\/([^/]+)\/([^/]+)/);
+  const githubRepoMatch = input.match(
+    /^(?:https?:\/\/)?(?:www\.)?github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/.*)?$/
+  );
   if (githubRepoMatch) {
     const [, owner, repo] = githubRepoMatch;
     const cleanRepo = repo!.replace(/\.git$/, '');
@@ -417,7 +423,9 @@ export function parseSource(input: string): ParsedSource {
   // GitLab.com URL: https://gitlab.com/owner/repo or https://gitlab.com/group/subgroup/repo
   // Only for the official gitlab.com domain for user convenience.
   // Supports nested subgroups (e.g., gitlab.com/group/subgroup1/subgroup2/repo).
-  const gitlabRepoMatch = input.match(/gitlab\.com\/(.+?)(?:\.git)?\/?$/);
+  const gitlabRepoMatch = input.match(
+    /^(?:https?:\/\/)?(?:www\.)?gitlab\.com\/(.+?)(?:\.git)?\/?$/
+  );
   if (gitlabRepoMatch) {
     const repoPath = gitlabRepoMatch[1]!;
     // Must have at least owner/repo (one slash)
