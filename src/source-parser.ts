@@ -131,6 +131,8 @@ function isLocalPath(input: string): boolean {
     input.startsWith('../') ||
     input === '.' ||
     input === '..' ||
+    // Dotfiles/dot-directories like .agents, .claude, .cursor
+    /^\.[^./]/.test(input) ||
     // Windows absolute paths like C:\ or D:\
     /^[a-zA-Z]:[/\\]/.test(input)
   );
