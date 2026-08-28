@@ -810,6 +810,7 @@ export async function updateProjectSkills(
   // Key by source AND ref (see updateGlobalSkills) so skills from one repo
   // pinned to different refs are each checked against their own ref's tree.
   const bySource = new Map<string, typeof updatable>();
+  const needsUpdate = new Set<string>();
   for (const skill of updatable) {
     const source = skill.entry.sourceUrl || skill.entry.source;
     const key = `${source}\n${skill.entry.ref ?? ''}`;
@@ -868,15 +869,33 @@ export async function updateProjectSkills(
         options,
         discoveredPaths
       );
+
+      // Compare hashes to skip skills whose content hasn't changed upstream.
+      // computedHash in the local lock is a SHA-256 of the skill folder contents;
+      // compute the same hash from the cloned tempDir and skip if equal.
+      for (const skill of skillsForSource) {
+        if (deletedSkills.includes(skill.name) || !skill.entry.skillPath) continue;
+        if (!discoveredPaths.includes(skill.entry.skillPath)) continue;
+        const latestHash = await computeSkillFolderHash(
+          join(tempDir!, dirname(skill.entry.skillPath))
+        );
+        if (!latestHash || latestHash !== skill.entry.computedHash) {
+          needsUpdate.add(skill.name);
+        }
+      }
     } catch (error) {
       console.log(`${DIM}✗ Failed to check for deleted skills from ${source}${RESET}`);
+      // Can't verify hashes — conservatively mark all skills for reinstall.
+      skillsForSource.forEach((s) => needsUpdate.add(s.name));
     } finally {
       if (tempDir) {
         await cleanupTempDir(tempDir);
       }
     }
 
-    const remainingSkills = skillsForSource.filter((s) => !deletedSkills.includes(s.name));
+    const remainingSkills = skillsForSource.filter(
+      (s) => !deletedSkills.includes(s.name) && needsUpdate.has(s.name)
+    );
 
     for (const skill of remainingSkills) {
       const safeName = sanitizeMetadata(skill.name);
