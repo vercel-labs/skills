@@ -376,6 +376,55 @@ describe('use command', () => {
 
       expect(result.stdout).toContain('Unknown command: run');
     });
+
+    it('writes large prompts completely when stdout is piped without truncation (issue #2081)', () => {
+      const largeContent =
+        'START_LARGE_PAYLOAD\n' +
+        'A'.repeat(128 * 1024) +
+        '\nMIDDLE_LARGE_PAYLOAD\n' +
+        'B'.repeat(128 * 1024) +
+        '\nEND_LARGE_PAYLOAD';
+      writeSkill(join(testDir, 'large-skill'), 'large-skill', largeContent);
+
+      const result = runCli(['use', testDir], testDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe('');
+      expect(result.stdout).toContain('START_LARGE_PAYLOAD');
+      expect(result.stdout).toContain('MIDDLE_LARGE_PAYLOAD');
+      expect(result.stdout).toContain('END_LARGE_PAYLOAD');
+      expect(result.stdout).toContain(largeContent);
+      expect(result.stdout.endsWith('</SKILL.md>\n')).toBe(true);
+      expect(result.stdout.length).toBeGreaterThan(256 * 1024);
+    });
+
+    it('awaits stdout drain when writing prompt before completing', async () => {
+      const skillDir = writeSkill(
+        join(testDir, 'drain-skill'),
+        'drain-skill',
+        'Drain test content.'
+      );
+      let drained = false;
+
+      const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(((
+        chunk: unknown,
+        cb?: ((err?: Error | null) => void) | string
+      ) => {
+        setTimeout(() => {
+          drained = true;
+          process.stdout.emit('drain');
+          if (typeof cb === 'function') cb();
+        }, 50);
+        return false;
+      }) as typeof process.stdout.write);
+
+      try {
+        await runUse([skillDir]);
+        expect(drained).toBe(true);
+      } finally {
+        writeSpy.mockRestore();
+      }
+    });
   });
 });
 

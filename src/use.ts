@@ -332,7 +332,29 @@ export async function runUse(
       return;
     }
 
-    process.stdout.write(prompt);
+    await new Promise<void>((resolve, reject) => {
+      let resolved = false;
+      const done = (err?: Error | null) => {
+        if (resolved) return;
+        resolved = true;
+        if (err && (err as NodeJS.ErrnoException).code !== 'EPIPE') {
+          reject(err);
+        } else {
+          resolve();
+        }
+      };
+
+      const flushed = process.stdout.write(prompt, (err) => {
+        done(err);
+      });
+
+      if (!flushed) {
+        process.stdout.once('drain', () => done());
+        process.stdout.once('error', (err) => done(err));
+      } else {
+        process.nextTick(() => done());
+      }
+    });
   } catch (error) {
     await cleanupClone(cloneTempDir);
     if (error instanceof GitCloneError) {
