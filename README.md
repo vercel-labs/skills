@@ -139,6 +139,7 @@ When installing interactively, you can choose:
 | `npx skills find [query]`    | Search for skills interactively or by keyword |
 | `npx skills remove [skills]` | Remove installed skills from agents           |
 | `npx skills update [skills]` | Update installed skills to latest versions    |
+| `npx skills consolidate`     | Consolidate skills into canonical with symlinks |
 | `npx skills init [name]`     | Create a new SKILL.md template                |
 
 ### `skills list`
@@ -248,6 +249,29 @@ npx skills rm my-skill
 | `-s, --skill`  | Specify skills to remove (use `'*'` for all)     |
 | `-y, --yes`    | Skip confirmation prompts                        |
 | `--all`        | Shorthand for `--skill '*' --agent '*' -y`       |
+
+### `skills consolidate`
+
+Consolidate skills from multiple agent directories into the canonical `.agents/skills/` location, replacing duplicates with symlinks.
+
+```bash
+# Preview what would happen (no changes)
+npx skills consolidate --dry-run
+
+# Consolidate all agent skills into canonical location
+npx skills consolidate -y
+
+# Consolidate and sync all skills to all installed agents
+npx skills consolidate -y --sync-all
+```
+
+| Option       | Description                                                  |
+| ------------ | ------------------------------------------------------------ |
+| `-y, --yes`  | Skip confirmation prompts                                    |
+| `--dry-run`  | Show plan without making changes                             |
+| `--sync-all` | After consolidating, create symlinks for all canonical skills in all installed agents |
+
+When the same skill exists in multiple agents with different content, it's forked as `<skill>-<agent>` in canonical (e.g., `my-skill-codex`). With `--sync-all`, forked skills are only linked to their designated agent, with the suffix stripped from the link name.
 
 ## What are Agent Skills?
 

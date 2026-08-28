@@ -9,6 +9,7 @@ import { runInstallFromLock } from './install.ts';
 import { runList } from './list.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
+import { runConsolidate, parseConsolidateOptions } from './consolidate.ts';
 import { flushTelemetry } from './telemetry.ts';
 import { isRunningInAgent } from './detect-agent.ts';
 import { runUpdate } from './update.ts';
@@ -131,6 +132,7 @@ ${BOLD}Project:${RESET}
   experimental_install Restore skills from skills-lock.json
   init [name]          Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)
   experimental_sync    Sync skills from node_modules into agent directories
+  consolidate          Consolidate skills into canonical .agents/skills/ with symlinks
 
 ${BOLD}Add Options:${RESET}
   -g, --global           Install skill globally (user-level) instead of project-level
@@ -382,6 +384,15 @@ async function main(): Promise<void> {
       if (!inAgent) showLogo();
       const { options: syncOptions } = parseSyncOptions(restArgs);
       await runSync(restArgs, syncOptions);
+      break;
+    }
+    case 'consolidate':
+    case 'consol':
+    case 'link':
+    case 'ln': {
+      if (!inAgent) showLogo();
+      const consolidateOpts = parseConsolidateOptions(restArgs);
+      await runConsolidate(restArgs, consolidateOpts);
       break;
     }
     case 'list':
