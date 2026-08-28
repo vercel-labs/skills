@@ -141,12 +141,14 @@ ${BOLD}Add Options:${RESET}
   --copy                 Copy files instead of symlinking to agent directories
   --metadata <json>      Attach valid JSON to the install telemetry event
   --subagent <names>     Install to Eve subagents (use 'root' for the root agent)
+  --skills-dir <path>    Override the default skill container directory name (default: "skills")
   --all                  Shorthand for --skill '*' --agent '*' -y
   --full-depth           Search all subdirectories even when a root SKILL.md exists
 
 ${BOLD}Use Options:${RESET}
   -s, --skill <skill>    Specify the skill to use
   -a, --agent <agent>    Start one supported agent interactively
+  --skills-dir <path>    Override the default skill container directory name (default: "skills")
   --full-depth           Search all subdirectories even when a root SKILL.md exists
 
 ${BOLD}Remove Options:${RESET}

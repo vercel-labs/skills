@@ -5,7 +5,7 @@ import { sanitizeMetadata, stripTerminalEscapes } from './sanitize.ts';
 import type { Skill } from './types.ts';
 import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
 import { readLocalLock } from './local-lock.ts';
-import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
+import { DEFAULT_SKILL_CONTAINER_DEPTH, SKILLS_SUBDIR } from './constants.ts';
 
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
 
@@ -159,6 +159,8 @@ export interface DiscoverSkillsOptions {
   includeInternal?: boolean;
   /** Search all subdirectories even when a root SKILL.md exists */
   fullDepth?: boolean;
+  /** Override the default skill container directory name (default: "skills") */
+  skillsDir?: string;
 }
 
 /**
@@ -245,13 +247,15 @@ export async function discoverSkills(
     }
   }
 
+  const skillsContainerDir = options?.skillsDir ?? SKILLS_SUBDIR;
+
   // Search common skill locations first
   const prioritySearchDirs = [
     searchPath,
-    join(searchPath, 'skills'),
-    join(searchPath, 'skills/.curated'),
-    join(searchPath, 'skills/.experimental'),
-    join(searchPath, 'skills/.system'),
+    join(searchPath, skillsContainerDir),
+    join(searchPath, skillsContainerDir, '.curated'),
+    join(searchPath, skillsContainerDir, '.experimental'),
+    join(searchPath, skillsContainerDir, '.system'),
     ...AGENT_PROJECT_SKILL_DIRS.map((dir) => join(searchPath, dir)),
   ];
 

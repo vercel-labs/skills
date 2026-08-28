@@ -74,6 +74,71 @@ This is a test skill.
     expect(result.exitCode).toBe(1);
   });
 
+  it('should discover skills under a custom directory when --skills-dir is set', () => {
+    const skillDir = join(testDir, 'my-skills', 'custom-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: custom-skill
+description: Lives in a custom directory
+---
+
+# Custom Skill
+
+Instructions.
+`
+    );
+
+    const result = runCli(['add', testDir, '--list', '--skills-dir', 'my-skills'], testDir);
+    expect(result.stdout).toContain('custom-skill');
+    expect(result.stdout).toContain('Lives in a custom directory');
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('should not discover skills in the default skills/ dir when --skills-dir overrides it', () => {
+    const defaultSkillDir = join(testDir, 'skills', 'default-skill');
+    mkdirSync(defaultSkillDir, { recursive: true });
+    writeFileSync(
+      join(defaultSkillDir, 'SKILL.md'),
+      `---
+name: default-skill
+description: Lives in the default skills directory
+---
+
+# Default Skill
+
+Instructions.
+`
+    );
+
+    const customSkillDir = join(testDir, 'my-skills', 'custom-skill');
+    mkdirSync(customSkillDir, { recursive: true });
+    writeFileSync(
+      join(customSkillDir, 'SKILL.md'),
+      `---
+name: custom-skill
+description: Lives in a custom directory
+---
+
+# Custom Skill
+
+Instructions.
+`
+    );
+
+    const result = runCli(['add', testDir, '--list', '--skills-dir', 'my-skills'], testDir);
+    expect(result.stdout).toContain('custom-skill');
+    expect(result.stdout).not.toContain('default-skill');
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('should error when --skills-dir is missing a value', () => {
+    const result = runCli(['add', testDir, '--list', '--skills-dir'], testDir);
+    expect(result.stderr).toContain('--skills-dir requires a path');
+    expect(result.exitCode).toBe(1);
+  });
+
   it('should install skill from local path with -y flag', () => {
     // Create a test skill
     const skillDir = join(testDir, 'skills', 'my-skill');
