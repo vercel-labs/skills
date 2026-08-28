@@ -393,6 +393,7 @@ export function parseRemoveOptions(args: string[]): { skills: string[]; options:
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
+    if (!arg) continue;
 
     if (arg === '-g' || arg === '--global') {
       options.global = true;
@@ -410,6 +411,15 @@ export function parseRemoveOptions(args: string[]): { skills: string[]; options:
         nextArg = args[i];
       }
       i--; // Back up one since the loop will increment
+    } else if (arg.startsWith('--skill=') || arg.startsWith('-s=')) {
+      const val = arg.startsWith('--skill=')
+        ? arg.slice('--skill='.length)
+        : arg.slice('-s='.length);
+      const parts = val
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      skills.push(...parts);
     } else if (arg === '-a' || arg === '--agent') {
       options.agent = options.agent || [];
       i++;
@@ -420,6 +430,16 @@ export function parseRemoveOptions(args: string[]): { skills: string[]; options:
         nextArg = args[i];
       }
       i--; // Back up one since the loop will increment
+    } else if (arg.startsWith('--agent=') || arg.startsWith('-a=')) {
+      options.agent = options.agent || [];
+      const val = arg.startsWith('--agent=')
+        ? arg.slice('--agent='.length)
+        : arg.slice('-a='.length);
+      const parts = val
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      options.agent.push(...parts);
     } else if (arg && !arg.startsWith('-')) {
       skills.push(arg);
     }
