@@ -454,9 +454,14 @@ export async function promptForAgents(
 /**
  * Interactive agent selection using fuzzy search.
  * Shows universal agents as locked (always selected), and other agents as selectable.
+ *
+ * On first run (no prior history), pre-selects detected non-universal agents so
+ * that users with Claude Code (or any other non-universal agent) installed don't
+ * end up with the skill only in ~/.agents/skills after hitting Enter.
  */
-async function selectAgentsInteractive(options: {
+export async function selectAgentsInteractive(options: {
   global?: boolean;
+  installedAgents?: AgentType[];
 }): Promise<AgentType[] | symbol> {
   // Filter out agents that don't support global installation when --global is used
   const supportsGlobalFilter = (a: AgentType) => !options.global || agents[a].globalSkillsDir;
@@ -492,11 +497,20 @@ async function selectAgentsInteractive(options: {
     // Silently ignore errors
   }
 
-  const initialSelected = lastSelected
-    ? (lastSelected.filter(
-        (a) => otherAgents.includes(a as AgentType) && !universalAgents.includes(a as AgentType)
-      ) as AgentType[])
-    : [];
+  const filterToSelectable = (list: AgentType[]): AgentType[] =>
+    list.filter((a) => otherAgents.includes(a) && !universalAgents.includes(a));
+
+  let initialSelected: AgentType[];
+  if (lastSelected) {
+    // Respect prior selection. Universal agents are already locked, so we only
+    // pre-check non-universal agents the user previously chose.
+    initialSelected = filterToSelectable(lastSelected as AgentType[]);
+  } else {
+    // First run: pre-check detected non-universal agents (e.g. claude-code).
+    // Without this, hitting Enter installs only the locked universal agents and
+    // skips Claude Code entirely.
+    initialSelected = filterToSelectable(options.installedAgents ?? []);
+  }
 
   const selected = await searchMultiselect({
     message: 'Which agents do you want to install to?',
@@ -725,7 +739,10 @@ async function handleWellKnownSkills(
         );
       }
     } else {
-      const selected = await selectAgentsInteractive({ global: options.global });
+      const selected = await selectAgentsInteractive({
+        global: options.global,
+        installedAgents,
+      });
 
       if (p.isCancel(selected)) {
         p.cancel('Installation cancelled');
@@ -1480,7 +1497,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           );
         }
       } else {
-        const selected = await selectAgentsInteractive({ global: options.global });
+        const selected = await selectAgentsInteractive({
+          global: options.global,
+          installedAgents,
+        });
 
         if (p.isCancel(selected)) {
           p.cancel('Installation cancelled');
