@@ -16,8 +16,19 @@ function hasStrongCursorAgentSignal(): boolean {
   );
 }
 
+function hasJcodeAgentSignal(): boolean {
+  return Boolean(
+    process.env.JCODE_NON_INTERACTIVE?.trim() ||
+    process.env.JCODE_ACTIVE_PROVIDER?.trim() ||
+    process.env.JCODE_SESSION_ID?.trim()
+  );
+}
+
 function refineAgentResult(result: AgentResult): AgentResult {
   if (!result.isAgent || !result.agent) {
+    if (hasJcodeAgentSignal()) {
+      return { isAgent: true, agent: { name: 'jcode' as never } };
+    }
     return result;
   }
 
@@ -51,6 +62,7 @@ const agentNameToType: Record<string, AgentType> = {
   'augment-cli': 'augment',
   opencode: 'opencode',
   'github-copilot': 'github-copilot',
+  jcode: 'jcode',
 };
 
 /**
