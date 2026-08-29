@@ -11,6 +11,7 @@ const codexHome = process.env.CODEX_HOME?.trim() || join(home, '.codex');
 const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude');
 const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
 const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
+const jcodeHome = process.env.JCODE_HOME?.trim() || join(home, '.jcode');
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
 const grokHome = process.env.GROK_HOME?.trim() || join(home, '.grok');
 const zedAppDataHome = process.env.APPDATA?.trim();
@@ -390,6 +391,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.inferencesh/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.inferencesh'));
+    },
+  },
+  jcode: {
+    name: 'jcode',
+    displayName: 'Jcode',
+    skillsDir: '.jcode/skills',
+    globalSkillsDir: join(jcodeHome, 'skills'),
+    detectInstalled: async () => {
+      return existsSync(jcodeHome);
     },
   },
   jazz: {
