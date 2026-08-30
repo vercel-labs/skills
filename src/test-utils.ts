@@ -28,6 +28,9 @@ const AGENT_DETECTION_ENV_VARS = new Set(
     'CURSOR_EXTENSION_HOST_ROLE',
     'CURSOR_TRACE_ID',
     'GEMINI_CLI',
+    'JCODE_ACTIVE_PROVIDER',
+    'JCODE_NON_INTERACTIVE',
+    'JCODE_SESSION_ID',
     'OPENCODE_CLIENT',
     'REPL_ID',
   ].map((name) => name.toUpperCase())
@@ -73,6 +76,7 @@ export function createTestHomeEnvironment(home: string): Record<string, string> 
     CLAUDE_CONFIG_DIR: join(home, '.claude'),
     VIBE_HOME: join(home, '.vibe'),
     HERMES_HOME: join(home, '.hermes'),
+    JCODE_HOME: join(home, '.jcode'),
     AUTOHAND_HOME: join(home, '.autohand'),
     FLATPAK_XDG_CONFIG_HOME: join(home, '.var', 'app'),
     DISABLE_TELEMETRY: '1',
