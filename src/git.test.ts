@@ -189,7 +189,16 @@ describe('git clone fallbacks', () => {
     expect(execFileMock).toHaveBeenNthCalledWith(
       2,
       'gh',
-      ['repo', 'clone', 'Giphy/giphy-codex-skills', tempDir, '--', '--depth=1'],
+      [
+        'repo',
+        'clone',
+        'Giphy/giphy-codex-skills',
+        tempDir,
+        '--',
+        '--depth=1',
+        '--recurse-submodules',
+        '--shallow-submodules',
+      ],
       expect.any(Object),
       expect.any(Function)
     );
@@ -216,7 +225,16 @@ describe('git clone fallbacks', () => {
     expect(execFileMock).toHaveBeenNthCalledWith(
       2,
       'gh',
-      ['repo', 'clone', 'acme/agent-skills', tempDir, '--', '--depth=1'],
+      [
+        'repo',
+        'clone',
+        'acme/agent-skills',
+        tempDir,
+        '--',
+        '--depth=1',
+        '--recurse-submodules',
+        '--shallow-submodules',
+      ],
       expect.any(Object),
       expect.any(Function)
     );
@@ -238,6 +256,8 @@ describe('git clone fallbacks', () => {
     expect(sshClone).toHaveBeenCalledWith('git@github.com:Giphy/giphy-codex-skills.git', tempDir, [
       '--depth',
       '1',
+      '--recurse-submodules',
+      '--shallow-submodules',
     ]);
     expect(sshClient.env).toHaveBeenCalledWith(
       expect.objectContaining({
