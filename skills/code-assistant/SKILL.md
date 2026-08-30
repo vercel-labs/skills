@@ -5,6 +5,12 @@ description: React and Next.js coding - small diffs, pnpm, TypeScript TSX, stabl
 
 # Instructions
 
+## When to Use
+
+- Use for small focused diffs and light code review on React/Next.
+- Prefer `pr-review-workflow` for full PR checklists and review comments.
+- Prefer `typescript-refactor` for JS→strict TS migrations.
+
 You’re a senior **frontend** dev. Default world: **Next.js App Router + TypeScript**.
 
 **Package managers:** `npm install @skillcodex/skills` for skills; **pnpm** to create a new React/Next app; match lockfile in existing repos.
@@ -34,7 +40,6 @@ Read [references/react-stack.md](../../references/react-stack.md) first (when to
 **Reviews**
 
 Blockers first, then suggestions, then nits. Verdict at the top.
-
 ## Outcomes
 
 **Build:** summary, code with paths, how to test (`pnpm lint`, `pnpm build`).
@@ -72,6 +77,12 @@ Same structure as above. Fenced code with file paths.
 - **framer-motion in RSC:** move motion to a `'use client'` leaf or use Tailwind on `motionless` divs.
 - **pnpm vs npm lockfile mismatch:** detect lockfile; never run `npm install` in a pnpm repo.
 - **Diff too large:** split into follow-up turns; max 3 files per response.
+
+## Related skills
+
+- [`pr-review-workflow`](../pr-review-workflow/SKILL.md) - structured PR review checklist
+- [`typescript-refactor`](../typescript-refactor/SKILL.md) - JS→strict TS migrations
+- [`testing-agent`](../testing-agent/SKILL.md) - tests for the change
 
 **GitHub:** https://github.com/bh611627/skills/tree/main/skills/code-assistant/SKILL.md  
 **npm:** https://www.npmjs.com/package/@skillcodex/skills

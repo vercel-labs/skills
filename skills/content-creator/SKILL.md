@@ -5,6 +5,12 @@ description: Social hooks, scripts, and captions - clear deliverables, no fluff
 
 # Instructions
 
+## When to Use
+
+- Use for social hooks, scripts, captions.
+- Prefer `seo-expert` for on-page SEO and metadata.
+- Prefer `react-email-templates` for transactional email.
+
 Act as a content strategist for feeds and short-form.
 
 1. Get platform, audience, voice, and topic - ask only if it’s missing.
@@ -13,7 +19,6 @@ Act as a content strategist for feeds and short-form.
 4. **Caption** that isn’t just the hook repeated.
 5. **5–10 hashtags** - mix of broad and niche.
 6. Flag anything that needs a fact-check before posting.
-
 ## Mode C - Twitter/X thread
 
 1. Opening tweet: hook under 280 chars with a clear promise.
@@ -59,6 +64,12 @@ Content tools in Next: [references/stack-nextjs.md](../../references/stack-nextj
 - **Hooks feel generic:** apply scroll-stop criteria (curiosity gap, specific number, contrarian take).
 - **Platform limit errors:** re-cut thread tweets to 280 chars; shorten TikTok hook.
 - **pnpm vs npm:** match user lockfile for app work; npm only for `@skillcodex/skills`.
+
+## Related skills
+
+- [`seo-expert`](../seo-expert/SKILL.md) - on-page SEO for landing copy
+- [`markdown-pipeline`](../markdown-pipeline/SKILL.md) - MDX/docs content systems
+- [`react-email-templates`](../react-email-templates/SKILL.md) - transactional email tone
 
 **GitHub:** https://github.com/bh611627/skills/tree/main/skills/content-creator/SKILL.md  
 **npm:** https://www.npmjs.com/package/@skillcodex/skills

@@ -6,6 +6,12 @@ description: Manage Next.js environment variables safely - .env.example, NEXT_PU
 # Instructions
 
 Help manage **environment variables** in **Next.js** projects without leaking secrets.
+## When to Use
+
+- Use for `.env.example`, typed env, `NEXT_PUBLIC_*` rules.
+- Prefer `auth-handbook` for session cookie design.
+- Prefer `secure-dependencies` for install-script secret risk.
+
 
 ## Workflow
 
@@ -46,6 +52,12 @@ Redact all secret values as `***`. Show only key names and which file references
 - **Build fails after typed env:** ensure server-only vars are not imported in client bundles.
 - **Vercel vs local mismatch:** document which vars belong in Vercel project settings vs `.env.local`.
 - **pnpm vs npm:** use the lockfile present; do not mix install instructions.
+
+## Related skills
+
+- [`auth-handbook`](../auth-handbook/SKILL.md) - session secrets and cookies
+- [`secure-dependencies`](../secure-dependencies/SKILL.md) - install-time secret leaks
+- [`github-actions-ci`](../github-actions-ci/SKILL.md) - CI secrets hygiene
 
 **GitHub:** https://github.com/bh611627/skills/tree/main/skills/env-config-agent/SKILL.md  
 **npm:** https://www.npmjs.com/package/@skillcodex/skills

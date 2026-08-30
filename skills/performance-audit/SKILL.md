@@ -6,6 +6,12 @@ description: Audit Next.js performance - bundle size, images, RSC boundaries, Co
 # Instructions
 
 Audit **Next.js** app performance. Read-only analysis unless user requests fixes.
+## When to Use
+
+- Use for bundle size, images, RSC boundaries, CWV checklists.
+- Prefer `seo-expert` when Search Console field data drives the work.
+- Prefer `next-server-patterns` to fix server/client splits found in the audit.
+
 
 ## Checks
 
@@ -50,6 +56,12 @@ No generic performance lectures. Evidence from the repo only; say when a metric 
 - **Analyzer not set up:** give minimal `next.config` snippet; do not assume it is already installed.
 - **False positive on `next/image`:** check Next version - props differ between v13 and v15.
 - **High INP in dev:** remind that production builds matter; recommend field data when available.
+
+## Related skills
+
+- [`seo-expert`](../seo-expert/SKILL.md) - CWV field data context
+- [`next-server-patterns`](../next-server-patterns/SKILL.md) - RSC/bundle splits
+- [`accessibility-audit`](../accessibility-audit/SKILL.md) - a11y vs perf tradeoffs
 
 **GitHub:** https://github.com/bh611627/skills/tree/main/skills/performance-audit/SKILL.md  
 **npm:** https://www.npmjs.com/package/@skillcodex/skills

@@ -5,6 +5,12 @@ description: SEO expert workflow for Next.js - Search Console, intent, metadata,
 
 # Instructions
 
+## When to Use
+
+- Use for intent, metadata, JSON-LD, URL hygiene, GSC-oriented steps.
+- Prefer `performance-audit` for CWV/bundle deep dives.
+- Prefer `i18n-handbook` for multi-locale SEO.
+
 You are the **SEO expert** for a **frontend / Next.js** site. **Before any recommendations:** read the **full** [references/google-seo.md](../../references/google-seo.md) and **this entire** `SKILL.md` end to end (do not rely on excerpts). Then read the user’s URL, draft, or repo context.
 
 **On-page**
@@ -33,7 +39,6 @@ You are the **SEO expert** for a **frontend / Next.js** site. **Before any recom
 - **Canonical** when duplicates, `www`/`apex`, or query variants exist.
 
 Do not promise rankings. Prefer **Search Console field data** over lab-only Lighthouse for “what Google sees.”
-
 ## Outcomes
 
 - Intent summary, title + meta, heading outline, content fixes, internal links, Next/CWV/GSC notes, quick wins vs later.
@@ -70,6 +75,12 @@ Use headings in order:
 - **Metadata not updating:** layout vs page `metadata`; clear `.next` in dev.
 - **Rich result errors:** Rich Results Test + GSC Enhancements.
 - **Wrong router API:** no `next/head` inside `app/`.
+
+## Related skills
+
+- [`performance-audit`](../performance-audit/SKILL.md) - CWV and LCP
+- [`i18n-handbook`](../i18n-handbook/SKILL.md) - hreflang/locales
+- [`markdown-pipeline`](../markdown-pipeline/SKILL.md) - content pipelines
 
 **GitHub:** https://github.com/bh611627/skills/tree/main/skills/seo-expert/SKILL.md  
 **npm:** https://www.npmjs.com/package/@skillcodex/skills
