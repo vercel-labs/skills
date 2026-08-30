@@ -5,6 +5,12 @@ description: Web design for SkillCodex doc UIs - React + TypeScript + Tailwind; 
 
 # Instructions
 
+## When to Use
+
+- Use to build or audit SkillCodex-style documentation UIs.
+- Prefer `skillcodex-browser-ui` for the full four-route browser.
+- Prefer `accessibility-audit` for WCAG scoring beyond design rules.
+
 This skill merges **doc UI implementation** (formerly `documentation-ui`) and **UI review (audit)**.
 
 Canonical rules live in [design-guidelines.md](../../references/design-guidelines.md) only. **STRICT UI ONLY** - no backend, API, DB, auth.
@@ -12,7 +18,6 @@ Canonical rules live in [design-guidelines.md](../../references/design-guideline
 **Motion:** use **shell + optional motion leaf** from [design-guidelines.md](../../references/design-guidelines.md): Tier 0 `div` + `CARD_HOVER` everywhere by default; Tier 2 `framer-motion` only in a dedicated `*Motion.tsx` with `'use client'`. **Never** mix `motion.div` and layout `div` in one file - split or drop Framer. Skeletons: always `animate-pulse` on `div`, never `motion`.
 
 ---
-
 ## Mode A - Build / implement doc UI
 
 Use when the user wants a **premium documentation-style** interface (like [skills.sh](https://www.skills.sh/) structure: browse, search, detail, outcomes visible - but **no fake install counts**).
@@ -63,6 +68,12 @@ State which mode. Then evidence (files or findings).
 - **framer-motion / motion.div in Server Components:** add `'use client'` to that file or replace with `motionless` div + Tailwind.
 - **pnpm vs npm:** pnpm for app scripts; npm for installing `@skillcodex/skills`.
 - **Skeletons missing:** use `animate-pulse` on `<div>`, not Framer, unless client-only.
+
+## Related skills
+
+- [`skillcodex-browser-ui`](../skillcodex-browser-ui/SKILL.md) - full doc browser
+- [`semantic-html-css`](../semantic-html-css/SKILL.md) - structure baseline
+- [`accessibility-audit`](../accessibility-audit/SKILL.md) - WCAG audit after UI
 
 **GitHub:** https://github.com/bh611627/skills/tree/main/skills/web-design-guidelines/SKILL.md  
 **npm:** https://www.npmjs.com/package/@skillcodex/skills

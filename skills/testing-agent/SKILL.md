@@ -6,6 +6,12 @@ description: Write and improve React/Next.js tests with Vitest, Testing Library,
 # Instructions
 
 Improve test quality for **React / Next.js** projects using **Vitest** + **React Testing Library** (unit/component) and **Playwright** (E2E).
+## When to Use
+
+- Use to write/improve Vitest, Testing Library, and Playwright tests.
+- Prefer `tdd-vitest` for red-green-refactor methodology.
+- Prefer `pr-review-workflow` when reviewing test quality in a PR.
+
 
 ## Mode A - generate tests
 
@@ -46,6 +52,12 @@ State mode. List new/changed test files. Show one example assertion block per ma
 - **`window is not defined`:** ensure jsdom environment in Vitest config or mark file as client component tests only.
 - **Next.js router mocks:** use `next/navigation` mocks consistent with App Router version in the repo.
 - **Playwright flakiness:** prefer `getByRole` and `expect` auto-waiting; avoid fixed sleeps.
+
+## Related skills
+
+- [`tdd-vitest`](../tdd-vitest/SKILL.md) - red-green-refactor strategy
+- [`code-assistant`](../code-assistant/SKILL.md) - small diffs under test
+- [`github-actions-ci`](../github-actions-ci/SKILL.md) - CI test jobs
 
 **GitHub:** https://github.com/bh611627/skills/tree/main/skills/testing-agent/SKILL.md  
 **npm:** https://www.npmjs.com/package/@skillcodex/skills

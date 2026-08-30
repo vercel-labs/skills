@@ -6,6 +6,12 @@ description: Audit React/Next.js UIs for WCAG 2.2 AA - contrast, ARIA, keyboard,
 # Instructions
 
 Audit the user’s **React / Next.js** UI for **WCAG 2.2 Level AA** compliance. Read-only - produce a report, do not edit files unless the user explicitly asks.
+## When to Use
+
+- Use for WCAG 2.2 AA audits with file:line findings on React/Next UIs.
+- Prefer `semantic-html-css` first if landmarks/headings are missing.
+- Prefer `web-design-guidelines` for SkillCodex doc UI builds.
+
 
 ## Audit steps
 
@@ -52,6 +58,12 @@ No preamble essay. Tables or bullet groups by severity only.
 - **Contrast unknown from Tailwind arbitrary values:** ask for computed color or design token doc.
 - **Client-only widgets:** audit the client component file, not the Server Component wrapper only.
 - **Radix/shadcn:** verify focus trap and `DialogTitle` patterns in the primitive usage file.
+
+## Related skills
+
+- [`semantic-html-css`](../semantic-html-css/SKILL.md) - landmarks and structure before WCAG file:line
+- [`web-design-guidelines`](../web-design-guidelines/SKILL.md) - doc UI a11y patterns
+- [`performance-audit`](../performance-audit/SKILL.md) - when CWV and a11y trade off
 
 **GitHub:** https://github.com/bh611627/skills/tree/main/skills/accessibility-audit/SKILL.md  
 **npm:** https://www.npmjs.com/package/@skillcodex/skills

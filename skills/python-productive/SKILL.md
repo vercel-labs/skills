@@ -6,6 +6,12 @@ description: Modern Python with uv, Pydantic v2, strict typing, and fast paths -
 # Instructions
 
 Help teams ship **Python 3.11+** with **uv** (installer + resolver + lock), **Pydantic v2**, and **strict typing**. Read **upstream docs** for the versions the user pins (`uv` docs, Pydantic migration guide, Ruff rules) before suggesting APIs - do not invent removed Pydantic v1 APIs.
+## When to Use
+
+- Use for uv, Pydantic v2, typing, and productive Python tooling.
+- Prefer Next/React skills when the task is frontend.
+- Prefer `secure-dependencies` mindset for lockfiles and audits.
+
 
 ## Mode A - greenfield or refresh
 
@@ -48,6 +54,11 @@ State Mode A or B. Show exact `uv` / `pytest` commands matching the repo.
 
 - **Lock conflicts:** regenerate lock with `uv lock` after bounds change.
 - **Pydantic errors:** link field name + error type; avoid blanket `model_rebuild()` everywhere.
+
+## Related skills
+
+- [`testing-agent`](../testing-agent/SKILL.md) - if testing Python from a JS monorepo host
+- [`secure-dependencies`](../secure-dependencies/SKILL.md) - lockfiles and supply chain mindset
 
 **GitHub:** https://github.com/bh611627/skills/tree/main/skills/python-productive/SKILL.md  
 **npm:** https://www.npmjs.com/package/@skillcodex/skills

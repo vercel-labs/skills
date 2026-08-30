@@ -5,6 +5,12 @@ description: TanStack Query v5 with Next.js App Router - query keys, hydration, 
 
 # Instructions
 
+## When to Use
+
+- Use for TanStack Query v5 + RSC hydration without double fetch.
+- Prefer `next-server-patterns` when the question is server-only data.
+- Prefer `server-caching-handbook` for tag/TTL stampedes.
+
 Use **TanStack Query v5** (`@tanstack/react-query`) with **Next.js App Router** without fighting RSC.
 
 1. **Provider:** wrap client subtree that needs queries - usually a `providers.tsx` client component imported from `layout.tsx`; do not wrap entire app in client unless necessary.
@@ -13,7 +19,6 @@ Use **TanStack Query v5** (`@tanstack/react-query`) with **Next.js App Router** 
 4. **Defaults:** set sensible **`staleTime`** (e.g. 30sâ€“5m for dashboards); avoid `refetchOnWindowFocus` storm on sensitive forms - tune per query.
 5. **Mutations:** `onSuccess` invalidate minimal key prefixes; optimistic updates only with rollback plan.
 6. **Errors:** surface with boundaries (`error-loading-not-found` skill); do not leak server error bodies to toast without sanitization.
-
 ## Outcomes
 
 - Provider file outline + one `useQuery` + one RSC prefetch example names only (no full app).
@@ -35,6 +40,12 @@ State installed `@tanstack/react-query` version from lockfile; if missing, say â
 
 - **Double fetch:** RSC and client both fetch same URL - align prefetch + `initialData` or hydration only.
 - **Stale closure in queryFn:** use `queryKey` deps; avoid capturing mutable outer state without inclusion in key.
+
+## Related skills
+
+- [`next-server-patterns`](../next-server-patterns/SKILL.md) - RSC vs client fetch boundaries
+- [`forms-and-validation`](../forms-and-validation/SKILL.md) - mutations with invalidation
+- [`server-caching-handbook`](../server-caching-handbook/SKILL.md) - server cache vs client cache
 
 **GitHub:** https://github.com/bh611627/skills/tree/main/skills/client-data-fetching/SKILL.md  
 **npm:** https://www.npmjs.com/package/@skillcodex/skills

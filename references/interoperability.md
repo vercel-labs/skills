@@ -23,18 +23,34 @@ Any host that loads markdown instructions can use the GitHub tree:
 | **[skills.sh](https://www.skills.sh/)** | `npx skills add owner/repo` | Compatible layout; e.g. `npx skills add bh611627/skills --skill web-design-guidelines` |
 | **Cursor** | Project skills under `.cursor/skills` or rules | Copy skill folder or import `instructions` field |
 | **Claude Code** | `SKILL.md` with progressive disclosure | Frontmatter + body; use `references/` for lazy load |
+| **Antigravity / Codex / Copilot / Windsurf / Gemini CLI / Cline / Amp / OpenCode / Roo / Goose / Kilo / Kiro / Droid / OpenClaw / Trae** | Agent-specific skills dirs via `npx skills add` | Same markdown; declare hosts in `compatibility` |
 | **npm consumers** | `npm install @skillcodex/skills` | Typed `SkillModule` in [package/src/types.ts](../package/src/types.ts) |
 
 ## Frontmatter: `compatibility`
 
-Declare where the skill was reviewed:
+Declare where the skill was reviewed (canonical SkillCodex set):
 
 ```yaml
 compatibility:
   - generic-markdown
+  - skills-sh
   - cursor
   - claude-code
-  - skills-sh
+  - antigravity
+  - codex
+  - github-copilot
+  - windsurf
+  - gemini-cli
+  - cline
+  - amp
+  - opencode
+  - roo
+  - goose
+  - kilo
+  - kiro-cli
+  - droid
+  - openclaw
+  - trae
 ```
 
 Hosts may ignore unknown keys - that is expected in 2026.
