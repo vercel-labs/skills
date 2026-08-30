@@ -191,7 +191,9 @@ async function tryGhClone(repo: GitHubRepoInfo, tempDir: string, ref?: string): 
     return false;
   }
 
-  const gitFlags = ref ? ['--depth=1', '--branch', ref] : ['--depth=1'];
+  const gitFlags = ref
+    ? ['--depth=1', '--branch', ref, '--recurse-submodules', '--shallow-submodules']
+    : ['--depth=1', '--recurse-submodules', '--shallow-submodules'];
   await execFileAsync('gh', ['repo', 'clone', cloneTarget, tempDir, '--', ...gitFlags], {
     timeout: CLONE_TIMEOUT_MS,
     env: {
@@ -238,7 +240,9 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
   }
 
   const tempDir = await mkdtemp(join(tmpdir(), 'skills-'));
-  const cloneOptions = ref ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
+  const cloneOptions = ref
+    ? ['--depth', '1', '--branch', ref, '--recurse-submodules', '--shallow-submodules']
+    : ['--depth', '1', '--recurse-submodules', '--shallow-submodules'];
   const repo = parseGitHubRepoUrl(url);
 
   try {
