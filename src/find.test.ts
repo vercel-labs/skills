@@ -74,4 +74,32 @@ describe('searchSkillsAPI', () => {
     expect(output).toContain('owner/repo@skill-1');
     expect(output).toContain('owner/repo@skill-11');
   });
+
+  it('prints installable domain sources with their catalog URLs', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          skills: [
+            {
+              id: 'registry.example.com/example-skill',
+              name: 'example-skill',
+              installs: 108,
+              source: 'registry.example.com',
+            },
+          ],
+        }),
+      })
+    );
+    vi.stubEnv('DISABLE_TELEMETRY', '1');
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await runFind(['example-skill']);
+
+    const output = log.mock.calls.map((args) => args.join(' ')).join('\n');
+    expect(output).toContain('https://registry.example.com --skill example-skill');
+    expect(output).toContain('https://skills.sh/site/registry.example.com/example-skill');
+    expect(output).not.toContain('registry.example.com@example-skill');
+  });
 });

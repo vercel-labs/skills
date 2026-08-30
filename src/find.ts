@@ -43,6 +43,16 @@ export interface ParseFindOptionsResult {
 
 const GITHUB_OWNER_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38})$/i;
 
+function isWellKnownSearchSource(source: string): boolean {
+  return /^https?:\/\//i.test(source) || (source.includes('.') && !source.includes('/'));
+}
+
+function getInstallSource(source: string): string {
+  return isWellKnownSearchSource(source) && !/^https?:\/\//i.test(source)
+    ? `https://${source}`
+    : source;
+}
+
 export function parseFindOptions(args: string[]): ParseFindOptionsResult {
   const queryParts: string[] = [];
   const options: FindOptions = {};
@@ -329,7 +339,7 @@ export async function runFind(args: string[]): Promise<void> {
   const isNonInteractive = !process.stdin.isTTY;
   const agentTip = `${DIM}Tip: if running in a coding agent, follow these steps:${RESET}
 ${DIM}  1) npx skills find [query] [--owner <owner>]${RESET}
-${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
+${DIM}  2) npx skills add <source>${RESET}`;
 
   if (errors.length > 0) {
     for (const error of errors) console.error(error);
@@ -354,16 +364,18 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
       return;
     }
 
-    console.log(`${DIM}Install with${RESET} npx skills add <owner/repo@skill>`);
+    console.log(`${DIM}Install with${RESET} npx skills add <source>`);
     console.log();
 
     for (const skill of results) {
-      const pkg = skill.source || skill.slug;
+      const source = skill.source || skill.slug;
+      const isWellKnown = isWellKnownSearchSource(skill.source);
+      const pkg = getInstallSource(source);
       const installs = formatInstalls(skill.installs);
       console.log(
-        `${TEXT}${pkg}@${skill.name}${RESET}${installs ? ` ${CYAN}${installs}${RESET}` : ''}`
+        `${TEXT}${pkg}${isWellKnown ? ` --skill ${skill.name}` : `@${skill.name}`}${RESET}${installs ? ` ${CYAN}${installs}${RESET}` : ''}`
       );
-      console.log(`${DIM}└ https://skills.sh/${skill.slug}${RESET}`);
+      console.log(`${DIM}└ https://skills.sh/${isWellKnown ? 'site/' : ''}${skill.slug}${RESET}`);
       console.log();
     }
     return;
@@ -394,7 +406,7 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
   }
 
   // Use source (owner/repo) and skill name for installation
-  const pkg = selected.source || selected.slug;
+  const pkg = getInstallSource(selected.source || selected.slug);
   const skillName = selected.name;
 
   console.log();
