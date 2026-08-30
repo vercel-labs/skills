@@ -76,7 +76,8 @@ export type AgentType =
   | 'pochi'
   | 'promptscript'
   | 'adal'
-  | 'universal';
+  | 'universal'
+  | 'prime';
 
 export interface Skill {
   name: string;

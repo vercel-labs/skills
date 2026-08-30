@@ -24,10 +24,19 @@ function hasJcodeAgentSignal(): boolean {
   );
 }
 
+/** Detect Prime Agent via its configuration directory environment variable. */
+function hasPrimeAgentSignal(): boolean {
+  return Boolean(process.env.PRIME_AGENT_CODING_AGENT_DIR?.trim());
+}
+
 function refineAgentResult(result: AgentResult): AgentResult {
   if (!result.isAgent || !result.agent) {
     if (hasJcodeAgentSignal()) {
       return { isAgent: true, agent: { name: 'jcode' as never } };
+    }
+    // Detect Prime Agent when its environment variable is present.
+    if (hasPrimeAgentSignal()) {
+      return { isAgent: true, agent: { name: 'prime' as never } };
     }
     return result;
   }
@@ -63,6 +72,7 @@ const agentNameToType: Record<string, AgentType> = {
   opencode: 'opencode',
   'github-copilot': 'github-copilot',
   jcode: 'jcode',
+  prime: 'prime',
 };
 
 /**
