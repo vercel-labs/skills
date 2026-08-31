@@ -13,6 +13,7 @@ const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
 const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
 const grokHome = process.env.GROK_HOME?.trim() || join(home, '.grok');
+const sarvamHome = process.env.SARVAM_HOME?.trim() || join(home, '.sarvam');
 const zedAppDataHome = process.env.APPDATA?.trim();
 const zedFlatpakConfigHome = process.env.FLATPAK_XDG_CONFIG_HOME?.trim();
 
@@ -635,6 +636,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.roo/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.roo'));
+    },
+  },
+  'sarvam-code': {
+    name: 'sarvam-code',
+    displayName: 'Sarvam Code',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents/skills'),
+    detectInstalled: async () => {
+      return existsSync(sarvamHome);
     },
   },
   'tabnine-cli': {

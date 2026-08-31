@@ -83,6 +83,7 @@ const EXCLUDE_DIRS = new Set(['.git', '__pycache__', '__pypackages__']);
 const USE_AGENT_CONFIGS: Partial<Record<AgentType, UseAgentConfig>> = {
   'claude-code': { command: 'claude', args: [] },
   codex: { command: 'codex', args: [] },
+  'sarvam-code': { command: 'sarvam-code', args: [] },
 };
 const SUPPORTED_USE_AGENTS = Object.keys(USE_AGENT_CONFIGS) as AgentType[];
 
