@@ -4,7 +4,7 @@ import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { sep, join, dirname } from 'path';
 import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
-import { stripTerminalEscapes } from './sanitize.ts';
+import { sanitizeMetadata, stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
 import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
@@ -129,6 +129,58 @@ function socketLabel(audit: PartnerAudit | undefined): string {
   return count > 0 ? pc.red(`${count} alert${count !== 1 ? 's' : ''}`) : pc.green('0 alerts');
 }
 
+const AUDIT_PROVIDERS = [
+  { key: 'ath', label: 'Gen Agent Trust Hub', slug: 'agent-trust-hub' },
+  { key: 'socket', label: 'Socket', slug: 'socket' },
+  { key: 'snyk', label: 'Snyk', slug: 'snyk' },
+] as const;
+
+function isAuditWarning(audit: PartnerAudit | undefined): audit is PartnerAudit {
+  if (!audit) return false;
+  return (
+    audit.status === 'warn' ||
+    audit.status === 'fail' ||
+    (audit.alerts ?? 0) > 0 ||
+    audit.risk === 'medium' ||
+    audit.risk === 'high' ||
+    audit.risk === 'critical'
+  );
+}
+
+function wrapText(text: string, width = 88): string[] {
+  const words = stripTerminalEscapes(text).replace(/\s+/g, ' ').trim().split(' ');
+  const lines: string[] = [];
+  let line = '';
+
+  for (const word of words) {
+    if (!word) continue;
+    if (line && line.length + word.length + 1 > width) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line ? `${line} ${word}` : word;
+    }
+  }
+
+  if (line) lines.push(line);
+  return lines;
+}
+
+function auditWarningLabel(audit: PartnerAudit): string {
+  const status = (audit.status ?? 'warn').toUpperCase();
+  const severity = (audit.riskLevel ?? audit.risk).toUpperCase();
+  const label = severity === 'UNKNOWN' || severity === status ? status : `${status} · ${severity}`;
+  return sanitizeMetadata(label);
+}
+
+function auditWarningSummary(audit: PartnerAudit): string {
+  if (audit.summary) return audit.summary;
+  if ((audit.alerts ?? 0) > 0) {
+    return `${audit.alerts} alert${audit.alerts === 1 ? '' : 's'} reported.`;
+  }
+  return `${audit.risk.charAt(0).toUpperCase()}${audit.risk.slice(1)} risk reported.`;
+}
+
 /** Pad a string to a given visible width (ignoring ANSI escape codes). */
 function padEnd(str: string, width: number): string {
   // Strip ANSI codes to measure visible length
@@ -141,7 +193,7 @@ function padEnd(str: string, width: number): string {
  * Render a compact security table showing partner audit results.
  * Returns the lines to display, or empty array if no data.
  */
-function buildSecurityLines(
+export function buildSecurityLines(
   auditData: AuditResponse | null,
   skills: Array<{ slug: string; displayName: string }>,
   source: string
@@ -180,6 +232,41 @@ function buildSecurityLines(
     const snyk = data?.snyk ? riskLabel(data.snyk.risk) : pc.dim('--');
 
     lines.push(padEnd(pc.cyan(name), nameWidth + 2) + padEnd(ath, 18) + padEnd(socket, 18) + snyk);
+  }
+
+  const warnings = skills.flatMap((skill) => {
+    const data = auditData[skill.slug];
+    return AUDIT_PROVIDERS.flatMap((provider) => {
+      const audit = data?.[provider.key];
+      return isAuditWarning(audit) ? [{ skill, provider, audit }] : [];
+    });
+  });
+
+  if (warnings.length > 0) {
+    lines.push('');
+    lines.push(pc.yellow(pc.bold('Review before installing:')));
+
+    for (const { skill, provider, audit } of warnings) {
+      const providerName = sanitizeMetadata(audit.provider ?? provider.label);
+      const providerSlug = audit.providerSlug ?? provider.slug;
+      const categories = audit.categories?.length
+        ? ` · ${sanitizeMetadata(audit.categories.join(', ').replaceAll('_', ' '))}`
+        : '';
+
+      lines.push(
+        `${pc.cyan(skill.displayName)} ${pc.dim('·')} ${providerName} ${pc.dim('·')} ${pc.yellow(
+          auditWarningLabel(audit)
+        )}${pc.dim(categories)}`
+      );
+      for (const summaryLine of wrapText(auditWarningSummary(audit))) {
+        lines.push(`  ${summaryLine}`);
+      }
+      lines.push(
+        `  ${pc.dim('Review:')} ${pc.dim(
+          `https://skills.sh/${source}/${skill.slug}/security/${providerSlug}`
+        )}`
+      );
+    }
   }
 
   // Footer link
