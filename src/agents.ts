@@ -628,6 +628,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.rovodev'));
     },
   },
+  plexon: {
+    name: 'plexon',
+    displayName: 'Plexon',
+    skillsDir: '.plexon/skills',
+    globalSkillsDir: join(home, '.plexon/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.plexon'));
+    },
+  },
   roo: {
     name: 'roo',
     displayName: 'Roo Code',
