@@ -23,13 +23,9 @@ import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
 import { agents, isUniversalAgent } from './agents.ts';
 import type { AgentType } from './types.ts';
+import { BOLD, DIM, RESET, TEXT } from './color.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-
-const RESET = '\x1b[0m';
-const BOLD = '\x1b[1m';
-const DIM = '\x1b[38;5;102m';
-const TEXT = '\x1b[38;5;145m';
 
 // ============================================
 // Scope Detection and Prompt
