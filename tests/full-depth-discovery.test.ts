@@ -201,4 +201,33 @@ description: Nested skill with same name
     expect(skills).toHaveLength(1);
     expect(skills[0].name).toBe('my-skill');
   });
+
+  it('can preserve duplicate names for ambiguity detection', async () => {
+    mkdirSync(join(testDir, 'skills', 'first'), { recursive: true });
+    writeFileSync(
+      join(testDir, 'skills', 'first', 'SKILL.md'),
+      `---
+name: shared-name
+description: First location
+---
+`
+    );
+    mkdirSync(join(testDir, 'skills', 'second'), { recursive: true });
+    writeFileSync(
+      join(testDir, 'skills', 'second', 'SKILL.md'),
+      `---
+name: shared-name
+description: Second location
+---
+`
+    );
+
+    const skills = await discoverSkills(testDir, undefined, {
+      fullDepth: true,
+      includeDuplicateNames: true,
+    });
+
+    expect(skills).toHaveLength(2);
+    expect(skills.map((skill) => skill.name)).toEqual(['shared-name', 'shared-name']);
+  });
 });
