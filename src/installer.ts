@@ -25,7 +25,7 @@ import {
   getEveSubagents,
   EVE_SUBAGENTS_DIR,
 } from './agents.ts';
-import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
+import { AGENTS_DIR, getAgentsHome, SKILLS_SUBDIR } from './constants.ts';
 import { parseFrontmatter } from './frontmatter.ts';
 import { parseSkillMd } from './skills.ts';
 
@@ -96,8 +96,10 @@ async function isDirEntryOrSymlinkToDir(
 }
 
 export function getCanonicalSkillsDir(global: boolean, cwd?: string): string {
-  const baseDir = global ? homedir() : cwd || process.cwd();
-  return join(baseDir, AGENTS_DIR, SKILLS_SUBDIR);
+  if (global) {
+    return join(getAgentsHome(), SKILLS_SUBDIR);
+  }
+  return join(cwd || process.cwd(), AGENTS_DIR, SKILLS_SUBDIR);
 }
 
 /**

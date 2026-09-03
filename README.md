@@ -530,10 +530,16 @@ Ensure you have write access to the target directory.
 | `DO_NOT_TRACK`            | Alternative way to disable telemetry                                       |
 | `GITHUB_TOKEN`            | Optional explicit token for authenticated GitHub API requests              |
 | `GH_TOKEN`                | Fallback explicit token for authenticated GitHub API requests              |
+| `AGENTS_HOME`             | Root of the global skills store (default `~/.agents`); holds `skills/` and the global lock. Pair with the agent's own home variable (e.g. `CLAUDE_CONFIG_DIR`, `CODEX_HOME`) to keep one store per account or workspace |
 
 ```bash
 # Install internal skills
 INSTALL_INTERNAL_SKILLS=1 npx skills add vercel-labs/agent-skills --list
+```
+
+```bash
+# Keep a separate global store and lock for a work account
+AGENTS_HOME=~/.agents-work CLAUDE_CONFIG_DIR=~/.claude-work npx skills add vercel-labs/agent-skills -g
 ```
 
 ## Telemetry

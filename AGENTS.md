@@ -39,7 +39,7 @@ src/
 ├── agents.ts        # Agent definitions and detection
 ├── installer.ts     # Skill installation logic (symlink/copy) + listInstalledSkills
 ├── skills.ts        # Skill discovery and parsing
-├── skill-lock.ts    # Global lock file management (~/.agents/.skill-lock.json)
+├── skill-lock.ts    # Global lock file management ($AGENTS_HOME/.skill-lock.json, default ~/.agents)
 ├── local-lock.ts    # Local lock file management (skills-lock.json, checked in)
 ├── sync.ts          # Sync command - crawl node_modules for skills
 ├── source-parser.ts # Parse git URLs, GitHub shorthand, local paths
@@ -82,7 +82,7 @@ tests/
 
 ### How `skills check` and `skills update` Work
 
-1. Read `~/.agents/.skill-lock.json` for installed skills
+1. Read `$AGENTS_HOME/.skill-lock.json` (default `~/.agents`) for installed skills
 2. Filter to GitHub-backed skills that have both `skillFolderHash` and `skillPath`
 3. For each skill, call `fetchSkillFolderHash(source, skillPath, token)`. Tree requests start anonymously, then use an explicit `GITHUB_TOKEN`/`GH_TOKEN`, then `gh api` without exporting the GitHub CLI credential.
 4. `fetchSkillFolderHash` calls the GitHub Trees API (`/git/trees/<branch>?recursive=1` for `main`, then `master` fallback); update checks fall back to an authenticated Git clone when API access is unavailable.
