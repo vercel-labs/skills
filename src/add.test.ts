@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { existsSync, rmSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, rmSync, mkdirSync, writeFileSync, symlinkSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli, stripAnsi } from './test-utils.ts';
@@ -128,6 +128,60 @@ description: Shared install path regression test
     expect(result.stdout).toContain('Installed 1 skill');
     expect(result.stdout).toContain('✓ shared-skill (copied)');
     expect(countPathLinesForSkill(result.stdout, 'shared-skill')).toBe(1);
+  });
+
+  // Regression test for #2098: installing into a global skills dir reached
+  // through a symlinked ~/.agents (e.g. moved to another drive/location and
+  // linked back) must succeed, including when several selected agents all
+  // resolve to that same shared universal directory.
+  it('installs global skills when ~/.agents is a symlinked directory', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'skills', 'symlinked-home-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: symlinked-home-skill
+description: Symlinked home directory regression test
+---
+
+# Symlinked Home Skill
+`
+    );
+
+    const homeDir = join(testDir, 'home');
+    const realAgentsHome = join(testDir, 'actual-agents-home');
+    mkdirSync(homeDir, { recursive: true });
+    mkdirSync(realAgentsHome, { recursive: true });
+    symlinkSync(realAgentsHome, join(homeDir, '.agents'));
+
+    const result = runCli(
+      [
+        'add',
+        sourceDir,
+        '-y',
+        '-g',
+        '--copy',
+        '--agent',
+        'codex',
+        'cursor',
+        'cline',
+        'warp',
+        'zed',
+      ],
+      testDir,
+      { HOME: homeDir, USERPROFILE: homeDir }
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).not.toContain('Failed to install');
+    expect(result.stdout).toContain('Installed 1 skill');
+    expect(result.stdout).toContain('✓ symlinked-home-skill (copied)');
+
+    // Content must land at the real (symlink-resolved) location.
+    const installedSkillMd = join(realAgentsHome, 'skills', 'symlinked-home-skill', 'SKILL.md');
+    expect(existsSync(installedSkillMd)).toBe(true);
+    expect(readFileSync(installedSkillMd, 'utf-8')).toContain('name: symlinked-home-skill');
   });
 
   it('preserves distinct copied install paths when --copy targets different agent directories', () => {
