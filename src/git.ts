@@ -8,6 +8,10 @@ import { isGitHubHost } from './github-host.ts';
 
 const DEFAULT_CLONE_TIMEOUT_MS = 300_000; // 5 minutes
 const ALLOWED_GIT_PROTOCOLS = 'https:http:ssh:git:file';
+// Git's `--branch` clone flag only resolves refs the remote advertises as
+// branches or tags — it doesn't accept a bare commit SHA. When `ref` looks
+// like one, we fetch it directly instead (see cloneRepoAtSha below).
+const COMMIT_SHA_PATTERN = /^[0-9a-f]{7,40}$/i;
 const CLONE_TIMEOUT_MS = (() => {
   const raw = process.env.SKILLS_CLONE_TIMEOUT_MS;
   if (!raw) return DEFAULT_CLONE_TIMEOUT_MS;
@@ -21,6 +25,10 @@ interface GitHubRepoInfo {
   repo: string;
   slug: string;
   sshUrl: string;
+}
+
+function isCommitSha(ref: string): boolean {
+  return COMMIT_SHA_PATTERN.test(ref);
 }
 
 export class GitCloneError extends Error {
@@ -174,6 +182,30 @@ async function resetTempDir(dir: string): Promise<void> {
   await mkdir(dir, { recursive: true });
 }
 
+// Fetches exactly `sha` from `remote` into the repo at `git`'s cwd and checks
+// it out, instead of relying on `--branch`, which cannot resolve a bare SHA.
+// GitHub (and most forges) allow fetching any reachable commit this way even
+// without a branch/tag pointing at it.
+async function fetchAndCheckoutSha(
+  git: ReturnType<typeof createGitClient>,
+  remote: string,
+  sha: string
+): Promise<void> {
+  await git.raw(['fetch', '--depth=1', remote, sha]);
+  await git.raw(['checkout', 'FETCH_HEAD']);
+}
+
+async function cloneRepoAtSha(
+  url: string,
+  tempDir: string,
+  sha: string,
+  sshCommand?: string
+): Promise<void> {
+  const git = createGitClient(sshCommand).cwd(tempDir);
+  await git.init();
+  await fetchAndCheckoutSha(git, url, sha);
+}
+
 async function tryGhClone(repo: GitHubRepoInfo, tempDir: string, ref?: string): Promise<boolean> {
   let cloneTarget = repo.slug;
   const host = repo.sshUrl.match(/^git@([^:]+):/)?.[1] || 'github.com';
@@ -191,7 +223,8 @@ async function tryGhClone(repo: GitHubRepoInfo, tempDir: string, ref?: string): 
     return false;
   }
 
-  const gitFlags = ref ? ['--depth=1', '--branch', ref] : ['--depth=1'];
+  const shaRef = ref && isCommitSha(ref) ? ref : undefined;
+  const gitFlags = ref && !shaRef ? ['--depth=1', '--branch', ref] : ['--depth=1'];
   await execFileAsync('gh', ['repo', 'clone', cloneTarget, tempDir, '--', ...gitFlags], {
     timeout: CLONE_TIMEOUT_MS,
     env: {
@@ -200,6 +233,14 @@ async function tryGhClone(repo: GitHubRepoInfo, tempDir: string, ref?: string): 
       GIT_ALLOW_PROTOCOL: ALLOWED_GIT_PROTOCOLS,
     },
   });
+
+  if (shaRef) {
+    // `gh repo clone` leaves the credential-aware `origin` remote it just
+    // proved works — reuse it to fetch the pinned commit instead of the raw
+    // URL, which wouldn't carry gh's auth.
+    await fetchAndCheckoutSha(createGitClient().cwd(tempDir), 'origin', shaRef);
+  }
+
   return true;
 }
 
@@ -238,11 +279,16 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
   }
 
   const tempDir = await mkdtemp(join(tmpdir(), 'skills-'));
-  const cloneOptions = ref ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
+  const shaRef = ref && isCommitSha(ref) ? ref : undefined;
+  const cloneOptions = ref && !shaRef ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
   const repo = parseGitHubRepoUrl(url);
 
   try {
-    await createGitClient().clone(url, tempDir, cloneOptions);
+    if (shaRef) {
+      await cloneRepoAtSha(url, tempDir, shaRef);
+    } else {
+      await createGitClient().clone(url, tempDir, cloneOptions);
+    }
     return tempDir;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -277,11 +323,12 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
 
       try {
         await resetTempDir(tempDir);
-        await createGitClient(process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes').clone(
-          repo.sshUrl,
-          tempDir,
-          cloneOptions
-        );
+        const sshCommand = process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes';
+        if (shaRef) {
+          await cloneRepoAtSha(repo.sshUrl, tempDir, shaRef, sshCommand);
+        } else {
+          await createGitClient(sshCommand).clone(repo.sshUrl, tempDir, cloneOptions);
+        }
         return tempDir;
       } catch {
         // Fall through to the targeted auth error below.
