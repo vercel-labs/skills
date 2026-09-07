@@ -14,6 +14,7 @@ export type AgentType =
   | 'codebuddy'
   | 'codemaker'
   | 'codestudio'
+  | 'codewhale'
   | 'codex'
   | 'command-code'
   | 'continue'

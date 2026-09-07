@@ -9,6 +9,7 @@ const home = homedir();
 const configHome = xdgConfig ?? join(home, '.config');
 const codexHome = process.env.CODEX_HOME?.trim() || join(home, '.codex');
 const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude');
+const codewhaleHome = process.env.CODEWHALE_HOME?.trim() || join(home, '.codewhale');
 const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
 const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
@@ -214,6 +215,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.codestudio/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.codestudio'));
+    },
+  },
+  codewhale: {
+    name: 'codewhale',
+    displayName: 'CodeWhale',
+    skillsDir: '.codewhale/skills',
+    globalSkillsDir: join(codewhaleHome, 'skills'),
+    detectInstalled: async () => {
+      return existsSync(codewhaleHome);
     },
   },
   codex: {
