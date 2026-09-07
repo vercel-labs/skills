@@ -13,7 +13,7 @@
  * See: https://github.com/vercel-labs/skills/issues/63
  */
 
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { homedir } from 'os';
 import { join } from 'path';
 import { agents } from '../src/agents.ts';
@@ -22,15 +22,34 @@ describe('XDG config paths', () => {
   const home = homedir();
 
   describe('OpenCode', () => {
-    it('uses ~/.config/opencode/skills for global skills (not ~/Library/Preferences)', () => {
-      const expected = join(home, '.config', 'opencode', 'skills');
-      expect(agents.opencode.globalSkillsDir).toBe(expected);
+    // OPENCODE_CONFIG_DIR overrides the default, so clear it before asserting
+    // what the default is - otherwise these fail on a machine that sets it.
+    async function loadDefaultOpenCodeAgent() {
+      vi.stubEnv('OPENCODE_CONFIG_DIR', '');
+      // Reset first: src/agents.ts is already imported at the top of this file,
+      // so without this the dynamic import returns the cached module and the
+      // stubbed environment has no effect.
+      vi.resetModules();
+      const { agents: freshAgents } = await import('../src/agents.ts');
+      return freshAgents.opencode;
+    }
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+      vi.resetModules();
     });
 
-    it('does NOT use platform-specific paths like ~/Library/Preferences', () => {
-      expect(agents.opencode.globalSkillsDir).not.toContain('Library');
-      expect(agents.opencode.globalSkillsDir).not.toContain('Preferences');
-      expect(agents.opencode.globalSkillsDir).not.toContain('AppData');
+    it('uses ~/.config/opencode/skills for global skills (not ~/Library/Preferences)', async () => {
+      const opencode = await loadDefaultOpenCodeAgent();
+      const expected = join(home, '.config', 'opencode', 'skills');
+      expect(opencode.globalSkillsDir).toBe(expected);
+    });
+
+    it('does NOT use platform-specific paths like ~/Library/Preferences', async () => {
+      const opencode = await loadDefaultOpenCodeAgent();
+      expect(opencode.globalSkillsDir).not.toContain('Library');
+      expect(opencode.globalSkillsDir).not.toContain('Preferences');
+      expect(opencode.globalSkillsDir).not.toContain('AppData');
     });
   });
 

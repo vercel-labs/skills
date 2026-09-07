@@ -13,6 +13,9 @@ const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
 const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
 const grokHome = process.env.GROK_HOME?.trim() || join(home, '.grok');
+// OPENCODE_CONFIG_DIR names an extra config directory OpenCode searches in
+// addition to ~/.config/opencode, so install into it when it is set.
+const opencodeHome = process.env.OPENCODE_CONFIG_DIR?.trim() || join(configHome, 'opencode');
 const zedAppDataHome = process.env.APPDATA?.trim();
 const zedFlatpakConfigHome = process.env.FLATPAK_XDG_CONFIG_HOME?.trim();
 
@@ -532,9 +535,9 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'opencode',
     displayName: 'OpenCode',
     skillsDir: '.agents/skills',
-    globalSkillsDir: join(configHome, 'opencode/skills'),
+    globalSkillsDir: join(opencodeHome, 'skills'),
     detectInstalled: async () => {
-      return existsSync(join(configHome, 'opencode'));
+      return existsSync(opencodeHome) || existsSync(join(configHome, 'opencode'));
     },
   },
   openhands: {
