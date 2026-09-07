@@ -59,6 +59,7 @@ export type AgentType =
   | 'qwen-code'
   | 'replit'
   | 'reasonix'
+  | 'plexon'
   | 'roo'
   | 'rovodev'
   | 'tabnine-cli'
