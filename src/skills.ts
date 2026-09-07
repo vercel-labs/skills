@@ -34,6 +34,7 @@ const AGENT_PROJECT_SKILL_DIRS = [
   '.posit/assistant/skills',
   '.qoder/skills',
   '.roo/skills',
+  '.ruler/skills',
   '.trae/skills',
   '.windsurf/skills',
   '.zcode/skills',
