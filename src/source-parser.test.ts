@@ -52,6 +52,22 @@ describe('source-parser', () => {
     });
   });
 
+  describe('Azure Repos', () => {
+    it('does not treat Azure Repos HTTPS as well-known', () => {
+      expect(parseSource('https://dev.azure.com/fabrikam/Fiber/_git/skills').type).toBe('git');
+    });
+
+    it('parses Azure DevOps Server with port and /tfs/', () => {
+      const result = parseSource(
+        'http://ado.example.com:8080/tfs/DefaultCollection/MyProject/_git/skills'
+      );
+      expect(result).toEqual({
+        type: 'git',
+        url: 'http://ado.example.com:8080/tfs/DefaultCollection/MyProject/_git/skills',
+      });
+    });
+  });
+
   describe('Simplified Git Strategy', () => {
     it('treats custom domains with .git as generic git', () => {
       const result = parseSource('https://git.mycompany.com/my-group/my-repo.git');

@@ -40,6 +40,10 @@ npx skills add https://github.com/vercel-labs/agent-skills/tree/main/skills/web-
 # GitLab URL
 npx skills add https://gitlab.com/org/repo
 
+# Azure Repos (Azure DevOps Services or Server)
+npx skills add https://dev.azure.com/org/project/_git/repo
+npx skills add https://dev.azure.com/org/project/_git/repo?path=/skills/web-design&version=GBmain
+
 # Any git URL
 npx skills add git@github.com:vercel-labs/agent-skills.git
 
@@ -61,6 +65,7 @@ npx skills add ssh://git@git.example.com/acme/private-skills.git
 
 # HTTPS on any Git host (uses your configured Git credential helper)
 npx skills add https://git.example.com/acme/private-skills.git
+npx skills add https://dev.azure.com/org/project/_git/private-skills
 ```
 
 For GitHub HTTPS and shorthand sources, `skills` first uses normal Git credentials. If that fails and GitHub CLI is authenticated, it tries `gh repo clone`, followed by SSH. It does not execute `gh auth token` or copy the stored GitHub CLI credential into the Node.js process.

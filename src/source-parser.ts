@@ -122,6 +122,78 @@ export function sanitizeSubpath(subpath: string): string {
 }
 
 /**
+ * Azure Repos version query values: GBbranch, GTtag, GCcommit.
+ * Bare values are treated as refs as-is.
+ */
+function azureReposVersionToRef(version: string | null): string | undefined {
+  if (!version) {
+    return undefined;
+  }
+
+  // GB = branch, GT = tag. GC (commit) is omitted because `git clone --branch`
+  // cannot check out a SHA.
+  const prefixed = /^(?:GB|GT)(.+)$/i.exec(version)?.[1];
+  return prefixed || undefined;
+}
+
+/**
+ * Parse Azure Repos HTTPS URLs (cloud and Server).
+ * Marker is `/_git/{repo}` — the same path Azure DevOps uses for git clone,
+ * on any host. Query `path` and `version` come from the web UI.
+ */
+function parseAzureReposSource(
+  input: string,
+  fragmentRef?: string,
+  fragmentSkillFilter?: string
+): ParsedSource | null {
+  if (!input.startsWith('http://') && !input.startsWith('https://')) {
+    return null;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(input);
+  } catch {
+    return null;
+  }
+
+  const segments = parsed.pathname.split('/').filter(Boolean);
+  const gitIndex = segments.indexOf('_git');
+  if (gitIndex < 0 || gitIndex === segments.length - 1) {
+    return null;
+  }
+
+  const repo = segments[gitIndex + 1]!.replace(/\.git$/, '');
+  if (!repo) {
+    return null;
+  }
+
+  const clonePath =
+    '/' +
+    [...segments.slice(0, gitIndex), '_git', repo]
+      .map((segment) => {
+        try {
+          return encodeURIComponent(decodeURIComponent(segment));
+        } catch {
+          return encodeURIComponent(segment);
+        }
+      })
+      .join('/');
+  const cloneUrl = `${parsed.protocol}//${parsed.host}${clonePath}`;
+  const ref = azureReposVersionToRef(parsed.searchParams.get('version')) || fragmentRef;
+  const pathParam = parsed.searchParams.get('path');
+  const subpath = pathParam ? sanitizeSubpath(pathParam.replace(/^\/+/, '')) : undefined;
+
+  return {
+    type: 'git',
+    url: cloneUrl,
+    ...(ref ? { ref } : {}),
+    ...(subpath ? { subpath } : {}),
+    ...(fragmentSkillFilter ? { skillFilter: fragmentSkillFilter } : {}),
+  };
+}
+
+/**
  * Check if a string represents a local file system path
  */
 function isLocalPath(input: string): boolean {
@@ -138,7 +210,7 @@ function isLocalPath(input: string): boolean {
 
 /**
  * Parse a source string into a structured format
- * Supports: local paths, GitHub URLs, GitLab URLs, GitHub shorthand, well-known URLs,
+ * Supports: local paths, GitHub URLs, GitLab URLs, Azure Repos URLs, GitHub shorthand, well-known URLs,
  * hosted download URLs, and direct git URLs
  */
 // Source aliases: map common shorthand to canonical source
@@ -183,6 +255,14 @@ function looksLikeGitSource(input: string): boolean {
       // Only treat gitlab.com fragments as refs for repo/tree URLs.
       if (parsed.hostname === 'gitlab.com') {
         return /^\/.+?\/[^/]+(?:\.git)?(?:\/-\/tree\/[^/]+(?:\/.*)?)?\/?$/.test(pathname);
+      }
+
+      // Azure Repos clone and web URLs use /_git/{repo} on any host
+      // (dev.azure.com, *.visualstudio.com, Azure DevOps Server).
+      const azureSegments = pathname.split('/').filter(Boolean);
+      const azureGitIndex = azureSegments.indexOf('_git');
+      if (azureGitIndex >= 0 && azureGitIndex < azureSegments.length - 1) {
+        return true;
       }
     } catch {
       // Fall through to generic checks below.
@@ -428,6 +508,13 @@ export function parseSource(input: string): ParsedSource {
         ...(fragmentRef ? { ref: fragmentRef } : {}),
       };
     }
+  }
+
+  // Azure Repos (any host): https://dev.azure.com/org/project/_git/repo
+  // Also Azure DevOps Server: https://server[/tfs]/{collection}/{project}/_git/{repo}
+  const azureRepos = parseAzureReposSource(input, fragmentRef, fragmentSkillFilter);
+  if (azureRepos) {
+    return azureRepos;
   }
 
   // GitHub shorthand: owner/repo, owner/repo/path/to/skill, or owner/repo@skill-name
