@@ -16,7 +16,7 @@ import {
 import { existsSync } from 'fs';
 import { join, basename, normalize, resolve, sep, relative, dirname, extname } from 'path';
 import { homedir, platform } from 'os';
-import type { Skill, AgentType, RemoteSkill } from './types.ts';
+import type { Skill, AgentType, RemoteSkill, SubagentDefinition } from './types.ts';
 import type { WellKnownSkill } from './providers/wellknown.ts';
 import {
   agents,
@@ -25,7 +25,7 @@ import {
   getEveSubagents,
   EVE_SUBAGENTS_DIR,
 } from './agents.ts';
-import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
+import { AGENTS_DIR, SKILLS_SUBDIR, SUBAGENTS_SUBDIR } from './constants.ts';
 import { parseFrontmatter } from './frontmatter.ts';
 import { parseSkillMd } from './skills.ts';
 
@@ -605,6 +605,159 @@ export function getCanonicalPath(
   }
 
   return canonicalPath;
+}
+
+/**
+ * Canonical `.agents/agents/<name>.md` directory, mirroring
+ * `getCanonicalSkillsDir`'s `.agents/skills/<name>` for subagent definitions.
+ */
+export function getCanonicalAgentsDir(global: boolean, cwd?: string): string {
+  const baseDir = global ? homedir() : cwd || process.cwd();
+  return join(baseDir, AGENTS_DIR, SUBAGENTS_SUBDIR);
+}
+
+/**
+ * Gets the canonical `.agents/agents/<name>.md` path for a subagent definition.
+ */
+export function getCanonicalAgentsPath(
+  name: string,
+  options: { global?: boolean; cwd?: string } = {}
+): string {
+  const canonicalDir = getCanonicalAgentsDir(options.global ?? false, options.cwd);
+  const canonicalPath = join(canonicalDir, `${sanitizeName(name)}.md`);
+
+  if (!isPathSafe(canonicalDir, canonicalPath)) {
+    throw new Error('Invalid subagent name: potential path traversal detected');
+  }
+
+  return canonicalPath;
+}
+
+/**
+ * Resolve the directory where subagent definition `.md` files should live
+ * for a given agent/scope, or undefined if that agent doesn't support them.
+ */
+function getSubagentsBaseDir(
+  agentType: AgentType,
+  global: boolean,
+  cwd?: string
+): string | undefined {
+  const agent = agents[agentType];
+  if (global) return agent.globalAgentsDir;
+  if (agent.agentsDir === undefined) return undefined;
+  return join(cwd || process.cwd(), agent.agentsDir);
+}
+
+/**
+ * Install a single Claude Code-style subagent definition file.
+ *
+ * Mirrors `installSkillForAgent`'s symlink/copy behavior: in symlink mode
+ * (the default), the file is written once to the canonical
+ * `.agents/agents/<name>.md` location and each supporting tool's
+ * `agentsDir` gets a symlink to it, so multiple tools share one source of
+ * truth. In copy mode, the file is written directly into the tool's dir.
+ */
+export async function installSubagentDefinition(
+  definition: SubagentDefinition,
+  agentType: AgentType,
+  options: { global?: boolean; cwd?: string; mode?: InstallMode } = {}
+): Promise<InstallResult> {
+  const isGlobal = options.global ?? false;
+  const cwd = options.cwd || process.cwd();
+  const installMode = options.mode ?? 'symlink';
+
+  const agentDir = getSubagentsBaseDir(agentType, isGlobal, cwd);
+  if (agentDir === undefined) {
+    return { success: true, path: '', mode: installMode, skipped: true };
+  }
+
+  const fileName = `${sanitizeName(definition.name)}.md`;
+  const agentPath = join(agentDir, fileName);
+
+  if (!isPathSafe(agentDir, agentPath)) {
+    return {
+      success: false,
+      path: agentPath,
+      mode: installMode,
+      error: 'Invalid subagent name: potential path traversal detected',
+    };
+  }
+
+  try {
+    if (installMode === 'copy') {
+      await mkdir(agentDir, { recursive: true });
+      await writeFile(agentPath, definition.rawContent);
+      return { success: true, path: agentPath, mode: 'copy' };
+    }
+
+    // Symlink mode: write once to the canonical location, then symlink the
+    // agent-specific path to it (falling back to a copy if that fails).
+    const canonicalDir = getCanonicalAgentsDir(isGlobal, cwd);
+    const canonicalPath = join(canonicalDir, fileName);
+
+    if (!isPathSafe(canonicalDir, canonicalPath)) {
+      return {
+        success: false,
+        path: agentPath,
+        mode: installMode,
+        error: 'Invalid subagent name: potential path traversal detected',
+      };
+    }
+
+    await mkdir(canonicalDir, { recursive: true });
+    await writeFile(canonicalPath, definition.rawContent);
+
+    if (resolve(agentPath) === resolve(canonicalPath)) {
+      // The agent's own directory already IS the canonical directory
+      // (e.g. a future universal subagent target) — nothing left to link.
+      return { success: true, path: canonicalPath, canonicalPath, mode: 'symlink' };
+    }
+
+    const symlinkCreated = await createSymlink(canonicalPath, agentPath);
+
+    if (!symlinkCreated) {
+      await mkdir(agentDir, { recursive: true });
+      await writeFile(agentPath, definition.rawContent);
+      return {
+        success: true,
+        path: agentPath,
+        canonicalPath,
+        mode: 'symlink',
+        symlinkFailed: true,
+      };
+    }
+
+    return { success: true, path: agentPath, canonicalPath, mode: 'symlink' };
+  } catch (error) {
+    return {
+      success: false,
+      path: agentPath,
+      mode: installMode,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+/**
+ * Check whether a subagent definition is already installed for an agent/scope.
+ */
+export async function isSubagentInstalled(
+  name: string,
+  agentType: AgentType,
+  options: { global?: boolean; cwd?: string } = {}
+): Promise<boolean> {
+  const targetDir = getSubagentsBaseDir(agentType, options.global ?? false, options.cwd);
+  if (targetDir === undefined) return false;
+
+  const targetPath = join(targetDir, `${sanitizeName(name)}.md`);
+  if (!isPathSafe(targetDir, targetPath)) return false;
+
+  try {
+    await access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
