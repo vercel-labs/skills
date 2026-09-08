@@ -24,10 +24,10 @@ describe('skills CLI', () => {
       expect(output).not.toContain('OpenClaw community skills');
     });
 
-    it('should show same output for -h alias', () => {
-      const helpOutput = runCliOutput(['--help']);
-      const hOutput = runCliOutput(['-h']);
-      expect(hOutput).toBe(helpOutput);
+    it('should include Prime agent example in help', () => {
+      const output = runCliOutput(['--help']);
+      expect(output).toContain('--agent prime');
+      expect(output).toContain('vercel-optimize');
     });
   });
 

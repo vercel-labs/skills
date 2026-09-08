@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [73 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [75 more](#supported-agents).
 <!-- agent-list:end -->
 
 [![skills.sh](https://skills.sh/b/vercel-labs/skills)](https://skills.sh/vercel-labs/skills)
@@ -302,6 +302,8 @@ Skills can be installed to any of these agents:
 | Grok Build | `grok` | `.grok/skills/` | `~/.grok/skills/` |
 | Hermes Agent | `hermes-agent` | `.hermes/skills/` | `~/.hermes/skills/` |
 | inference.sh | `inference-sh` | `.inferencesh/skills/` | `~/.inferencesh/skills/` |
+| Jcode | `jcode` | `.jcode/skills/` | `~/.jcode/skills/` |
+| Prime Agent | `prime` | `.prime/agent/skills/` | `~/.prime/agent/skills/` |
 | Jazz | `jazz` | `.jazz/skills/` | `~/.jazz/skills/` |
 | Junie | `junie` | `.junie/skills/` | `~/.junie/skills/` |
 | iFlow CLI | `iflow-cli` | `.iflow/skills/` | `~/.iflow/skills/` |
@@ -437,6 +439,8 @@ discover `SKILL.md` files outside these container directories (e.g. under
 - `.grok/skills/`
 - `.hermes/skills/`
 - `.inferencesh/skills/`
+- `.jcode/skills/`
+- `.prime/agent/skills/`
 - `.jazz/skills/`
 - `.junie/skills/`
 - `.iflow/skills/`

@@ -11,10 +11,14 @@ const codexHome = process.env.CODEX_HOME?.trim() || join(home, '.codex');
 const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude');
 const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
 const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
+const jcodeHome = process.env.JCODE_HOME?.trim() || join(home, '.jcode');
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
 const grokHome = process.env.GROK_HOME?.trim() || join(home, '.grok');
 const zedAppDataHome = process.env.APPDATA?.trim();
 const zedFlatpakConfigHome = process.env.FLATPAK_XDG_CONFIG_HOME?.trim();
+// Prime Agent configuration directory. Defaults to "~/.prime/agent".
+// Users can override the location via PRIME_AGENT_CODING_AGENT_DIR.
+const primeHome = process.env.PRIME_AGENT_CODING_AGENT_DIR?.trim() || join(home, '.prime', 'agent');
 
 function packageJsonHasDependency(packageJsonPath: string, dependencyName: string): boolean {
   try {
@@ -390,6 +394,29 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.inferencesh/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.inferencesh'));
+    },
+  },
+  jcode: {
+    name: 'jcode',
+    displayName: 'Jcode',
+    skillsDir: '.jcode/skills',
+    globalSkillsDir: join(jcodeHome, 'skills'),
+    detectInstalled: async () => {
+      return existsSync(jcodeHome);
+    },
+  },
+  // Prime Agent configuration as discovered in its repository.
+  // Skills live under "~/.prime/agent/skills" by default, overridden by
+  // PRIME_AGENT_CODING_AGENT_DIR.
+  prime: {
+    name: 'prime',
+    displayName: 'Prime Agent',
+    // The relative path used when the agent is the current working directory.
+    skillsDir: '.prime/agent/skills',
+    // Absolute global directory for bundled/preinstalled skills.
+    globalSkillsDir: join(primeHome, 'skills'),
+    detectInstalled: async () => {
+      return existsSync(primeHome);
     },
   },
   jazz: {

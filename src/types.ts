@@ -33,6 +33,7 @@ export type AgentType =
   | 'grok'
   | 'hermes-agent'
   | 'inference-sh'
+  | 'jcode'
   | 'iflow-cli'
   | 'jazz'
   | 'junie'
@@ -75,7 +76,8 @@ export type AgentType =
   | 'pochi'
   | 'promptscript'
   | 'adal'
-  | 'universal';
+  | 'universal'
+  | 'prime';
 
 export interface Skill {
   name: string;

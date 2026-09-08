@@ -207,6 +207,18 @@ describe('use command', () => {
       });
     });
 
+    it('starts Jcode with the run subcommand and prompt argument', async () => {
+      const fake = createFakeSpawn({ closeCode: 0 });
+
+      await expect(launchAgentInteractively('jcode', 'prompt body', fake.spawn)).resolves.toBe(0);
+
+      expect(fake.calls[0]).toMatchObject({
+        command: 'jcode',
+        args: ['run', 'prompt body'],
+        options: { stdio: 'inherit' },
+      });
+    });
+
     it('returns nonzero agent exit codes', async () => {
       const fake = createFakeSpawn({ closeCode: 37 });
 

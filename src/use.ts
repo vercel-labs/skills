@@ -83,6 +83,7 @@ const EXCLUDE_DIRS = new Set(['.git', '__pycache__', '__pypackages__']);
 const USE_AGENT_CONFIGS: Partial<Record<AgentType, UseAgentConfig>> = {
   'claude-code': { command: 'claude', args: [] },
   codex: { command: 'codex', args: [] },
+  jcode: { command: 'jcode', args: ['run'] },
 };
 const SUPPORTED_USE_AGENTS = Object.keys(USE_AGENT_CONFIGS) as AgentType[];
 
@@ -401,7 +402,8 @@ Options:
 Examples:
   skills use vercel-labs/agent-skills@web-design-guidelines | claude
   skills use vercel-labs/agent-skills --skill web-design-guidelines --agent claude-code
-  skills use vercel-labs/agent-skills@web-design-guidelines --agent codex`;
+  skills use vercel-labs/agent-skills@web-design-guidelines --agent codex
+  skills use vercel-labs/agent-skills@web-design-guidelines --agent jcode`;
 }
 
 function resolveSelector(sourceSelector?: string, optionSelector?: string): string | undefined {
