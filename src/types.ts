@@ -49,6 +49,7 @@ export type AgentType =
   | 'moxby'
   | 'mux'
   | 'neovate'
+  | 'nexrall-code'
   | 'opencode'
   | 'openhands'
   | 'ona'

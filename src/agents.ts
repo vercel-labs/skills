@@ -750,6 +750,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.neovate'));
     },
   },
+  'nexrall-code': {
+    name: 'nexrall-code',
+    displayName: 'Nexrall Code',
+    skillsDir: '.nexrall/skills',
+    globalSkillsDir: join(home, '.nexrall/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.nexrall'));
+    },
+  },
   pochi: {
     name: 'pochi',
     displayName: 'Pochi',
