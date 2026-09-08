@@ -43,6 +43,7 @@ export type AgentType =
   | 'kode'
   | 'lingma'
   | 'loaf'
+  | 'manus'
   | 'mcpjam'
   | 'minimax-code'
   | 'mistral-vibe'
