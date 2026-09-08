@@ -191,6 +191,32 @@ Instructions here.
     expect(existsSync(join(projectDir, 'agent', 'skills', 'eve-skill', 'SKILL.md'))).toBe(true);
   });
 
+  it('installs to universal agents without creating a stray agent/ directory when no agents are detected (#2058)', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'skills', 'test-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: test-skill
+description: Test skill for issue 2058
+---
+
+# Test Skill
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    mkdirSync(projectDir, { recursive: true });
+
+    const result = runCli(['add', sourceDir, '-y'], projectDir);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Installing to universal agents');
+    expect(existsSync(join(projectDir, '.agents', 'skills', 'test-skill', 'SKILL.md'))).toBe(true);
+    expect(existsSync(join(projectDir, 'agent'))).toBe(false);
+  });
+
   it('should filter skills by name with --skill flag', () => {
     // Create multiple test skills
     const skill1Dir = join(testDir, 'skills', 'skill-one');

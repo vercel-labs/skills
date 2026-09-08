@@ -557,7 +557,8 @@ async function handleWellKnownSkills(
   source: string,
   url: string,
   options: AddOptions,
-  spinner: ReturnType<typeof p.spinner>
+  spinner: ReturnType<typeof p.spinner>,
+  agentResult: { isAgent: boolean } = { isAgent: false }
 ): Promise<boolean> {
   spinner.start('Discovering skills from well-known endpoint...');
 
@@ -688,23 +689,24 @@ async function handleWellKnownSkills(
     const totalAgents = Object.keys(agents).length;
     spinner.stop(`${totalAgents} agents`);
 
-    if (installedAgents.length === 0) {
-      if (options.yes) {
-        targetAgents = validAgents as AgentType[];
-        p.log.info('Installing to all agents');
+    if (installedAgents.includes('eve') && (options.yes || !agentResult.isAgent)) {
+      const useEve = options.yes
+        ? true
+        : await p.confirm({
+            message: `Detected an eve project. Install ${selectedSkills.map((s) => s.installName).join(', ')} for your eve agent to use?`,
+            initialValue: true,
+          });
+
+      if (p.isCancel(useEve)) {
+        p.cancel('Installation cancelled');
+        process.exit(0);
+      }
+
+      if (useEve) {
+        targetAgents = ['eve'];
+        p.log.info(`Installing to: ${pc.cyan(EVE_AGENT_LABEL)}`);
       } else {
-        p.log.info('Select agents to install skills to');
-
-        const allAgentChoices = Object.entries(agents).map(([key, config]) => ({
-          value: key as AgentType,
-          label: config.displayName,
-        }));
-
-        // Use helper to prompt with search
-        const selected = await promptForAgents(
-          'Which agents do you want to install to?',
-          allAgentChoices
-        );
+        const selected = await selectAgentsInteractive({ global: options.global });
 
         if (p.isCancel(selected)) {
           p.cancel('Installation cancelled');
@@ -713,17 +715,41 @@ async function handleWellKnownSkills(
 
         targetAgents = selected as AgentType[];
       }
-    } else if (installedAgents.length === 1 || options.yes) {
+    } else if (options.yes || installedAgents.length === 1) {
       // Auto-select detected agents + ensure universal agents are included
       targetAgents = ensureUniversalAgents(installedAgents);
       if (installedAgents.length === 1) {
         const firstAgent = installedAgents[0]!;
         p.log.info(`Installing to: ${pc.cyan(agents[firstAgent].displayName)}`);
-      } else {
+      } else if (installedAgents.length > 1) {
         p.log.info(
           `Installing to: ${installedAgents.map((a) => pc.cyan(agents[a].displayName)).join(', ')}`
         );
+      } else {
+        p.log.info('Installing to universal agents');
       }
+    } else if (installedAgents.length === 0) {
+      p.log.info('Select agents to install skills to');
+
+      const allAgentChoices = Object.entries(agents)
+        .filter(([key]) => key !== 'eve')
+        .map(([key, config]) => ({
+          value: key as AgentType,
+          label: config.displayName,
+        }));
+
+      // Use helper to prompt with search
+      const selected = await promptForAgents(
+        'Which agents do you want to install to?',
+        allAgentChoices
+      );
+
+      if (p.isCancel(selected)) {
+        p.cancel('Installation cancelled');
+        process.exit(0);
+      }
+
+      targetAgents = selected as AgentType[];
     } else {
       const selected = await selectAgentsInteractive({ global: options.global });
 
@@ -1126,7 +1152,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Handle arbitrary URLs by trying well-known discovery first, then
     // falling back to a direct SKILL.md/archive download.
     if (parsed.type === 'well-known') {
-      const handled = await handleWellKnownSkills(source, parsed.url, options, spinner);
+      const handled = await handleWellKnownSkills(
+        source,
+        parsed.url,
+        options,
+        spinner,
+        agentResult
+      );
       if (handled) return;
       directDownload = true;
     }
@@ -1440,45 +1472,42 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
           targetAgents = selected as AgentType[];
         }
-      } else if (installedAgents.length === 0) {
-        if (options.yes) {
-          targetAgents = validAgents as AgentType[];
-          p.log.info('Installing to all agents');
-        } else {
-          p.log.info('Select agents to install skills to');
-
-          const allAgentChoices = Object.entries(agents)
-            .filter(([key]) => key !== 'eve')
-            .map(([key, config]) => ({
-              value: key as AgentType,
-              label: config.displayName,
-            }));
-
-          // Use helper to prompt with search
-          const selected = await promptForAgents(
-            'Which agents do you want to install to?',
-            allAgentChoices
-          );
-
-          if (p.isCancel(selected)) {
-            p.cancel('Installation cancelled');
-            await cleanup(tempDir);
-            process.exit(0);
-          }
-
-          targetAgents = selected as AgentType[];
-        }
-      } else if (installedAgents.length === 1 || options.yes) {
+      } else if (options.yes || installedAgents.length === 1) {
         // Auto-select detected agents + ensure universal agents are included
         targetAgents = ensureUniversalAgents(installedAgents);
         if (installedAgents.length === 1) {
           const firstAgent = installedAgents[0]!;
           p.log.info(`Installing to: ${pc.cyan(agents[firstAgent].displayName)}`);
-        } else {
+        } else if (installedAgents.length > 1) {
           p.log.info(
             `Installing to: ${installedAgents.map((a) => pc.cyan(agents[a].displayName)).join(', ')}`
           );
+        } else {
+          p.log.info('Installing to universal agents');
         }
+      } else if (installedAgents.length === 0) {
+        p.log.info('Select agents to install skills to');
+
+        const allAgentChoices = Object.entries(agents)
+          .filter(([key]) => key !== 'eve')
+          .map(([key, config]) => ({
+            value: key as AgentType,
+            label: config.displayName,
+          }));
+
+        // Use helper to prompt with search
+        const selected = await promptForAgents(
+          'Which agents do you want to install to?',
+          allAgentChoices
+        );
+
+        if (p.isCancel(selected)) {
+          p.cancel('Installation cancelled');
+          await cleanup(tempDir);
+          process.exit(0);
+        }
+
+        targetAgents = selected as AgentType[];
       } else {
         const selected = await selectAgentsInteractive({ global: options.global });
 
