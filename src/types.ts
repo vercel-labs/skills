@@ -33,6 +33,7 @@ export type AgentType =
   | 'grok'
   | 'hermes-agent'
   | 'inference-sh'
+  | 'jcode'
   | 'iflow-cli'
   | 'jazz'
   | 'junie'
