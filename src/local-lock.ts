@@ -1,4 +1,4 @@
-import { readFile, writeFile, readdir, stat } from 'fs/promises';
+import { readFile, writeFile, readdir, stat, appendFile } from 'fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'path';
 import { createHash } from 'crypto';
 
@@ -184,6 +184,34 @@ async function collectFiles(
 }
 
 /**
+ * Project-scope counterpart of `SKILLS_LOCK_ENTRIES_FILE` (see skill-lock.ts):
+ * children of a multi-source `add` append here; the parent writes skills-lock.json once.
+ */
+export const LOCAL_LOCK_ENTRIES_FILE_ENV = 'SKILLS_LOCAL_LOCK_ENTRIES_FILE';
+
+type PendingLocalLockEntry = { name: string; entry: LocalSkillLockEntry };
+
+/**
+ * Fold entries files written by child installs into skills-lock.json in one write.
+ * Missing or empty files are skipped. Returns the number of entries applied.
+ */
+export async function mergeLocalLockEntriesFiles(files: string[], cwd?: string): Promise<number> {
+  const pending: PendingLocalLockEntry[] = [];
+  for (const file of files) {
+    const content = await readFile(file, 'utf-8').catch(() => '');
+    for (const line of content.split('\n')) {
+      if (line.trim()) pending.push(JSON.parse(line) as PendingLocalLockEntry);
+    }
+  }
+  if (pending.length === 0) return 0;
+
+  const lock = await readLocalLock(cwd);
+  for (const { name, entry } of pending) lock.skills[name] = entry;
+  await writeLocalLock(lock, cwd);
+  return pending.length;
+}
+
+/**
  * Add or update a skill entry in the local lock file.
  */
 export async function addSkillToLocalLock(
@@ -191,6 +219,13 @@ export async function addSkillToLocalLock(
   entry: LocalSkillLockEntry,
   cwd?: string
 ): Promise<void> {
+  const entriesFile = process.env[LOCAL_LOCK_ENTRIES_FILE_ENV];
+  if (entriesFile) {
+    const pending: PendingLocalLockEntry = { name: skillName, entry };
+    await appendFile(entriesFile, JSON.stringify(pending) + '\n', 'utf-8');
+    return;
+  }
+
   const lock = await readLocalLock(cwd);
   lock.skills[skillName] = entry;
   await writeLocalLock(lock, cwd);
