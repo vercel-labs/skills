@@ -362,6 +362,41 @@ function ensureUniversalAgents(targetAgents: AgentType[]): AgentType[] {
 }
 
 /**
+ * Resolves the special `--agent none` selection: install only to universal
+ * agents (.agents/skills) with no agent-specific targets.
+ *
+ * Returns the universal agents to install to, an `error` message when `none`
+ * is combined with other agent names or the '*' wildcard, or null when `none`
+ * was not requested.
+ */
+function resolveNoneAgentSelection(
+  requestedAgents: string[] | undefined,
+  options: { global?: boolean }
+): { targetAgents: AgentType[] } | { error: string } | null {
+  if (!requestedAgents?.includes('none')) {
+    return null;
+  }
+
+  const combined = requestedAgents.filter((a) => a !== 'none');
+  if (combined.length > 0) {
+    return {
+      error:
+        `--agent none cannot be combined with other agents: ${combined.join(', ')}. ` +
+        'Use --agent none by itself to install only to universal agents (.agents/skills).',
+    };
+  }
+
+  const universalTargets = getUniversalAgents().filter(
+    (a) => !options.global || agents[a].globalSkillsDir
+  );
+  if (universalTargets.length === 0) {
+    return { error: 'No universal agents support global installation.' };
+  }
+
+  return { targetAgents: universalTargets };
+}
+
+/**
  * Builds result lines from installation results, splitting by universal vs symlinked
  */
 function buildResultLines(
@@ -687,7 +722,16 @@ async function handleWellKnownSkills(
   let targetAgents: AgentType[];
   const validAgents = Object.keys(agents);
 
-  if (options.agent?.includes('*')) {
+  const noneSelection = resolveNoneAgentSelection(options.agent, options);
+
+  if (noneSelection && 'error' in noneSelection) {
+    p.log.error(noneSelection.error);
+    process.exit(1);
+  } else if (noneSelection) {
+    // --agent none installs only to universal agents
+    targetAgents = noneSelection.targetAgents;
+    p.log.info('Installing to universal agents only (.agents/skills)');
+  } else if (options.agent?.includes('*')) {
     // --agent '*' selects all agents
     targetAgents = validAgents as AgentType[];
     p.log.info(`Installing to all ${targetAgents.length} agents`);
@@ -1404,7 +1448,17 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     let targetAgents: AgentType[];
     const validAgents = Object.keys(agents);
 
-    if (options.agent?.includes('*')) {
+    const noneSelection = resolveNoneAgentSelection(options.agent, options);
+
+    if (noneSelection && 'error' in noneSelection) {
+      p.log.error(noneSelection.error);
+      await cleanup(tempDir);
+      process.exit(1);
+    } else if (noneSelection) {
+      // --agent none installs only to universal agents
+      targetAgents = noneSelection.targetAgents;
+      p.log.info('Installing to universal agents only (.agents/skills)');
+    } else if (options.agent?.includes('*')) {
       // --agent '*' selects all agents
       targetAgents = validAgents as AgentType[];
       p.log.info(`Installing to all ${targetAgents.length} agents`);
