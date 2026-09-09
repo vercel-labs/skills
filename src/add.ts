@@ -1270,12 +1270,17 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     // If skillFilter is present from @skill syntax (e.g., owner/repo@skill-name),
-    // merge it into options.skill
+    // merge it into options.skill. `owner/repo@a,b` names several skills (skill
+    // names never contain commas); the blob fast path below takes a single
+    // skillFilter, so it is cleared when more than one was named and the
+    // selection happens through options.skill instead.
     if (parsed.skillFilter) {
       options.skill = options.skill || [];
-      if (!options.skill.includes(parsed.skillFilter)) {
-        options.skill.push(parsed.skillFilter);
+      const names = parsed.skillFilter.split(',').filter(Boolean);
+      for (const name of names) {
+        if (!options.skill.includes(name)) options.skill.push(name);
       }
+      if (names.length !== 1) parsed.skillFilter = undefined;
     }
 
     // Include internal skills when a specific skill is explicitly requested

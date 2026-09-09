@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir } from 'fs/promises';
+import { readFile, writeFile, mkdir, appendFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
@@ -172,12 +172,57 @@ export async function fetchSkillFolderHash(
 }
 
 /**
+ * When set, `addSkillToLock` appends `{ name, entry }` JSON lines to this file
+ * instead of rewriting the lock. `add` with several sources runs one child
+ * process per source concurrently, and the lock's read-modify-write below is
+ * unsynchronised, so the parent hands each child its own entries file and
+ * folds them into the lock with a single write (see add-many.ts).
+ */
+export const LOCK_ENTRIES_FILE_ENV = 'SKILLS_LOCK_ENTRIES_FILE';
+
+type PendingLockEntry = { name: string; entry: Omit<SkillLockEntry, 'installedAt' | 'updatedAt'> };
+
+/**
+ * Fold entries files written by child installs into the lock file in one write.
+ * Missing or empty files are skipped. Returns the number of entries applied.
+ */
+export async function mergeLockEntriesFiles(files: string[]): Promise<number> {
+  const pending: PendingLockEntry[] = [];
+  for (const file of files) {
+    const content = await readFile(file, 'utf-8').catch(() => '');
+    for (const line of content.split('\n')) {
+      if (line.trim()) pending.push(JSON.parse(line) as PendingLockEntry);
+    }
+  }
+  if (pending.length === 0) return 0;
+
+  const lock = await readSkillLock();
+  const now = new Date().toISOString();
+  for (const { name, entry } of pending) {
+    lock.skills[name] = {
+      ...entry,
+      installedAt: lock.skills[name]?.installedAt ?? now,
+      updatedAt: now,
+    };
+  }
+  await writeSkillLock(lock);
+  return pending.length;
+}
+
+/**
  * Add or update a skill entry in the lock file.
  */
 export async function addSkillToLock(
   skillName: string,
   entry: Omit<SkillLockEntry, 'installedAt' | 'updatedAt'>
 ): Promise<void> {
+  const entriesFile = process.env[LOCK_ENTRIES_FILE_ENV];
+  if (entriesFile) {
+    const pending: PendingLockEntry = { name: skillName, entry };
+    await appendFile(entriesFile, JSON.stringify(pending) + '\n', 'utf-8');
+    return;
+  }
+
   const lock = await readSkillLock();
   const now = new Date().toISOString();
 

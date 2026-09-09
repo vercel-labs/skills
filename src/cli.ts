@@ -4,6 +4,7 @@ import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { basename, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
+import { runAddMany } from './add-many.ts';
 import { runFind } from './find.ts';
 import { runInstallFromLock } from './install.ts';
 import { runList } from './list.ts';
@@ -107,9 +108,10 @@ function showHelp(): void {
 ${BOLD}Usage:${RESET} skills <command> [options]
 
 ${BOLD}Manage Skills:${RESET}
-  add <package>        Add a skill package (alias: a)
+  add <package>...     Add skill packages (alias: a); several install concurrently
                        e.g. vercel-labs/agent-skills
                             https://github.com/vercel-labs/agent-skills
+                            owner/repo@skill-a,skill-b   (pick skills per package)
   use <package>@<skill>
                        Generate a prompt for using one skill without installing it
   remove [skills]      Remove installed skills
@@ -178,6 +180,7 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills add vercel-labs/agent-skills --agent claude-code cursor
   ${DIM}$${RESET} skills add vercel-labs/agent-skills --skill pr-review commit
   ${DIM}$${RESET} skills add vercel-labs/agent-skills --json -y ${DIM}# JSON output${RESET}
+  ${DIM}$${RESET} skills add owner/tools@lint,test other/skills@deploy -g -y ${DIM}# several packages${RESET}
   ${DIM}$${RESET} skills remove                        ${DIM}# interactive remove${RESET}
   ${DIM}$${RESET} skills remove web-design             ${DIM}# remove by name${RESET}
   ${DIM}$${RESET} skills rm --global frontend-design
@@ -362,6 +365,10 @@ async function main(): Promise<void> {
         // JSON mode promises exactly one JSON value on stdout, even here
         if (addOpts.json) console.log('[]');
         process.exitCode = 1;
+        break;
+      }
+      if (addSource.length > 1) {
+        await runAddMany(addSource, addOpts);
         break;
       }
       await runAdd(addSource, addOpts);
