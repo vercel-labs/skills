@@ -269,6 +269,20 @@ function isHostedArtifactUrl(input: string): boolean {
   }
 }
 
+/**
+ * Remove the query string from an HTTP(S) URL before it is matched against the
+ * repository URL patterns. Git hosts append query parameters to browse URLs
+ * (e.g. GitLab's `?ref_type=heads`), and those must not leak into the parsed
+ * ref or subpath. Non-HTTP inputs (local paths, shorthand) are returned as-is.
+ */
+function stripQueryString(input: string): string {
+  if (!/^https?:\/\//i.test(input)) {
+    return input;
+  }
+  const queryIndex = input.indexOf('?');
+  return queryIndex === -1 ? input : input.slice(0, queryIndex);
+}
+
 export function parseSource(input: string): ParsedSource {
   // Local path: absolute, relative, or current directory
   if (isLocalPath(input)) {
@@ -348,8 +362,17 @@ export function parseSource(input: string): ParsedSource {
     }
   }
 
+  // Repository browse URLs may carry a query string (e.g. GitLab's
+  // `?ref_type=heads`); it is not part of the ref or subpath.
+  const repoUrlInput = stripQueryString(input);
+
   // GitHub URL with path: https://github.com/owner/repo/tree/branch/path/to/skill
-  const githubTreeWithPathMatch = input.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/);
+  // Anchored to the start of the URL so a "github.com" segment inside another
+  // host's path (e.g. a self-hosted GitLab mirror at
+  // https://gitlab.example.com/mirror/github.com/owner/repo) is not treated as GitHub.
+  const githubTreeWithPathMatch = repoUrlInput.match(
+    /^(?:https?:\/\/)?(?:www\.)?github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/
+  );
   if (githubTreeWithPathMatch) {
     const [, owner, repo, ref, subpath] = githubTreeWithPathMatch;
     return {
@@ -361,7 +384,9 @@ export function parseSource(input: string): ParsedSource {
   }
 
   // GitHub URL with branch only: https://github.com/owner/repo/tree/branch
-  const githubTreeMatch = input.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)$/);
+  const githubTreeMatch = repoUrlInput.match(
+    /^(?:https?:\/\/)?(?:www\.)?github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)$/
+  );
   if (githubTreeMatch) {
     const [, owner, repo, ref] = githubTreeMatch;
     return {
@@ -372,7 +397,9 @@ export function parseSource(input: string): ParsedSource {
   }
 
   // GitHub URL: https://github.com/owner/repo
-  const githubRepoMatch = input.match(/github\.com\/([^/]+)\/([^/]+)/);
+  const githubRepoMatch = repoUrlInput.match(
+    /^(?:https?:\/\/)?(?:www\.)?github\.com\/([^/]+)\/([^/]+)/
+  );
   if (githubRepoMatch) {
     const [, owner, repo] = githubRepoMatch;
     const cleanRepo = repo!.replace(/\.git$/, '');
@@ -386,7 +413,7 @@ export function parseSource(input: string): ParsedSource {
   // GitLab URL with path (any GitLab instance): https://gitlab.com/owner/repo/-/tree/branch/path
   // Key identifier is the "/-/tree/" path pattern unique to GitLab.
   // Supports subgroups by using a non-greedy match for the repository path.
-  const gitlabTreeWithPathMatch = input.match(
+  const gitlabTreeWithPathMatch = repoUrlInput.match(
     /^(https?):\/\/([^/]+)\/(.+?)\/-\/tree\/([^/]+)\/(.+)/
   );
   if (gitlabTreeWithPathMatch) {
@@ -402,7 +429,7 @@ export function parseSource(input: string): ParsedSource {
   }
 
   // GitLab URL with branch only (any GitLab instance): https://gitlab.com/owner/repo/-/tree/branch
-  const gitlabTreeMatch = input.match(/^(https?):\/\/([^/]+)\/(.+?)\/-\/tree\/([^/]+)$/);
+  const gitlabTreeMatch = repoUrlInput.match(/^(https?):\/\/([^/]+)\/(.+?)\/-\/tree\/([^/]+)$/);
   if (gitlabTreeMatch) {
     const [, protocol, hostname, repoPath, ref] = gitlabTreeMatch;
     if (hostname !== 'github.com' && repoPath) {
@@ -417,7 +444,9 @@ export function parseSource(input: string): ParsedSource {
   // GitLab.com URL: https://gitlab.com/owner/repo or https://gitlab.com/group/subgroup/repo
   // Only for the official gitlab.com domain for user convenience.
   // Supports nested subgroups (e.g., gitlab.com/group/subgroup1/subgroup2/repo).
-  const gitlabRepoMatch = input.match(/gitlab\.com\/(.+?)(?:\.git)?\/?$/);
+  const gitlabRepoMatch = repoUrlInput.match(
+    /^(?:https?:\/\/)?(?:www\.)?gitlab\.com\/(.+?)(?:\.git)?\/?$/
+  );
   if (gitlabRepoMatch) {
     const repoPath = gitlabRepoMatch[1]!;
     // Must have at least owner/repo (one slash)
