@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [75 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [76 more](#supported-agents).
 <!-- agent-list:end -->
 
 [![skills.sh](https://skills.sh/b/vercel-labs/skills)](https://skills.sh/vercel-labs/skills)
@@ -309,6 +309,7 @@ Skills can be installed to any of these agents:
 | Kilo Code | `kilo` | `.agents/skills/` | `~/.kilo/skills/` |
 | Kimchi | `kimchi` | `.kimchi/skills/` | `~/.config/kimchi/harness/skills/` |
 | Kiro CLI | `kiro-cli` | `.kiro/skills/` | `~/.kiro/skills/` |
+| Kit | `kit` | `.agents/skills/` | `~/.config/kit/skills/` |
 | Kode | `kode` | `.kode/skills/` | `~/.kode/skills/` |
 | Lingma | `lingma` | `.lingma/skills/` | `~/.lingma/skills/` |
 | MCPJam | `mcpjam` | `.mcpjam/skills/` | `~/.mcpjam/skills/` |

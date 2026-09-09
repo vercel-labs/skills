@@ -474,6 +474,23 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.kiro'));
     },
   },
+  kit: {
+    name: 'kit',
+    displayName: 'Kit',
+    // Kit reads .agents/skills and ~/.agents/skills as compatibility
+    // locations, so installing there avoids defining the same skill twice.
+    // globalSkillsDir stays on Kit's native ~/.config/kit/skills so `list`
+    // and `remove` still detect and clean up skills placed there directly.
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(configHome, 'kit/skills'),
+    detectInstalled: async () => {
+      return (
+        existsSync(join(home, '.kit')) ||
+        existsSync(join(home, '.kit.yml')) ||
+        existsSync(join(configHome, 'kit'))
+      );
+    },
+  },
   kode: {
     name: 'kode',
     displayName: 'Kode',
