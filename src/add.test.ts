@@ -320,6 +320,81 @@ description: Test
     expect(result.exitCode).toBe(1);
   });
 
+  it('should install only to universal agents with --agent none', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'skills', 'none-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: none-skill
+description: Universal-only install test
+---
+
+# None Skill
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    mkdirSync(projectDir, { recursive: true });
+
+    const result = runCli(['add', sourceDir, '-y', '--agent', 'none'], projectDir);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('universal');
+    expect(existsSync(join(projectDir, '.agents', 'skills', 'none-skill'))).toBe(true);
+    // No agent-specific directories should be created
+    expect(existsSync(join(projectDir, '.claude'))).toBe(false);
+    expect(existsSync(join(projectDir, '.codex'))).toBe(false);
+  });
+
+  it('should reject --agent none combined with other agents', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'skills', 'none-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: none-skill
+description: Universal-only install test
+---
+
+# None Skill
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    mkdirSync(projectDir, { recursive: true });
+
+    const result = runCli(['add', sourceDir, '-y', '--agent', 'none', 'claude-code'], projectDir);
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('--agent none cannot be combined');
+    expect(existsSync(join(projectDir, '.agents', 'skills', 'none-skill'))).toBe(false);
+  });
+
+  it("should reject --agent none combined with the '*' wildcard", () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'skills', 'none-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: none-skill
+description: Universal-only install test
+---
+
+# None Skill
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    mkdirSync(projectDir, { recursive: true });
+
+    const result = runCli(['add', sourceDir, '-y', '--agent', 'none', '*'], projectDir);
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('--agent none cannot be combined');
+    expect(existsSync(join(projectDir, '.agents', 'skills', 'none-skill'))).toBe(false);
+  });
+
   it('should support add command aliases (a, i, install)', () => {
     // Test that aliases work (just check they show missing source error)
     const resultA = runCli(['a'], testDir);

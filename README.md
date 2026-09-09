@@ -96,6 +96,9 @@ npx skills add owner/repo --skill "Convex Best Practices"
 # Install to specific agents
 npx skills add vercel-labs/agent-skills -a claude-code -a opencode
 
+# Install only to the universal .agents/skills directory (no agent-specific directories)
+npx skills add vercel-labs/agent-skills -a none
+
 # Non-interactive installation (CI/CD friendly)
 npx skills add vercel-labs/agent-skills --skill frontend-design -g -a claude-code -y
 
