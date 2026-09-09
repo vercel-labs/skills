@@ -4,7 +4,10 @@ import * as localLock from '../src/local-lock.ts';
 import * as add from '../src/add.ts';
 
 vi.mock('../src/local-lock.ts');
-vi.mock('../src/add.ts');
+vi.mock('../src/add.ts', async () => {
+  const actual = await vi.importActual<typeof import('../src/add.ts')>('../src/add.ts');
+  return { ...actual, runAdd: vi.fn() };
+});
 vi.mock('../src/sync.ts', () => ({
   runSync: vi.fn(),
   parseSyncOptions: vi.fn().mockReturnValue({ options: {} }),

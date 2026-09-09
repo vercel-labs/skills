@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'fs';
+import { existsSync, lstatSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from '../src/test-utils.ts';
@@ -120,6 +120,48 @@ Instructions.
       expect(lock.skills['lock-test-skill'].source).toBe('my-pkg');
       expect(lock.skills['lock-test-skill'].sourceType).toBe('node_modules');
       expect(lock.skills['lock-test-skill'].computedHash).toMatch(/^[a-f0-9]{64}$/);
+    });
+
+    it('should restore node_modules skills to selected agents using copy mode', () => {
+      const pkgDir = join(testDir, 'node_modules', 'restore-pkg');
+      mkdirSync(pkgDir, { recursive: true });
+      writeFileSync(
+        join(pkgDir, 'SKILL.md'),
+        `---
+name: restored-node-skill
+description: Restored node_modules skill
+---
+
+# Restored Node Skill
+`
+      );
+      writeFileSync(
+        join(testDir, 'skills-lock.json'),
+        JSON.stringify({
+          version: 1,
+          skills: {
+            'restored-node-skill': {
+              source: 'restore-pkg',
+              sourceType: 'node_modules',
+              computedHash: 'stale',
+            },
+          },
+        })
+      );
+
+      const result = runCli(
+        ['experimental_install', '--agent', 'claude-code', 'openclaw', '--copy'],
+        testDir
+      );
+
+      expect(result.exitCode).toBe(0);
+      for (const agentDir of [
+        join(testDir, '.claude', 'skills', 'restored-node-skill'),
+        join(testDir, 'skills', 'restored-node-skill'),
+      ]) {
+        expect(existsSync(join(agentDir, 'SKILL.md'))).toBe(true);
+        expect(lstatSync(agentDir).isSymbolicLink()).toBe(false);
+      }
     });
 
     it('should not have timestamps in lock entries', () => {

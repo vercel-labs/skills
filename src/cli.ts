@@ -132,6 +132,10 @@ ${BOLD}Project:${RESET}
   init [name]          Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)
   experimental_sync    Sync skills from node_modules into agent directories
 
+${BOLD}Experimental Install Options:${RESET}
+  -a, --agent <agents>   Specify agents to install to (use '*' for all agents)
+  --copy                 Copy files instead of symlinking to agent directories
+
 ${BOLD}Add Options:${RESET}
   -g, --global           Install skill globally (user-level) instead of project-level
   -a, --agent <agents>   Specify agents to install to (use '*' for all agents)

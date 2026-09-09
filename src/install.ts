@@ -1,7 +1,7 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { readLocalLock } from './local-lock.ts';
-import { runAdd } from './add.ts';
+import { parseAddOptions, runAdd } from './add.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { getUniversalAgents } from './agents.ts';
 import { buildLocalUpdateSource } from './update-source.ts';
@@ -10,12 +10,13 @@ import { buildLocalUpdateSource } from './update-source.ts';
  * Install all skills from the local skills-lock.json.
  * Groups skills by source and calls `runAdd` for each group.
  *
- * Only installs to .agents/skills/ (universal agents) -- the canonical
- * project-level location. Does not install to agent-specific directories.
+ * Defaults to .agents/skills/ (universal agents), unless --agent is provided.
+ * Supports the same --agent and --copy options as skills add.
  *
  * node_modules skills are handled via experimental_sync.
  */
 export async function runInstallFromLock(args: string[]): Promise<void> {
+  const { options } = parseAddOptions(args);
   const cwd = process.cwd();
   const lock = await readLocalLock(cwd);
   const skillEntries = Object.entries(lock.skills);
@@ -28,8 +29,8 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
     return;
   }
 
-  // Only install to .agents/skills/ (universal agents)
-  const universalAgentNames = getUniversalAgents();
+  // Default to universal agents, matching the previous restore behavior.
+  const targetAgents = options.agent ?? getUniversalAgents();
 
   // Separate node_modules skills from remote skills
   const nodeModuleSkills: string[] = [];
@@ -71,7 +72,8 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
     try {
       await runAdd([source], {
         skill: skills,
-        agent: universalAgentNames,
+        agent: targetAgents,
+        copy: options.copy,
         yes: true,
       });
     } catch (error) {
@@ -88,7 +90,12 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
     );
     try {
       const { options: syncOptions } = parseSyncOptions(args);
-      await runSync(args, { ...syncOptions, yes: true, agent: universalAgentNames });
+      await runSync(args, {
+        ...syncOptions,
+        yes: true,
+        agent: targetAgents,
+        copy: options.copy,
+      });
     } catch (error) {
       p.log.error(
         `Failed to sync node_modules skills: ${error instanceof Error ? error.message : 'Unknown error'}`
