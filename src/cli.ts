@@ -164,6 +164,11 @@ ${BOLD}List Options:${RESET}
   -g, --global           List global skills (default: project)
   -a, --agent <agents>   Filter by specific agents
   --json                 Output as JSON (machine-readable, no ANSI codes)
+  --export               Output one install command per line, ready to run on
+                         another machine to replicate these skills (e.g. save to
+                         a file and run it with sh). Skills installed from local
+                         paths or node_modules cannot be exported this way and
+                         are listed as skipped on stderr.
 
 ${BOLD}Options:${RESET}
   --help, -h        Show this help message
@@ -183,6 +188,7 @@ ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills ls -g                         ${DIM}# list global skills${RESET}
   ${DIM}$${RESET} skills ls -a claude-code             ${DIM}# filter by agent${RESET}
   ${DIM}$${RESET} skills ls --json                      ${DIM}# JSON output${RESET}
+  ${DIM}$${RESET} skills ls -g --export > skills.sh    ${DIM}# install commands to replicate global skills${RESET}
   ${DIM}$${RESET} skills find                          ${DIM}# interactive search${RESET}
   ${DIM}$${RESET} skills find typescript               ${DIM}# search by keyword${RESET}
   ${DIM}$${RESET} skills find react --owner vercel     ${DIM}# search within an owner${RESET}
