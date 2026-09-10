@@ -576,6 +576,21 @@ function isSkillsShPackUrl(url: string): boolean {
   }
 }
 
+/**
+ * Announce skills that were selected without a prompt. Naming the single skill
+ * reads better than counting it — and a count of one ("Installing all 1
+ * skills") is just wrong.
+ */
+function logAutoSelectedSkills(entries: Array<{ label: string; description?: string }>): void {
+  const only = entries.length === 1 ? entries[0]! : null;
+  if (!only) {
+    p.log.info(`Installing all ${entries.length} skills`);
+    return;
+  }
+  p.log.info(`Skill: ${pc.cyan(only.label)}`);
+  if (only.description) p.log.message(pc.dim(only.description));
+}
+
 async function handleWellKnownSkills(
   source: string,
   url: string,
@@ -620,11 +635,15 @@ async function handleWellKnownSkills(
 
   // Filter skills if --skill option is provided
   let selectedSkills: WellKnownSkill[];
+  const logWellKnown = (chosen: WellKnownSkill[]): void =>
+    logAutoSelectedSkills(
+      chosen.map((s) => ({ label: s.installName, description: s.description }))
+    );
 
   if (options.skill?.includes('*')) {
     // --skill '*' selects all skills
     selectedSkills = skills;
-    p.log.info(`Installing all ${skills.length} skills`);
+    logWellKnown(selectedSkills);
   } else if (options.skill && options.skill.length > 0) {
     selectedSkills = skills.filter((s) =>
       options.skill!.some(
@@ -642,13 +661,9 @@ async function handleWellKnownSkills(
       }
       process.exit(1);
     }
-  } else if (skills.length === 1) {
+  } else if (skills.length === 1 || options.yes) {
     selectedSkills = skills;
-    const firstSkill = skills[0]!;
-    p.log.info(`Skill: ${pc.cyan(firstSkill.installName)}`);
-  } else if (options.yes) {
-    selectedSkills = skills;
-    p.log.info(`Installing all ${skills.length} skills`);
+    logWellKnown(selectedSkills);
   } else {
     // Prompt user to select skills
     const skillChoices = skills.map((s) => ({
@@ -1323,11 +1338,15 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     let selectedSkills: Skill[];
+    const logChosen = (chosen: Skill[]): void =>
+      logAutoSelectedSkills(
+        chosen.map((s) => ({ label: getSkillDisplayName(s), description: s.description }))
+      );
 
     if (options.skill?.includes('*')) {
       // --skill '*' selects all skills
       selectedSkills = skills;
-      p.log.info(`Installing all ${skills.length} skills`);
+      logChosen(selectedSkills);
     } else if (options.skill && options.skill.length > 0) {
       selectedSkills = filterSkills(skills, options.skill);
 
@@ -1344,14 +1363,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       p.log.info(
         `Selected ${selectedSkills.length} skill${selectedSkills.length !== 1 ? 's' : ''}: ${selectedSkills.map((s) => pc.cyan(getSkillDisplayName(s))).join(', ')}`
       );
-    } else if (skills.length === 1) {
+    } else if (skills.length === 1 || options.yes) {
       selectedSkills = skills;
-      const firstSkill = skills[0]!;
-      p.log.info(`Skill: ${pc.cyan(getSkillDisplayName(firstSkill))}`);
-      p.log.message(pc.dim(firstSkill.description));
-    } else if (options.yes) {
-      selectedSkills = skills;
-      p.log.info(`Installing all ${skills.length} skills`);
+      logChosen(selectedSkills);
     } else {
       // Sort skills by plugin name first, then by skill name
       const sortedSkills = [...skills].sort((a, b) => {
