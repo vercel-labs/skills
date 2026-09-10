@@ -1,0 +1,7 @@
+{
+  "name": "钉钉日历",
+  "description": "钉钉日历管理。支持创建、查询、更新、删除日程。",
+  "repository": "https://github.com/xmicheal1979/dingtalk-calendar-skill",
+  "作者"：“xmicheal1979”,
+  "标签": ["钉钉", "日历", "排班"]
+}

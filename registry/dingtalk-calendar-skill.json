@@ -1,0 +1,7 @@
+{
+  "name": "dingtalk-calendar-skill",
+  "description": "钉钉日历管理。当用户提到钉钉日程、钉钉日历、创建日程、添加会议、查看日程、删除日程时使用此技能。支持创建日程（含标题/时间/地点/参与者）、查询日程列表、获取详情、更新日程、删除日程等全部日历类操作。",
+  "repository": "https://github.com/xmicheal1979/dingtalk-calendar-skill",
+  "author": "xmicheal1979",
+  "tags": ["dingtalk", "calendar", "schedule", "钉钉", "日历"]
+}
