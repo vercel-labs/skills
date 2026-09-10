@@ -269,6 +269,35 @@ export async function fetchNotionPackDirectory(
   return directory;
 }
 
+/**
+ * Best-effort label for the workspace `ntn` is authenticated against. A machine
+ * can hold credentials for several workspaces (and `--env` switches between
+ * whole environments), so installing from the wrong one is an easy mistake to
+ * make and a hard one to notice. Every Notion install reports which workspace
+ * it used.
+ *
+ * Never fatal: a failed lookup just omits the label rather than blocking an
+ * install that would otherwise succeed.
+ */
+export async function fetchNotionWorkspaceName(
+  options: FetchNotionPacksOptions = {}
+): Promise<string | null> {
+  const runNtn = options.runNtn ?? runNtnApi;
+  try {
+    const args = ['api', '/v1/users/me', '--notion-version', NOTION_API_VERSION];
+    const value = JSON.parse(await runNtn(args)) as unknown;
+    if (!isRecord(value) || !isRecord(value.bot)) return null;
+    const name = value.bot.workspace_name;
+    return typeof name === 'string' && name.length > 0 ? sanitizeMetadata(name) : null;
+  } catch {
+    return null;
+  }
+}
+
+function inWorkspace(workspace: string | null): string {
+  return workspace ? ` in ${pc.cyan(workspace)}` : '';
+}
+
 export function isNotionSource(source: string): boolean {
   return source.toLowerCase() === 'notion';
 }
@@ -348,9 +377,14 @@ export async function prepareNotionSkillSource(
   spinner.start('Fetching Notion skill with ntn…');
 
   try {
-    const directory = await fetchNotionSkillDirectory(pageId, { runNtn: options.runNtn });
+    // The workspace lookup is independent of the skill lookup, so it rides
+    // along for free rather than adding a round trip.
+    const [directory, workspace] = await Promise.all([
+      fetchNotionSkillDirectory(pageId, { runNtn: options.runNtn }),
+      fetchNotionWorkspaceName({ runNtn: options.runNtn }),
+    ]);
     const downloaded = await download(directory.url);
-    spinner.stop(`Downloaded Notion skill ${pc.dim(pageId)}`);
+    spinner.stop(`Downloaded Notion skill ${pc.dim(pageId)}${inWorkspace(workspace)}`);
     return { rootDir: downloaded.rootDir, tempDir: downloaded.tempDir };
   } catch (error) {
     spinner.stop(pc.red('Failed to prepare Notion skill'));
@@ -393,14 +427,20 @@ export async function prepareNotionPackSource(
   spinner.start('Fetching Notion packs with ntn…');
 
   let packs: NotionPack[];
+  let workspace: string | null = null;
   try {
-    packs = await fetchNotionPacks({ runNtn: options.runNtn });
+    [packs, workspace] = await Promise.all([
+      fetchNotionPacks({ runNtn: options.runNtn }),
+      fetchNotionWorkspaceName({ runNtn: options.runNtn }),
+    ]);
   } catch (error) {
     spinner.stop(pc.red('Failed to load Notion packs'));
     throw error;
   }
 
-  spinner.stop(`Found ${pc.green(packs.length)} Notion pack${packs.length === 1 ? '' : 's'}`);
+  spinner.stop(
+    `Found ${pc.green(packs.length)} Notion pack${packs.length === 1 ? '' : 's'}${inWorkspace(workspace)}`
+  );
   if (packs.length === 0) {
     throw new Error('Notion returned no packs for the authenticated workspace');
   }

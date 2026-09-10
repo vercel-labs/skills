@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   fetchNotionPackDirectory,
   fetchNotionPacks,
+  fetchNotionWorkspaceName,
   isNotionSource,
   parseNotionSkillUrl,
   prepareNotionPackSource,
@@ -33,6 +34,10 @@ function listResponse(
     has_more: options.hasMore ?? false,
     type: 'plugin',
   });
+}
+
+function meResponse(workspaceName: unknown): string {
+  return JSON.stringify({ object: 'user', type: 'bot', bot: { workspace_name: workspaceName } });
 }
 
 describe('Notion pack prototype', () => {
@@ -155,6 +160,7 @@ describe('Notion pack prototype', () => {
     );
 
     const runNtn = vi.fn<NtnRunner>(async (args) => {
+      if (args[1] === '/v1/users/me') return meResponse('Acme HQ');
       if (args[1] === '/v1/ai/plugins') return listResponse([pack]);
       return JSON.stringify({
         id: pack.id,
@@ -180,7 +186,8 @@ describe('Notion pack prototype', () => {
       stagedSkills.map((skill) => ({ name: skill.name, pluginName: skill.pluginName }))
     ).toEqual([{ name: 'write-update', pluginName: 'Company-wide' }]);
     expect(prepared).toMatchObject({ packCount: 1, skillCount: 1 });
-    expect(runNtn).toHaveBeenCalledTimes(2);
+    // list + workspace probe (in parallel), then the per-pack directory lookup
+    expect(runNtn).toHaveBeenCalledTimes(3);
   });
 
   it('rejects invalid repeated pagination cursors', async () => {
@@ -258,12 +265,14 @@ describe('Notion single skill', () => {
       '---\nname: capture-meeting-decisions\ndescription: Capture decisions from meeting notes\n---\n'
     );
 
-    const runNtn = vi.fn<NtnRunner>(async () =>
-      JSON.stringify({
-        id: pageId,
-        version_id: 'c'.repeat(64),
-        url: 'https://downloads.example/capture-meeting-decisions.tgz',
-      })
+    const runNtn = vi.fn<NtnRunner>(async (args) =>
+      args[1] === '/v1/users/me'
+        ? meResponse('Acme HQ')
+        : JSON.stringify({
+            id: pageId,
+            version_id: 'c'.repeat(64),
+            url: 'https://downloads.example/capture-meeting-decisions.tgz',
+          })
     );
     const download = vi.fn(async () => ({
       rootDir: downloadRoot,
@@ -295,5 +304,57 @@ describe('Notion single skill', () => {
     ).rejects.toThrow(
       'ntn returned invalid JSON for Notion skill c169bd0a-546a-45d4-8344-ffacad25d763'
     );
+  });
+});
+
+describe('Notion workspace reporting', () => {
+  it('reads the workspace name from the authenticated ntn session', async () => {
+    const runNtn = vi.fn<NtnRunner>(async () => meResponse('Notion Developers'));
+
+    await expect(fetchNotionWorkspaceName({ runNtn })).resolves.toBe('Notion Developers');
+    expect(runNtn).toHaveBeenCalledWith(['api', '/v1/users/me', '--notion-version', '2026-03-11']);
+  });
+
+  it.each([
+    ['invalid JSON', async () => 'not json'],
+    ['a missing bot field', async () => JSON.stringify({ object: 'user' })],
+    ['a non-string workspace name', async () => meResponse(42)],
+    [
+      'an ntn failure',
+      async () => {
+        throw new Error('ntn api failed');
+      },
+    ],
+  ])('returns null rather than throwing on %s', async (_label, impl) => {
+    await expect(fetchNotionWorkspaceName({ runNtn: vi.fn<NtnRunner>(impl) })).resolves.toBeNull();
+  });
+
+  it('still installs a skill when the workspace lookup fails', async () => {
+    const pageId = 'c169bd0a-546a-45d4-8344-ffacad25d763';
+    const downloadTemp = mkdtempSync(join(tmpdir(), 'notion-skill-noworkspace-'));
+    cleanupDirs.push(downloadTemp);
+    const downloadRoot = join(downloadTemp, 'capture-meeting-decisions');
+    mkdirSync(downloadRoot, { recursive: true });
+    writeFileSync(join(downloadRoot, 'SKILL.md'), '---\nname: x\ndescription: y\n---\n');
+
+    const runNtn = vi.fn<NtnRunner>(async (args) => {
+      if (args[1] === '/v1/users/me') throw new Error('workspace probe exploded');
+      return JSON.stringify({
+        id: pageId,
+        version_id: 'c'.repeat(64),
+        url: 'https://downloads.example/x.tgz',
+      });
+    });
+
+    await expect(
+      prepareNotionSkillSource(pageId, {
+        runNtn,
+        download: vi.fn(async () => ({
+          rootDir: downloadRoot,
+          tempDir: downloadTemp,
+          kind: 'archive' as const,
+        })),
+      })
+    ).resolves.toEqual({ rootDir: downloadRoot, tempDir: downloadTemp });
   });
 });
