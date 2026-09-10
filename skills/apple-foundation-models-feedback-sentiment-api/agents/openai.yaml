@@ -1,0 +1,3 @@
+name: apple-foundation-models-feedback-sentiment-api
+description: Collect per-response feedback using the LanguageModelFeedback sentiment API
+tools: []

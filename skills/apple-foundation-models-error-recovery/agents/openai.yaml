@@ -1,0 +1,3 @@
+name: apple-foundation-models-error-recovery
+description: Handle Foundation Models errors including context overflow, refusals, and rate limits
+tools: []
