@@ -52,12 +52,20 @@ interface SyncTelemetryData {
   agents: string;
 }
 
+interface ConsolidateTelemetryData {
+  event: 'consolidate';
+  skillsMoved: string;
+  skillsLinked: string;
+  skillsForked: string;
+}
+
 type TelemetryData =
   | InstallTelemetryData
   | RemoveTelemetryData
   | UpdateTelemetryData
   | FindTelemetryData
-  | SyncTelemetryData;
+  | SyncTelemetryData
+  | ConsolidateTelemetryData;
 
 let cliVersion: string | null = null;
 let detectedAgentName: string | null = null;
