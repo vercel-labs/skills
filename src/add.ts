@@ -58,7 +58,12 @@ import {
   type BlobInstallResult,
 } from './blob.ts';
 import packageJson from '../package.json' with { type: 'json' };
-import { isNotionSource, prepareNotionPackSource } from './notion-test.ts';
+import {
+  isNotionSource,
+  parseNotionSkillUrl,
+  prepareNotionPackSource,
+  prepareNotionSkillSource,
+} from './notion-test.ts';
 
 // Helper to check if a value is a cancel symbol (works with both clack and our custom prompts)
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
@@ -1104,6 +1109,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
   try {
     let effectiveSource = source;
     let notionPackCount: number | null = null;
+    const notionSkillPageId = isNotionSource(source) ? null : parseNotionSkillUrl(source);
     if (isNotionSource(source)) {
       const prepared = await prepareNotionPackSource(options);
       if (!prepared) return;
@@ -1114,17 +1120,27 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       // Pack selection replaces the ordinary per-skill selector. Every skill
       // inside the selected packs continues through the normal install flow.
       options.skill = ['*'];
+    } else if (notionSkillPageId) {
+      const prepared = await prepareNotionSkillSource(notionSkillPageId);
+
+      effectiveSource = prepared.rootDir;
+      tempDir = prepared.tempDir;
+      // The page URL already named the skill, so skip the per-skill selector.
+      options.skill = ['*'];
     }
 
     const spinner = p.spinner();
 
     spinner.start('Parsing source…');
     const parsed = parseSource(effectiveSource);
-    let directDownload = parsed.type === 'download' || notionPackCount !== null;
+    let directDownload =
+      parsed.type === 'download' || notionPackCount !== null || notionSkillPageId !== null;
     spinner.stop(
       notionPackCount !== null
         ? `Source: ${notionPackCount} selected Notion pack${notionPackCount === 1 ? '' : 's'}`
-        : `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
+        : notionSkillPageId
+          ? `Source: Notion skill ${pc.cyan(notionSkillPageId)}`
+          : `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
     );
 
     // Kick off the repo privacy check early so it runs in parallel with

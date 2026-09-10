@@ -6,7 +6,9 @@ import {
   fetchNotionPackDirectory,
   fetchNotionPacks,
   isNotionSource,
+  parseNotionSkillUrl,
   prepareNotionPackSource,
+  prepareNotionSkillSource,
   type NotionPack,
   type NtnRunner,
 } from './notion-test.ts';
@@ -213,5 +215,85 @@ describe('Notion pack prototype', () => {
     'owner/notion',
   ])('does not treat %s as a Notion source', (source) => {
     expect(isNotionSource(source)).toBe(false);
+  });
+});
+
+describe('Notion single skill', () => {
+  it.each([
+    [
+      'https://app.notion.com/p/notiondevs/Capture-meeting-decisions-c169bd0a546a45d48344ffacad25d763?source=copy_link',
+      'c169bd0a-546a-45d4-8344-ffacad25d763',
+    ],
+    [
+      'https://www.notion.so/Capture-meeting-decisions-c169bd0a546a45d48344ffacad25d763',
+      'c169bd0a-546a-45d4-8344-ffacad25d763',
+    ],
+    [
+      'https://notion.so/acme/c169bd0a-546a-45d4-8344-ffacad25d763',
+      'c169bd0a-546a-45d4-8344-ffacad25d763',
+    ],
+  ])('extracts the page ID from %s', (source, expected) => {
+    expect(parseNotionSkillUrl(source)).toBe(expected);
+  });
+
+  it.each([
+    'notion',
+    'vercel-labs/agent-skills',
+    'https://github.com/vercel-labs/agent-skills',
+    'https://notion.so/acme',
+    'https://notion.example.com/p/c169bd0a546a45d48344ffacad25d763',
+    './local-skill',
+  ])('does not treat %s as a Notion skill URL', (source) => {
+    expect(parseNotionSkillUrl(source)).toBeNull();
+  });
+
+  it('downloads the skill directory for a page ID as a local install source', async () => {
+    const pageId = 'c169bd0a-546a-45d4-8344-ffacad25d763';
+    const downloadTemp = mkdtempSync(join(tmpdir(), 'notion-skill-download-test-'));
+    cleanupDirs.push(downloadTemp);
+    const downloadRoot = join(downloadTemp, 'capture-meeting-decisions');
+    mkdirSync(downloadRoot, { recursive: true });
+    writeFileSync(
+      join(downloadRoot, 'SKILL.md'),
+      '---\nname: capture-meeting-decisions\ndescription: Capture decisions from meeting notes\n---\n'
+    );
+
+    const runNtn = vi.fn<NtnRunner>(async () =>
+      JSON.stringify({
+        id: pageId,
+        version_id: 'c'.repeat(64),
+        url: 'https://downloads.example/capture-meeting-decisions.tgz',
+      })
+    );
+    const download = vi.fn(async () => ({
+      rootDir: downloadRoot,
+      tempDir: downloadTemp,
+      kind: 'archive' as const,
+    }));
+
+    const prepared = await prepareNotionSkillSource(pageId, { runNtn, download });
+
+    expect(prepared).toEqual({ rootDir: downloadRoot, tempDir: downloadTemp });
+    expect(runNtn).toHaveBeenCalledWith([
+      'api',
+      `/v1/ai/skills/${pageId}`,
+      '--notion-version',
+      '2026-03-11',
+    ]);
+    expect(download).toHaveBeenCalledWith(
+      'https://downloads.example/capture-meeting-decisions.tgz'
+    );
+    const skills = await discoverSkills(prepared.rootDir);
+    expect(skills.map((skill) => skill.name)).toEqual(['capture-meeting-decisions']);
+  });
+
+  it('reports invalid JSON returned by ntn for a skill', async () => {
+    const runNtn = vi.fn<NtnRunner>(async () => 'not json');
+
+    await expect(
+      prepareNotionSkillSource('c169bd0a-546a-45d4-8344-ffacad25d763', { runNtn })
+    ).rejects.toThrow(
+      'ntn returned invalid JSON for Notion skill c169bd0a-546a-45d4-8344-ffacad25d763'
+    );
   });
 });

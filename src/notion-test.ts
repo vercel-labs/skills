@@ -31,7 +31,7 @@ interface NotionPackListResponse {
   has_more: boolean;
 }
 
-interface NotionPackDirectory {
+interface NotionDirectory {
   id: string;
   version_id: string;
   url: string;
@@ -42,6 +42,11 @@ export interface PreparedNotionPackSource {
   tempDir: string;
   packCount: number;
   skillCount: number;
+}
+
+export interface PreparedNotionSkillSource {
+  rootDir: string;
+  tempDir: string;
 }
 
 export interface NotionPackSelectorOptions {
@@ -60,6 +65,11 @@ interface PrepareNotionPackSourceOptions extends NotionPackSelectorOptions {
   runNtn?: NtnRunner;
   download?: (url: string) => Promise<DownloadedSource>;
   discover?: typeof discoverSkills;
+}
+
+interface PrepareNotionSkillSourceOptions {
+  runNtn?: NtnRunner;
+  download?: (url: string) => Promise<DownloadedSource>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -114,16 +124,24 @@ function parsePackList(value: unknown): NotionPackListResponse {
   };
 }
 
-function parsePackDirectory(value: unknown): NotionPackDirectory {
+function parseDirectory(value: unknown, label: string): NotionDirectory {
   if (!isRecord(value)) {
-    throw new Error('Notion Agent Plugins directory response is invalid');
+    throw new Error(`Notion ${label} directory response is invalid`);
   }
 
   return {
-    id: assertString(value.id, 'pack directory id'),
-    version_id: assertString(value.version_id, 'pack directory version_id'),
-    url: assertString(value.url, 'pack directory url'),
+    id: assertString(value.id, `${label} directory id`),
+    version_id: assertString(value.version_id, `${label} directory version_id`),
+    url: assertString(value.url, `${label} directory url`),
   };
+}
+
+function downloadNotionDirectory(url: string): Promise<DownloadedSource> {
+  return downloadSource(url, {
+    downloadMaxBytes: NOTION_DOWNLOAD_MAX_BYTES,
+    extractMaxBytes: NOTION_EXTRACT_MAX_BYTES,
+    extractMaxFiles: NOTION_EXTRACT_MAX_FILES,
+  });
 }
 
 function debugNtn(args: string[]): void {
@@ -227,7 +245,7 @@ export async function fetchNotionPacks(
 export async function fetchNotionPackDirectory(
   pack: NotionPack,
   options: FetchNotionPacksOptions = {}
-): Promise<NotionPackDirectory> {
+): Promise<NotionDirectory> {
   const runNtn = options.runNtn ?? runNtnApi;
   const path = `/v1/ai/plugins/${encodeURIComponent(pack.id)}`;
   const args = ['api', path, '--notion-version', NOTION_API_VERSION];
@@ -242,7 +260,7 @@ export async function fetchNotionPackDirectory(
     throw error;
   }
 
-  const directory = parsePackDirectory(value);
+  const directory = parseDirectory(value, 'pack');
   if (directory.id !== pack.id || directory.version_id !== pack.version_id) {
     throw new Error(
       `Notion pack ${JSON.stringify(pack.name)} changed while preparing installation`
@@ -253,6 +271,91 @@ export async function fetchNotionPackDirectory(
 
 export function isNotionSource(source: string): boolean {
   return source.toLowerCase() === 'notion';
+}
+
+const NOTION_HOSTNAME = /(^|\.)notion\.(so|com)$/;
+const NOTION_PAGE_ID =
+  /(?:^|-)([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+
+function formatPageId(rawId: string): string {
+  const hex = rawId.replace(/-/g, '');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/**
+ * Recognize a Notion page URL and return its page ID, e.g.
+ * https://app.notion.com/p/team/Capture-meeting-decisions-c169bd0a…  ->  c169bd0a-…
+ * Returns null for anything that is not a Notion page URL so the caller can
+ * fall through to the ordinary git/download source handling.
+ */
+export function parseNotionSkillUrl(source: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(source);
+  } catch {
+    return null;
+  }
+
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+  if (!NOTION_HOSTNAME.test(url.hostname.toLowerCase())) return null;
+
+  const lastSegment = url.pathname.split('/').filter(Boolean).pop();
+  if (!lastSegment) return null;
+
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(lastSegment);
+  } catch {
+    decoded = lastSegment;
+  }
+
+  const match = decoded.toLowerCase().match(NOTION_PAGE_ID);
+  return match ? formatPageId(match[1]!) : null;
+}
+
+export async function fetchNotionSkillDirectory(
+  pageId: string,
+  options: FetchNotionPacksOptions = {}
+): Promise<NotionDirectory> {
+  const runNtn = options.runNtn ?? runNtnApi;
+  const path = `/v1/ai/skills/${encodeURIComponent(pageId)}`;
+  const args = ['api', path, '--notion-version', NOTION_API_VERSION];
+
+  let value: unknown;
+  try {
+    value = JSON.parse(await runNtn(args)) as unknown;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(`ntn returned invalid JSON for Notion skill ${pageId}`);
+    }
+    throw error;
+  }
+
+  return parseDirectory(value, 'skill');
+}
+
+/**
+ * Download a single Notion skill directory. The archive holds one top-level
+ * directory with SKILL.md, so the extracted root is handed to the normal
+ * install flow as a local source.
+ */
+export async function prepareNotionSkillSource(
+  pageId: string,
+  options: PrepareNotionSkillSourceOptions = {}
+): Promise<PreparedNotionSkillSource> {
+  const download = options.download ?? downloadNotionDirectory;
+  const spinner = p.spinner();
+  spinner.start('Fetching Notion skill with ntn…');
+
+  try {
+    const directory = await fetchNotionSkillDirectory(pageId, { runNtn: options.runNtn });
+    const downloaded = await download(directory.url);
+    spinner.stop(`Downloaded Notion skill ${pc.dim(pageId)}`);
+    return { rootDir: downloaded.rootDir, tempDir: downloaded.tempDir };
+  } catch (error) {
+    spinner.stop(pc.red('Failed to prepare Notion skill'));
+    throw error;
+  }
 }
 
 function normalizeSelector(value: string): string {
@@ -346,14 +449,7 @@ export async function prepareNotionPackSource(
   const stagingDir = await mkdtemp(join(tmpdir(), 'skills-notion-'));
   const packsDir = join(stagingDir, 'packs');
   const manifestPlugins: Array<{ name: string; source: string; skills: string[] }> = [];
-  const download =
-    options.download ??
-    ((url: string) =>
-      downloadSource(url, {
-        downloadMaxBytes: NOTION_DOWNLOAD_MAX_BYTES,
-        extractMaxBytes: NOTION_EXTRACT_MAX_BYTES,
-        extractMaxFiles: NOTION_EXTRACT_MAX_FILES,
-      }));
+  const download = options.download ?? downloadNotionDirectory;
   const discover = options.discover ?? discoverSkills;
   let skillCount = 0;
 
