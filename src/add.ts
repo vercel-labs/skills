@@ -1124,7 +1124,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
   try {
     let effectiveSource = source;
     let notionPackCount: number | null = null;
-    const notionSkillPageId = isNotionSource(source) ? null : parseNotionSkillUrl(source);
+    const notionSkill = isNotionSource(source) ? null : parseNotionSkillUrl(source);
     if (isNotionSource(source)) {
       const prepared = await prepareNotionPackSource(options);
       if (!prepared) return;
@@ -1135,8 +1135,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       // Pack selection replaces the ordinary per-skill selector. Every skill
       // inside the selected packs continues through the normal install flow.
       options.skill = ['*'];
-    } else if (notionSkillPageId) {
-      const prepared = await prepareNotionSkillSource(notionSkillPageId);
+    } else if (notionSkill) {
+      const prepared = await prepareNotionSkillSource(notionSkill.id);
 
       effectiveSource = prepared.rootDir;
       tempDir = prepared.tempDir;
@@ -1149,12 +1149,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     spinner.start('Parsing source…');
     const parsed = parseSource(effectiveSource);
     let directDownload =
-      parsed.type === 'download' || notionPackCount !== null || notionSkillPageId !== null;
+      parsed.type === 'download' || notionPackCount !== null || notionSkill !== null;
     spinner.stop(
       notionPackCount !== null
         ? `Source: ${notionPackCount} selected Notion pack${notionPackCount === 1 ? '' : 's'}`
-        : notionSkillPageId
-          ? `Source: Notion skill ${pc.cyan(notionSkillPageId)}`
+        : notionSkill
+          ? `Source: Notion page ${pc.cyan(notionSkill.title ?? notionSkill.id)}`
           : `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
     );
 

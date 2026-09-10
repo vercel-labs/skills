@@ -295,7 +295,7 @@ export async function fetchNotionWorkspaceName(
 }
 
 function inWorkspace(workspace: string | null): string {
-  return workspace ? ` in ${pc.cyan(workspace)}` : '';
+  return workspace ? ` workspace ${pc.cyan(workspace)}` : '';
 }
 
 export function isNotionSource(source: string): boolean {
@@ -311,13 +311,23 @@ function formatPageId(rawId: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+export interface NotionSkillRef {
+  id: string;
+  /** Page title recovered from the URL slug, for display. Null when the URL
+   *  carries only a bare ID. Approximate by nature — the slug has already lost
+   *  the original punctuation and casing of words after the first. */
+  title: string | null;
+}
+
 /**
- * Recognize a Notion page URL and return its page ID, e.g.
- * https://app.notion.com/p/team/Capture-meeting-decisions-c169bd0a…  ->  c169bd0a-…
+ * Recognize a Notion page URL and pull out the page ID plus, when the URL
+ * carries one, the human-readable slug:
+ * https://app.notion.com/p/team/Capture-meeting-decisions-c169bd0a…
+ *   -> { id: 'c169bd0a-…', title: 'Capture meeting decisions' }
  * Returns null for anything that is not a Notion page URL so the caller can
  * fall through to the ordinary git/download source handling.
  */
-export function parseNotionSkillUrl(source: string): string | null {
+export function parseNotionSkillUrl(source: string): NotionSkillRef | null {
   let url: URL;
   try {
     url = new URL(source);
@@ -339,7 +349,11 @@ export function parseNotionSkillUrl(source: string): string | null {
   }
 
   const match = decoded.toLowerCase().match(NOTION_PAGE_ID);
-  return match ? formatPageId(match[1]!) : null;
+  if (!match) return null;
+
+  const slug = decoded.slice(0, decoded.length - match[0]!.length);
+  const title = sanitizeMetadata(slug.replace(/[-_]+/g, ' ').trim());
+  return { id: formatPageId(match[1]!), title: title || null };
 }
 
 export async function fetchNotionSkillDirectory(
@@ -384,7 +398,7 @@ export async function prepareNotionSkillSource(
       fetchNotionWorkspaceName({ runNtn: options.runNtn }),
     ]);
     const downloaded = await download(directory.url);
-    spinner.stop(`Downloaded Notion skill ${pc.dim(pageId)}${inWorkspace(workspace)}`);
+    spinner.stop(`Downloaded skill from Notion${inWorkspace(workspace)}`);
     return { rootDir: downloaded.rootDir, tempDir: downloaded.tempDir };
   } catch (error) {
     spinner.stop(pc.red('Failed to prepare Notion skill'));
@@ -439,7 +453,7 @@ export async function prepareNotionPackSource(
   }
 
   spinner.stop(
-    `Found ${pc.green(packs.length)} Notion pack${packs.length === 1 ? '' : 's'}${inWorkspace(workspace)}`
+    `Found ${pc.green(packs.length)} Notion pack${packs.length === 1 ? '' : 's'} in${inWorkspace(workspace)}`
   );
   if (packs.length === 0) {
     throw new Error('Notion returned no packs for the authenticated workspace');
