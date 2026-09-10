@@ -162,6 +162,26 @@ describe('parseSource', () => {
       expect(result.type).toBe('download');
       expect(result.url).toBe(url);
     });
+
+    it('does not rewrite proxy or mirror URLs whose path contains github.com or gitlab.com', () => {
+      const proxyUrl = 'https://gh-proxy.org/github.com/giikin/skills';
+      expect(parseSource(proxyUrl)).toEqual({
+        type: 'well-known',
+        url: proxyUrl,
+      });
+
+      const gitProxyUrl = 'https://gh-proxy.org/github.com/giikin/skills.git';
+      expect(parseSource(gitProxyUrl)).toEqual({
+        type: 'git',
+        url: gitProxyUrl,
+      });
+
+      const gitlabProxyUrl = 'https://mirror.example.com/gitlab.com/group/repo.git';
+      expect(parseSource(gitlabProxyUrl)).toEqual({
+        type: 'git',
+        url: gitlabProxyUrl,
+      });
+    });
   });
 
   describe('GitHub shorthand tests', () => {
