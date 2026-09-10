@@ -19,6 +19,7 @@ export type AgentType =
   | 'continue'
   | 'cortex'
   | 'crush'
+  | 'cuga'
   | 'cursor'
   | 'deepagents'
   | 'devin'
