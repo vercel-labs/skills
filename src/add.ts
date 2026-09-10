@@ -477,6 +477,7 @@ export async function promptForAgents(
  */
 async function selectAgentsInteractive(options: {
   global?: boolean;
+  installedAgents?: AgentType[];
 }): Promise<AgentType[] | symbol> {
   // Filter out agents that don't support global installation when --global is used
   const supportsGlobalFilter = (a: AgentType) => !options.global || agents[a].globalSkillsDir;
@@ -512,11 +513,15 @@ async function selectAgentsInteractive(options: {
     // Silently ignore errors
   }
 
+  const detectedNonUniversal = (options.installedAgents ?? []).filter(
+    (a) => otherAgents.includes(a) && !universalAgents.includes(a)
+  );
+
   const initialSelected = lastSelected
     ? (lastSelected.filter(
         (a) => otherAgents.includes(a as AgentType) && !universalAgents.includes(a as AgentType)
       ) as AgentType[])
-    : [];
+    : detectedNonUniversal;
 
   const selected = await searchMultiselect({
     message: 'Which agents do you want to install to?',
@@ -743,7 +748,10 @@ async function handleWellKnownSkills(
         );
       }
     } else {
-      const selected = await selectAgentsInteractive({ global: options.global });
+      const selected = await selectAgentsInteractive({
+        global: options.global,
+        installedAgents,
+      });
 
       if (isCancelled(selected)) {
         exitInstallationCancelled();
@@ -1490,7 +1498,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           );
         }
       } else {
-        const selected = await selectAgentsInteractive({ global: options.global });
+        const selected = await selectAgentsInteractive({
+          global: options.global,
+          installedAgents,
+        });
 
         if (isCancelled(selected)) {
           await cleanup(tempDir);
