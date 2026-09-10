@@ -472,12 +472,44 @@ export function parseSource(input: string): ParsedSource {
     };
   }
 
+  // Bare domain (e.g. "openagreements.org" or "skills.example.com:8443"): a
+  // scheme-less, slash-less dotted hostname is neither an owner/repo shorthand
+  // (no slash) nor a clonable git target (`git clone openagreements.org` fails),
+  // so route it to the well-known provider over HTTPS. Without this, bare domains
+  // fall through to the git fallback below and fail with a confusing clone error.
+  if (isBareDomain(input)) {
+    return {
+      type: 'well-known',
+      url: `https://${input}`,
+    };
+  }
+
   // Fallback: treat as direct git URL
   return {
     type: 'git',
     url: input,
     ...(fragmentRef ? { ref: fragmentRef } : {}),
   };
+}
+
+/**
+ * Check if a string is a bare domain: a scheme-less, slash-less dotted hostname
+ * with an optional port, e.g. "openagreements.org" or "skills.example.com:8443".
+ * Such inputs are routed to the well-known provider over HTTPS rather than the
+ * git fallback, where they would fail to clone. A ".git" suffix is excluded so
+ * scheme-less git targets keep flowing to the git fallback.
+ */
+function isBareDomain(input: string): boolean {
+  if (input.endsWith('.git')) {
+    return false;
+  }
+
+  // Each label starts and ends with an alphanumeric, may contain interior
+  // hyphens; at least one dot is required (so single-label hosts like "intranet"
+  // are left to the git fallback); an optional ":port" may follow.
+  return /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)+(?::\d+)?$/.test(
+    input
+  );
 }
 
 /**
