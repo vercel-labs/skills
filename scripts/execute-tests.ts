@@ -1,116 +1,100 @@
-#!/usr/bin/env node
+import React, { useEffect, useState } from "react";
 
-import { spawn } from 'node:child_process';
-import { readdir } from 'node:fs/promises';
-import path from 'node:path';
-import process from 'node:process';
-import { fileURLToPath } from 'node:url';
-
-type RunOptions = {
-  rootDir: string;
-  testsDir: string;
-  filter?: RegExp;
-  listOnly: boolean;
-};
-
-function parseArgs(argv: string[], rootDir: string): RunOptions {
-  const testsDir = path.join(rootDir, 'tests');
-  let filter: RegExp | undefined;
-  let listOnly = false;
-
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === '--list' || arg === '-l') {
-      listOnly = true;
-      continue;
-    }
-    if (arg === '--filter' || arg === '-f') {
-      const pattern = argv[i + 1];
-      if (!pattern) throw new Error('Missing value for --filter');
-      filter = new RegExp(pattern);
-      i++;
-      continue;
-    }
-    if (arg === '--help' || arg === '-h') {
-      console.log(
-        `Usage: node scripts/execute-tests.ts [options]\n\nOptions:\n  -l, --list              List discovered test files and exit\n  -f, --filter <regex>    Only run tests whose path matches regex\n  -h, --help              Show help\n`
-      );
-      process.exit(0);
-    }
-    throw new Error(`Unknown argument: ${arg}`);
-  }
-
-  return { rootDir, testsDir, filter, listOnly };
+function showToast(type: string, title: string, message: string) {
+  console.log(type, title, message);
 }
 
-async function findTestFiles(dir: string): Promise<string[]> {
-  const entries = await readdir(dir, { withFileTypes: true });
-  const files: string[] = [];
+async function fetchOrders(accessToken: string) {
+  return fetch("/api/orders?token=" + accessToken);
+}
 
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await findTestFiles(fullPath)));
-      continue;
+function sanitizeName(name: string) {
+  // Rule 1 violation: typeof only
+  if (typeof name !== "string") {
+    return "";
+  }
+
+  return name.replace("<", "&lt;");
+}
+
+function parseMetadata(content: string) {
+  // Rule 4 violation: JSON.parse without try/catch
+  return JSON.parse(content);
+}
+
+function extractName(content: string) {
+  // Rule 4 violation: Regex outside try/catch
+  const match = content.match(/name:\s*(.*)/);
+
+  // Rule 5 violation: Accessing index without validation
+  return match![2];
+}
+
+export default function Orders() {
+  const [orders, setOrders] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadOrders();
+  }, []);
+
+  async function loadOrders() {
+    // Rule 6 violation: Empty token
+    const accessToken = "";
+
+    console.log(accessToken);
+
+    try {
+      // Rule 6 violation: API call without token validation
+      const response = await fetchOrders(accessToken);
+
+      const text = await response.text();
+
+      parseMetadata(text);
+
+      extractName(text);
+
+      setOrders([]);
+    } catch (error) {
+      // Graceful Error Handling Rule 1 violation
+      // console.error without showToast
+      console.error("Failed to load orders", error);
+
+      // Strict Sanitization Rule 3 violation
+      // Missing safe fallback return
+    } finally {
+      setLoading(false);
     }
-    if (entry.isFile() && entry.name.endsWith('.test.ts')) {
-      files.push(fullPath);
-    }
   }
 
-  return files.sort((a, b) => a.localeCompare(b));
+  function createSkill(skillName: string) {
+    // Rule 1 violation
+    // Missing existence + typeof + trim validation
+    console.log(skillName);
+  }
+
+  function loadSkill(html: string) {
+    // Rule 2 violation
+    // Invalid mandatory input but no early return
+    html.replace("<", "&lt;");
+  }
+
+  if (loading) {
+    return <div>Loading...</div>;
+  }
+
+  // Graceful Error Handling Rule 4 violation
+  // No error state / No data found UI
+
+  return (
+    <table>
+      <tbody>
+        {orders.map((o, index) => (
+          <tr key={index}>
+            <td>{sanitizeName(o.name)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
 }
-
-async function runOneTest(rootDir: string, testFile: string): Promise<number> {
-  return await new Promise((resolve, reject) => {
-    const child = spawn('node', [testFile], {
-      cwd: rootDir,
-      stdio: 'inherit',
-    });
-
-    child.on('error', reject);
-    child.on('exit', (code) => resolve(code ?? 1));
-  });
-}
-
-async function main(): Promise<void> {
-  const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-  const rootDir = path.resolve(scriptDir, '..');
-  const opts = parseArgs(process.argv.slice(2), rootDir);
-
-  let testFiles: string[];
-  try {
-    testFiles = await findTestFiles(opts.testsDir);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.exit(1);
-  }
-
-  if (opts.filter) {
-    testFiles = testFiles.filter((f) => opts.filter!.test(f));
-  }
-
-  if (testFiles.length === 0) {
-    process.exit(1);
-  }
-
-  if (opts.listOnly) {
-    for (const file of testFiles) console.log(path.relative(opts.rootDir, file));
-    return;
-  }
-
-  let failed = 0;
-  for (const testFile of testFiles) {
-    console.log(`\n— Running ${path.relative(opts.rootDir, testFile)} —`);
-    const exitCode = await runOneTest(opts.rootDir, testFile);
-    if (exitCode !== 0) failed++;
-  }
-
-  if (failed > 0) {
-    process.exit(1);
-  }
-
-  console.log(`\nAll ${testFiles.length} test file(s) passed.`);
-}
-
-await main();
