@@ -1,5 +1,5 @@
 import { readFile } from 'fs/promises';
-import { join, dirname, resolve, normalize, sep } from 'path';
+import { join, resolve, normalize, sep } from 'path';
 
 /**
  * Check if a path is contained within a base directory.
@@ -45,8 +45,8 @@ interface PluginManifest {
  * Only resolves local paths - remote sources are skipped.
  *
  * Returns directories that CONTAIN skills (to be searched for child SKILL.md files).
- * For explicit skill paths in manifests, adds the parent directory so the
- * existing discovery loop finds them.
+ * Each item in the manifest's skills array is a directory containing
+ * <name>/SKILL.md, so it is added directly as a search directory.
  */
 export async function getPluginSkillPaths(basePath: string): Promise<string[]> {
   const searchDirs: string[] = [];
@@ -58,12 +58,12 @@ export async function getPluginSkillPaths(basePath: string): Promise<string[]> {
     if (!isContainedIn(pluginBase, basePath)) return;
 
     if (skills && skills.length > 0) {
-      // Plugin explicitly declares skill paths - add parent dirs so existing loop finds them
+      // Plugin explicitly declares skills directories - add them directly as search dirs
       for (const skillPath of skills) {
         // Validate skill path starts with './' (per Claude Code convention)
         if (!isValidRelativePath(skillPath)) continue;
 
-        const skillDir = dirname(join(pluginBase, skillPath));
+        const skillDir = join(pluginBase, skillPath);
         if (isContainedIn(skillDir, basePath)) {
           searchDirs.push(skillDir);
         }

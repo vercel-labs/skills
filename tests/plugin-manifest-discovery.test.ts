@@ -343,7 +343,7 @@ description: Found via conventional skills/ in plugin
           {
             name: 'mixed-plugin',
             source: './mixed',
-            skills: ['./custom-skills/explicit-skill'], // Explicit path
+            skills: ['./custom-skills/'], // Directory containing <name>/SKILL.md
           },
         ],
       })
@@ -540,7 +540,7 @@ description: Should be found
     writeFileSync(
       join(testDir, '.claude-plugin/plugin.json'),
       JSON.stringify({
-        skills: ['invalid-loc/bare-skill', './valid-loc/valid-skill'], // First lacks ./
+        skills: ['invalid-loc/', './valid-loc/'], // First lacks ./
       })
     );
 
@@ -582,5 +582,33 @@ description: Standard location
     // Should find: valid-skill (via valid manifest path) and standard-skill (via convention)
     // Should NOT find: bare-skill (manifest path lacks ./)
     expect(names).toEqual(['standard-skill', 'valid-skill']);
+  });
+
+  it('should discover skills from nested manifest directories', async () => {
+    // Each skills entry is a directory containing <name>/SKILL.md.
+    // When one entry is a subdirectory of another, both must be scanned.
+    mkdirSync(join(testDir, '.claude-plugin'), { recursive: true });
+    writeFileSync(
+      join(testDir, '.claude-plugin/plugin.json'),
+      JSON.stringify({
+        name: 'nested-plugin',
+        skills: ['./skills/group-a/', './skills/group-a/subgroup/'],
+      })
+    );
+
+    mkdirSync(join(testDir, 'skills/group-a/skill-1'), { recursive: true });
+    writeFileSync(
+      join(testDir, 'skills/group-a/skill-1/SKILL.md'),
+      '---\nname: skill-1\ndescription: Test\n---\n'
+    );
+    mkdirSync(join(testDir, 'skills/group-a/subgroup/skill-2'), { recursive: true });
+    writeFileSync(
+      join(testDir, 'skills/group-a/subgroup/skill-2/SKILL.md'),
+      '---\nname: skill-2\ndescription: Test\n---\n'
+    );
+
+    const skills = await discoverSkills(testDir);
+    const names = skills.map((s) => s.name).sort();
+    expect(names).toEqual(['skill-1', 'skill-2']);
   });
 });
