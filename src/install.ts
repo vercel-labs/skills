@@ -3,15 +3,20 @@ import pc from 'picocolors';
 import { readLocalLock } from './local-lock.ts';
 import { runAdd } from './add.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
-import { getUniversalAgents } from './agents.ts';
+import { getPresentAgents } from './agents.ts';
 import { buildLocalUpdateSource } from './update-source.ts';
 
 /**
  * Install all skills from the local skills-lock.json.
  * Groups skills by source and calls `runAdd` for each group.
  *
- * Only installs to .agents/skills/ (universal agents) -- the canonical
- * project-level location. Does not install to agent-specific directories.
+ * Installs for every agent whose config root directory is present at
+ * the current working directory -- universal agents via `.agents/`,
+ * non-universal agents (e.g. `.claude/`) via the first component of
+ * their `skillsDir`. This makes `experimental_install` honour the
+ * agent targeting recorded at install time, including Claude Code's
+ * `.claude/skills/` symlinks, instead of writing only to the universal
+ * `.agents/skills/` directory.
  *
  * node_modules skills are handled via experimental_sync.
  */
@@ -28,8 +33,10 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
     return;
   }
 
-  // Only install to .agents/skills/ (universal agents)
-  const universalAgentNames = getUniversalAgents();
+  // Determine which agents to target: every agent whose config root
+  // exists at cwd. Falls back to an empty list (and the auto-detect
+  // branch in `runAdd`) when no config roots are present.
+  const targetAgents = getPresentAgents(cwd);
 
   // Separate node_modules skills from remote skills
   const nodeModuleSkills: string[] = [];
@@ -61,8 +68,12 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
 
   const remoteCount = skillEntries.length - nodeModuleSkills.length;
   if (remoteCount > 0) {
+    const agentsHint =
+      targetAgents.length > 0
+        ? ` for ${pc.dim(`${targetAgents.length} agent${targetAgents.length !== 1 ? 's' : ''}`)}`
+        : '';
     p.log.info(
-      `Restoring ${pc.cyan(String(remoteCount))} skill${remoteCount !== 1 ? 's' : ''} from skills-lock.json into ${pc.dim('.agents/skills/')}`
+      `Restoring ${pc.cyan(String(remoteCount))} skill${remoteCount !== 1 ? 's' : ''} from skills-lock.json${agentsHint}`
     );
   }
 
@@ -71,7 +82,7 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
     try {
       await runAdd([source], {
         skill: skills,
-        agent: universalAgentNames,
+        agent: targetAgents,
         yes: true,
       });
     } catch (error) {
@@ -88,7 +99,7 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
     );
     try {
       const { options: syncOptions } = parseSyncOptions(args);
-      await runSync(args, { ...syncOptions, yes: true, agent: universalAgentNames });
+      await runSync(args, { ...syncOptions, yes: true, agent: targetAgents });
     } catch (error) {
       p.log.error(
         `Failed to sync node_modules skills: ${error instanceof Error ? error.message : 'Unknown error'}`
