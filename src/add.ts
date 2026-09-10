@@ -229,6 +229,36 @@ export function formatEveInstallPromptMessage(skills: Skill[]): string {
   return `Detected an eve project. Install ${formatSkillPromptSubject(skills)} for your ${EVE_AGENT_LABEL} to use?`;
 }
 
+function getAgentSuggestions(invalidAgents: string[], validAgents: string[]): string[] {
+  const suggestions = new Set<string>();
+
+  for (const invalidAgent of invalidAgents) {
+    const normalizedInvalid = invalidAgent.toLowerCase();
+    if (normalizedInvalid.length < 3) continue;
+    for (const validAgent of validAgents) {
+      const normalizedValid = validAgent.toLowerCase();
+      if (
+        normalizedValid.startsWith(normalizedInvalid) ||
+        normalizedInvalid.startsWith(normalizedValid) ||
+        normalizedValid.includes(normalizedInvalid)
+      ) {
+        suggestions.add(validAgent);
+      }
+    }
+  }
+
+  return [...suggestions];
+}
+
+function logInvalidAgents(invalidAgents: string[], validAgents: string[]): void {
+  p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
+  const suggestions = getAgentSuggestions(invalidAgents, validAgents);
+  if (suggestions.length > 0) {
+    p.log.info(`Did you mean: ${suggestions.join(', ')}?`);
+  }
+  p.log.info(`Valid agents: ${validAgents.join(', ')}`);
+}
+
 /**
  * Splits agents into universal and non-universal (symlinked) groups.
  * Returns display names for each group.
@@ -695,8 +725,7 @@ async function handleWellKnownSkills(
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 
     if (invalidAgents.length > 0) {
-      p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
-      p.log.info(`Valid agents: ${validAgents.join(', ')}`);
+      logInvalidAgents(invalidAgents, validAgents);
       process.exit(1);
     }
 
@@ -1412,8 +1441,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 
       if (invalidAgents.length > 0) {
-        p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
-        p.log.info(`Valid agents: ${validAgents.join(', ')}`);
+        logInvalidAgents(invalidAgents, validAgents);
         await cleanup(tempDir);
         process.exit(1);
       }
