@@ -81,6 +81,43 @@ describe('source-parser', () => {
     });
   });
 
+  describe('Local Paths', () => {
+    it('parses dot-directories as local paths', () => {
+      const result = parseSource('.agents');
+      expect(result.type).toBe('local');
+    });
+
+    it('parses .claude as local path', () => {
+      const result = parseSource('.claude');
+      expect(result.type).toBe('local');
+    });
+
+    it('parses .cursor/rules as local path', () => {
+      const result = parseSource('.cursor/rules');
+      expect(result.type).toBe('local');
+    });
+
+    it('parses relative paths as local', () => {
+      const result = parseSource('./my-skills');
+      expect(result.type).toBe('local');
+    });
+
+    it('parses parent-relative paths as local', () => {
+      const result = parseSource('../skills');
+      expect(result.type).toBe('local');
+    });
+
+    it('parses current directory as local', () => {
+      const result = parseSource('.');
+      expect(result.type).toBe('local');
+    });
+
+    it('does not treat .. prefix with path segments as dotfile', () => {
+      const result = parseSource('../skills');
+      expect(result.type).toBe('local');
+    });
+  });
+
   describe('Existing GitHub Support', () => {
     it('parses github shorthand', () => {
       const result = parseSource('vercel-labs/agent-skills');
