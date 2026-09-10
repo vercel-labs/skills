@@ -409,4 +409,43 @@ async function main(): Promise<void> {
   }
 }
 
-main().finally(() => flushTelemetry().then(() => process.exit(process.exitCode ?? 0)));
+function flushStream(stream: NodeJS.WriteStream): Promise<void> {
+  return new Promise<void>((resolve) => {
+    if (!stream || stream.destroyed || !stream.writable) {
+      resolve();
+      return;
+    }
+
+    let flushed = false;
+    const done = () => {
+      if (flushed) return;
+      flushed = true;
+      resolve();
+    };
+
+    const ok = stream.write('', () => {
+      done();
+    });
+
+    if (!ok) {
+      stream.once('drain', done);
+      stream.once('error', done);
+      stream.once('finish', done);
+      stream.once('close', done);
+    } else {
+      process.nextTick(done);
+    }
+  });
+}
+
+function flushStdio(): Promise<void> {
+  return Promise.all([flushStream(process.stdout), flushStream(process.stderr)]).then(() => {});
+}
+
+main().finally(() =>
+  flushTelemetry()
+    .catch(() => {})
+    .then(() => flushStdio())
+    .catch(() => {})
+    .then(() => process.exit(process.exitCode ?? 0))
+);
