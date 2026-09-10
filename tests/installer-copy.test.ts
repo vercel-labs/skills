@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { access, chmod, mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { installSkillForAgent } from '../src/installer.ts';
+import {
+  createInstallSession,
+  installBlobSkillForAgent,
+  installSkillForAgent,
+} from '../src/installer.ts';
 
 async function makeSkillSource(root: string, name: string): Promise<string> {
   const dir = join(root, 'source-skill');
@@ -70,6 +74,94 @@ describe('installer copy mode', () => {
       const sourceMode = (await stat(scriptPath)).mode & 0o777;
       const installedMode = (await stat(installedScript)).mode & 0o777;
       expect(installedMode).toBe(sourceMode);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('writes a shared copy destination once per install session', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-copy-once-'));
+    const projectDir = join(root, 'project');
+    await mkdir(projectDir, { recursive: true });
+
+    const skillName = 'shared-copy-skill';
+    const skillDir = await makeSkillSource(root, skillName);
+    const skill = { name: skillName, description: 'test', path: skillDir };
+    const session = createInstallSession();
+    const installedDir = join(projectDir, '.agents/skills', skillName);
+    const markerPath = join(installedDir, 'written-once.txt');
+
+    try {
+      const codexResult = await installSkillForAgent(skill, 'codex', {
+        cwd: projectDir,
+        mode: 'copy',
+        global: false,
+        session,
+      });
+      expect(codexResult.success).toBe(true);
+
+      await writeFile(markerPath, 'preserved\n', 'utf-8');
+
+      const cursorResult = await installSkillForAgent(skill, 'cursor', {
+        cwd: projectDir,
+        mode: 'copy',
+        global: false,
+        session,
+      });
+      expect(cursorResult.success).toBe(true);
+      await expect(readFile(markerPath, 'utf-8')).resolves.toBe('preserved\n');
+
+      const freshSessionResult = await installSkillForAgent(skill, 'amp', {
+        cwd: projectDir,
+        mode: 'copy',
+        global: false,
+        session: createInstallSession(),
+      });
+      expect(freshSessionResult.success).toBe(true);
+      await expect(access(markerPath)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('writes a shared blob destination once per install session', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-blob-copy-once-'));
+    const projectDir = join(root, 'project');
+    await mkdir(projectDir, { recursive: true });
+
+    const skillName = 'shared-blob-skill';
+    const skill = {
+      installName: skillName,
+      files: [
+        {
+          path: 'SKILL.md',
+          contents: `---\nname: ${skillName}\ndescription: test\n---\n`,
+        },
+      ],
+    };
+    const session = createInstallSession();
+    const installedDir = join(projectDir, '.agents/skills', skillName);
+    const markerPath = join(installedDir, 'written-once.txt');
+
+    try {
+      const codexResult = await installBlobSkillForAgent(skill, 'codex', {
+        cwd: projectDir,
+        mode: 'copy',
+        global: false,
+        session,
+      });
+      expect(codexResult.success).toBe(true);
+
+      await writeFile(markerPath, 'preserved\n', 'utf-8');
+
+      const cursorResult = await installBlobSkillForAgent(skill, 'cursor', {
+        cwd: projectDir,
+        mode: 'copy',
+        global: false,
+        session,
+      });
+      expect(cursorResult.success).toBe(true);
+      await expect(readFile(markerPath, 'utf-8')).resolves.toBe('preserved\n');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
