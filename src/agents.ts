@@ -13,6 +13,7 @@ const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
 const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
 const grokHome = process.env.GROK_HOME?.trim() || join(home, '.grok');
+const asterDataHome = process.env.XDG_DATA_HOME?.trim() || join(home, '.local/share');
 const sarvamHome = process.env.SARVAM_HOME?.trim() || join(home, '.sarvam');
 const zedAppDataHome = process.env.APPDATA?.trim();
 const zedFlatpakConfigHome = process.env.FLATPAK_XDG_CONFIG_HOME?.trim();
@@ -114,6 +115,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     showInUniversalPrompt: false,
     detectInstalled: async () => {
       return existsSync(join(home, '.gemini/antigravity-cli'));
+    },
+  },
+  aster: {
+    name: 'aster',
+    displayName: 'Aster',
+    skillsDir: '.aster/skills',
+    globalSkillsDir: join(asterDataHome, 'aster/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(asterDataHome, 'aster'));
     },
   },
   astrbot: {
