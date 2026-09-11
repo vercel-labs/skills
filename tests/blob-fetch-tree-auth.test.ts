@@ -1,14 +1,20 @@
 /**
  * Tests for the lazy auth fallback in `fetchRepoTree`.
  *
- * The key behavior under test: a token resolver is invoked ONLY after
- * GitHub returns a rate-limit response (403 + X-RateLimit-Remaining: 0).
- * On a successful unauth call, or on a non-rate-limit 403, the resolver
- * must not be called. This is what keeps `gh auth token` from running
- * during every install. See issue #523.
+ * The key behavior under test: authentication is attempted only after GitHub
+ * returns a rate limit or an anonymous private-repository response. Explicit
+ * tokens stay out of requests that do not need authentication, and stored
+ * GitHub CLI credentials are used through `gh api` without being exported.
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { execFile } from 'node:child_process';
+
+vi.mock('node:child_process', async (importActual) => {
+  const actual = await importActual<typeof import('node:child_process')>();
+  return { ...actual, execFile: vi.fn() };
+});
+
 import { fetchRepoTree, resetRepoTreeAuthState } from '../src/blob.ts';
 
 const SAMPLE_TREE = {
@@ -53,6 +59,20 @@ function notFoundResponse(): Response {
   });
 }
 
+function mockGhApiError(message = 'gh is not authenticated'): void {
+  vi.mocked(execFile).mockImplementationOnce(((...args: unknown[]) => {
+    const callback = args.at(-1) as (error: Error | null, stdout: string, stderr: string) => void;
+    callback(Object.assign(new Error(message), { code: 1 }), '', message);
+  }) as typeof execFile);
+}
+
+function mockGhApiSuccess(body: unknown): void {
+  vi.mocked(execFile).mockImplementationOnce(((...args: unknown[]) => {
+    const callback = args.at(-1) as (error: Error | null, stdout: string, stderr: string) => void;
+    callback(null, JSON.stringify(body), '');
+  }) as typeof execFile);
+}
+
 describe('fetchRepoTree lazy auth fallback', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
   let originalFetch: typeof globalThis.fetch;
@@ -62,10 +82,12 @@ describe('fetchRepoTree lazy auth fallback', () => {
     originalFetch = globalThis.fetch;
     fetchMock = vi.fn();
     globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    vi.mocked(execFile).mockReset();
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    vi.unstubAllEnvs();
   });
 
   it('does not invoke the token resolver when the unauth request succeeds', async () => {
@@ -76,6 +98,7 @@ describe('fetchRepoTree lazy auth fallback', () => {
 
     expect(result?.sha).toBe('deadbeef');
     expect(getToken).not.toHaveBeenCalled();
+    expect(execFile).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const firstCallInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect((firstCallInit.headers as Record<string, string>)['Authorization']).toBeUndefined();
@@ -91,6 +114,7 @@ describe('fetchRepoTree lazy auth fallback', () => {
 
     expect(result?.sha).toBe('deadbeef');
     expect(getToken).toHaveBeenCalledTimes(1);
+    expect(execFile).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const retryInit = fetchMock.mock.calls[1]?.[1] as RequestInit;
     expect((retryInit.headers as Record<string, string>)['Authorization']).toBe(
@@ -100,7 +124,7 @@ describe('fetchRepoTree lazy auth fallback', () => {
 
   it('does not invoke the token resolver on a non-rate-limit 403', async () => {
     // A 403 for a private repo (permission denied) is not retryable.
-    // The fallback should NOT trigger and should NOT spawn `gh auth token`.
+    // The explicit-token fallback should not trigger.
     fetchMock
       .mockResolvedValueOnce(permissionDeniedResponse())
       .mockResolvedValueOnce(permissionDeniedResponse())
@@ -125,11 +149,45 @@ describe('fetchRepoTree lazy auth fallback', () => {
 
     expect(result?.sha).toBe('deadbeef');
     expect(getToken).toHaveBeenCalledTimes(1);
+    expect(execFile).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const retryInit = fetchMock.mock.calls[1]?.[1] as RequestInit;
     expect((retryInit.headers as Record<string, string>)['Authorization']).toBe(
       'Bearer ghp_fake_token'
     );
+  });
+
+  it('returns a private tree through GitHub CLI auth without exporting its credential', async () => {
+    fetchMock.mockResolvedValueOnce(notFoundResponse());
+    const getToken = vi.fn(() => null);
+    mockGhApiSuccess(SAMPLE_TREE);
+
+    const result = await fetchRepoTree('private/repo', 'main', getToken);
+
+    expect(execFile).toHaveBeenCalledTimes(1);
+    const [file, args] = vi.mocked(execFile).mock.calls[0]!;
+    expect(file).toBe('gh');
+    expect(args).toContain('api');
+    expect(args).toContain('repos/private/repo/git/trees/main?recursive=1');
+    expect(args).not.toContain('auth');
+    expect(args).not.toContain('token');
+    expect(result).toEqual({ ...SAMPLE_TREE, branch: 'main' });
+  });
+
+  it('uses the configured GitHub Enterprise hostname for GitHub CLI API access', async () => {
+    vi.stubEnv('GH_HOST', 'github.example.com');
+    fetchMock.mockResolvedValueOnce(notFoundResponse());
+    mockGhApiSuccess(SAMPLE_TREE);
+
+    const result = await fetchRepoTree('private/repo', 'main', () => null);
+
+    expect(result?.sha).toBe('deadbeef');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://github.example.com/api/v3/repos/private/repo/git/trees/main?recursive=1',
+      expect.any(Object)
+    );
+    const [, args] = vi.mocked(execFile).mock.calls[0]!;
+    expect(args).toEqual(expect.arrayContaining(['--hostname', 'github.example.com']));
   });
 
   it('does not flip the session rate-limit flag on a private-repo 404', async () => {
@@ -158,6 +216,7 @@ describe('fetchRepoTree lazy auth fallback', () => {
 
   it('returns null gracefully when a private repo 404s and no token resolver is provided', async () => {
     fetchMock.mockResolvedValueOnce(notFoundResponse());
+    mockGhApiError();
 
     const result = await fetchRepoTree('private/repo', 'master');
 
@@ -167,6 +226,7 @@ describe('fetchRepoTree lazy auth fallback', () => {
 
   it('returns null gracefully when rate-limited and no token resolver is provided', async () => {
     fetchMock.mockResolvedValueOnce(rateLimitResponse());
+    mockGhApiError();
 
     const result = await fetchRepoTree('vercel/skills', 'main');
 
@@ -177,6 +237,7 @@ describe('fetchRepoTree lazy auth fallback', () => {
   it('returns null gracefully when rate-limited and the resolver returns null', async () => {
     fetchMock.mockResolvedValueOnce(rateLimitResponse());
     const getToken = vi.fn(() => null);
+    mockGhApiError();
 
     const result = await fetchRepoTree('vercel/skills', 'main', getToken);
 

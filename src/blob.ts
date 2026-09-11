@@ -11,8 +11,10 @@
  */
 
 import { createHash } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import { parseFrontmatter } from './frontmatter.ts';
 import { sanitizeMetadata } from './sanitize.ts';
+import { getGitHubHost } from './github-host.ts';
 import type { Skill } from './types.ts';
 import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
 
@@ -55,6 +57,7 @@ export const BLOB_ALLOWED_REPOS: Record<string, { downloadUrl: (slug: string) =>
 
 /** Timeout for individual HTTP fetches (ms) */
 const FETCH_TIMEOUT = 10_000;
+const GH_API_MAX_BUFFER = 16 * 1024 * 1024;
 
 // ─── Slug computation ───
 
@@ -110,7 +113,10 @@ async function fetchTreeBranch(
   token: string | null
 ): Promise<BranchFetchResult> {
   try {
-    const url = `https://api.github.com/repos/${ownerRepo}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
+    const githubHost = getGitHubHost();
+    const apiBase =
+      githubHost === 'github.com' ? 'https://api.github.com' : `https://${githubHost}/api/v3`;
+    const url = `${apiBase}/repos/${ownerRepo}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
     const headers: Record<string, string> = {
       Accept: 'application/vnd.github.v3+json',
       'User-Agent': 'skills-cli',
@@ -163,6 +169,55 @@ async function fetchTreeWithToken(
   return null;
 }
 
+async function fetchTreeWithGitHubCli(
+  ownerRepo: string,
+  branches: string[]
+): Promise<RepoTree | null> {
+  for (const branch of branches) {
+    try {
+      const endpoint = `repos/${ownerRepo}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
+      const stdout = await new Promise<string>((resolve, reject) => {
+        execFile(
+          'gh',
+          ['api', endpoint, '--method', 'GET', '--hostname', getGitHubHost()],
+          {
+            encoding: 'utf8',
+            timeout: FETCH_TIMEOUT,
+            maxBuffer: GH_API_MAX_BUFFER,
+            windowsHide: true,
+            env: { ...process.env, GH_PROMPT_DISABLED: '1' },
+          },
+          (error, output) => {
+            if (error) reject(error);
+            else resolve(output);
+          }
+        );
+      });
+      const data = JSON.parse(stdout) as {
+        sha?: unknown;
+        tree?: unknown;
+      };
+      if (typeof data.sha !== 'string' || !Array.isArray(data.tree)) continue;
+      return { sha: data.sha, branch, tree: data.tree as TreeEntry[] };
+    } catch {
+      // Try the next candidate branch, then let the caller fall back to clone.
+    }
+  }
+  return null;
+}
+
+async function fetchTreeWithAvailableAuth(
+  ownerRepo: string,
+  branches: string[],
+  getToken?: () => string | null
+): Promise<RepoTree | null> {
+  if (getToken) {
+    const tree = await fetchTreeWithToken(ownerRepo, branches, getToken);
+    if (tree) return tree;
+  }
+  return fetchTreeWithGitHubCli(ownerRepo, branches);
+}
+
 /**
  * Fetch the full recursive tree for a GitHub repo.
  * Returns the tree data including all entries, or null on failure.
@@ -170,12 +225,12 @@ async function fetchTreeWithToken(
  *
  * Authentication is lazy: by default the call goes out unauthenticated,
  * which is enough for the vast majority of users (60 req/hr per IP). We only
- * ask the optional `getToken` callback for a token and retry when the
- * unauthenticated attempt fails in a way a token can fix: a rate-limit 403,
- * or the 401/404 a private repo returns to anonymous requests. A bare
- * permission-denied 403 is neither, so we never invoke `gh auth token` for it,
- * which corporate endpoint security tools flag as suspicious credential
- * extraction. See issues #523 and #1318.
+ * retry with available authentication when the unauthenticated attempt fails
+ * in a way credentials can fix: a rate-limit 403, or the 401/404 a private repo
+ * returns to anonymous requests. Explicit environment tokens are tried first;
+ * then `gh api` uses GitHub CLI authentication without exporting its stored
+ * credential. A bare permission-denied 403 is not retried. See issues #523
+ * and #1318.
  */
 export async function fetchRepoTree(
   ownerRepo: string,
@@ -186,8 +241,8 @@ export async function fetchRepoTree(
 
   // Fast path: once we've seen a rate limit in this process, don't bother
   // retrying unauth on subsequent calls. Go straight to auth.
-  if (_rateLimitedThisSession && getToken) {
-    return fetchTreeWithToken(ownerRepo, branches, getToken);
+  if (_rateLimitedThisSession) {
+    return fetchTreeWithAvailableAuth(ownerRepo, branches, getToken);
   }
 
   // First pass: unauthenticated.
@@ -210,13 +265,13 @@ export async function fetchRepoTree(
     }
   }
 
-  if (!getToken || !(rateLimited || authRetryable)) return null;
+  if (!(rateLimited || authRetryable)) return null;
 
   // Remember an IP-level rate limit so later calls skip the unauth pass.
   // A private-repo 404 is per-repo, not per-IP, so it must not set this flag.
   if (rateLimited) _rateLimitedThisSession = true;
 
-  return fetchTreeWithToken(ownerRepo, branches, getToken);
+  return fetchTreeWithAvailableAuth(ownerRepo, branches, getToken);
 }
 
 /**
@@ -262,11 +317,13 @@ const PRIORITY_PREFIXES = [
   '.codex/skills/',
   '.commandcode/skills/',
   '.continue/skills/',
+  '.factory/skills/',
   '.github/skills/',
   '.goose/skills/',
   '.grok/skills/',
   '.iflow/skills/',
   '.junie/skills/',
+  '.kilo/skills/',
   '.kilocode/skills/',
   '.kimchi/skills/',
   '.kiro/skills/',
@@ -276,6 +333,7 @@ const PRIORITY_PREFIXES = [
   '.opencode/skills/',
   '.openhands/skills/',
   '.pi/skills/',
+  '.posit/assistant/skills/',
   '.qoder/skills/',
   '.roo/skills/',
   '.trae/skills/',
@@ -439,6 +497,44 @@ function computeSnapshotHash(files: SkillSnapshotFile[]): string {
   return hash.digest('hex');
 }
 
+function getSkillFolderPath(skillMdPath: string): string {
+  const pathLower = skillMdPath.toLowerCase();
+  if (pathLower.endsWith('/skill.md')) return skillMdPath.slice(0, -9);
+  if (pathLower === 'skill.md') return '';
+  return skillMdPath.slice(0, -(1 + 'SKILL.md'.length));
+}
+
+// Keep these exclusions aligned with copyDirectory() in installer.ts. Cached
+// snapshots do not need files that the normal clone installer intentionally
+// omits, but every other repository blob in a nested skill must be present.
+const SNAPSHOT_EXCLUDED_FILES = new Set(['metadata.json']);
+const SNAPSHOT_EXCLUDED_DIRS = new Set(['.git', '__pycache__', '__pypackages__']);
+
+function isInstallableSnapshotPath(path: string): boolean {
+  const parts = path.split('/');
+  const fileName = parts.at(-1);
+  if (!fileName || SNAPSHOT_EXCLUDED_FILES.has(fileName)) return false;
+  return parts.slice(0, -1).every((part) => !SNAPSHOT_EXCLUDED_DIRS.has(part));
+}
+
+function hasCompleteNestedSnapshot(
+  tree: RepoTree,
+  skillMdPath: string,
+  files: SkillSnapshotFile[]
+): boolean {
+  const folderPath = getSkillFolderPath(skillMdPath);
+  if (!folderPath) return true;
+
+  const folderPrefix = `${folderPath}/`;
+  const snapshotPaths = new Set(files.map((file) => file.path));
+
+  return tree.tree.every((entry) => {
+    if (entry.type !== 'blob' || !entry.path.startsWith(folderPrefix)) return true;
+    const relativePath = entry.path.slice(folderPrefix.length);
+    return !isInstallableSnapshotPath(relativePath) || snapshotPaths.has(relativePath);
+  });
+}
+
 /**
  * Attempt to resolve skills from blob storage instead of cloning.
  *
@@ -452,7 +548,8 @@ function computeSnapshotHash(files: SkillSnapshotFile[]): string {
  * (the caller should fall back to git clone).
  *
  * @param ownerRepo - e.g., "vercel-labs/agent-skills"
- * @param options - subpath, skillFilter, ref, token
+ * @param options - subpath, skillFilter, ref, token. An explicit ref bypasses
+ *   this ref-agnostic snapshot path and returns null for the caller's git fallback.
  */
 export async function tryBlobInstall(
   ownerRepo: string,
@@ -464,6 +561,12 @@ export async function tryBlobInstall(
     includeInternal?: boolean;
   } = {}
 ): Promise<BlobInstallResult | null> {
+  // Snapshot downloads are keyed only by owner, repository, and skill slug. They
+  // are not bound to the requested ref, so using this path for an explicit ref
+  // could install different bytes than the tree and frontmatter resolved below.
+  // Return null to use the caller's existing git clone fallback instead.
+  if (options.ref !== undefined) return null;
+
   // 1. Fetch the full repo tree
   const tree = await fetchRepoTree(ownerRepo, options.ref, options.getToken);
   if (!tree) return null;
@@ -558,15 +661,18 @@ export async function tryBlobInstall(
   const allSucceeded = downloads.every((d) => d.download !== null);
   if (!allSucceeded) return null;
 
+  // A successful response can still be incomplete (for example, when the
+  // snapshot service cannot represent a binary supporting file). In that case
+  // use the existing clone path instead of silently installing a partial skill.
+  const allComplete = downloads.every(({ skill, download }) =>
+    hasCompleteNestedSnapshot(tree, skill.mdPath, download!.files)
+  );
+  if (!allComplete) return null;
+
   // 6. Convert to BlobSkill objects
   const blobSkills: BlobSkill[] = downloads.map(({ skill, download }) => {
     // Compute the folder path from the SKILL.md path (e.g., "skills/react-best-practices")
-    const mdPathLower = skill.mdPath.toLowerCase();
-    const folderPath = mdPathLower.endsWith('/skill.md')
-      ? skill.mdPath.slice(0, -9)
-      : mdPathLower === 'skill.md'
-        ? ''
-        : skill.mdPath.slice(0, -(1 + 'SKILL.md'.length));
+    const folderPath = getSkillFolderPath(skill.mdPath);
 
     // A root-level SKILL.md means the repository root is a skill entrypoint,
     // not that the entire repository is installable skill payload. Some cached

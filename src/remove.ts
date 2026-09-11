@@ -7,6 +7,7 @@ import { track } from './telemetry.ts';
 import { detectAgent } from './detect-agent.ts';
 import { removeSkillFromLock, getSkillFromLock, readSkillLock } from './skill-lock.ts';
 import { readLocalLock, removeSkillFromLocalLock } from './local-lock.ts';
+import { hasSkillMd } from './skills.ts';
 import type { AgentType } from './types.ts';
 import {
   getInstallPath,
@@ -70,6 +71,25 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     );
   }
 
+  // `--skill '*'` is the documented synonym for selecting every skill.
+  if (skillNames.includes('*')) {
+    options.all = true;
+    skillNames = skillNames.filter((name) => name !== '*');
+  }
+
+  // Footgun: `remove --skill foo --all` used to ignore `foo` and wipe everything,
+  // because `--all` replaced the requested list with every installed skill.
+  // Refuse the combination so agents/scripts cannot accidentally mass-delete.
+  const namedSkills = skillNames.filter((name) => name !== '*');
+  if (options.all && namedSkills.length > 0) {
+    p.log.error('Cannot combine --all with specific skill names.');
+    p.log.info(
+      'Use `skills remove --all` to remove every skill, or omit --all to remove only the named skills.'
+    );
+    p.log.info(`Example: skills remove ${namedSkills[0]} -y`);
+    process.exit(1);
+  }
+
   const isGlobal = options.global ?? false;
   const cwd = process.cwd();
 
@@ -82,9 +102,20 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     try {
       const entries = await readdir(dir, { withFileTypes: true });
       for (const entry of entries) {
-        if (entry.isDirectory()) {
-          skillNamesSet.add(entry.name);
-        }
+        // Dot-directories belong to the agent, not to us: sanitizeName() strips
+        // leading dots, so a skill can never be installed under such a name and
+        // removal could never address one either. Offering Codex's bundled
+        // `$CODEX_HOME/skills/.system` was always a dead entry.
+        if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+
+        // A directory is only a skill if it holds a SKILL.md, which is what
+        // listInstalledSkills() already requires. Without this, any directory
+        // in a scanned path counted as installed — including the contents of a
+        // source repo's `skills/` folder, which is also OpenClaw's project
+        // install dir and so is always scanned.
+        if (!(await hasSkillMd(join(dir, entry.name)))) continue;
+
+        skillNamesSet.add(entry.name);
       }
     } catch (err) {
       if (err instanceof Error && (err as { code?: string }).code !== 'ENOENT') {
@@ -363,6 +394,10 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 /**
  * Parse command line options for the remove command.
  * Separates skill names from options flags.
+ *
+ * Supports both positional names (`skills remove foo`) and `-s/--skill`
+ * (documented in the CLI help). Unknown flags that start with `-` are ignored
+ * so we do not treat `--skill` as a skill name when the flag is misspelled.
  */
 export function parseRemoveOptions(args: string[]): { skills: string[]; options: RemoveOptions } {
   const options: RemoveOptions = {};
@@ -377,6 +412,16 @@ export function parseRemoveOptions(args: string[]): { skills: string[]; options:
       options.yes = true;
     } else if (arg === '--all') {
       options.all = true;
+      options.yes = true;
+    } else if (arg === '-s' || arg === '--skill') {
+      i++;
+      let nextArg = args[i];
+      while (i < args.length && nextArg && !nextArg.startsWith('-')) {
+        skills.push(nextArg);
+        i++;
+        nextArg = args[i];
+      }
+      i--; // Back up one since the loop will increment
     } else if (arg === '-a' || arg === '--agent') {
       options.agent = options.agent || [];
       i++;

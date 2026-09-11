@@ -112,6 +112,7 @@ export async function fetchAuditData(
   skillSlugs: string[],
   timeoutMs = 3000
 ): Promise<AuditResponse | null> {
+  if (!isEnabled()) return null;
   if (skillSlugs.length === 0) return null;
 
   try {

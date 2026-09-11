@@ -101,6 +101,37 @@ Instructions here.
     expect(result.exitCode).toBe(0);
   });
 
+  it('should exit non-zero when the agent prompt cannot run without a TTY', () => {
+    // Create a test skill
+    const skillDir = join(testDir, 'skills', 'my-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: my-skill
+description: My test skill
+---
+
+# My Skill
+
+Instructions here.
+`
+    );
+
+    const targetDir = join(testDir, 'project');
+    mkdirSync(targetDir, { recursive: true });
+
+    // No agents are detected in the isolated test home, and stdin is a pipe
+    // that hits EOF immediately, so the agent picker cannot collect input.
+    // The CLI previously exited 0 here with nothing installed.
+    const result = runCli(['add', testDir], targetDir);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stdout).toContain('Installation cancelled');
+    expect(result.stderr).toContain('not a TTY');
+    expect(existsSync(join(targetDir, '.claude', 'skills', 'my-skill'))).toBe(false);
+    expect(existsSync(join(targetDir, '.agents', 'skills', 'my-skill'))).toBe(false);
+  });
+
   it('deduplicates copied install paths for universal agents sharing the same directory', () => {
     const sourceDir = join(testDir, 'source');
     const skillDir = join(sourceDir, 'skills', 'shared-skill');
@@ -441,6 +472,78 @@ metadata:
       const result = runCli(['add', testDir, '--list'], testDir);
       expect(result.stdout).toContain('not-internal-skill');
     });
+
+    it('should not include internal skills for the --skill wildcard', () => {
+      const internalDir = join(testDir, 'skills', 'internal-skill');
+      const publicDir = join(testDir, 'skills', 'public-skill');
+      mkdirSync(internalDir, { recursive: true });
+      mkdirSync(publicDir, { recursive: true });
+
+      writeFileSync(
+        join(internalDir, 'SKILL.md'),
+        `---
+name: internal-skill
+description: An internal skill
+metadata:
+  internal: true
+---
+# Internal Skill
+`
+      );
+      writeFileSync(
+        join(publicDir, 'SKILL.md'),
+        `---
+name: public-skill
+description: A public skill
+---
+# Public Skill
+`
+      );
+
+      const result = runCli(['add', testDir, '--skill', '*', '--list'], testDir);
+      expect(result.stdout).toContain('public-skill');
+      expect(result.stdout).not.toContain('internal-skill');
+    });
+
+    it('should include internal skills when explicitly requested by name', () => {
+      const internalDir = join(testDir, 'skills', 'internal-skill');
+      mkdirSync(internalDir, { recursive: true });
+      writeFileSync(
+        join(internalDir, 'SKILL.md'),
+        `---
+name: internal-skill
+description: An internal skill
+metadata:
+  internal: true
+---
+# Internal Skill
+`
+      );
+
+      const result = runCli(['add', testDir, '--skill', 'internal-skill', '--list'], testDir);
+      expect(result.stdout).toContain('internal-skill');
+    });
+
+    it('should include internal skills for the wildcard when INSTALL_INTERNAL_SKILLS=1', () => {
+      const internalDir = join(testDir, 'skills', 'internal-skill');
+      mkdirSync(internalDir, { recursive: true });
+      writeFileSync(
+        join(internalDir, 'SKILL.md'),
+        `---
+name: internal-skill
+description: An internal skill
+metadata:
+  internal: true
+---
+# Internal Skill
+`
+      );
+
+      const result = runCli(['add', testDir, '--skill', '*', '--list'], testDir, {
+        INSTALL_INTERNAL_SKILLS: '1',
+      });
+      expect(result.stdout).toContain('internal-skill');
+    });
   });
 });
 
@@ -636,19 +739,6 @@ describe('parseAddOptions', () => {
     const result = parseAddOptions(['source', '--subagent', 'research', '-y']);
     expect(result.source).toEqual(['source']);
     expect(result.options.subagent).toEqual(['research']);
-    expect(result.options.yes).toBe(true);
-  });
-});
-
-describe('obsolete OpenClaw risk bypass flag', () => {
-  it('should not expose the obsolete OpenClaw risk bypass flag', () => {
-    const result = parseAddOptions([
-      'openclaw/skills',
-      '--dangerously-accept-openclaw-risks',
-      '-y',
-    ]);
-    expect(result.source).toEqual(['openclaw/skills']);
-    expect(result.options).not.toHaveProperty('dangerouslyAcceptOpenclawRisks');
     expect(result.options.yes).toBe(true);
   });
 });

@@ -3,6 +3,7 @@ import { gunzipSync } from 'node:zlib';
 import { readZipArchive } from '../archive.ts';
 import { parseFrontmatter } from '../frontmatter.ts';
 import { sanitizeMetadata } from '../sanitize.ts';
+import { shouldInstallInternalSkills } from '../skills.ts';
 import type { HostProvider, ProviderMatch, RemoteSkill } from './types.ts';
 
 const DISCOVERY_SCHEMA_V2 = 'https://schemas.agentskills.io/discovery/0.2.0/schema.json';
@@ -49,6 +50,29 @@ export interface WellKnownSkillEntryV2 {
   digest: string;
 }
 
+/**
+ * Thrown when a path-scoped URL (for example https://host/s/my-list) has no
+ * usable skills under that path while the host does publish a root index.
+ * Falling back to the root index in that situation used to install the
+ * host's entire catalog, so the caller must surface the unresolved scope
+ * instead of installing anything.
+ */
+export class WellKnownScopeNotFoundError extends Error {
+  readonly scopePath: string;
+  readonly rootUrl: string;
+
+  constructor(scopePath: string, rootUrl: string) {
+    super(
+      `No skills found for the scoped path '${scopePath}' on ${rootUrl}. ` +
+        `Not falling back to the root skills index because that would install every skill the host publishes. ` +
+        `Check the URL, or run 'skills add ${rootUrl}' to install from the root index.`
+    );
+    this.name = 'WellKnownScopeNotFoundError';
+    this.scopePath = scopePath;
+    this.rootUrl = rootUrl;
+  }
+}
+
 export type WellKnownIndex = WellKnownIndexV1 | WellKnownIndexV2;
 export type WellKnownSkillEntry = WellKnownSkillEntryV1 | WellKnownSkillEntryV2;
 export type WellKnownFileContent = string | Uint8Array;
@@ -81,6 +105,11 @@ export interface WellKnownSkill extends RemoteSkill {
   files: Map<string, WellKnownFileContent>;
   /** The entry from index.json */
   indexEntry: WellKnownSkillEntry;
+}
+
+export interface FetchAllSkillsOptions {
+  /** Include skills marked with metadata.internal: true. */
+  includeInternal?: boolean;
 }
 
 /**
@@ -552,22 +581,57 @@ export class WellKnownProvider implements HostProvider {
     };
   }
 
-  /** Fetch all skills from a well-known endpoint. */
-  async fetchAllSkills(url: string): Promise<WellKnownSkill[]> {
+  /**
+   * Get the path scope of a URL, if any. A URL such as https://host/s/my-list
+   * is scoped to '/s/my-list'; a bare origin has no scope.
+   */
+  private getScope(url: string): { scopePath: string; rootBaseUrl: string } | null {
+    try {
+      const parsed = new URL(url);
+      const scopePath = parsed.pathname.replace(/\/$/, '');
+      if (!scopePath) return null;
+      return { scopePath, rootBaseUrl: `${parsed.protocol}//${parsed.host}` };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Fetch all skills from a well-known endpoint.
+   *
+   * When the URL is scoped to a path, only path-relative indexes are used.
+   * If the scope yields no skills but the host publishes a root index, this
+   * throws {@link WellKnownScopeNotFoundError} instead of silently widening
+   * to the root index and returning the host's entire catalog.
+   */
+  async fetchAllSkills(
+    url: string,
+    options: FetchAllSkillsOptions = {}
+  ): Promise<WellKnownSkill[]> {
     try {
       const candidates = await this.fetchIndexCandidates(url);
+      const scope = this.getScope(url);
+      const scopedCandidates = scope
+        ? candidates.filter((c) => c.resolvedBaseUrl !== scope.rootBaseUrl)
+        : candidates;
+      const includeInternal = options.includeInternal || shouldInstallInternalSkills();
 
-      for (const result of candidates) {
+      for (const result of scopedCandidates) {
         const skillPromises = result.entries.map((entry) => this.fetchSkillByEntry(entry));
         const results = await Promise.all(skillPromises);
-        const skills = results.filter(
-          (s: WellKnownSkill | null): s is WellKnownSkill => s !== null
-        );
+        const skills = results
+          .filter((s: WellKnownSkill | null): s is WellKnownSkill => s !== null)
+          .filter((skill) => includeInternal || skill.metadata?.internal !== true);
         if (skills.length > 0) return skills;
       }
 
+      if (scope && scopedCandidates.length < candidates.length) {
+        throw new WellKnownScopeNotFoundError(scope.scopePath, scope.rootBaseUrl);
+      }
+
       return [];
-    } catch {
+    } catch (error) {
+      if (error instanceof WellKnownScopeNotFoundError) throw error;
       return [];
     }
   }

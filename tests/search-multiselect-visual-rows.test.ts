@@ -5,6 +5,8 @@ import {
   buildSearchEntries,
   countVisualRowsForLines,
   formatDetailLines,
+  getSelectAllState,
+  toggleAllItems,
   toggleSearchEntry,
   visualRowsForLine,
 } from '../src/prompts/search-multiselect.ts';
@@ -126,6 +128,34 @@ describe('searchMultiselect visual row counting', () => {
     expect(selected).toEqual(new Set(['review', 'design']));
 
     toggleSearchEntry(selected, entries[0]);
+    expect(selected).toEqual(new Set());
+  });
+
+  it('tracks none, partial, and all states as individual skills are selected', () => {
+    const items = [
+      { value: 'review', label: 'code-review' },
+      { value: 'design', label: 'codebase-design' },
+    ];
+    const selected = new Set<string>();
+
+    expect(getSelectAllState(selected, items)).toBe('none');
+    selected.add('review');
+    expect(getSelectAllState(selected, items)).toBe('partial');
+    selected.add('design');
+    expect(getSelectAllState(selected, items)).toBe('all');
+  });
+
+  it('selects every skill from Select All, then clears them on the next toggle', () => {
+    const items = [
+      { value: 'review', label: 'code-review' },
+      { value: 'design', label: 'codebase-design' },
+    ];
+    const selected = new Set<string>();
+
+    toggleAllItems(selected, items);
+    expect(selected).toEqual(new Set(['review', 'design']));
+
+    toggleAllItems(selected, items);
     expect(selected).toEqual(new Set());
   });
 });

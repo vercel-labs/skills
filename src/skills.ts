@@ -18,11 +18,13 @@ const AGENT_PROJECT_SKILL_DIRS = [
   '.codex/skills',
   '.commandcode/skills',
   '.continue/skills',
+  '.factory/skills',
   '.github/skills',
   '.goose/skills',
   '.grok/skills',
   '.iflow/skills',
   '.junie/skills',
+  '.kilo/skills',
   '.kilocode/skills',
   '.kimchi/skills',
   '.kiro/skills',
@@ -32,6 +34,7 @@ const AGENT_PROJECT_SKILL_DIRS = [
   '.opencode/skills',
   '.openhands/skills',
   '.pi/skills',
+  '.posit/assistant/skills',
   '.qoder/skills',
   '.roo/skills',
   '.trae/skills',
@@ -61,7 +64,7 @@ export function shouldInstallInternalSkills(): boolean {
   return envValue === '1' || envValue === 'true';
 }
 
-async function hasSkillMd(dir: string): Promise<boolean> {
+export async function hasSkillMd(dir: string): Promise<boolean> {
   try {
     const skillPath = join(dir, 'SKILL.md');
     const stats = await stat(skillPath);
@@ -159,6 +162,8 @@ export interface DiscoverSkillsOptions {
   includeInternal?: boolean;
   /** Search all subdirectories even when a root SKILL.md exists */
   fullDepth?: boolean;
+  /** Preserve duplicate skill names so callers can detect ambiguous locations */
+  includeDuplicateNames?: boolean;
 }
 
 /**
@@ -269,7 +274,7 @@ export async function discoverSkills(
   const tryAddSkillAt = async (skillDir: string): Promise<boolean> => {
     if (!(await hasSkillMd(skillDir))) return false;
     let skill = await parseSkillAt(skillDir);
-    if (!skill || seenNames.has(skill.name)) return true;
+    if (!skill || (!options?.includeDuplicateNames && seenNames.has(skill.name))) return true;
     if (isInstalledProjectSkill(skill)) return true;
     skill = enhanceSkill(skill);
     skills.push(skill);
@@ -309,7 +314,11 @@ export async function discoverSkills(
 
     for (const skillDir of allSkillDirs) {
       let skill = await parseSkillAt(skillDir);
-      if (skill && !seenNames.has(skill.name) && !isInstalledProjectSkill(skill)) {
+      if (
+        skill &&
+        (options?.includeDuplicateNames || !seenNames.has(skill.name)) &&
+        !isInstalledProjectSkill(skill)
+      ) {
         skill = enhanceSkill(skill);
         skills.push(skill);
         seenNames.add(skill.name);

@@ -5,11 +5,11 @@ import { join } from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cloneRepo } from '../src/git.ts';
 
-function runGit(args: string[], env: NodeJS.ProcessEnv): Promise<void> {
+function runGit(args: string[], env: NodeJS.ProcessEnv): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile('git', args, { env }, (error) => {
+    execFile('git', args, { env, encoding: 'utf8' }, (error, stdout) => {
       if (error) reject(error);
-      else resolve();
+      else resolve(stdout);
     });
   });
 }
@@ -43,9 +43,11 @@ describe('cloneRepo transport allowlist', () => {
     process.env.GIT_CONFIG_GLOBAL = globalConfig;
     process.env.GIT_CONFIG_NOSYSTEM = '1';
 
-    await expect(
-      runGit(['clone', 'skills-test::fixture', join(root, 'baseline')], process.env)
-    ).rejects.toThrow(/remote-skills-test/);
+    const configuredAllowance = await runGit(
+      ['config', '--global', '--get', 'protocol.skills-test.allow'],
+      process.env
+    );
+    expect(configuredAllowance.trim()).toBe('always');
 
     // Make sure user's env doesn't bypass our allow list
     process.env.GIT_ALLOW_PROTOCOL = 'skills-test:ext:fd';

@@ -2,8 +2,6 @@ import { readFile, writeFile, mkdir } from 'fs/promises';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
-import { execSync } from 'child_process';
-import pc from 'picocolors';
 
 const AGENTS_DIR = '.agents';
 const LOCK_FILE = '.skill-lock.json';
@@ -126,54 +124,24 @@ export function computeContentHash(content: string): string {
   return createHash('sha256').update(content, 'utf-8').digest('hex');
 }
 
-let _ghWarningShown = false;
-
-/** For tests only. Resets the one-shot warning flag. */
-export function resetGhAuthWarning(): void {
-  _ghWarningShown = false;
-}
-
 /**
  * Get GitHub token from user's environment.
  * Tries in order:
- * 1. GITHUB_TOKEN environment variable (silent)
- * 2. GH_TOKEN environment variable (silent)
- * 3. gh CLI auth token, if gh is installed. Prints a one-time status to
- *    stderr before invoking `gh auth token`, because that subprocess call
- *    is flagged by some corporate endpoint security tooling (Defender, etc.)
- *    as credential extraction. Callers should invoke this function lazily
- *    (e.g. only after an unauthenticated request hits a rate limit) so the
- *    fallback rarely runs in practice.
+ * 1. GITHUB_TOKEN environment variable
+ * 2. GH_TOKEN environment variable
+ *
+ * Stored credentials are deliberately not extracted from the GitHub CLI.
+ * When no explicit API token is configured, callers can fall back to a normal
+ * Git clone, which uses the user's existing Git credential helper or SSH setup.
  *
  * @returns The token string or null if not available
  */
 export function getGitHubToken(): string | null {
-  // Check environment variables first (silent: user has explicitly opted in)
   if (process.env.GITHUB_TOKEN) {
     return process.env.GITHUB_TOKEN;
   }
   if (process.env.GH_TOKEN) {
     return process.env.GH_TOKEN;
-  }
-
-  // Last resort: spawn gh CLI. Make the automatic credential check clear once
-  // per process before doing so, without suggesting the user needs to act.
-  if (!_ghWarningShown) {
-    process.stderr.write(
-      `${pc.dim('│  GitHub API request limit reached; checking existing ')}${pc.cyan('gh')}${pc.dim(' authentication…\n')}`
-    );
-    _ghWarningShown = true;
-  }
-  try {
-    const token = execSync('gh auth token', {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-    if (token) {
-      return token;
-    }
-  } catch {
-    // gh not installed or not authenticated
   }
 
   return null;
@@ -187,7 +155,7 @@ export function getGitHubToken(): string | null {
  * @param ownerRepo - GitHub owner/repo (e.g., "vercel-labs/agent-skills")
  * @param skillPath - Path to skill folder or SKILL.md (e.g., "skills/react-best-practices/SKILL.md")
  * @param getToken - Optional lazy token resolver. Invoked only if the
- *                   unauthenticated request hits a rate limit.
+ *                   unauthenticated request needs authentication.
  * @param ref - Optional branch/tag ref. Defaults to trying main then master.
  * @returns The tree SHA for the skill folder, or null if not found
  */

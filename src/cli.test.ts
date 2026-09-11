@@ -21,6 +21,7 @@ describe('skills CLI', () => {
       expect(output).toContain('-l, --list');
       expect(output).toContain('-y, --yes');
       expect(output).toContain('--all');
+      expect(output).not.toContain('OpenClaw community skills');
     });
 
     it('should show same output for -h alias', () => {

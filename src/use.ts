@@ -14,6 +14,7 @@ import type { AgentType, Skill } from './types.ts';
 import { downloadSource } from './download-source.ts';
 import {
   wellKnownProvider,
+  WellKnownScopeNotFoundError,
   type WellKnownSkill,
   type WellKnownFileContent,
 } from './providers/wellknown.ts';
@@ -22,7 +23,6 @@ export interface UseOptions {
   skill?: string;
   agent?: string[];
   fullDepth?: boolean;
-  dangerouslyAcceptOpenclawRisks?: boolean;
   help?: boolean;
 }
 
@@ -83,6 +83,7 @@ const EXCLUDE_DIRS = new Set(['.git', '__pycache__', '__pypackages__']);
 const USE_AGENT_CONFIGS: Partial<Record<AgentType, UseAgentConfig>> = {
   'claude-code': { command: 'claude', args: [] },
   codex: { command: 'codex', args: [] },
+  'sarvam-code': { command: 'sarvam-code', args: [] },
 };
 const SUPPORTED_USE_AGENTS = Object.keys(USE_AGENT_CONFIGS) as AgentType[];
 
@@ -99,8 +100,6 @@ export function parseUseOptions(args: string[]): ParseUseOptionsResult {
       options.help = true;
     } else if (arg === '--full-depth') {
       options.fullDepth = true;
-    } else if (arg === '--dangerously-accept-openclaw-risks') {
-      options.dangerouslyAcceptOpenclawRisks = true;
     } else if (arg === '--skill' || arg === '-s') {
       const value = args[i + 1];
       if (!value || value.startsWith('-')) {
@@ -214,18 +213,6 @@ export async function runUse(
 
     const source = sourceArgs[0]!;
     const parsed = parseSource(source);
-    const ownerRepoRaw = getOwnerRepo(parsed);
-    const sourceOwner = ownerRepoRaw?.split('/')[0]?.toLowerCase();
-
-    if (sourceOwner === 'openclaw' && !options.dangerouslyAcceptOpenclawRisks) {
-      fail(
-        [
-          'OpenClaw skills are unverified community submissions.',
-          'Skills run with full agent permissions and could be malicious.',
-          `If you understand the risks, re-run with: skills use ${source} --dangerously-accept-openclaw-risks`,
-        ].join('\n')
-      );
-    }
 
     const selector = resolveSelector(parsed.skillFilter, options.skill);
     const includeInternal = selector !== undefined;
@@ -233,7 +220,14 @@ export async function runUse(
     let selectedSkill: UseSkill;
 
     if (parsed.type === 'well-known') {
-      const skills = await wellKnownProvider.fetchAllSkills(parsed.url);
+      const skills = await wellKnownProvider
+        .fetchAllSkills(parsed.url, {
+          includeInternal,
+        })
+        .catch((error) => {
+          if (error instanceof WellKnownScopeNotFoundError) fail(error.message);
+          return [] as WellKnownSkill[];
+        });
       if (skills.length > 0) {
         selectedSkill = selectWellKnownSkill(skills, selector, source);
       } else {
@@ -403,8 +397,6 @@ Options:
   -s, --skill <skill>   Select the skill to use
   -a, --agent <agent>   Start one supported agent interactively (${SUPPORTED_USE_AGENTS.join(', ')})
   --full-depth          Search nested directories like skills add --full-depth
-  --dangerously-accept-openclaw-risks
-                         Allow unverified OpenClaw community skills
   -h, --help            Show this help message
 
 Examples:
