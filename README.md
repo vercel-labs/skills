@@ -135,6 +135,7 @@ When installing interactively, you can choose:
 | Command                      | Description                                   |
 | ---------------------------- | --------------------------------------------- |
 | `npx skills use <source>`    | Use one skill without installing              |
+| `npx skills panel`           | Open the full-screen terminal interface       |
 | `npx skills list`            | List installed skills (alias: `ls`)           |
 | `npx skills find [query]`    | Search for skills interactively or by keyword |
 | `npx skills remove [skills]` | Remove installed skills from agents           |

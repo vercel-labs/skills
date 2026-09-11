@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from 'vitest';
-import { mkdir, mkdtemp, writeFile, rm, symlink } from 'fs/promises';
+import { access, cp, mkdir, mkdtemp, writeFile, rm, symlink } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { createTestHomeEnvironment } from '../src/test-utils.ts';
 
 let listInstalledSkills: typeof import('../src/installer.ts').listInstalledSkills;
+let setInstalledSkillEnabled: typeof import('../src/installer.ts').setInstalledSkillEnabled;
 let agentsModule: typeof import('../src/agents.ts');
 
 describe('listInstalledSkills', () => {
@@ -20,7 +21,7 @@ describe('listInstalledSkills', () => {
 
     vi.resetModules();
     agentsModule = await import('../src/agents.ts');
-    ({ listInstalledSkills } = await import('../src/installer.ts'));
+    ({ listInstalledSkills, setInstalledSkillEnabled } = await import('../src/installer.ts'));
   });
 
   beforeEach(async () => {
@@ -91,6 +92,31 @@ ${skillData.description}
     expect(skills).toHaveLength(2);
     const skillNames = skills.map((s) => s.name).sort();
     expect(skillNames).toEqual(['skill-1', 'skill-2']);
+  });
+
+  it('keeps disabled skills discoverable and allows enabling them again', async () => {
+    const canonicalDir = await createSkillDir(testDir, 'toggle-skill', {
+      name: 'toggle-skill',
+      description: 'A toggleable skill',
+    });
+    const agentCopyDir = join(testDir, '.claude', 'skills', 'toggle-skill');
+    await cp(canonicalDir, agentCopyDir, { recursive: true });
+
+    const [installed] = await listInstalledSkills({ global: false, cwd: testDir });
+    expect(installed).toBeDefined();
+    expect(installed!.disabled).toBe(false);
+
+    await setInstalledSkillEnabled(installed!, false, { cwd: testDir });
+    const [disabled] = await listInstalledSkills({ global: false, cwd: testDir });
+    expect(disabled).toBeDefined();
+    expect(disabled!.disabled).toBe(true);
+    await expect(access(join(agentCopyDir, 'SKILL.md.disabled'))).resolves.toBeUndefined();
+
+    await setInstalledSkillEnabled(disabled!, true, { cwd: testDir });
+    const [enabled] = await listInstalledSkills({ global: false, cwd: testDir });
+    expect(enabled).toBeDefined();
+    expect(enabled!.disabled).toBe(false);
+    await expect(access(join(agentCopyDir, 'SKILL.md'))).resolves.toBeUndefined();
   });
 
   it('should ignore directories without SKILL.md', async () => {
