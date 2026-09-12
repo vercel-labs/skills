@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { promptForAgents } from './add.js';
+import { ensureUniversalAgents, filterAgentsForRequestedScope, promptForAgents } from './add.js';
+import { agents, getUniversalAgents } from './agents.js';
 import * as skillLock from './skill-lock.js';
 import * as searchMultiselectModule from './prompts/search-multiselect.js';
 
@@ -99,5 +100,32 @@ describe('promptForAgents', () => {
     await promptForAgents('Select agents', choices);
 
     expect(skillLock.saveSelectedAgents).not.toHaveBeenCalled();
+  });
+});
+
+describe('global agent target selection', () => {
+  it('does not auto-add project-only universal agents for global installs', () => {
+    expect(getUniversalAgents()).toContain('promptscript');
+    expect(agents.promptscript.globalSkillsDir).toBeUndefined();
+
+    const selected = ensureUniversalAgents(['codex'], { global: true });
+
+    expect(selected).toContain('codex');
+    expect(selected).not.toContain('promptscript');
+  });
+
+  it('filters already-detected project-only agents from implicit global targets', () => {
+    const selected = filterAgentsForRequestedScope(
+      ensureUniversalAgents(['promptscript'], { global: true }),
+      { global: true }
+    );
+
+    expect(selected).not.toContain('promptscript');
+  });
+
+  it('filters unsupported agents from wildcard global targets', () => {
+    expect(filterAgentsForRequestedScope(['codex', 'promptscript'], { global: true })).toEqual([
+      'codex',
+    ]);
   });
 });
