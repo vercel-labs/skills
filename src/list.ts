@@ -5,13 +5,7 @@ import { listInstalledSkills, sanitizeName, type InstalledSkill } from './instal
 import { sanitizeMetadata } from './sanitize.ts';
 import { getAllLockedSkills } from './skill-lock.ts';
 import { readLocalLock } from './local-lock.ts';
-
-const RESET = '\x1b[0m';
-const BOLD = '\x1b[1m';
-const DIM = '\x1b[38;5;102m';
-const TEXT = '\x1b[38;5;145m';
-const CYAN = '\x1b[36m';
-const YELLOW = '\x1b[33m';
+import { BOLD, CYAN, DIM, RESET, YELLOW } from './color.ts';
 
 interface ListOptions {
   global?: boolean;
