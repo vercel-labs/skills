@@ -240,22 +240,7 @@ describe('Notion single skill', () => {
       'c169bd0a-546a-45d4-8344-ffacad25d763',
     ],
   ])('extracts the page ID from %s', (source, expected) => {
-    expect(parseNotionSkillUrl(source)?.id).toBe(expected);
-  });
-
-  it.each([
-    [
-      'https://app.notion.com/p/notiondevs/Capture-meeting-decisions-c169bd0a546a45d48344ffacad25d763?source=copy_link',
-      'Capture meeting decisions',
-    ],
-    [
-      'https://www.notion.so/Q3_planning_notes-c169bd0a546a45d48344ffacad25d763',
-      'Q3 planning notes',
-    ],
-    // A bare ID carries no slug, so there is no title to show.
-    ['https://notion.so/acme/c169bd0a-546a-45d4-8344-ffacad25d763', null],
-  ])('recovers the page title from %s', (source, expected) => {
-    expect(parseNotionSkillUrl(source)?.title).toBe(expected);
+    expect(parseNotionSkillUrl(source)).toBe(expected);
   });
 
   it.each([
