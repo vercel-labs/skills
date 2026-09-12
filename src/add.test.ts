@@ -439,6 +439,25 @@ description: Test
     expect(result.exitCode).toBe(1);
   });
 
+  it('should suggest a matching agent name for common aliases', () => {
+    const skillDir = join(testDir, 'test-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: test-skill
+description: Test
+---
+# Test
+`
+    );
+
+    const result = runCli(['add', testDir, '-y', '--agent', 'claude'], testDir);
+    expect(result.stdout).toContain('Invalid agents: claude');
+    expect(result.stdout).toContain('Did you mean: claude-code?');
+    expect(result.exitCode).toBe(1);
+  });
+
   it('should support add command aliases (a, i, install)', () => {
     // Test that aliases work (just check they show missing source error)
     const resultA = runCli(['a'], testDir);
