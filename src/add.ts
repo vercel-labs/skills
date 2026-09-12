@@ -576,11 +576,6 @@ function isSkillsShPackUrl(url: string): boolean {
   }
 }
 
-/**
- * Announce skills that were selected without a prompt. Naming the single skill
- * reads better than counting it — and a count of one ("Installing all 1
- * skills") is just wrong.
- */
 function logAutoSelectedSkills(entries: Array<{ label: string; description?: string }>): void {
   const only = entries.length === 1 ? entries[0]! : null;
   if (!only) {
