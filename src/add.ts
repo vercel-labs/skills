@@ -58,7 +58,12 @@ import {
   type BlobInstallResult,
 } from './blob.ts';
 import packageJson from '../package.json' with { type: 'json' };
-import { isNotionSource, prepareNotionPackSource } from './notion-test.ts';
+import {
+  isNotionSource,
+  parseNotionSkillUrl,
+  prepareNotionPackSource,
+  prepareNotionSkillSource,
+} from './notion-test.ts';
 
 // Helper to check if a value is a cancel symbol (works with both clack and our custom prompts)
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
@@ -571,6 +576,16 @@ function isSkillsShPackUrl(url: string): boolean {
   }
 }
 
+function logAutoSelectedSkills(entries: Array<{ label: string; description?: string }>): void {
+  const only = entries.length === 1 ? entries[0]! : null;
+  if (!only) {
+    p.log.info(`Installing all ${entries.length} skills`);
+    return;
+  }
+  p.log.info(`Skill: ${pc.cyan(only.label)}`);
+  if (only.description) p.log.message(pc.dim(only.description));
+}
+
 async function handleWellKnownSkills(
   source: string,
   url: string,
@@ -615,11 +630,15 @@ async function handleWellKnownSkills(
 
   // Filter skills if --skill option is provided
   let selectedSkills: WellKnownSkill[];
+  const logWellKnown = (chosen: WellKnownSkill[]): void =>
+    logAutoSelectedSkills(
+      chosen.map((s) => ({ label: s.installName, description: s.description }))
+    );
 
   if (options.skill?.includes('*')) {
     // --skill '*' selects all skills
     selectedSkills = skills;
-    p.log.info(`Installing all ${skills.length} skills`);
+    logWellKnown(selectedSkills);
   } else if (options.skill && options.skill.length > 0) {
     selectedSkills = skills.filter((s) =>
       options.skill!.some(
@@ -637,13 +656,9 @@ async function handleWellKnownSkills(
       }
       process.exit(1);
     }
-  } else if (skills.length === 1) {
+  } else if (skills.length === 1 || options.yes) {
     selectedSkills = skills;
-    const firstSkill = skills[0]!;
-    p.log.info(`Skill: ${pc.cyan(firstSkill.installName)}`);
-  } else if (options.yes) {
-    selectedSkills = skills;
-    p.log.info(`Installing all ${skills.length} skills`);
+    logWellKnown(selectedSkills);
   } else {
     // Prompt user to select skills
     const skillChoices = skills.map((s) => ({
@@ -1104,6 +1119,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
   try {
     let effectiveSource = source;
     let notionPackCount: number | null = null;
+    const notionSkillPageId = isNotionSource(source) ? null : parseNotionSkillUrl(source);
     if (isNotionSource(source)) {
       const prepared = await prepareNotionPackSource(options);
       if (!prepared) return;
@@ -1114,17 +1130,27 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       // Pack selection replaces the ordinary per-skill selector. Every skill
       // inside the selected packs continues through the normal install flow.
       options.skill = ['*'];
+    } else if (notionSkillPageId) {
+      const prepared = await prepareNotionSkillSource(notionSkillPageId);
+
+      effectiveSource = prepared.rootDir;
+      tempDir = prepared.tempDir;
+      // The page URL already named the skill, so skip the per-skill selector.
+      options.skill = ['*'];
     }
 
     const spinner = p.spinner();
 
     spinner.start('Parsing source…');
     const parsed = parseSource(effectiveSource);
-    let directDownload = parsed.type === 'download' || notionPackCount !== null;
+    let directDownload =
+      parsed.type === 'download' || notionPackCount !== null || notionSkillPageId !== null;
     spinner.stop(
       notionPackCount !== null
         ? `Source: ${notionPackCount} selected Notion pack${notionPackCount === 1 ? '' : 's'}`
-        : `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
+        : notionSkillPageId
+          ? 'Source: Notion page'
+          : `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
     );
 
     // Kick off the repo privacy check early so it runs in parallel with
@@ -1307,11 +1333,15 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     let selectedSkills: Skill[];
+    const logChosen = (chosen: Skill[]): void =>
+      logAutoSelectedSkills(
+        chosen.map((s) => ({ label: getSkillDisplayName(s), description: s.description }))
+      );
 
     if (options.skill?.includes('*')) {
       // --skill '*' selects all skills
       selectedSkills = skills;
-      p.log.info(`Installing all ${skills.length} skills`);
+      logChosen(selectedSkills);
     } else if (options.skill && options.skill.length > 0) {
       selectedSkills = filterSkills(skills, options.skill);
 
@@ -1328,14 +1358,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       p.log.info(
         `Selected ${selectedSkills.length} skill${selectedSkills.length !== 1 ? 's' : ''}: ${selectedSkills.map((s) => pc.cyan(getSkillDisplayName(s))).join(', ')}`
       );
-    } else if (skills.length === 1) {
+    } else if (skills.length === 1 || options.yes) {
       selectedSkills = skills;
-      const firstSkill = skills[0]!;
-      p.log.info(`Skill: ${pc.cyan(getSkillDisplayName(firstSkill))}`);
-      p.log.message(pc.dim(firstSkill.description));
-    } else if (options.yes) {
-      selectedSkills = skills;
-      p.log.info(`Installing all ${skills.length} skills`);
+      logChosen(selectedSkills);
     } else {
       // Sort skills by plugin name first, then by skill name
       const sortedSkills = [...skills].sort((a, b) => {

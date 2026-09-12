@@ -110,6 +110,7 @@ ${BOLD}Manage Skills:${RESET}
   add <package>        Add a skill package (alias: a)
                        e.g. vercel-labs/agent-skills
                             notion
+                            https://notion.so/<skill-page>
                             https://github.com/vercel-labs/agent-skills
   use <package>@<skill>
                        Generate a prompt for using one skill without installing it
