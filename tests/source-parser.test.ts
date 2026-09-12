@@ -449,6 +449,12 @@ describe('Source aliases', () => {
     expect(result.url).toBe('https://github.com/coinbase/agentic-wallet-skills.git');
   });
 
+  it('resolves novoads/claude-code-ads to novoads/agent-skills', () => {
+    const result = parseSource('novoads/claude-code-ads');
+    expect(result.type).toBe('github');
+    expect(result.url).toBe('https://github.com/novoads/agent-skills.git');
+  });
+
   it('resolves vercel-labs/vercel-skills to vercel-labs/agent-skills', () => {
     const result = parseSource('vercel-labs/vercel-skills');
     expect(result.type).toBe('github');
