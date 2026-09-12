@@ -57,6 +57,7 @@ export function parseListOptions(args: string[]): ListOptions {
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
+    if (!arg) continue;
     if (arg === '-g' || arg === '--global') {
       options.global = true;
     } else if (arg === '--json') {
@@ -67,6 +68,16 @@ export function parseListOptions(args: string[]): ListOptions {
       while (i + 1 < args.length && !args[i + 1]!.startsWith('-')) {
         options.agent.push(args[++i]!);
       }
+    } else if (arg.startsWith('--agent=') || arg.startsWith('-a=')) {
+      options.agent = options.agent || [];
+      const val = arg.startsWith('--agent=')
+        ? arg.slice('--agent='.length)
+        : arg.slice('-a='.length);
+      const parts = val
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      options.agent.push(...parts);
     }
   }
 

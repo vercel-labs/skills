@@ -29,4 +29,28 @@ describe('parseRemoveOptions', () => {
     expect(result.options.all).toBe(true);
     expect(result.options.yes).toBe(true);
   });
+
+  it('parses --skill=<name> and -s=<name> equals syntax', () => {
+    const result1 = parseRemoveOptions(['--skill=skill-one', '-y']);
+    expect(result1.skills).toEqual(['skill-one']);
+    expect(result1.options.yes).toBe(true);
+
+    const result2 = parseRemoveOptions(['-s=skill-one', '-s=skill-two', '-g']);
+    expect(result2.skills).toEqual(['skill-one', 'skill-two']);
+    expect(result2.options.global).toBe(true);
+
+    const result3 = parseRemoveOptions(['--skill=skill-one,skill-two']);
+    expect(result3.skills).toEqual(['skill-one', 'skill-two']);
+  });
+
+  it('parses --agent=<agents> and -a=<agents> equals syntax', () => {
+    const result1 = parseRemoveOptions(['--skill=skill-one', '--agent=claude-code', '-y']);
+    expect(result1.skills).toEqual(['skill-one']);
+    expect(result1.options.agent).toEqual(['claude-code']);
+    expect(result1.options.yes).toBe(true);
+
+    const result2 = parseRemoveOptions(['skill-one', '-a=cursor,codex']);
+    expect(result2.skills).toEqual(['skill-one']);
+    expect(result2.options.agent).toEqual(['cursor', 'codex']);
+  });
 });
