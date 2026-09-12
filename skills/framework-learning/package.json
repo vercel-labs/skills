@@ -1,0 +1,23 @@
+{
+    "name": "framework-learning-skill",
+    "version": "1.0.0",
+    "description": "Framework Learning Skill for skills.sh",
+    "main": "api/index.ts",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "keywords": [
+        "vercel",
+        "skills",
+        "framework"
+    ],
+    "author": "Yuva",
+    "license": "ISC",
+    "dependencies": {
+        "@vercel/node": "^3.0.0",
+        "typescript": "^5.0.0"
+    },
+    "engines": {
+        "node": "20.x"
+    }
+}
