@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [75 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [76 more](#supported-agents).
 <!-- agent-list:end -->
 
 [![skills.sh](https://skills.sh/b/vercel-labs/skills)](https://skills.sh/vercel-labs/skills)
@@ -298,6 +298,7 @@ Skills can be installed to any of these agents:
 | ForgeCode | `forgecode` | `.forge/skills/` | `~/.forge/skills/` |
 | fx | `fx` | `.fx/skills/` | `~/.fx/skills/` |
 | Gemini CLI | `gemini-cli` | `.agents/skills/` | `~/.gemini/skills/` |
+| GigaCode CLI | `gigacode` | `.gigacode/skills/` | `~/.gigacode/skills/` |
 | GitHub Copilot | `github-copilot` | `.agents/skills/` | `~/.copilot/skills/` |
 | Goose | `goose` | `.goose/skills/` | `~/.config/goose/skills/` |
 | Grok Build | `grok` | `.grok/skills/` | `~/.grok/skills/` |
@@ -434,6 +435,7 @@ discover `SKILL.md` files outside these container directories (e.g. under
 - `agent/skills/`
 - `.forge/skills/`
 - `.fx/skills/`
+- `.gigacode/skills/`
 - `.goose/skills/`
 - `.grok/skills/`
 - `.hermes/skills/`
@@ -559,6 +561,7 @@ GitHub repository and skill identifiers are sent only for repositories that GitH
 - [Cursor Skills Documentation](https://cursor.com/docs/context/skills)
 - [Firebender Skills Documentation](https://docs.firebender.com/multi-agent/skills)
 - [Gemini CLI Skills Documentation](https://geminicli.com/docs/cli/skills/)
+- [GigaCode CLI Skills Documentation](https://gitverse.ru/docs/ai/ai-assistant-gigacode/gigacode-cli/skills)
 - [GitHub Copilot Agent Skills](https://docs.github.com/en/copilot/concepts/agents/about-agent-skills)
 - [iFlow CLI Skills Documentation](https://platform.iflow.cn/en/cli/examples/skill)
 - [Kimi Code CLI Skills Documentation](https://moonshotai.github.io/kimi-code/en/customization/skills)

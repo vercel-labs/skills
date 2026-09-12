@@ -366,6 +366,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.gemini'));
     },
   },
+  gigacode: {
+    name: 'gigacode',
+    displayName: 'GigaCode CLI',
+    skillsDir: '.gigacode/skills',
+    globalSkillsDir: join(home, '.gigacode/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.gigacode'));
+    },
+  },
   'github-copilot': {
     name: 'github-copilot',
     displayName: 'GitHub Copilot',
