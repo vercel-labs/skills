@@ -186,7 +186,7 @@ describe('Notion pack prototype', () => {
       stagedSkills.map((skill) => ({ name: skill.name, pluginName: skill.pluginName }))
     ).toEqual([{ name: 'write-update', pluginName: 'Company-wide' }]);
     expect(prepared).toMatchObject({ packCount: 1, skillCount: 1 });
-    // list + workspace probe (in parallel), then the per-pack directory lookup
+    // list + workspace probe, then the pack directory lookup
     expect(runNtn).toHaveBeenCalledTimes(3);
   });
 

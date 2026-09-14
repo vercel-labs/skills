@@ -1135,7 +1135,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
       effectiveSource = prepared.rootDir;
       tempDir = prepared.tempDir;
-      // The page URL already named the skill, so skip the per-skill selector.
+      // The URL already named the skill; skip the selector.
       options.skill = ['*'];
     }
 

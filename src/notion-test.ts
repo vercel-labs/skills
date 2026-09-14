@@ -269,16 +269,8 @@ export async function fetchNotionPackDirectory(
   return directory;
 }
 
-/**
- * Best-effort label for the workspace `ntn` is authenticated against. A machine
- * can hold credentials for several workspaces (and `--env` switches between
- * whole environments), so installing from the wrong one is an easy mistake to
- * make and a hard one to notice. Every Notion install reports which workspace
- * it used.
- *
- * Never fatal: a failed lookup just omits the label rather than blocking an
- * install that would otherwise succeed.
- */
+/** Workspace `ntn` is authenticated against. Null on any failure, so a probe
+ *  can never block an install. */
 export async function fetchNotionWorkspaceName(
   options: FetchNotionPacksOptions = {}
 ): Promise<string | null> {
@@ -311,12 +303,8 @@ function formatPageId(rawId: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-/**
- * Recognize a Notion page URL and return its page ID, e.g.
- * https://app.notion.com/p/team/Capture-meeting-decisions-c169bd0a…  ->  c169bd0a-…
- * Returns null for anything that is not a Notion page URL so the caller can
- * fall through to the ordinary git/download source handling.
- */
+/** Page ID from a Notion page URL, else null so other source formats still
+ *  fall through to the ordinary handling. */
 export function parseNotionSkillUrl(source: string): string | null {
   let url: URL;
   try {
@@ -363,11 +351,8 @@ export async function fetchNotionSkillDirectory(
   return parseDirectory(value, 'skill');
 }
 
-/**
- * Download a single Notion skill directory. The archive holds one top-level
- * directory with SKILL.md, so the extracted root is handed to the normal
- * install flow as a local source.
- */
+/** The archive's one top-level directory holds SKILL.md, so the extracted root
+ *  is already usable as a local source. */
 export async function prepareNotionSkillSource(
   pageId: string,
   options: PrepareNotionSkillSourceOptions = {}
@@ -377,8 +362,6 @@ export async function prepareNotionSkillSource(
   spinner.start('Fetching Notion skill with ntn…');
 
   try {
-    // The workspace lookup is independent of the skill lookup, so it rides
-    // along for free rather than adding a round trip.
     const [directory, workspace] = await Promise.all([
       fetchNotionSkillDirectory(pageId, { runNtn: options.runNtn }),
       fetchNotionWorkspaceName({ runNtn: options.runNtn }),
