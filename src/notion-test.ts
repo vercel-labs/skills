@@ -205,6 +205,22 @@ export async function runNtnApi(args: string[]): Promise<string> {
   });
 }
 
+async function fetchNotionJson(
+  args: string[],
+  label: string,
+  runNtn: NtnRunner = runNtnApi
+): Promise<unknown> {
+  const output = await runNtn(['api', ...args, '--notion-version', NOTION_API_VERSION]);
+  try {
+    return JSON.parse(output) as unknown;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(`ntn returned invalid JSON for ${label}`);
+    }
+    throw error;
+  }
+}
+
 export async function fetchNotionPacks(
   options: FetchNotionPacksOptions = {}
 ): Promise<NotionPack[]> {
@@ -214,19 +230,9 @@ export async function fetchNotionPacks(
   let cursor: string | null = null;
 
   do {
-    const args = ['api', '/v1/ai/plugins', 'page_size==100'];
+    const args = ['/v1/ai/plugins', 'page_size==100'];
     if (cursor) args.push(`start_cursor==${cursor}`);
-    args.push('--notion-version', NOTION_API_VERSION);
-
-    let value: unknown;
-    try {
-      value = JSON.parse(await runNtn(args)) as unknown;
-    } catch (error) {
-      if (error instanceof SyntaxError) {
-        throw new Error('ntn returned invalid JSON for the Notion packs list');
-      }
-      throw error;
-    }
+    const value = await fetchNotionJson(args, 'the Notion packs list', runNtn);
 
     const page = parsePackList(value);
     packs.push(...page.results);
@@ -246,19 +252,11 @@ export async function fetchNotionPackDirectory(
   pack: NotionPack,
   options: FetchNotionPacksOptions = {}
 ): Promise<NotionDirectory> {
-  const runNtn = options.runNtn ?? runNtnApi;
-  const path = `/v1/ai/plugins/${encodeURIComponent(pack.id)}`;
-  const args = ['api', path, '--notion-version', NOTION_API_VERSION];
-
-  let value: unknown;
-  try {
-    value = JSON.parse(await runNtn(args)) as unknown;
-  } catch (error) {
-    if (error instanceof SyntaxError) {
-      throw new Error(`ntn returned invalid JSON for Notion pack ${JSON.stringify(pack.name)}`);
-    }
-    throw error;
-  }
+  const value = await fetchNotionJson(
+    [`/v1/ai/plugins/${encodeURIComponent(pack.id)}`],
+    `Notion pack ${JSON.stringify(pack.name)}`,
+    options.runNtn
+  );
 
   const directory = parseDirectory(value, 'pack');
   if (directory.id !== pack.id || directory.version_id !== pack.version_id) {
@@ -287,7 +285,7 @@ export async function fetchNotionWorkspaceName(
 }
 
 function inWorkspace(workspace: string | null): string {
-  return workspace ? ` workspace ${pc.cyan(workspace)}` : '';
+  return workspace ? ` in workspace ${pc.cyan(workspace)}` : '';
 }
 
 export function isNotionSource(source: string): boolean {
@@ -334,19 +332,11 @@ export async function fetchNotionSkillDirectory(
   pageId: string,
   options: FetchNotionPacksOptions = {}
 ): Promise<NotionDirectory> {
-  const runNtn = options.runNtn ?? runNtnApi;
-  const path = `/v1/ai/skills/${encodeURIComponent(pageId)}`;
-  const args = ['api', path, '--notion-version', NOTION_API_VERSION];
-
-  let value: unknown;
-  try {
-    value = JSON.parse(await runNtn(args)) as unknown;
-  } catch (error) {
-    if (error instanceof SyntaxError) {
-      throw new Error(`ntn returned invalid JSON for Notion skill ${pageId}`);
-    }
-    throw error;
-  }
+  const value = await fetchNotionJson(
+    [`/v1/ai/skills/${encodeURIComponent(pageId)}`],
+    `Notion skill ${pageId}`,
+    options.runNtn
+  );
 
   return parseDirectory(value, 'skill');
 }
@@ -422,7 +412,7 @@ export async function prepareNotionPackSource(
   }
 
   spinner.stop(
-    `Found ${pc.green(packs.length)} Notion pack${packs.length === 1 ? '' : 's'} in${inWorkspace(workspace)}`
+    `Found ${pc.green(packs.length)} Notion pack${packs.length === 1 ? '' : 's'}${inWorkspace(workspace)}`
   );
   if (packs.length === 0) {
     throw new Error('Notion returned no packs for the authenticated workspace');

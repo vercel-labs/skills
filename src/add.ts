@@ -1118,24 +1118,21 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
   try {
     let effectiveSource = source;
-    let notionPackCount: number | null = null;
-    const notionSkillPageId = isNotionSource(source) ? null : parseNotionSkillUrl(source);
-    if (isNotionSource(source)) {
-      const prepared = await prepareNotionPackSource(options);
+    let notionSourceLabel: string | null = null;
+    const notionSkillPageId = parseNotionSkillUrl(source);
+    if (isNotionSource(source) || notionSkillPageId) {
+      const prepared = notionSkillPageId
+        ? await prepareNotionSkillSource(notionSkillPageId)
+        : await prepareNotionPackSource(options);
       if (!prepared) return;
 
       effectiveSource = prepared.rootDir;
       tempDir = prepared.tempDir;
-      notionPackCount = prepared.packCount;
-      // Pack selection replaces the ordinary per-skill selector. Every skill
-      // inside the selected packs continues through the normal install flow.
-      options.skill = ['*'];
-    } else if (notionSkillPageId) {
-      const prepared = await prepareNotionSkillSource(notionSkillPageId);
-
-      effectiveSource = prepared.rootDir;
-      tempDir = prepared.tempDir;
-      // The URL already named the skill; skip the selector.
+      notionSourceLabel =
+        'packCount' in prepared
+          ? `${prepared.packCount} selected Notion pack${prepared.packCount === 1 ? '' : 's'}`
+          : 'Notion page';
+      // The pack selection or page URL already chose the skills to install.
       options.skill = ['*'];
     }
 
@@ -1143,14 +1140,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     spinner.start('Parsing source…');
     const parsed = parseSource(effectiveSource);
-    let directDownload =
-      parsed.type === 'download' || notionPackCount !== null || notionSkillPageId !== null;
+    let directDownload = parsed.type === 'download' || notionSourceLabel !== null;
     spinner.stop(
-      notionPackCount !== null
-        ? `Source: ${notionPackCount} selected Notion pack${notionPackCount === 1 ? '' : 's'}`
-        : notionSkillPageId
-          ? 'Source: Notion page'
-          : `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
+      notionSourceLabel !== null
+        ? `Source: ${notionSourceLabel}`
+        : `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
     );
 
     // Kick off the repo privacy check early so it runs in parallel with
