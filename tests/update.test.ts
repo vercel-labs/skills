@@ -303,6 +303,44 @@ describe('Update Cleanup Unit Tests', () => {
       expect(spawnSync).not.toHaveBeenCalled();
     });
 
+    it('updates a GitHub skill from its locked path when a same-name mirror exists', async () => {
+      vi.mocked(localLock.readLocalLock).mockResolvedValue({
+        version: 1,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            sourceType: 'github',
+            skillPath: 'skills/skill-a/SKILL.md',
+            computedHash: 'old-hash',
+          },
+        },
+      });
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        {
+          name: 'skill-a',
+          path: '/tmp/repo/skills/skill-a',
+          description: 'Locked location',
+          rawContent: '',
+        },
+        {
+          name: 'skill-a',
+          path: '/tmp/repo/.openclaw/skills/skill-a',
+          description: 'Mirror',
+          rawContent: '',
+        },
+      ]);
+
+      await updateProjectSkills({ yes: true });
+
+      const installCall = vi
+        .mocked(spawnSync)
+        .mock.calls.find((call) => Array.isArray(call[1]) && call[1].includes('add'));
+      expect(installCall).toBeDefined();
+      expect(installCall![1]).toContain('owner/repo/skills/skill-a');
+      expect(installCall![1]).not.toContain('owner/repo/.openclaw/skills/skill-a');
+    });
+
     it('does not reinstall an ambiguous exact-path skill from a generic Git source', async () => {
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
         version: 1,
@@ -537,6 +575,51 @@ describe('Update Cleanup Unit Tests', () => {
         ['skill-b'],
         expect.objectContaining({ yes: true, global: true })
       );
+    });
+
+    it('updates an exact-path global GitHub skill when fallback discovery finds a mirror', async () => {
+      const oldHash = 'a'.repeat(40);
+      const newHash = 'b'.repeat(40);
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            sourceType: 'github',
+            sourceUrl: 'https://github.com/owner/repo',
+            skillPath: 'skills/skill-a/SKILL.md',
+            skillFolderHash: oldHash,
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+      vi.mocked(blob.fetchRepoTree).mockResolvedValue(null);
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        {
+          name: 'skill-a',
+          path: '/tmp/repo/skills/skill-a',
+          description: 'Locked location',
+          rawContent: '',
+        },
+        {
+          name: 'skill-a',
+          path: '/tmp/repo/.openclaw/skills/skill-a',
+          description: 'Mirror',
+          rawContent: '',
+        },
+      ]);
+      vi.mocked(git.getGitTreeHash).mockResolvedValue(newHash);
+
+      await updateGlobalSkills({ yes: true });
+
+      expect(git.getGitTreeHash).toHaveBeenCalledWith('/tmp/repo', 'skills/skill-a/SKILL.md');
+      const installCall = vi
+        .mocked(spawnSync)
+        .mock.calls.find((call) => Array.isArray(call[1]) && call[1].includes('add'));
+      expect(installCall).toBeDefined();
+      expect(installCall![1]).toContain('owner/repo/skills/skill-a');
     });
 
     it('reinstalls a relocated global skill even when its content hash is unchanged', async () => {
