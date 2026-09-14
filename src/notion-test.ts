@@ -188,7 +188,9 @@ export async function runNtnApi(args: string[]): Promise<string> {
     child.stderr.on('data', (chunk: Buffer) => append(stderrChunks, chunk));
     child.on('error', (error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT') {
-        fail('Notion CLI (ntn) is required. Install it, then run `ntn login`.');
+        fail(
+          'Notion CLI (ntn) is required. Install it from:\nhttps://developers.notion.com/cli/get-started/overview\nThen run `ntn login`.'
+        );
         return;
       }
       fail(`Unable to start ntn: ${stripTerminalEscapes(error.message)}`);
