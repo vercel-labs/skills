@@ -31,7 +31,7 @@ interface NotionPackListResponse {
   has_more: boolean;
 }
 
-interface NotionPackDirectory {
+interface NotionDirectory {
   id: string;
   version_id: string;
   url: string;
@@ -42,6 +42,11 @@ export interface PreparedNotionPackSource {
   tempDir: string;
   packCount: number;
   skillCount: number;
+}
+
+export interface PreparedNotionSkillSource {
+  rootDir: string;
+  tempDir: string;
 }
 
 export interface NotionPackSelectorOptions {
@@ -60,6 +65,11 @@ interface PrepareNotionPackSourceOptions extends NotionPackSelectorOptions {
   runNtn?: NtnRunner;
   download?: (url: string) => Promise<DownloadedSource>;
   discover?: typeof discoverSkills;
+}
+
+interface PrepareNotionSkillSourceOptions {
+  runNtn?: NtnRunner;
+  download?: (url: string) => Promise<DownloadedSource>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -114,16 +124,24 @@ function parsePackList(value: unknown): NotionPackListResponse {
   };
 }
 
-function parsePackDirectory(value: unknown): NotionPackDirectory {
+function parseDirectory(value: unknown, label: string): NotionDirectory {
   if (!isRecord(value)) {
-    throw new Error('Notion Agent Plugins directory response is invalid');
+    throw new Error(`Notion ${label} directory response is invalid`);
   }
 
   return {
-    id: assertString(value.id, 'pack directory id'),
-    version_id: assertString(value.version_id, 'pack directory version_id'),
-    url: assertString(value.url, 'pack directory url'),
+    id: assertString(value.id, `${label} directory id`),
+    version_id: assertString(value.version_id, `${label} directory version_id`),
+    url: assertString(value.url, `${label} directory url`),
   };
+}
+
+function downloadNotionDirectory(url: string): Promise<DownloadedSource> {
+  return downloadSource(url, {
+    downloadMaxBytes: NOTION_DOWNLOAD_MAX_BYTES,
+    extractMaxBytes: NOTION_EXTRACT_MAX_BYTES,
+    extractMaxFiles: NOTION_EXTRACT_MAX_FILES,
+  });
 }
 
 function debugNtn(args: string[]): void {
@@ -170,7 +188,9 @@ export async function runNtnApi(args: string[]): Promise<string> {
     child.stderr.on('data', (chunk: Buffer) => append(stderrChunks, chunk));
     child.on('error', (error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT') {
-        fail('Notion CLI (ntn) is required. Install it, then run `ntn login`.');
+        fail(
+          'Notion CLI (ntn) is required. Install it from:\nhttps://developers.notion.com/cli/get-started/overview\nThen run `ntn login`.'
+        );
         return;
       }
       fail(`Unable to start ntn: ${stripTerminalEscapes(error.message)}`);
@@ -187,6 +207,22 @@ export async function runNtnApi(args: string[]): Promise<string> {
   });
 }
 
+async function fetchNotionJson(
+  args: string[],
+  label: string,
+  runNtn: NtnRunner = runNtnApi
+): Promise<unknown> {
+  const output = await runNtn(['api', ...args, '--notion-version', NOTION_API_VERSION]);
+  try {
+    return JSON.parse(output) as unknown;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(`ntn returned invalid JSON for ${label}`);
+    }
+    throw error;
+  }
+}
+
 export async function fetchNotionPacks(
   options: FetchNotionPacksOptions = {}
 ): Promise<NotionPack[]> {
@@ -196,19 +232,9 @@ export async function fetchNotionPacks(
   let cursor: string | null = null;
 
   do {
-    const args = ['api', '/v1/ai/plugins', 'page_size==100'];
+    const args = ['/v1/ai/plugins', 'page_size==100'];
     if (cursor) args.push(`start_cursor==${cursor}`);
-    args.push('--notion-version', NOTION_API_VERSION);
-
-    let value: unknown;
-    try {
-      value = JSON.parse(await runNtn(args)) as unknown;
-    } catch (error) {
-      if (error instanceof SyntaxError) {
-        throw new Error('ntn returned invalid JSON for the Notion packs list');
-      }
-      throw error;
-    }
+    const value = await fetchNotionJson(args, 'the Notion packs list', runNtn);
 
     const page = parsePackList(value);
     packs.push(...page.results);
@@ -227,22 +253,14 @@ export async function fetchNotionPacks(
 export async function fetchNotionPackDirectory(
   pack: NotionPack,
   options: FetchNotionPacksOptions = {}
-): Promise<NotionPackDirectory> {
-  const runNtn = options.runNtn ?? runNtnApi;
-  const path = `/v1/ai/plugins/${encodeURIComponent(pack.id)}`;
-  const args = ['api', path, '--notion-version', NOTION_API_VERSION];
+): Promise<NotionDirectory> {
+  const value = await fetchNotionJson(
+    [`/v1/ai/plugins/${encodeURIComponent(pack.id)}`],
+    `Notion pack ${JSON.stringify(pack.name)}`,
+    options.runNtn
+  );
 
-  let value: unknown;
-  try {
-    value = JSON.parse(await runNtn(args)) as unknown;
-  } catch (error) {
-    if (error instanceof SyntaxError) {
-      throw new Error(`ntn returned invalid JSON for Notion pack ${JSON.stringify(pack.name)}`);
-    }
-    throw error;
-  }
-
-  const directory = parsePackDirectory(value);
+  const directory = parseDirectory(value, 'pack');
   if (directory.id !== pack.id || directory.version_id !== pack.version_id) {
     throw new Error(
       `Notion pack ${JSON.stringify(pack.name)} changed while preparing installation`
@@ -251,8 +269,102 @@ export async function fetchNotionPackDirectory(
   return directory;
 }
 
+/** Workspace `ntn` is authenticated against. Null on any failure, so a probe
+ *  can never block an install. */
+export async function fetchNotionWorkspaceName(
+  options: FetchNotionPacksOptions = {}
+): Promise<string | null> {
+  const runNtn = options.runNtn ?? runNtnApi;
+  try {
+    const args = ['api', '/v1/users/me', '--notion-version', NOTION_API_VERSION];
+    const value = JSON.parse(await runNtn(args)) as unknown;
+    if (!isRecord(value) || !isRecord(value.bot)) return null;
+    const name = value.bot.workspace_name;
+    return typeof name === 'string' && name.length > 0 ? sanitizeMetadata(name) : null;
+  } catch {
+    return null;
+  }
+}
+
+function inWorkspace(workspace: string | null): string {
+  return workspace ? ` in workspace ${pc.cyan(workspace)}` : '';
+}
+
 export function isNotionSource(source: string): boolean {
   return source.toLowerCase() === 'notion';
+}
+
+const NOTION_HOSTNAME = /(^|\.)notion\.(so|com)$/;
+const NOTION_PAGE_ID =
+  /(?:^|-)([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+
+function formatPageId(rawId: string): string {
+  const hex = rawId.replace(/-/g, '');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/** Page ID from a Notion page URL, else null so other source formats still
+ *  fall through to the ordinary handling. */
+export function parseNotionSkillUrl(source: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(source);
+  } catch {
+    return null;
+  }
+
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+  if (!NOTION_HOSTNAME.test(url.hostname.toLowerCase())) return null;
+
+  const lastSegment = url.pathname.split('/').filter(Boolean).pop();
+  if (!lastSegment) return null;
+
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(lastSegment);
+  } catch {
+    decoded = lastSegment;
+  }
+
+  const match = decoded.toLowerCase().match(NOTION_PAGE_ID);
+  return match ? formatPageId(match[1]!) : null;
+}
+
+export async function fetchNotionSkillDirectory(
+  pageId: string,
+  options: FetchNotionPacksOptions = {}
+): Promise<NotionDirectory> {
+  const value = await fetchNotionJson(
+    [`/v1/ai/skills/${encodeURIComponent(pageId)}`],
+    `Notion skill ${pageId}`,
+    options.runNtn
+  );
+
+  return parseDirectory(value, 'skill');
+}
+
+/** The archive's one top-level directory holds SKILL.md, so the extracted root
+ *  is already usable as a local source. */
+export async function prepareNotionSkillSource(
+  pageId: string,
+  options: PrepareNotionSkillSourceOptions = {}
+): Promise<PreparedNotionSkillSource> {
+  const download = options.download ?? downloadNotionDirectory;
+  const spinner = p.spinner();
+  spinner.start('Fetching Notion skill with ntn…');
+
+  try {
+    const [directory, workspace] = await Promise.all([
+      fetchNotionSkillDirectory(pageId, { runNtn: options.runNtn }),
+      fetchNotionWorkspaceName({ runNtn: options.runNtn }),
+    ]);
+    const downloaded = await download(directory.url);
+    spinner.stop(`Downloaded skill from Notion${inWorkspace(workspace)}`);
+    return { rootDir: downloaded.rootDir, tempDir: downloaded.tempDir };
+  } catch (error) {
+    spinner.stop(pc.red('Failed to prepare Notion skill'));
+    throw error;
+  }
 }
 
 function normalizeSelector(value: string): string {
@@ -290,14 +402,20 @@ export async function prepareNotionPackSource(
   spinner.start('Fetching Notion packs with ntn…');
 
   let packs: NotionPack[];
+  let workspace: string | null = null;
   try {
-    packs = await fetchNotionPacks({ runNtn: options.runNtn });
+    [packs, workspace] = await Promise.all([
+      fetchNotionPacks({ runNtn: options.runNtn }),
+      fetchNotionWorkspaceName({ runNtn: options.runNtn }),
+    ]);
   } catch (error) {
     spinner.stop(pc.red('Failed to load Notion packs'));
     throw error;
   }
 
-  spinner.stop(`Found ${pc.green(packs.length)} Notion pack${packs.length === 1 ? '' : 's'}`);
+  spinner.stop(
+    `Found ${pc.green(packs.length)} Notion pack${packs.length === 1 ? '' : 's'}${inWorkspace(workspace)}`
+  );
   if (packs.length === 0) {
     throw new Error('Notion returned no packs for the authenticated workspace');
   }
@@ -346,14 +464,7 @@ export async function prepareNotionPackSource(
   const stagingDir = await mkdtemp(join(tmpdir(), 'skills-notion-'));
   const packsDir = join(stagingDir, 'packs');
   const manifestPlugins: Array<{ name: string; source: string; skills: string[] }> = [];
-  const download =
-    options.download ??
-    ((url: string) =>
-      downloadSource(url, {
-        downloadMaxBytes: NOTION_DOWNLOAD_MAX_BYTES,
-        extractMaxBytes: NOTION_EXTRACT_MAX_BYTES,
-        extractMaxFiles: NOTION_EXTRACT_MAX_FILES,
-      }));
+  const download = options.download ?? downloadNotionDirectory;
   const discover = options.discover ?? discoverSkills;
   let skillCount = 0;
 

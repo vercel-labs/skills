@@ -50,6 +50,13 @@ describe('add command', () => {
     });
 
     expect(result.stdout).toContain('Notion CLI (ntn) is required');
+    const docsLine = result.stdout
+      .split('\n')
+      .find((line) => line.includes('https://developers.notion.com/cli/get-started/overview'));
+    expect(docsLine?.replace(/^\s*│?\s*/, '')).toBe(
+      'https://developers.notion.com/cli/get-started/overview'
+    );
+    expect(result.stdout).toContain('ntn login');
     expect(result.stdout).not.toContain('Cloning repository');
     expect(result.exitCode).toBe(1);
   });
