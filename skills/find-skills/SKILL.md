@@ -45,6 +45,7 @@ When a user asks for help with something, identify:
 Before running a CLI search, check the [skills.sh leaderboard](https://skills.sh/) to see if a well-known skill already exists for the domain. The leaderboard ranks skills by total installs, surfacing the most popular and battle-tested options.
 
 For example, top skills for web development include:
+
 - `vercel-labs/agent-skills` — React, Next.js, web design (100K+ installs each)
 - `anthropics/skills` — Frontend design, document processing (100K+ installs)
 

@@ -12,6 +12,8 @@ describe('skills CLI', () => {
       expect(output).toContain('init [name]');
       expect(output).toContain('add <package>');
       expect(output).toContain('use <package>@<skill>');
+      expect(output).toContain('panel                Open the full-screen terminal interface');
+      expect(output).not.toContain('tui                  Open the full-screen terminal interface');
       expect(output).toContain('update');
       expect(output).toContain('Add Options:');
       expect(output).toContain('Use Options:');
@@ -53,6 +55,7 @@ describe('skills CLI', () => {
       expect(output).toContain('The open agent skills ecosystem');
       expect(output).toContain('npx skills add');
       expect(output).toContain('npx skills use');
+      expect(output).toContain('npx skills panel');
       expect(output).toContain('npx skills update');
       expect(output).toContain('npx skills init');
       expect(output).toContain('skills.sh');
@@ -60,6 +63,17 @@ describe('skills CLI', () => {
   });
 
   describe('unknown command', () => {
+    it('routes panel as the terminal-interface command', () => {
+      const result = runCli(['panel']);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('skills panel requires an interactive terminal.');
+    });
+
+    it('does not expose the old tui command', () => {
+      const output = runCliOutput(['tui']);
+      expect(output).toContain('Unknown command: tui');
+    });
+
     it('should show error for unknown command', () => {
       const output = runCliOutput(['unknown-command']);
       expect(output).toMatchInlineSnapshot(`
@@ -96,6 +110,7 @@ describe('skills CLI', () => {
       ['list --help routes to top-level help', 'list'],
       ['init --help routes to top-level help', 'init'],
       ['find --help routes to top-level help', 'find'],
+      ['panel --help routes to top-level help', 'panel'],
       ['experimental_install --help routes to top-level help', 'experimental_install'],
       ['experimental_sync --help routes to top-level help', 'experimental_sync'],
     ];
