@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "redirects": [
+    {
+      "from": "abyrd9/skills/bun-docs",
+      "to": "abyrd9/doc-skills/bun-docs",
+      "reason": "The skill moved from Abyrd9/skills to the dedicated Abyrd9/doc-skills repository.",
+      "evidence": [
+        "https://github.com/Abyrd9/skills/commit/50ffabb0250ee73ed57f7cdb2fbb2b0266cad14b",
+        "https://github.com/Abyrd9/doc-skills/commit/a5333e64a6e8022cdc0e4ec8c51d019104fbe7d1"
+      ],
+      "verifiedAt": "2026-07-15"
+    },
+    {
+      "from": "abyrd9/skills/capacitor-docs",
+      "to": "abyrd9/doc-skills/capacitor-docs",
+      "reason": "The skill moved from Abyrd9/skills to the dedicated Abyrd9/doc-skills repository.",
+      "evidence": [
+        "https://github.com/Abyrd9/skills/commit/50ffabb0250ee73ed57f7cdb2fbb2b0266cad14b",
+        "https://github.com/Abyrd9/doc-skills/commit/a5333e64a6e8022cdc0e4ec8c51d019104fbe7d1"
+      ],
+      "verifiedAt": "2026-07-15"
+    },
+    {
+      "from": "abyrd9/skills/drizzle-docs",
+      "to": "abyrd9/doc-skills/drizzle-docs",
+      "reason": "The skill moved from Abyrd9/skills to the dedicated Abyrd9/doc-skills repository.",
+      "evidence": [
+        "https://github.com/Abyrd9/skills/commit/50ffabb0250ee73ed57f7cdb2fbb2b0266cad14b",
+        "https://github.com/Abyrd9/doc-skills/commit/a5333e64a6e8022cdc0e4ec8c51d019104fbe7d1"
+      ],
+      "verifiedAt": "2026-07-15"
+    },
+    {
+      "from": "abyrd9/skills/electron-docs",
+      "to": "abyrd9/doc-skills/electron-docs",
+      "reason": "The skill moved from Abyrd9/skills to the dedicated Abyrd9/doc-skills repository.",
+      "evidence": [
+        "https://github.com/Abyrd9/skills/commit/50ffabb0250ee73ed57f7cdb2fbb2b0266cad14b",
+        "https://github.com/Abyrd9/doc-skills/commit/a5333e64a6e8022cdc0e4ec8c51d019104fbe7d1"
+      ],
+      "verifiedAt": "2026-07-15"
+    },
+    {
+      "from": "abyrd9/skills/langgraph-js-docs",
+      "to": "abyrd9/doc-skills/langgraph-js-docs",
+      "reason": "The skill moved from Abyrd9/skills to the dedicated Abyrd9/doc-skills repository.",
+      "evidence": [
+        "https://github.com/Abyrd9/skills/commit/50ffabb0250ee73ed57f7cdb2fbb2b0266cad14b",
+        "https://github.com/Abyrd9/doc-skills/commit/a5333e64a6e8022cdc0e4ec8c51d019104fbe7d1"
+      ],
+      "verifiedAt": "2026-07-15"
+    },
+    {
+      "from": "abyrd9/skills/lexical-docs",
+      "to": "abyrd9/doc-skills/lexical-docs",
+      "reason": "The skill moved from Abyrd9/skills to the dedicated Abyrd9/doc-skills repository.",
+      "evidence": [
+        "https://github.com/Abyrd9/skills/commit/50ffabb0250ee73ed57f7cdb2fbb2b0266cad14b",
+        "https://github.com/Abyrd9/doc-skills/commit/a5333e64a6e8022cdc0e4ec8c51d019104fbe7d1"
+      ],
+      "verifiedAt": "2026-07-15"
+    },
+    {
+      "from": "abyrd9/skills/lucia-docs",
+      "to": "abyrd9/doc-skills/lucia-docs",
+      "reason": "The skill moved from Abyrd9/skills to the dedicated Abyrd9/doc-skills repository.",
+      "evidence": [
+        "https://github.com/Abyrd9/skills/commit/50ffabb0250ee73ed57f7cdb2fbb2b0266cad14b",
+        "https://github.com/Abyrd9/doc-skills/commit/a5333e64a6e8022cdc0e4ec8c51d019104fbe7d1"
+      ],
+      "verifiedAt": "2026-07-15"
+    },
+    {
+      "from": "abyrd9/skills/openai-realtime-docs",
+      "to": "abyrd9/doc-skills/openai-realtime-docs",
+      "reason": "The skill moved from Abyrd9/skills to the dedicated Abyrd9/doc-skills repository.",
+      "evidence": [
+        "https://github.com/Abyrd9/skills/commit/50ffabb0250ee73ed57f7cdb2fbb2b0266cad14b",
+        "https://github.com/Abyrd9/doc-skills/commit/a5333e64a6e8022cdc0e4ec8c51d019104fbe7d1"
+      ],
+      "verifiedAt": "2026-07-15"
+    },
+    {
+      "from": "abyrd9/skills/react-docs",
+      "to": "abyrd9/doc-skills/react-docs",
+      "reason": "The skill moved from Abyrd9/skills to the dedicated Abyrd9/doc-skills repository.",
+      "evidence": [
+        "https://github.com/Abyrd9/skills/commit/50ffabb0250ee73ed57f7cdb2fbb2b0266cad14b",
+        "https://github.com/Abyrd9/doc-skills/commit/a5333e64a6e8022cdc0e4ec8c51d019104fbe7d1"
+      ],
+      "verifiedAt": "2026-07-15"
+    },
+    {
+      "from": "abyrd9/skills/react-effects-docs",
+      "to": "abyrd9/doc-skills/react-effects-docs",
+      "reason": "The skill moved from Abyrd9/skills to the dedicated Abyrd9/doc-skills repository.",
+      "evidence": [
+        "https://github.com/Abyrd9/skills/commit/50ffabb0250ee73ed57f7cdb2fbb2b0266cad14b",
+        "https://github.com/Abyrd9/doc-skills/commit/a5333e64a6e8022cdc0e4ec8c51d019104fbe7d1"
+      ],
+      "verifiedAt": "2026-07-15"
+    },
+    {
+      "from": "abyrd9/skills/tanstack-docs",
+      "to": "abyrd9/doc-skills/tanstack-docs",
+      "reason": "The skill moved from Abyrd9/skills to the dedicated Abyrd9/doc-skills repository.",
+      "evidence": [
+        "https://github.com/Abyrd9/skills/commit/50ffabb0250ee73ed57f7cdb2fbb2b0266cad14b",
+        "https://github.com/Abyrd9/doc-skills/commit/a5333e64a6e8022cdc0e4ec8c51d019104fbe7d1"
+      ],
+      "verifiedAt": "2026-07-15"
+    },
+    {
+      "from": "abyrd9/skills/xstate-docs",
+      "to": "abyrd9/doc-skills/xstate-docs",
+      "reason": "The skill moved from Abyrd9/skills to the dedicated Abyrd9/doc-skills repository.",
+      "evidence": [
+        "https://github.com/Abyrd9/skills/commit/50ffabb0250ee73ed57f7cdb2fbb2b0266cad14b",
+        "https://github.com/Abyrd9/doc-skills/commit/a5333e64a6e8022cdc0e4ec8c51d019104fbe7d1"
+      ],
+      "verifiedAt": "2026-07-15"
+    }
+  ],
+  "hidden": []
+}
