@@ -69,6 +69,7 @@ export function createTestHomeEnvironment(home: string): Record<string, string> 
     XDG_CACHE_HOME: join(home, '.cache'),
     APPDATA: join(home, 'AppData', 'Roaming'),
     LOCALAPPDATA: join(home, 'AppData', 'Local'),
+    AGENTS_HOME: join(home, '.agents'),
     CODEX_HOME: join(home, '.codex'),
     CLAUDE_CONFIG_DIR: join(home, '.claude'),
     VIBE_HOME: join(home, '.vibe'),
