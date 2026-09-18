@@ -1,0 +1,3 @@
+name: apple-foundation-models-custom-tools
+description: Build custom tools that Foundation Models can call during generation
+tools: []
