@@ -13,6 +13,9 @@ import { flushTelemetry } from './telemetry.ts';
 import { isRunningInAgent } from './detect-agent.ts';
 import { runUpdate } from './update.ts';
 import { runUse, parseUseOptions } from './use.ts';
+import { configurePromptKeybindings } from './prompts/keybindings.ts';
+
+configurePromptKeybindings();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

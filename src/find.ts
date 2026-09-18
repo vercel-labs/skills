@@ -270,13 +270,13 @@ async function runSearchPrompt(initialQuery = '', owner?: string): Promise<Searc
         return;
       }
 
-      if (key.name === 'up') {
+      if (key.name === 'up' || (key.ctrl && key.name === 'p')) {
         selectedIndex = Math.max(0, selectedIndex - 1);
         render();
         return;
       }
 
-      if (key.name === 'down') {
+      if (key.name === 'down' || (key.ctrl && key.name === 'n')) {
         selectedIndex = Math.min(Math.max(0, results.length - 1), selectedIndex + 1);
         render();
         return;
