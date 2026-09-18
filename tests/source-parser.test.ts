@@ -42,6 +42,16 @@ describe('parseSource', () => {
       expect(result.ref).toBeUndefined();
     });
 
+    it('GitHub URL - query string is not part of the subpath', () => {
+      const result = parseSource(
+        'https://github.com/owner/repo/tree/main/skills/my-skill?tab=readme'
+      );
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+      expect(result.ref).toBe('main');
+      expect(result.subpath).toBe('skills/my-skill');
+    });
+
     it('GitHub URL - tree with branch only', () => {
       const result = parseSource('https://github.com/owner/repo/tree/feature-branch');
       expect(result.type).toBe('github');
@@ -142,6 +152,60 @@ describe('parseSource', () => {
       const result = parseSource('https://gitlab.com/group/subgroup/repo/');
       expect(result.type).toBe('gitlab');
       expect(result.url).toBe('https://gitlab.com/group/subgroup/repo.git');
+    });
+
+    it('GitLab URL - self-hosted instance mirroring a github.com path', () => {
+      const result = parseSource(
+        'http://gitlab.example.com/mirror/github.com/openai/skills/-/tree/main/skills/my-skill'
+      );
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('http://gitlab.example.com/mirror/github.com/openai/skills.git');
+      expect(result.ref).toBe('main');
+      expect(result.subpath).toBe('skills/my-skill');
+    });
+
+    it('GitLab URL - self-hosted instance mirroring a github.com path, branch only', () => {
+      const result = parseSource(
+        'https://gitlab.example.com/mirror/github.com/openai/skills/-/tree/main'
+      );
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.example.com/mirror/github.com/openai/skills.git');
+      expect(result.ref).toBe('main');
+      expect(result.subpath).toBeUndefined();
+    });
+
+    it('GitLab URL - query string is not part of the subpath', () => {
+      const result = parseSource(
+        'https://gitlab.com/group/subgroup/repo/-/tree/main/path/to/skill?ref_type=heads'
+      );
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.com/group/subgroup/repo.git');
+      expect(result.ref).toBe('main');
+      expect(result.subpath).toBe('path/to/skill');
+    });
+
+    it('GitLab URL - query string is not part of the ref', () => {
+      const result = parseSource('https://gitlab.com/owner/repo/-/tree/develop?ref_type=heads');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.com/owner/repo.git');
+      expect(result.ref).toBe('develop');
+      expect(result.subpath).toBeUndefined();
+    });
+
+    it('GitLab URL - query string is not part of the repo path', () => {
+      const result = parseSource('https://gitlab.com/owner/repo?ref_type=heads');
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://gitlab.com/owner/repo.git');
+    });
+
+    it("GitLab URL - gitlab.com in another host's path is not treated as gitlab.com", () => {
+      const result = parseSource(
+        'https://git.example.com/mirror/gitlab.com/owner/repo/-/tree/main/skills/my-skill'
+      );
+      expect(result.type).toBe('gitlab');
+      expect(result.url).toBe('https://git.example.com/mirror/gitlab.com/owner/repo.git');
+      expect(result.ref).toBe('main');
+      expect(result.subpath).toBe('skills/my-skill');
     });
   });
 
