@@ -21,6 +21,7 @@ import {
   resolveSkillLocations,
   type DiscoveredSkillLocation,
   type SkillLocationResolution,
+  type SkillLocationResolutionOptions,
 } from './skill-relocation.ts';
 import { wellKnownProvider, computeWellKnownSkillDigest } from './providers/index.ts';
 import { removeCommand } from './remove.ts';
@@ -299,9 +300,15 @@ export async function checkAndPromptForDeletions(
   lockSkills: Record<string, { skillPath?: string }>,
   isGlobal: boolean,
   options: UpdateCheckOptions,
-  discovered: DiscoveredSkillLocation[]
+  discovered: DiscoveredSkillLocation[],
+  locationOptions: SkillLocationResolutionOptions = {}
 ): Promise<SkillLocationResolution> {
-  const resolution = resolveSkillLocations(allLockedForSource, lockSkills, discovered);
+  const resolution = resolveSkillLocations(
+    allLockedForSource,
+    lockSkills,
+    discovered,
+    locationOptions
+  );
 
   if (resolution.ambiguousSkills.length > 0) {
     console.log();
@@ -624,7 +631,11 @@ export async function updateGlobalSkills(
         lock.skills,
         true,
         options,
-        discoveredLocations
+        discoveredLocations,
+        // Path-addressable sources reinstall only the locked directory, so a
+        // same-name mirror elsewhere in the repo is not ambiguous. Generic Git
+        // sources reinstall from the whole repo and remain fail-closed.
+        { exactPathDisambiguates: !shouldUseFullDepthForUpdate(firstEntry) }
       );
 
       const deletedSkillSet = new Set(resolution.deletedSkills);
@@ -882,7 +893,8 @@ export async function updateProjectSkills(
         localLock.skills,
         false,
         options,
-        discoveredLocations
+        discoveredLocations,
+        { exactPathDisambiguates: !shouldUseFullDepthForUpdate(firstEntry) }
       );
       deletedSkills = resolution.deletedSkills;
       resolvedPaths = resolution.resolvedPaths;
