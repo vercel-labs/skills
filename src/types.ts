@@ -3,6 +3,7 @@ export type AgentType =
   | 'amp'
   | 'antigravity'
   | 'antigravity-cli'
+  | 'aster'
   | 'astrbot'
   | 'autohand-code'
   | 'augment'

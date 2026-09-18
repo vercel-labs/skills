@@ -11,6 +11,7 @@ const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
 
 const AGENT_PROJECT_SKILL_DIRS = [
   '.agents/skills',
+  '.aster/skills',
   '.claude/skills',
   '.cline/skills',
   '.codebuddy/skills',
