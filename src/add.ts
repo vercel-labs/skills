@@ -367,6 +367,20 @@ function ensureUniversalAgents(targetAgents: AgentType[]): AgentType[] {
   return result;
 }
 
+export function filterImplicitUnsupportedGlobalAgents(
+  targetAgents: AgentType[],
+  options: AddOptions,
+  installGlobally: boolean
+): AgentType[] {
+  if (!installGlobally) return targetAgents;
+
+  const explicitSpecificAgents =
+    options.agent !== undefined && options.agent.length > 0 && !options.agent.includes('*');
+  if (explicitSpecificAgents && !options.agentAutoSelected) return targetAgents;
+
+  return targetAgents.filter((agent) => agents[agent].globalSkillsDir !== undefined);
+}
+
 /**
  * Builds result lines from installation results, splitting by universal vs symlinked
  */
@@ -571,6 +585,8 @@ export interface AddOptions {
   all?: boolean;
   fullDepth?: boolean;
   copy?: boolean;
+  /** Internal: true when agent targets were inferred from detected agent context. */
+  agentAutoSelected?: boolean;
   /**
    * Eve subagent targets. Each value is a subagent name; `root` (or `.`)
    * selects the root agent. Implies installing for Eve.
@@ -851,6 +867,8 @@ async function handleWellKnownSkills(
 
     installGlobally = scope as boolean;
   }
+
+  targetAgents = filterImplicitUnsupportedGlobalAgents(targetAgents, options, installGlobally);
 
   // Determine install mode (symlink vs copy)
   let installMode: InstallMode = options.copy ? 'copy' : 'symlink';
@@ -1220,6 +1238,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       const mappedAgent = getAgentType(agentResult.agent.name);
       if (mappedAgent) {
         options.agent = ensureUniversalAgents([mappedAgent]);
+        options.agentAutoSelected = true;
       }
     }
   }
@@ -1740,8 +1759,6 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
-    const installTargets = buildInstallTargets(targetAgents, eveSubagentTargets);
-
     let installGlobally = options.global ?? false;
 
     // Check if any selected agents support global installation
@@ -1771,6 +1788,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
       installGlobally = scope as boolean;
     }
+
+    targetAgents = filterImplicitUnsupportedGlobalAgents(targetAgents, options, installGlobally);
+
+    const installTargets = buildInstallTargets(targetAgents, eveSubagentTargets);
 
     // Determine install mode (symlink vs copy)
     let installMode: InstallMode = options.copy ? 'copy' : 'symlink';
