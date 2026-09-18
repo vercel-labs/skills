@@ -334,6 +334,14 @@ This is a test skill.
       );
       expect(result.stdout).not.toContain('Invalid agents');
     });
+
+    it("should accept '*' as every agent", () => {
+      const result = runCli(['remove', 'test-skill', '--agent', '*', '-y'], testDir);
+
+      expect(result.stdout).not.toContain('Invalid agents');
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(join(skillsDir, 'test-skill'))).toBe(false);
+    });
   });
 
   describe('global flag', () => {
