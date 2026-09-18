@@ -87,6 +87,17 @@ description: ${description}
       expect(options.agent).toEqual(['claude-code']);
       expect(options.global).toBe(true);
     });
+
+    it('should parse --agent and -a equals syntax', () => {
+      const single = parseListOptions(['--agent=cursor']);
+      expect(single.agent).toEqual(['cursor']);
+
+      const short = parseListOptions(['-a=claude-code']);
+      expect(short.agent).toEqual(['claude-code']);
+
+      const multiple = parseListOptions(['--agent=claude-code,cursor']);
+      expect(multiple.agent).toEqual(['claude-code', 'cursor']);
+    });
   });
 
   describe('CLI integration', () => {
