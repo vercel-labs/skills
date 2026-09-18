@@ -93,6 +93,67 @@ describe('filterSkills', () => {
       expect(result.length).toBe(0);
     });
   });
+  describe('description search (includeDescription: true)', () => {
+    // Set up some fake skills for testing
+    // These skills have short/generic names but rich descriptions
+    const skillsWithDescriptions: Skill[] = [
+      {
+        name: 'medical-checker',
+        description:
+          'Supports STROBE, CONSORT, and QUADAS reporting standards for medical research',
+        path: '/tmp/medical-checker',
+      },
+      {
+        name: 'prisma-orm',
+        description: 'Best practices for the Prisma ORM database toolkit',
+        path: '/tmp/prisma-orm',
+      },
+      {
+        name: 'foo',
+        description: 'A simple skill for foo operations',
+        path: '/tmp/foo',
+      },
+    ];
+
+    it('finds a skill by description keyword when no name matches', () => {
+      const result = filterSkills(skillsWithDescriptions, ['STROBE'], { includeDescription: true });
+      expect(result.length).toBe(1);
+      expect(result[0].name).toBe('medical-checker');
+    });
+
+    it('description search is case-insensitive', () => {
+      const result = filterSkills(skillsWithDescriptions, ['strobe'], { includeDescription: true });
+      expect(result.length).toBe(1);
+      expect(result[0].name).toBe('medical-checker');
+    });
+
+    it('name match takes priority over description match', () => {
+      const result = filterSkills(skillsWithDescriptions, ['foo'], { includeDescription: true });
+      expect(result.length).toBe(1);
+      expect(result[0].name).toBe('foo');
+    });
+
+    it('does not search descriptions when includeDescription is false', () => {
+      // By default (no options), description search is disabled
+      const result = filterSkills(skillsWithDescriptions, ['STROBE']);
+      expect(result.length).toBe(0);
+    });
+
+    it('does not search descriptions when includeDescription is explicitly false', () => {
+      const result = filterSkills(skillsWithDescriptions, ['STROBE'], {
+        includeDescription: false,
+      });
+      expect(result.length).toBe(0);
+    });
+
+    it('returns multiple skills when multiple descriptions match', () => {
+      const result = filterSkills(skillsWithDescriptions, ['research'], {
+        includeDescription: true,
+      });
+      expect(result.length).toBe(1);
+      expect(result[0].name).toBe('medical-checker');
+    });
+  });
 });
 
 describe('parseSkillMd with non-string frontmatter values', () => {
