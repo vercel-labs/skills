@@ -3,7 +3,9 @@ import { existsSync, rmSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from './test-utils.ts';
-import { parseListOptions } from './list.ts';
+import { parseListOptions, buildExportCommands } from './list.ts';
+import type { InstalledSkill } from './installer.ts';
+import type { SkillLockEntry } from './skill-lock.ts';
 
 describe('list command', () => {
   let testDir: string;
@@ -74,6 +76,17 @@ description: ${description}
     it('should parse --json flag', () => {
       const options = parseListOptions(['--json']);
       expect(options.json).toBe(true);
+    });
+
+    it('should parse --export flag', () => {
+      const options = parseListOptions(['--export']);
+      expect(options.export).toBe(true);
+    });
+
+    it('should parse combined --export and -g flags', () => {
+      const options = parseListOptions(['-g', '--export']);
+      expect(options.global).toBe(true);
+      expect(options.export).toBe(true);
     });
 
     it('should parse combined --json and -g flags', () => {
@@ -336,6 +349,297 @@ description: ${description}
       const result = runCli(['list'], testDir);
       // Path is shown inline with skill name (handles both Unix / and Windows \)
       expect(result.stdout).toMatch(/\.agents[/\\]skills[/\\]test-skill/);
+    });
+  });
+
+  describe('--export', () => {
+    function writeProjectLock(skills: Record<string, Record<string, unknown>>): void {
+      writeFileSync(join(testDir, 'skills-lock.json'), JSON.stringify({ version: 1, skills }));
+    }
+
+    describe('buildExportCommands', () => {
+      function makeSkill(name: string): InstalledSkill {
+        return {
+          name,
+          description: '',
+          path: `/skills/${name}`,
+          canonicalPath: `/skills/${name}`,
+          scope: 'global',
+          agents: [],
+        };
+      }
+
+      function lockLookup(
+        entries: Record<string, Partial<SkillLockEntry>>
+      ): (skillName: string) => SkillLockEntry | undefined {
+        return (name) => entries[name] as SkillLockEntry | undefined;
+      }
+
+      it('should return no commands when no skills are installed', () => {
+        const { commands, skipped } = buildExportCommands([], () => undefined, false);
+        expect(commands).toEqual([]);
+        expect(skipped).toEqual([]);
+      });
+
+      it('should group skills from the same source into one command', () => {
+        const { commands } = buildExportCommands(
+          [makeSkill('skill-a'), makeSkill('skill-b')],
+          lockLookup({
+            'skill-a': { source: 'owner/repo', sourceType: 'github' },
+            'skill-b': { source: 'owner/repo', sourceType: 'github' },
+          }),
+          false
+        );
+        expect(commands).toEqual(['skills add owner/repo --skill skill-a skill-b -y']);
+      });
+
+      it('should use github shorthand for github.com and full URLs otherwise', () => {
+        const { commands } = buildExportCommands(
+          [makeSkill('hub'), makeSkill('ghe')],
+          lockLookup({
+            hub: {
+              source: 'owner/repo',
+              sourceUrl: 'https://github.com/owner/repo.git',
+              sourceType: 'github',
+            },
+            ghe: {
+              source: 'team/repo',
+              sourceUrl: 'https://ghe.acme.com/team/repo.git',
+              sourceType: 'github',
+            },
+          }),
+          false
+        );
+        expect(commands).toEqual([
+          'skills add https://ghe.acme.com/team/repo.git --skill ghe -y',
+          'skills add owner/repo --skill hub -y',
+        ]);
+      });
+
+      it('should keep skills with different refs in separate commands', () => {
+        const { commands } = buildExportCommands(
+          [makeSkill('pinned'), makeSkill('floating')],
+          lockLookup({
+            pinned: { source: 'owner/repo', sourceType: 'github', ref: 'v2' },
+            floating: { source: 'owner/repo', sourceType: 'github' },
+          }),
+          false
+        );
+        expect(commands).toEqual([
+          'skills add owner/repo --skill floating -y',
+          "skills add 'owner/repo#v2' --skill pinned -y",
+        ]);
+      });
+
+      it('should preserve each skill path from the lock file', () => {
+        const { commands } = buildExportCommands(
+          [makeSkill('root-skill'), makeSkill('nested-skill')],
+          lockLookup({
+            'root-skill': {
+              source: 'owner/repo',
+              sourceType: 'github',
+              skillPath: 'SKILL.md',
+            },
+            'nested-skill': {
+              source: 'owner/repo',
+              sourceType: 'github',
+              skillPath: 'skills/nested-skill/SKILL.md',
+            },
+          }),
+          false
+        );
+        expect(commands).toEqual([
+          'skills add owner/repo --skill root-skill -y',
+          'skills add owner/repo/skills/nested-skill --skill nested-skill -y',
+        ]);
+      });
+
+      it('should use full-depth when a git URL cannot include a skill path', () => {
+        const { commands } = buildExportCommands(
+          [makeSkill('nested-skill')],
+          lockLookup({
+            'nested-skill': {
+              source: 'git@git.example.com:owner/repo.git',
+              sourceType: 'git',
+              skillPath: 'skills/nested-skill/SKILL.md',
+            },
+          }),
+          false
+        );
+        expect(commands).toEqual([
+          'skills add git@git.example.com:owner/repo.git --skill nested-skill --full-depth -y',
+        ]);
+      });
+
+      it('should skip ambiguous legacy git sources', () => {
+        const { commands, skipped } = buildExportCommands(
+          [makeSkill('legacy-skill')],
+          lockLookup({
+            'legacy-skill': { source: 'acme/skills', sourceType: 'git' },
+          }),
+          false
+        );
+        expect(commands).toEqual([]);
+        expect(skipped).toEqual(['legacy-skill (missing source URL)']);
+      });
+
+      it('should skip local and node_modules sources, explaining why', () => {
+        const { commands, skipped } = buildExportCommands(
+          [makeSkill('local-skill'), makeSkill('nm-skill')],
+          lockLookup({
+            'local-skill': { source: '/some/path', sourceType: 'local' },
+            'nm-skill': { source: '@scope/pkg', sourceType: 'node_modules' },
+          }),
+          false
+        );
+        expect(commands).toEqual([]);
+        expect(skipped).toEqual([
+          'local-skill (local path: /some/path)',
+          'nm-skill (node_modules: @scope/pkg)',
+        ]);
+      });
+
+      it('should skip skills with no lock entry', () => {
+        const { commands, skipped } = buildExportCommands(
+          [makeSkill('orphan')],
+          () => undefined,
+          false
+        );
+        expect(commands).toEqual([]);
+        expect(skipped).toEqual(['orphan (no recorded source)']);
+      });
+
+      it('should include -g for global scope', () => {
+        const { commands } = buildExportCommands(
+          [makeSkill('skill-a')],
+          lockLookup({ 'skill-a': { source: 'owner/repo', sourceType: 'github' } }),
+          true
+        );
+        expect(commands).toEqual(['skills add owner/repo --skill skill-a -g -y']);
+      });
+    });
+
+    it('should output nothing on stdout when no skills are installed', () => {
+      const result = runCli(['list', '--export'], testDir);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim()).toBe('');
+    });
+
+    it('should output only commands, one per line', () => {
+      createTestSkill(testDir, 'skill-alpha', 'Alpha');
+      createTestSkill(testDir, 'skill-beta', 'Beta');
+      writeProjectLock({
+        'skill-alpha': {
+          source: 'owner/team-skills',
+          sourceUrl: 'https://github.com/owner/team-skills.git',
+          sourceType: 'github',
+          computedHash: 'hash-a',
+        },
+        'skill-beta': {
+          source: 'owner/team-skills',
+          sourceUrl: 'https://github.com/owner/team-skills.git',
+          sourceType: 'github',
+          computedHash: 'hash-b',
+        },
+      });
+
+      const result = runCli(['list', '--export'], testDir);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim()).toBe(
+        'skills add owner/team-skills --skill skill-alpha skill-beta -y'
+      );
+    });
+
+    it('should use github shorthand for github.com and full URLs otherwise', () => {
+      createTestSkill(testDir, 'hub-skill', 'GitHub skill');
+      createTestSkill(testDir, 'ghe-skill', 'Enterprise skill');
+      writeProjectLock({
+        'hub-skill': {
+          source: 'owner/repo',
+          sourceUrl: 'https://github.com/owner/repo.git',
+          sourceType: 'github',
+          computedHash: 'hash-a',
+        },
+        'ghe-skill': {
+          source: 'team/repo',
+          sourceUrl: 'https://ghe.acme.com/team/repo.git',
+          sourceType: 'github',
+          computedHash: 'hash-b',
+        },
+      });
+
+      const result = runCli(['list', '--export'], testDir);
+      expect(result.stdout).toContain('skills add owner/repo --skill hub-skill -y');
+      expect(result.stdout).toContain(
+        'skills add https://ghe.acme.com/team/repo.git --skill ghe-skill -y'
+      );
+    });
+
+    it('should append the ref as a quoted fragment', () => {
+      createTestSkill(testDir, 'ref-skill', 'Pinned skill');
+      writeProjectLock({
+        'ref-skill': {
+          source: 'owner/repo',
+          sourceUrl: 'https://github.com/owner/repo.git',
+          sourceType: 'github',
+          ref: 'v2',
+          computedHash: 'hash-a',
+        },
+      });
+
+      const result = runCli(['list', '--export'], testDir);
+      expect(result.stdout).toContain("skills add 'owner/repo#v2' --skill ref-skill -y");
+    });
+
+    it('should keep skipped local skills out of the command output', () => {
+      createTestSkill(testDir, 'local-skill', 'Local skill');
+      writeProjectLock({
+        'local-skill': {
+          source: '/some/path/on/this/machine',
+          sourceType: 'local',
+          computedHash: 'hash-a',
+        },
+      });
+
+      const result = runCli(['list', '--export'], testDir);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).not.toContain('skills add');
+      expect(result.stdout).not.toContain('local-skill');
+    });
+
+    it('should include -g when exporting global skills', () => {
+      const testHome = join(testDir, 'home');
+      createTestSkill(testHome, 'global-skill', 'A global skill');
+      const lockDir = join(testHome, '.local', 'state', 'skills');
+      mkdirSync(lockDir, { recursive: true });
+      writeFileSync(
+        join(lockDir, '.skill-lock.json'),
+        JSON.stringify({
+          version: 3,
+          skills: {
+            'global-skill': {
+              source: 'owner/global-skills',
+              sourceUrl: 'https://github.com/owner/global-skills.git',
+              sourceType: 'github',
+              skillFolderHash: 'global-hash',
+              installedAt: '2026-07-01T00:00:00.000Z',
+              updatedAt: '2026-07-01T00:00:00.000Z',
+            },
+          },
+        })
+      );
+
+      const result = runCli(['list', '-g', '--export'], testDir, { HOME: testHome });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim()).toBe(
+        'skills add owner/global-skills --skill global-skill -g -y'
+      );
+    });
+
+    it('should reject --export combined with --json', () => {
+      const result = runCli(['list', '--export', '--json'], testDir);
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('--export cannot be combined with --json');
     });
   });
 
