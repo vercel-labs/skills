@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { access, chmod, mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { installSkillForAgent } from '../src/installer.ts';
@@ -70,6 +70,39 @@ describe('installer copy mode', () => {
       const sourceMode = (await stat(scriptPath)).mode & 0o777;
       const installedMode = (await stat(installedScript)).mode & 0o777;
       expect(installedMode).toBe(sourceMode);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects symbolic links without copying their targets', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-copy-link-'));
+    const projectDir = join(root, 'project');
+    const sentinelDir = join(root, 'sentinel');
+    await mkdir(projectDir, { recursive: true });
+
+    const skillName = 'copy-link-skill';
+    const skillDir = await makeSkillSource(root, skillName);
+    await mkdir(sentinelDir, { recursive: true });
+    await writeFile(join(sentinelDir, 'sentinel.txt'), 'test sentinel only', 'utf-8');
+    await symlink(sentinelDir, join(skillDir, 'linked-sentinel'), 'junction');
+
+    try {
+      const result = await installSkillForAgent(
+        { name: skillName, description: 'test', path: skillDir },
+        'codex',
+        { cwd: projectDir, mode: 'copy', global: false }
+      );
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Refusing to copy symbolic link from skill');
+
+      const installedSentinel = join(
+        projectDir,
+        '.agents/skills',
+        skillName,
+        'linked-sentinel'
+      );
+      await expect(access(installedSentinel)).rejects.toThrow();
     } finally {
       await rm(root, { recursive: true, force: true });
     }
