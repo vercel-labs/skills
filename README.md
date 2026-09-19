@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [75 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [76 more](#supported-agents).
 <!-- agent-list:end -->
 
 <p>
@@ -340,6 +340,7 @@ Skills can be installed to any of these agents:
 | Roo Code | `roo` | `.roo/skills/` | `~/.roo/skills/` |
 | Tabnine CLI | `tabnine-cli` | `.tabnine/agent/skills/` | `~/.tabnine/agent/skills/` |
 | Terramind | `terramind` | `.terramind/skills/` | `~/.terramind/skills/` |
+| Thursday | `thursday` | `.agents/skills/` | `~/.thursday/.ai-workspace/.agents/skills/` |
 | Tinycloud | `tinycloud` | `.tinycloud/skills/` | `~/.tinycloud/skills/` |
 | Trae | `trae` | `.trae/skills/` | `~/.trae/skills/` |
 | Trae CN | `trae-cn` | `.trae/skills/` | `~/.trae-cn/skills/` |

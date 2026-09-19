@@ -14,6 +14,7 @@ const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
 const grokHome = process.env.GROK_HOME?.trim() || join(home, '.grok');
 const sarvamHome = process.env.SARVAM_HOME?.trim() || join(home, '.sarvam');
+const thursdayHome = process.env.THURSDAY_HOME?.trim() || join(home, '.thursday');
 const zedAppDataHome = process.env.APPDATA?.trim();
 const zedFlatpakConfigHome = process.env.FLATPAK_XDG_CONFIG_HOME?.trim();
 
@@ -684,6 +685,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.terramind/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.terramind'));
+    },
+  },
+  thursday: {
+    name: 'thursday',
+    displayName: 'Thursday',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(thursdayHome, '.ai-workspace/.agents/skills'),
+    detectInstalled: async () => {
+      return existsSync(thursdayHome);
     },
   },
   tinycloud: {
