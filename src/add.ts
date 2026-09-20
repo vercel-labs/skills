@@ -38,6 +38,8 @@ import {
   installBlobSkillForAgent,
   isSkillInstalled,
   getCanonicalPath,
+  getAgentBaseDir,
+  sanitizeName,
   installWellKnownSkillForAgent,
   type InstallMode,
 } from './installer.ts';
@@ -242,6 +244,72 @@ function buildAgentSummaryLines(targetAgents: AgentType[], installMode: InstallM
     // Copy mode - all agents get copies
     const allNames = targetAgents.map((a) => agents[a].displayName);
     lines.push(`  ${pc.dim('copy →')} ${formatList(allNames)}`);
+  }
+
+  return lines;
+}
+
+/**
+ * Builds the summary lines for a single skill's entry in the Installation Summary.
+ *
+ * In symlink mode the skill is written to the canonical .agents/skills path and
+ * symlinked from agent dirs, so the canonical path is shown. In copy mode each
+ * agent (or group of agents sharing a base dir) gets its own copy, so each
+ * group's actual install destination is shown — the summary must advertise the
+ * paths that will really be written, matching what the installer does via
+ * getAgentBaseDir().
+ */
+export function buildSkillSummaryLines(options: {
+  skillName: string;
+  targetAgents: AgentType[];
+  installMode: InstallMode;
+  global: boolean;
+  cwd: string;
+  fileCount?: number;
+  isOverwrite?: (agent: AgentType) => boolean;
+}): string[] {
+  const { skillName, targetAgents, installMode, global, cwd } = options;
+  const isOverwrite = options.isOverwrite ?? (() => false);
+  const lines: string[] = [];
+
+  if (installMode === 'copy') {
+    // Group agents by their resolved install base dir, preserving selection order.
+    const groups = new Map<string, AgentType[]>();
+    for (const agent of targetAgents) {
+      const base = getAgentBaseDir(agent, global, cwd);
+      if (!groups.has(base)) groups.set(base, []);
+      groups.get(base)!.push(agent);
+    }
+
+    for (const [base, groupAgents] of groups) {
+      const installPath = shortenPath(join(base, sanitizeName(skillName)), cwd);
+      lines.push(`${pc.cyan(installPath)}`);
+      lines.push(
+        `  ${pc.dim('copy →')} ${formatList(groupAgents.map((a) => agents[a].displayName))}`
+      );
+
+      const overwriteAgents = groupAgents.filter(isOverwrite).map((a) => agents[a].displayName);
+      if (overwriteAgents.length > 0) {
+        lines.push(`  ${pc.yellow('overwrites:')} ${formatList(overwriteAgents)}`);
+      }
+    }
+  } else {
+    const canonicalPath = getCanonicalPath(skillName, {
+      global,
+      cwd,
+      agent: targetAgents.length === 1 ? targetAgents[0] : undefined,
+    });
+    lines.push(`${pc.cyan(shortenPath(canonicalPath, cwd))}`);
+    lines.push(...buildAgentSummaryLines(targetAgents, installMode));
+
+    const overwriteAgents = targetAgents.filter(isOverwrite).map((a) => agents[a].displayName);
+    if (overwriteAgents.length > 0) {
+      lines.push(`  ${pc.yellow('overwrites:')} ${formatList(overwriteAgents)}`);
+    }
+  }
+
+  if ((options.fileCount ?? 0) > 1) {
+    lines.push(`  ${pc.dim('files:')} ${options.fileCount}`);
   }
 
   return lines;
@@ -718,22 +786,18 @@ async function handleWellKnownSkills(
   for (const skill of selectedSkills) {
     if (summaryLines.length > 0) summaryLines.push('');
 
-    const canonicalPath = getCanonicalPath(skill.installName, { global: installGlobally });
-    const shortCanonical = shortenPath(canonicalPath, cwd);
-    summaryLines.push(`${pc.cyan(shortCanonical)}`);
-    summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
-    if (skill.files.size > 1) {
-      summaryLines.push(`  ${pc.dim('files:')} ${skill.files.size}`);
-    }
-
     const skillOverwrites = overwriteStatus.get(skill.installName);
-    const overwriteAgents = targetAgents
-      .filter((a) => skillOverwrites?.get(a))
-      .map((a) => agents[a].displayName);
-
-    if (overwriteAgents.length > 0) {
-      summaryLines.push(`  ${pc.yellow('overwrites:')} ${formatList(overwriteAgents)}`);
-    }
+    summaryLines.push(
+      ...buildSkillSummaryLines({
+        skillName: skill.installName,
+        targetAgents,
+        installMode,
+        global: installGlobally,
+        cwd,
+        fileCount: skill.files.size,
+        isOverwrite: (a) => skillOverwrites?.get(a) === true,
+      })
+    );
   }
 
   console.log();
@@ -1484,22 +1548,17 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       for (const skill of skills) {
         if (summaryLines.length > 0) summaryLines.push('');
 
-        const canonicalPath =
-          targetAgents.length === 1
-            ? getCanonicalPath(skill.name, { global: installGlobally, agent: targetAgents[0] })
-            : getCanonicalPath(skill.name, { global: installGlobally });
-        const shortCanonical = shortenPath(canonicalPath, cwd);
-        summaryLines.push(`${pc.cyan(shortCanonical)}`);
-        summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
-
         const skillOverwrites = overwriteStatus.get(skill.name);
-        const overwriteAgents = targetAgents
-          .filter((a) => skillOverwrites?.get(a))
-          .map((a) => agents[a].displayName);
-
-        if (overwriteAgents.length > 0) {
-          summaryLines.push(`  ${pc.yellow('overwrites:')} ${formatList(overwriteAgents)}`);
-        }
+        summaryLines.push(
+          ...buildSkillSummaryLines({
+            skillName: skill.name,
+            targetAgents,
+            installMode,
+            global: installGlobally,
+            cwd,
+            isOverwrite: (a) => skillOverwrites?.get(a) === true,
+          })
+        );
       }
     };
 
