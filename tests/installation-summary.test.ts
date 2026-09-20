@@ -22,7 +22,7 @@ describe('buildSkillSummaryLines', () => {
       });
 
       expect(lines).toEqual([
-        pc.cyan('~/.gemini/antigravity-cli/skills/git-stage-message'),
+        pc.cyan('~/.gemini/config/skills/git-stage-message'),
         `  ${pc.dim('copy →')} Antigravity CLI`,
       ]);
     });
@@ -41,7 +41,7 @@ describe('buildSkillSummaryLines', () => {
       expect(lines).toEqual([
         pc.cyan('~/.agents/skills/git-stage-message'),
         `  ${pc.dim('copy →')} Codex`,
-        pc.cyan('~/.gemini/antigravity-cli/skills/git-stage-message'),
+        pc.cyan('~/.gemini/config/skills/git-stage-message'),
         `  ${pc.dim('copy →')} Antigravity CLI`,
       ]);
     });
@@ -75,7 +75,7 @@ describe('buildSkillSummaryLines', () => {
       expect(lines).toEqual([
         pc.cyan('~/.agents/skills/git-stage-message'),
         `  ${pc.dim('copy →')} Codex`,
-        pc.cyan('~/.gemini/antigravity-cli/skills/git-stage-message'),
+        pc.cyan('~/.gemini/config/skills/git-stage-message'),
         `  ${pc.dim('copy →')} Antigravity CLI`,
         `  ${pc.yellow('overwrites:')} Antigravity CLI`,
       ]);
@@ -104,7 +104,7 @@ describe('buildSkillSummaryLines', () => {
         cwd: CWD,
       });
 
-      expect(lines[0]).toBe(pc.cyan('~/.gemini/antigravity-cli/skills/evil-name'));
+      expect(lines[0]).toBe(pc.cyan('~/.gemini/config/skills/evil-name'));
     });
   });
 

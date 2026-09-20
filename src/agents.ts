@@ -64,8 +64,11 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(configHome, 'amp'));
     },
   },
-  // Antigravity products share the `.agents/skills` workspace dir but each has its
-  // own global skills dir, so none are universal. Paths per Homebrew cask records.
+  // Antigravity products share the `.agents/skills` workspace dir but have their
+  // own global skills dirs, so none are universal. Antigravity and its CLI both
+  // read global skills from the documented `~/.gemini/config/skills`
+  // (https://antigravity.google/docs/skills/); the CLI also still accepts
+  // `~/.gemini/antigravity-cli/skills` as a legacy location.
   antigravity: {
     name: 'antigravity',
     displayName: 'Antigravity',
@@ -81,7 +84,7 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'antigravity-cli',
     displayName: 'Antigravity CLI',
     skillsDir: '.agents/skills',
-    globalSkillsDir: join(home, '.gemini/antigravity-cli/skills'),
+    globalSkillsDir: join(home, '.gemini/config/skills'),
     universal: false,
     detectInstalled: async () => {
       return existsSync(join(home, '.gemini/antigravity-cli'));

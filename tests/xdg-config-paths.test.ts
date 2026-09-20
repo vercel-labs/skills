@@ -110,18 +110,16 @@ describe('XDG config paths', () => {
   });
 
   describe('Antigravity CLI', () => {
-    it('uses ~/.gemini/antigravity-cli/skills for global skills', () => {
-      const expected = join(home, '.gemini', 'antigravity-cli', 'skills');
+    it('uses ~/.gemini/config/skills for global skills', () => {
+      const expected = join(home, '.gemini', 'config', 'skills');
       expect(agents['antigravity-cli'].globalSkillsDir).toBe(expected);
     });
 
-    it('uses a distinct global directory from Antigravity and Antigravity IDE', () => {
-      const dirs = new Set([
-        agents.antigravity.globalSkillsDir,
-        agents['antigravity-ide'].globalSkillsDir,
-        agents['antigravity-cli'].globalSkillsDir,
-      ]);
-      expect(dirs.size).toBe(3);
+    it('shares the global directory with Antigravity but stays distinct from Antigravity IDE', () => {
+      expect(agents['antigravity-cli'].globalSkillsDir).toBe(agents.antigravity.globalSkillsDir);
+      expect(agents['antigravity-cli'].globalSkillsDir).not.toBe(
+        agents['antigravity-ide'].globalSkillsDir
+      );
     });
   });
 
