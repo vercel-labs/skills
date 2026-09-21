@@ -95,8 +95,8 @@ describe('XDG config paths', () => {
   });
 
   describe('Antigravity IDE', () => {
-    it('uses ~/.gemini/antigravity-ide/skills for global skills', () => {
-      const expected = join(home, '.gemini', 'antigravity-ide', 'skills');
+    it('uses ~/.gemini/config/skills for global skills', () => {
+      const expected = join(home, '.gemini', 'config', 'skills');
       expect(agents['antigravity-ide'].globalSkillsDir).toBe(expected);
     });
 
@@ -104,7 +104,7 @@ describe('XDG config paths', () => {
       expect(isUniversalAgent('antigravity-ide')).toBe(false);
       expect(getNonUniversalAgents()).toContain('antigravity-ide');
       expect(getAgentBaseDir('antigravity-ide', true)).toBe(
-        join(home, '.gemini', 'antigravity-ide', 'skills')
+        join(home, '.gemini', 'config', 'skills')
       );
     });
   });
@@ -115,11 +115,11 @@ describe('XDG config paths', () => {
       expect(agents['antigravity-cli'].globalSkillsDir).toBe(expected);
     });
 
-    it('shares the global directory with Antigravity but stays distinct from Antigravity IDE', () => {
-      expect(agents['antigravity-cli'].globalSkillsDir).toBe(agents.antigravity.globalSkillsDir);
-      expect(agents['antigravity-cli'].globalSkillsDir).not.toBe(
-        agents['antigravity-ide'].globalSkillsDir
-      );
+    it('shares the documented global directory with all Antigravity products', () => {
+      const shared = join(home, '.gemini', 'config', 'skills');
+      expect(agents['antigravity-cli'].globalSkillsDir).toBe(shared);
+      expect(agents.antigravity.globalSkillsDir).toBe(shared);
+      expect(agents['antigravity-ide'].globalSkillsDir).toBe(shared);
     });
   });
 
