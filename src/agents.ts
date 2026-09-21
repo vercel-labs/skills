@@ -14,6 +14,7 @@ const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
 const grokHome = process.env.GROK_HOME?.trim() || join(home, '.grok');
 const sarvamHome = process.env.SARVAM_HOME?.trim() || join(home, '.sarvam');
+const piHome = process.env.PI_CODING_AGENT_DIR?.trim() || join(home, '.pi', 'agent');
 const zedAppDataHome = process.env.APPDATA?.trim();
 const zedFlatpakConfigHome = process.env.FLATPAK_XDG_CONFIG_HOME?.trim();
 
@@ -580,9 +581,9 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'pi',
     displayName: 'Pi',
     skillsDir: '.pi/skills',
-    globalSkillsDir: join(home, '.pi/agent/skills'),
+    globalSkillsDir: join(piHome, 'skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.pi/agent'));
+      return existsSync(piHome);
     },
   },
   'posit-assistant': {
