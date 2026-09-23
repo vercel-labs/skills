@@ -36,6 +36,12 @@ export interface LocalSkillLockEntry {
    */
   computedHash: string;
   /**
+   * Narrows the hash to the root SKILL.md for blob installs that intentionally
+   * exclude the rest of a root-level repository. Omitted means the whole skill
+   * folder is hashed.
+   */
+  computedHashScope?: 'skill-file';
+  /**
    * Eve subagent targets this skill was installed into, so `update` can
    * restore the same placement. Each entry is an Eve subagent directory name;
    * the empty string `''` denotes the root agent (`agent/skills`). Omitted for
@@ -146,6 +152,19 @@ export async function computeSkillFolderHash(skillDir: string): Promise<string> 
   const files: Array<{ relativePath: string; content: Buffer }> = [];
   await collectFiles(skillDir, skillDir, files);
 
+  return computeFilesHash(files);
+}
+
+/** Compute the same deterministic hash for one skill entry file. */
+export async function computeSkillFileHash(
+  skillDir: string,
+  skillFileName = 'SKILL.md'
+): Promise<string> {
+  const content = await readFile(join(skillDir, skillFileName));
+  return computeFilesHash([{ relativePath: skillFileName, content }]);
+}
+
+function computeFilesHash(files: Array<{ relativePath: string; content: Buffer }>): string {
   // Sort by relative path for deterministic hashing
   files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
 

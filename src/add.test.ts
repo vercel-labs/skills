@@ -9,6 +9,7 @@ import {
   parseAddOptions,
   getLockSource,
   getProjectLockSourceUrl,
+  getProjectLockComputedHashScope,
   formatEveInstallPromptMessage,
 } from './add.ts';
 
@@ -894,6 +895,14 @@ metadata:
       });
       expect(result.stdout).toContain('internal-skill');
     });
+  });
+});
+
+describe('getProjectLockComputedHashScope', () => {
+  it('marks only root-level blob installs as skill-file hashes', () => {
+    expect(getProjectLockComputedHashScope(true, 'SKILL.md')).toBe('skill-file');
+    expect(getProjectLockComputedHashScope(true, 'skills/example/SKILL.md')).toBeUndefined();
+    expect(getProjectLockComputedHashScope(false, 'SKILL.md')).toBeUndefined();
   });
 });
 
