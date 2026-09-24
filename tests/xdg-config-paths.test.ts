@@ -27,6 +27,11 @@ describe('XDG config paths', () => {
       expect(agents.opencode.globalSkillsDir).toBe(expected);
     });
 
+    it('uses ~/.config/opencode/commands for global commands', () => {
+      const expected = join(home, '.config', 'opencode', 'commands');
+      expect(agents.opencode.globalCommandsDir).toBe(expected);
+    });
+
     it('does NOT use platform-specific paths like ~/Library/Preferences', () => {
       expect(agents.opencode.globalSkillsDir).not.toContain('Library');
       expect(agents.opencode.globalSkillsDir).not.toContain('Preferences');
