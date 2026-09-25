@@ -27,6 +27,7 @@ export type AgentType =
   | 'eve'
   | 'firebender'
   | 'forgecode'
+  | 'fx'
   | 'gemini-cli'
   | 'github-copilot'
   | 'goose'
@@ -61,6 +62,7 @@ export type AgentType =
   | 'reasonix'
   | 'roo'
   | 'rovodev'
+  | 'sarvam-code'
   | 'tabnine-cli'
   | 'terramind'
   | 'tinycloud'
@@ -99,6 +101,8 @@ export interface AgentConfig {
   showInUniversalList?: boolean;
   /** Whether to display this universal agent in the interactive locked section. Defaults to true. */
   showInUniversalPrompt?: boolean;
+  /** Whether automatic project installs may create this agent's missing skills root. */
+  createProjectSkillsDirByDefault?: boolean;
 }
 
 export interface ParsedSource {

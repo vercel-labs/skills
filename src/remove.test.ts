@@ -397,6 +397,79 @@ This is a test skill.
     });
   });
 
+  describe('non-skill directories', () => {
+    it('should not offer an agent-internal dot-directory as an installed skill', () => {
+      const testHome = join(testDir, 'home');
+      createTestSkill('real-skill', 'A real skill', join(testHome, '.agents', 'skills'));
+
+      // Codex ships its own bundled skills in $CODEX_HOME/skills/.system.
+      // It is not something this CLI installed, so it must not be removable.
+      const codexSystemDir = join(testHome, '.codex', 'skills', '.system');
+      mkdirSync(join(codexSystemDir, 'imagegen'), { recursive: true });
+      writeFileSync(join(codexSystemDir, '.codex-system-skills.marker'), '');
+
+      const result = runCli(['remove', '.system', '--global', '-y'], testDir, {
+        HOME: testHome,
+      });
+
+      expect(result.stdout).toContain('Found 1 unique installed skill(s)');
+      expect(result.stdout).toContain('No matching skills found');
+      expect(result.stdout).not.toContain('Successfully removed');
+      expect(existsSync(codexSystemDir)).toBe(true);
+    });
+
+    it('should still remove a lock-tracked skill whose SKILL.md is missing', () => {
+      // A half-finished install leaves a directory with no SKILL.md, so the
+      // folder scan skips it. The lock entry still names it, so it stays
+      // removable and both the directory and the entry get cleaned up.
+      const brokenDir = join(skillsDir, 'broken-skill');
+      mkdirSync(brokenDir, { recursive: true });
+      const lockPath = join(testDir, 'skills-lock.json');
+      writeFileSync(
+        lockPath,
+        JSON.stringify(
+          {
+            version: 1,
+            skills: {
+              'broken-skill': {
+                source: 'some-source',
+                sourceType: 'github',
+                computedHash: 'somehash',
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      const result = runCli(['remove', 'broken-skill', '-y'], testDir);
+
+      expect(result.stdout).toContain('Successfully removed');
+      expect(existsSync(brokenDir)).toBe(false);
+
+      const updatedLock = JSON.parse(readFileSync(lockPath, 'utf-8'));
+      expect(updatedLock.skills['broken-skill']).toBeUndefined();
+    });
+
+    it('should ignore directories without a SKILL.md when scanning agent skill dirs', () => {
+      createTestSkill('installed-skill');
+
+      // A source repo laid out like `skills/<category>/<skill>/SKILL.md`.
+      // `skills/` is also OpenClaw's project install dir, so it gets scanned.
+      mkdirSync(join(testDir, 'skills', 'templates'), { recursive: true });
+      writeFileSync(join(testDir, 'skills', 'templates', 'base.md'), 'authoring template');
+      mkdirSync(join(testDir, 'skills', '.experimental', 'wip-skill'), { recursive: true });
+
+      const result = runCli(['remove', '--all'], testDir);
+
+      expect(result.stdout).toContain('Found 1 unique installed skill(s)');
+      expect(existsSync(join(testDir, 'skills', 'templates', 'base.md'))).toBe(true);
+      expect(existsSync(join(testDir, 'skills', '.experimental', 'wip-skill'))).toBe(true);
+      expect(existsSync(join(skillsDir, 'installed-skill'))).toBe(false);
+    });
+  });
+
   describe('command aliases', () => {
     beforeEach(() => {
       createTestSkill('alias-test-skill');

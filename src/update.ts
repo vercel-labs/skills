@@ -17,6 +17,11 @@ import {
 import { cloneRepo, cleanupTempDir, getGitTreeHash } from './git.ts';
 import { discoverSkills } from './skills.ts';
 import { fetchRepoTree, getSkillFolderHashFromTree } from './blob.ts';
+import {
+  resolveSkillLocations,
+  type DiscoveredSkillLocation,
+  type SkillLocationResolution,
+} from './skill-relocation.ts';
 import { wellKnownProvider, computeWellKnownSkillDigest } from './providers/index.ts';
 import { removeCommand } from './remove.ts';
 import { sanitizeMetadata } from './sanitize.ts';
@@ -294,16 +299,22 @@ export async function checkAndPromptForDeletions(
   lockSkills: Record<string, { skillPath?: string }>,
   isGlobal: boolean,
   options: UpdateCheckOptions,
-  discoveredPaths: string[]
-): Promise<string[]> {
-  const deletedSkills = allLockedForSource.filter((name) => {
-    const entry = lockSkills[name];
-    if (!entry?.skillPath) return false;
-    return !discoveredPaths.includes(entry.skillPath);
-  });
+  discovered: DiscoveredSkillLocation[]
+): Promise<SkillLocationResolution> {
+  const resolution = resolveSkillLocations(allLockedForSource, lockSkills, discovered);
 
-  await promptDeletions(source, deletedSkills, isGlobal, options);
-  return deletedSkills;
+  if (resolution.ambiguousSkills.length > 0) {
+    console.log();
+    console.log(
+      `${DIM}Warning:${RESET} Multiple current paths match these skills from ${DIM}${source}${RESET}; skipping them rather than deleting or migrating the wrong skill:`
+    );
+    for (const name of resolution.ambiguousSkills) {
+      console.log(`  ${DIM}•${RESET} ${sanitizeMetadata(name)}`);
+    }
+  }
+
+  await promptDeletions(source, resolution.deletedSkills, isGlobal, options);
+  return resolution;
 }
 
 export interface WellKnownUpdateItem {
@@ -570,66 +581,67 @@ export async function updateGlobalSkills(
             .filter(([_, entry]) => entry.source === source && entry.ref === firstEntry.ref)
             .map(([name, _]) => name);
 
-          const deletedSkills = await checkAndPromptForDeletions(
-            source,
-            allLockedForSource,
-            lock.skills,
-            true,
-            options,
-            discoveredPaths
+          const hasMissingLockedPath = allLockedForSource.some(
+            (name) =>
+              lock.skills[name]?.skillPath &&
+              !discoveredPaths.includes(lock.skills[name]!.skillPath!)
           );
 
-          const deletedSkillSet = new Set(deletedSkills);
-
-          for (const { name: skillName, entry } of itemsForSource) {
-            if (deletedSkillSet.has(skillName)) continue;
-
-            const latestHash = getSkillFolderHashFromTree(tree, entry.skillPath!);
-            if (latestHash && latestHash !== entry.skillFolderHash) {
-              updates.push({ name: skillName, source, entry });
+          if (!hasMissingLockedPath) {
+            for (const { name: skillName, entry } of itemsForSource) {
+              const latestHash = getSkillFolderHashFromTree(tree, entry.skillPath!);
+              if (latestHash && latestHash !== entry.skillFolderHash) {
+                updates.push({ name: skillName, source, entry });
+              }
             }
+
+            continue;
           }
 
-          continue;
+          console.log(`  ${DIM}Skill paths changed; resolving via Git clone${RESET}`);
+        } else {
+          console.log(`  ${DIM}GitHub API unavailable; checking via Git clone${RESET}`);
         }
-
-        console.log(`  ${DIM}GitHub API unavailable; checking via Git clone${RESET}`);
       }
 
       tempDir = await cloneRepo(sourceUrl, firstEntry.ref);
-      const discoveredPaths = (await discoverSkills(tempDir, undefined, { fullDepth: true })).map(
-        (skill) => {
-          return join(relative(tempDir!, skill.path), 'SKILL.md').split(sep).join('/');
-        }
-      );
+      const discovered = await discoverSkills(tempDir, undefined, {
+        fullDepth: true,
+        includeDuplicateNames: true,
+      });
+      const discoveredLocations = discovered.map((skill) => ({
+        name: skill.name,
+        skillPath: join(relative(tempDir!, skill.path), 'SKILL.md').split(sep).join('/'),
+      }));
 
       const allLockedForSource = Object.entries(lock.skills)
         .filter(([_, entry]) => entry.source === source && entry.ref === firstEntry.ref)
         .map(([name, _]) => name);
 
-      const deletedSkills = await checkAndPromptForDeletions(
+      const resolution = await checkAndPromptForDeletions(
         source,
         allLockedForSource,
         lock.skills,
         true,
         options,
-        discoveredPaths
+        discoveredLocations
       );
 
-      const deletedSkillSet = new Set(deletedSkills);
+      const deletedSkillSet = new Set(resolution.deletedSkills);
 
       for (const { name: skillName, entry } of itemsForSource) {
         if (deletedSkillSet.has(skillName)) continue;
 
-        const skillPath = entry.skillPath!;
-        if (!discoveredPaths.includes(skillPath)) continue;
+        const skillPath = resolution.resolvedPaths.get(skillName);
+        if (!skillPath) continue;
 
         const usesGitTreeHash = isGitHubSource && /^[0-9a-f]{40}$/i.test(entry.skillFolderHash);
         const latestHash = usesGitTreeHash
           ? await getGitTreeHash(tempDir, skillPath)
           : await computeSkillFolderHash(join(tempDir, dirname(skillPath)));
-        if (latestHash && latestHash !== entry.skillFolderHash) {
-          updates.push({ name: skillName, source, entry });
+        const relocated = skillPath !== entry.skillPath;
+        if (relocated || (latestHash && latestHash !== entry.skillFolderHash)) {
+          updates.push({ name: skillName, source, entry: { ...entry, skillPath } });
         }
       }
     } catch (error) {
@@ -842,6 +854,7 @@ export async function updateProjectSkills(
 
     let tempDir: string | null = null;
     let deletedSkills: string[] = [];
+    let resolvedPaths: Map<string, string> | null = null;
 
     if (cloneSource === null) {
       failCount += skillsForSource.length;
@@ -853,21 +866,26 @@ export async function updateProjectSkills(
 
     try {
       tempDir = await cloneRepo(cloneSource, ref);
-      const discovered = await discoverSkills(tempDir, undefined, { fullDepth: true });
-
-      const discoveredPaths = discovered.map((s) => {
-        const relPath = relative(tempDir!, s.path);
-        return join(relPath, 'SKILL.md').split(sep).join('/');
+      const discovered = await discoverSkills(tempDir, undefined, {
+        fullDepth: true,
+        includeDuplicateNames: true,
       });
 
-      deletedSkills = await checkAndPromptForDeletions(
+      const discoveredLocations = discovered.map((skill) => ({
+        name: skill.name,
+        skillPath: join(relative(tempDir!, skill.path), 'SKILL.md').split(sep).join('/'),
+      }));
+
+      const resolution = await checkAndPromptForDeletions(
         source,
         allLockedForSource,
         localLock.skills,
         false,
         options,
-        discoveredPaths
+        discoveredLocations
       );
+      deletedSkills = resolution.deletedSkills;
+      resolvedPaths = resolution.resolvedPaths;
     } catch (error) {
       console.log(`${DIM}✗ Failed to check for deleted skills from ${source}${RESET}`);
     } finally {
@@ -876,12 +894,22 @@ export async function updateProjectSkills(
       }
     }
 
+    if (resolvedPaths === null) {
+      failCount += skillsForSource.length;
+      continue;
+    }
+
     const remainingSkills = skillsForSource.filter((s) => !deletedSkills.includes(s.name));
 
     for (const skill of remainingSkills) {
       const safeName = sanitizeMetadata(skill.name);
+      const resolvedPath = resolvedPaths?.get(skill.name);
+      if (resolvedPaths && !resolvedPath) {
+        continue;
+      }
+      const entry = resolvedPath ? { ...skill.entry, skillPath: resolvedPath } : skill.entry;
       console.log(`${TEXT}Updating ${safeName}…${RESET}`);
-      const installUrl = buildLocalUpdateSource(skill.entry);
+      const installUrl = buildLocalUpdateSource(entry);
       if (!installUrl) {
         failCount++;
         console.log(
@@ -895,7 +923,7 @@ export async function updateProjectSkills(
       const subagentArgs = skill.entry.subagents?.length
         ? ['--subagent', ...skill.entry.subagents.map((s) => (s === '' ? 'root' : s))]
         : [];
-      const fullDepthArgs = shouldUseFullDepthForUpdate(skill.entry) ? ['--full-depth'] : [];
+      const fullDepthArgs = shouldUseFullDepthForUpdate(entry) ? ['--full-depth'] : [];
 
       const result = spawnSync(
         process.execPath,
@@ -912,7 +940,7 @@ export async function updateProjectSkills(
         {
           stdio: ['inherit', 'pipe', 'pipe'],
           encoding: 'utf-8',
-          env: getUpdateChildEnv(skill.entry.sourceType),
+          env: getUpdateChildEnv(entry.sourceType),
           // Never spawn through a shell — same reasoning as updateGlobalSkills:
           // execPath is absolute (no shell resolution needed) and installUrl/ref
           // come from the lock file, so a shell would allow command injection on

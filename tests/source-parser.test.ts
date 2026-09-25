@@ -145,6 +145,86 @@ describe('parseSource', () => {
     });
   });
 
+  describe('Azure Repos URL tests', () => {
+    it('Azure DevOps Services clone URL is git, not well-known', () => {
+      const result = parseSource('https://dev.azure.com/fabrikam/FabrikamFiber/_git/skills');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://dev.azure.com/fabrikam/FabrikamFiber/_git/skills');
+      expect(result.ref).toBeUndefined();
+      expect(result.subpath).toBeUndefined();
+    });
+
+    it('Azure DevOps Services URL with .git suffix', () => {
+      const result = parseSource('https://dev.azure.com/fabrikam/FabrikamFiber/_git/skills.git');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://dev.azure.com/fabrikam/FabrikamFiber/_git/skills');
+    });
+
+    it('Azure DevOps Services web URL with path and branch query', () => {
+      const result = parseSource(
+        'https://dev.azure.com/fabrikam/FabrikamFiber/_git/skills?path=/skills/web-design&version=GBmain'
+      );
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://dev.azure.com/fabrikam/FabrikamFiber/_git/skills');
+      expect(result.ref).toBe('main');
+      expect(result.subpath).toBe('skills/web-design');
+    });
+
+    it('visualstudio.com clone URL', () => {
+      const result = parseSource('https://fabrikam.visualstudio.com/FabrikamFiber/_git/skills');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://fabrikam.visualstudio.com/FabrikamFiber/_git/skills');
+    });
+
+    it('Azure DevOps Server collection/project/_git/repo', () => {
+      const result = parseSource('https://ado.example.com/DefaultCollection/MyProject/_git/skills');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://ado.example.com/DefaultCollection/MyProject/_git/skills');
+    });
+
+    it('Azure DevOps Server /tfs/ virtual directory', () => {
+      const result = parseSource(
+        'https://ado.example.com/tfs/DefaultCollection/MyProject/_git/skills'
+      );
+      expect(result.type).toBe('git');
+      expect(result.url).toBe(
+        'https://ado.example.com/tfs/DefaultCollection/MyProject/_git/skills'
+      );
+    });
+
+    it('encoded spaces in organization and project', () => {
+      const result = parseSource('https://dev.azure.com/My%20Org/My%20Project/_git/agent-skills');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://dev.azure.com/My%20Org/My%20Project/_git/agent-skills');
+    });
+
+    it('version=GT is a tag ref; version=GC is not a cloneable ref', () => {
+      expect(
+        parseSource('https://dev.azure.com/fabrikam/Fiber/_git/skills?version=GTv1.2.0').ref
+      ).toBe('v1.2.0');
+      expect(
+        parseSource(
+          'https://dev.azure.com/fabrikam/Fiber/_git/skills?version=GC2c732a035bae9fb21e7823d37b2b9553e272f0c6'
+        ).ref
+      ).toBeUndefined();
+    });
+
+    it('#fragment is a git ref on Azure Repos URLs', () => {
+      const result = parseSource(
+        'https://dev.azure.com/fabrikam/FabrikamFiber/_git/skills#release-2026'
+      );
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://dev.azure.com/fabrikam/FabrikamFiber/_git/skills');
+      expect(result.ref).toBe('release-2026');
+    });
+
+    it('trailing slash after repo name', () => {
+      const result = parseSource('https://dev.azure.com/fabrikam/Fiber/_git/skills/');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://dev.azure.com/fabrikam/Fiber/_git/skills');
+    });
+  });
+
   describe('Generic URL tests', () => {
     it('generic HTTP URL is parsed as well-known with direct download fallback', () => {
       const result = parseSource('https://internal.example.com/download?id=123');

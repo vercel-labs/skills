@@ -92,6 +92,37 @@ description: A skill served from an archive
     rmSync(downloaded.tempDir, { recursive: true, force: true });
   });
 
+  it('accepts an explicit provider download size limit without changing the default', async () => {
+    const archiveRoot = join(testDir, 'large-archive-root');
+    const skillDir = join(archiveRoot, 'repo-main', 'skills', 'large-url-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      '---\nname: large-url-skill\ndescription: A skill in a large provider bundle\n---\n'
+    );
+
+    const archivePath = join(testDir, 'large-payload.tgz');
+    await tar.c({ cwd: archiveRoot, gzip: true, file: archivePath }, ['repo-main']);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        const bytes = readFileSync(archivePath);
+        return new Response(bytes, {
+          status: 200,
+          headers: { 'content-length': String(11 * 1024 * 1024) },
+        });
+      })
+    );
+
+    const downloaded = await downloadSource('https://internal.example.com/download', {
+      downloadMaxBytes: 12 * 1024 * 1024,
+    });
+    const skills = await discoverSkills(downloaded.rootDir);
+
+    expect(skills.map((skill) => skill.name)).toEqual(['large-url-skill']);
+    rmSync(downloaded.tempDir, { recursive: true, force: true });
+  });
+
   it('accepts a zip archive download without relying on the URL extension', async () => {
     const zipPath = join(testDir, 'payload.zip');
     writeFileSync(

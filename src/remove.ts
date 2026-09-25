@@ -7,6 +7,7 @@ import { track } from './telemetry.ts';
 import { detectAgent } from './detect-agent.ts';
 import { removeSkillFromLock, getSkillFromLock, readSkillLock } from './skill-lock.ts';
 import { readLocalLock, removeSkillFromLocalLock } from './local-lock.ts';
+import { hasSkillMd } from './skills.ts';
 import type { AgentType } from './types.ts';
 import {
   getInstallPath,
@@ -101,9 +102,20 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     try {
       const entries = await readdir(dir, { withFileTypes: true });
       for (const entry of entries) {
-        if (entry.isDirectory()) {
-          skillNamesSet.add(entry.name);
-        }
+        // Dot-directories belong to the agent, not to us: sanitizeName() strips
+        // leading dots, so a skill can never be installed under such a name and
+        // removal could never address one either. Offering Codex's bundled
+        // `$CODEX_HOME/skills/.system` was always a dead entry.
+        if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+
+        // A directory is only a skill if it holds a SKILL.md, which is what
+        // listInstalledSkills() already requires. Without this, any directory
+        // in a scanned path counted as installed — including the contents of a
+        // source repo's `skills/` folder, which is also OpenClaw's project
+        // install dir and so is always scanned.
+        if (!(await hasSkillMd(join(dir, entry.name)))) continue;
+
+        skillNamesSet.add(entry.name);
       }
     } catch (err) {
       if (err instanceof Error && (err as { code?: string }).code !== 'ENOENT') {

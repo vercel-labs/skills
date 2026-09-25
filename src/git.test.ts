@@ -20,8 +20,10 @@ import {
   GitCloneError,
   cloneRepo,
   getGitTreeHash,
+  isCommitSha,
   isGitHubHttpsCloneUrl,
   isGitHubSsoAuthError,
+  isMissingRefError,
   parseGitHubRepoUrl,
 } from './git.ts';
 
@@ -33,6 +35,24 @@ function createGitClientMock(clone: ReturnType<typeof vi.fn>) {
   client.env.mockReturnValue(client);
   return client;
 }
+
+// A client mock for the commit-SHA fetch path (cloneAtSha):
+// cwd().init().addRemote().fetch().checkout().
+function createShaClientMock(overrides: Partial<Record<string, ReturnType<typeof vi.fn>>> = {}) {
+  const env = vi.fn();
+  const client = {
+    cwd: overrides.cwd ?? vi.fn().mockResolvedValue(undefined),
+    init: overrides.init ?? vi.fn().mockResolvedValue(undefined),
+    addRemote: overrides.addRemote ?? vi.fn().mockResolvedValue(undefined),
+    fetch: overrides.fetch ?? vi.fn().mockResolvedValue(undefined),
+    checkout: overrides.checkout ?? vi.fn().mockResolvedValue(undefined),
+    env,
+  };
+  env.mockReturnValue(client);
+  return client;
+}
+
+const FULL_SHA = '6c6076a293e7ffeb108bad2a231cbd855890d3b5';
 
 function mockExecFileSuccess(stdout = '', stderr = '') {
   execFileMock.mockImplementationOnce(
@@ -325,5 +345,102 @@ describe('git clone fallbacks', () => {
 
     expect(simpleGitMock).not.toHaveBeenCalled();
     expect(execFileMock).not.toHaveBeenCalled();
+  });
+
+  it('falls back to a commit-SHA fetch when --branch reports a missing ref', async () => {
+    const primaryClone = vi
+      .fn()
+      .mockRejectedValue(
+        new Error(`fatal: Remote branch ${FULL_SHA} not found in upstream origin`)
+      );
+    const shaClient = createShaClientMock();
+
+    simpleGitMock
+      .mockReturnValueOnce(createGitClientMock(primaryClone))
+      .mockReturnValueOnce(shaClient);
+
+    const tempDir = await cloneRepo('https://gitlab.com/group/repo.git', FULL_SHA);
+    createdDirs.push(tempDir);
+
+    expect(primaryClone).toHaveBeenCalledWith('https://gitlab.com/group/repo.git', tempDir, [
+      '--depth',
+      '1',
+      '--branch',
+      FULL_SHA,
+    ]);
+    expect(shaClient.fetch).toHaveBeenCalledWith(['--depth', '1', 'origin', FULL_SHA]);
+    expect(shaClient.checkout).toHaveBeenCalledWith('FETCH_HEAD');
+  });
+
+  it('does not attempt the SHA fetch for a non-SHA ref', async () => {
+    const primaryClone = vi
+      .fn()
+      .mockRejectedValue(new Error('fatal: Remote branch deadbeef not found in upstream origin'));
+
+    simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+
+    await expect(cloneRepo('https://gitlab.com/group/repo.git', 'deadbeef')).rejects.toThrow(
+      GitCloneError
+    );
+    // Only the primary --branch client is constructed; no SHA-fetch client.
+    expect(simpleGitMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not attempt the SHA fetch when the failure is not a missing ref', async () => {
+    const primaryClone = vi.fn().mockRejectedValue(new Error('fatal: Authentication failed'));
+
+    simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+
+    await expect(cloneRepo('https://gitlab.com/group/repo.git', FULL_SHA)).rejects.toThrow(
+      GitCloneError
+    );
+    expect(simpleGitMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('isCommitSha', () => {
+  it('matches a full 40-character hex SHA', () => {
+    expect(isCommitSha(FULL_SHA)).toBe(true);
+    expect(isCommitSha('abcdef0123456789abcdef0123456789abcdef01')).toBe(true);
+  });
+
+  it('rejects a 40-character string containing non-hex characters', () => {
+    expect(isCommitSha('z'.repeat(40))).toBe(false);
+    expect(isCommitSha('g0000000000000000000000000000000000000000'.slice(0, 40))).toBe(false);
+  });
+
+  it('rejects abbreviated SHAs (not fetchable by the protocol)', () => {
+    expect(isCommitSha('6c6076a')).toBe(false);
+    expect(isCommitSha('6c6076a293')).toBe(false);
+  });
+
+  it('rejects branch and tag names', () => {
+    expect(isCommitSha('main')).toBe(false);
+    expect(isCommitSha('v1.2.3')).toBe(false);
+    expect(isCommitSha('deadbeef')).toBe(false); // hex but only 8 chars
+    expect(isCommitSha('release/2.0')).toBe(false);
+  });
+});
+
+describe('isMissingRefError', () => {
+  it('matches the clone --branch missing-ref message', () => {
+    expect(isMissingRefError(`fatal: Remote branch ${FULL_SHA} not found in upstream origin`)).toBe(
+      true
+    );
+  });
+
+  it('matches the fetch shorthand missing-ref message', () => {
+    expect(isMissingRefError("fatal: couldn't find remote ref deadbeef")).toBe(true);
+  });
+
+  it('matches the server-side fetch-by-SHA rejection', () => {
+    expect(isMissingRefError(`fatal: remote error: upload-pack: not our ref ${FULL_SHA}`)).toBe(
+      true
+    );
+  });
+
+  it('does not match unrelated errors', () => {
+    expect(isMissingRefError('fatal: Authentication failed')).toBe(false);
+    expect(isMissingRefError('fatal: unable to access: timed out')).toBe(false);
   });
 });

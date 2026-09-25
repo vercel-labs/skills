@@ -13,6 +13,7 @@ const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
 const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
 const grokHome = process.env.GROK_HOME?.trim() || join(home, '.grok');
+const sarvamHome = process.env.SARVAM_HOME?.trim() || join(home, '.sarvam');
 const zedAppDataHome = process.env.APPDATA?.trim();
 const zedFlatpakConfigHome = process.env.FLATPAK_XDG_CONFIG_HOME?.trim();
 
@@ -100,6 +101,7 @@ export const agents: Record<AgentType, AgentConfig> = {
     displayName: 'Antigravity',
     skillsDir: '.agents/skills',
     globalSkillsDir: join(home, '.gemini/antigravity/skills'),
+    showInUniversalPrompt: false,
     detectInstalled: async () => {
       return existsSync(join(home, '.gemini/antigravity'));
     },
@@ -109,6 +111,7 @@ export const agents: Record<AgentType, AgentConfig> = {
     displayName: 'Antigravity CLI',
     skillsDir: '.agents/skills',
     globalSkillsDir: join(home, '.gemini/antigravity-cli/skills'),
+    showInUniversalPrompt: false,
     detectInstalled: async () => {
       return existsSync(join(home, '.gemini/antigravity-cli'));
     },
@@ -154,6 +157,8 @@ export const agents: Record<AgentType, AgentConfig> = {
     displayName: 'Claude Code',
     skillsDir: '.claude/skills',
     globalSkillsDir: join(claudeHome, 'skills'),
+    // Preserve the established project-install behavior from #1138 and #1607.
+    createProjectSkillsDirByDefault: true,
     detectInstalled: async () => {
       return existsSync(claudeHome);
     },
@@ -275,6 +280,7 @@ export const agents: Record<AgentType, AgentConfig> = {
     displayName: 'Deep Agents',
     skillsDir: '.agents/skills',
     globalSkillsDir: join(home, '.deepagents/agent/skills'),
+    showInUniversalPrompt: false,
     detectInstalled: async () => {
       return existsSync(join(home, '.deepagents'));
     },
@@ -301,7 +307,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   droid: {
     name: 'droid',
     displayName: 'Droid',
-    skillsDir: '.factory/skills',
+    // Droid reads .agents/skills and ~/.agents/skills as compatibility
+    // locations, so installing there avoids defining the same skill twice.
+    // globalSkillsDir stays on ~/.factory/skills so `remove` still cleans up
+    // skills placed there by earlier versions.
+    skillsDir: '.agents/skills',
     globalSkillsDir: join(home, '.factory/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.factory'));
@@ -336,6 +346,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.forge/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.forge'));
+    },
+  },
+  fx: {
+    name: 'fx',
+    displayName: 'fx',
+    skillsDir: '.fx/skills',
+    globalSkillsDir: join(home, '.fx/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.fx'));
     },
   },
   'gemini-cli': {
@@ -422,10 +441,12 @@ export const agents: Record<AgentType, AgentConfig> = {
   kilo: {
     name: 'kilo',
     displayName: 'Kilo Code',
-    skillsDir: '.kilocode/skills',
-    globalSkillsDir: join(home, '.kilocode/skills'),
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.kilo/skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.kilocode'));
+      // `.kilocode` is the legacy config directory, kept here so existing
+      // installs are still detected.
+      return existsSync(join(home, '.kilo')) || existsSync(join(home, '.kilocode'));
     },
   },
   kimchi: {
@@ -635,6 +656,16 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.roo/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.roo'));
+    },
+  },
+  'sarvam-code': {
+    name: 'sarvam-code',
+    displayName: 'Sarvam Code',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents/skills'),
+    showInUniversalPrompt: false,
+    detectInstalled: async () => {
+      return existsSync(sarvamHome);
     },
   },
   'tabnine-cli': {

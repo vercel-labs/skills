@@ -46,7 +46,6 @@ src/
 ├── git.ts           # Git clone operations
 ├── telemetry.ts     # Anonymous usage tracking
 ├── types.ts         # TypeScript types
-├── mintlify.ts      # Mintlify skill fetching (legacy)
 ├── plugin-manifest.ts # Plugin manifest discovery support
 ├── prompts/         # Interactive prompt helpers
 │   └── search-multiselect.ts
@@ -54,8 +53,6 @@ src/
 │   ├── index.ts
 │   ├── registry.ts
 │   ├── types.ts
-│   ├── huggingface.ts
-│   ├── mintlify.ts
 │   └── wellknown.ts
 ├── init.test.ts     # Init command tests
 ├── use.ts           # Use command - generate a skill prompt or launch an agent

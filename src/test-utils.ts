@@ -1,4 +1,4 @@
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -105,19 +105,17 @@ export function runCli(
   const { env: testEnv, temporaryHome } = createIsolatedTestEnvironment(env);
 
   try {
-    const output = execFileSync(process.execPath, [CLI_PATH, ...args], {
+    const result = spawnSync(process.execPath, [CLI_PATH, ...args], {
       encoding: 'utf-8',
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: testEnv,
       timeout: timeout ?? 30000,
     });
-    return { stdout: stripAnsi(output), stderr: '', exitCode: 0 };
-  } catch (error: any) {
     return {
-      stdout: stripAnsi(error.stdout || ''),
-      stderr: stripAnsi(error.stderr || ''),
-      exitCode: error.status || 1,
+      stdout: stripAnsi(result.stdout || ''),
+      stderr: stripAnsi(result.stderr || ''),
+      exitCode: result.status ?? 1,
     };
   } finally {
     rmSync(temporaryHome, { recursive: true, force: true });
