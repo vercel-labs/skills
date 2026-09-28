@@ -332,19 +332,15 @@ function buildTargetSummaryLines(targets: InstallTarget[], installMode: InstallM
   const subagentNames = targets.filter((t) => t.subagent).map(targetDisplayName);
   const { universal, symlinked } = splitAgentsByType(rootAgents);
 
-  if (installMode === 'symlink') {
-    if (universal.length > 0) {
-      lines.push(`  ${pc.green('universal:')} ${formatList(universal)}`);
-    }
-    if (symlinked.length > 0) {
-      lines.push(`  ${pc.dim('symlink →')} ${formatList(symlinked)}`);
-    }
-    if (subagentNames.length > 0) {
-      lines.push(`  ${pc.dim('copy →')} ${formatList(subagentNames)}`);
-    }
-  } else {
-    const allNames = targets.map(targetDisplayName);
-    lines.push(`  ${pc.dim('copy →')} ${formatList(allNames)}`);
+  if (universal.length > 0) {
+    lines.push(`  ${pc.green('universal:')} ${formatList(universal)}`);
+  }
+  if (symlinked.length > 0) {
+    const label = installMode === 'symlink' ? 'symlink →' : 'copy →';
+    lines.push(`  ${pc.dim(label)} ${formatList(symlinked)}`);
+  }
+  if (subagentNames.length > 0) {
+    lines.push(`  ${pc.dim('copy →')} ${formatList(subagentNames)}`);
   }
 
   return lines;
