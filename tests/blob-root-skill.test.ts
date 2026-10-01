@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { resetRepoTreeAuthState, tryBlobInstall } from '../src/blob.ts';
 
 const ROOT_SKILL_MD = `---
@@ -20,6 +21,13 @@ function textResponse(body: string): Response {
     status: 200,
     headers: { 'content-type': 'text/plain' },
   });
+}
+
+function blobSha(contents: string): string {
+  return createHash('sha1')
+    .update(`blob ${Buffer.byteLength(contents, 'utf8')}\0`)
+    .update(contents, 'utf8')
+    .digest('hex');
 }
 
 describe('tryBlobInstall', () => {
@@ -53,7 +61,7 @@ describe('tryBlobInstall', () => {
         okResponse({
           sha: 'root-tree-sha',
           tree: [
-            { path: 'SKILL.md', type: 'blob', sha: 'skill-sha' },
+            { path: 'SKILL.md', type: 'blob', sha: blobSha(ROOT_SKILL_MD) },
             { path: 'packages/eve/src/index.ts', type: 'blob', sha: 'package-sha' },
             { path: 'docs/introduction.mdx', type: 'blob', sha: 'docs-sha' },
           ],
@@ -92,8 +100,8 @@ description: Nested skill.
         okResponse({
           sha: 'root-tree-sha',
           tree: [
-            { path: 'skills/nested/SKILL.md', type: 'blob', sha: 'skill-sha' },
-            { path: 'skills/nested/reference.md', type: 'blob', sha: 'reference-sha' },
+            { path: 'skills/nested/SKILL.md', type: 'blob', sha: blobSha(nestedSkillMd) },
+            { path: 'skills/nested/reference.md', type: 'blob', sha: blobSha('# Reference') },
           ],
         })
       )
@@ -128,7 +136,7 @@ description: Nested skill with a binary resource.
         okResponse({
           sha: 'root-tree-sha',
           tree: [
-            { path: 'skills/nested/SKILL.md', type: 'blob', sha: 'skill-sha' },
+            { path: 'skills/nested/SKILL.md', type: 'blob', sha: blobSha(nestedSkillMd) },
             {
               path: 'skills/nested/references/example.png',
               type: 'blob',
@@ -161,7 +169,7 @@ description: Nested skill with excluded source metadata.
         okResponse({
           sha: 'root-tree-sha',
           tree: [
-            { path: 'skills/nested/SKILL.md', type: 'blob', sha: 'skill-sha' },
+            { path: 'skills/nested/SKILL.md', type: 'blob', sha: blobSha(nestedSkillMd) },
             { path: 'skills/nested/metadata.json', type: 'blob', sha: 'metadata-sha' },
             {
               path: 'skills/nested/__pycache__/cache.pyc',
