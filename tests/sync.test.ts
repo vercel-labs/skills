@@ -1,6 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } from 'fs';
-import { join } from 'path';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'fs';
+import { join, resolve } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from '../src/test-utils.ts';
 
@@ -190,24 +200,161 @@ describe('experimental_sync command', () => {
       );
       expect(keys).toEqual(['alpha-skill', 'mid-skill', 'zebra-skill']);
     });
+  });
 
-    it('skips unchanged skills on second sync', () => {
-      declareDeps(['my-pkg']);
-      writeSkill(createPackage('my-pkg'), 'cached-skill');
+  describe('linking', () => {
+    const sync = () => runCli(['experimental_sync', '-y', '-a', 'claude-code'], testDir);
+    const canonical = (name: string) => join(testDir, '.agents', 'skills', name);
+    const linkTarget = (path: string) => resolve(join(path, '..'), readlinkSync(path));
 
-      runCli(['experimental_sync', '-y', '-a', 'claude-code'], testDir);
-      const result = runCli(['experimental_sync', '-y', '-a', 'claude-code'], testDir);
-      expect(result.stdout).toContain('up to date');
+    it('links the canonical dir into node_modules and agent dirs to the canonical dir', () => {
+      declareDeps(['my-lib']);
+      const skillDir = join(createPackage('my-lib'), 'skills', 'linked');
+      writeSkill(skillDir, 'linked');
+      mkdirSync(join(testDir, '.claude'));
+
+      sync();
+
+      expect(lstatSync(canonical('linked')).isSymbolicLink()).toBe(true);
+      expect(realpathSync(canonical('linked'))).toBe(realpathSync(skillDir));
+      const agentDir = join(testDir, '.claude', 'skills', 'linked');
+      expect(lstatSync(agentDir).isSymbolicLink()).toBe(true);
+      expect(linkTarget(agentDir)).toBe(canonical('linked'));
     });
 
-    it('reinstalls when --force is used', () => {
-      declareDeps(['my-pkg']);
-      writeSkill(createPackage('my-pkg'), 'force-skill');
+    it('relinks on every run without changing the result', () => {
+      declareDeps(['my-lib']);
+      writeSkill(join(createPackage('my-lib'), 'skills', 'stable'), 'stable');
 
-      runCli(['experimental_sync', '-y', '-a', 'claude-code'], testDir);
-      const result = runCli(['experimental_sync', '-y', '-a', 'claude-code', '--force'], testDir);
-      expect(result.stdout).toContain('force-skill');
-      expect(result.stdout).not.toContain('All skills are up to date');
+      sync();
+      const result = sync();
+
+      expect(result.stdout).toContain('Synced 1 skill');
+      expect(lstatSync(canonical('stable')).isSymbolicLink()).toBe(true);
+    });
+
+    it('sees package updates through the link', () => {
+      declareDeps(['my-lib']);
+      const skillDir = join(createPackage('my-lib'), 'skills', 'live');
+      writeSkill(skillDir, 'live');
+      sync();
+
+      writeFileSync(join(skillDir, 'SKILL.md'), skillMd('live', 'updated description'));
+
+      expect(readFileSync(join(canonical('live'), 'SKILL.md'), 'utf-8')).toContain(
+        'updated description'
+      );
+    });
+
+    it('copies with --copy', () => {
+      declareDeps(['my-lib']);
+      writeSkill(join(createPackage('my-lib'), 'skills', 'copied'), 'copied');
+
+      runCli(['experimental_sync', '-y', '-a', 'claude-code', '--copy'], testDir);
+
+      const agentDir = join(testDir, '.claude', 'skills', 'copied');
+      expect(lstatSync(agentDir).isDirectory()).toBe(true);
+      expect(existsSync(join(agentDir, 'SKILL.md'))).toBe(true);
+    });
+
+    it('replaces a copy made by an earlier sync with a link', () => {
+      declareDeps(['my-lib']);
+      const skillDir = join(createPackage('my-lib'), 'skills', 'migrated');
+      writeSkill(skillDir, 'migrated');
+      writeSkill(canonical('migrated'), 'migrated');
+      writeFileSync(
+        join(testDir, 'skills-lock.json'),
+        JSON.stringify({
+          version: 1,
+          skills: {
+            migrated: { source: 'my-lib', sourceType: 'node_modules', computedHash: 'stale' },
+          },
+        })
+      );
+
+      sync();
+
+      expect(lstatSync(canonical('migrated')).isSymbolicLink()).toBe(true);
+      expect(realpathSync(canonical('migrated'))).toBe(realpathSync(skillDir));
+    });
+
+    it('changes nothing with --dry-run', () => {
+      declareDeps(['my-lib']);
+      writeSkill(join(createPackage('my-lib'), 'skills', 'planned'), 'planned');
+
+      const result = runCli(['experimental_sync', '-y', '-a', 'claude-code', '--dry-run'], testDir);
+
+      expect(result.stdout).toContain('planned');
+      expect(result.stdout).toContain('Dry run');
+      expect(existsSync(canonical('planned'))).toBe(false);
+      expect(existsSync(join(testDir, 'skills-lock.json'))).toBe(false);
+    });
+  });
+
+  describe('conflicts', () => {
+    const sync = () => runCli(['experimental_sync', '-y', '-a', 'claude-code'], testDir);
+    const canonical = (name: string) => join(testDir, '.agents', 'skills', name);
+
+    it('never shadows a skill installed with skills add', () => {
+      declareDeps(['my-lib']);
+      writeSkill(join(createPackage('my-lib'), 'skills', 'shared'), 'shared');
+      writeSkill(canonical('shared'), 'shared');
+      writeFileSync(
+        join(testDir, 'skills-lock.json'),
+        JSON.stringify({
+          version: 1,
+          skills: { shared: { source: 'owner/repo', sourceType: 'github', computedHash: 'x' } },
+        })
+      );
+
+      const result = sync();
+
+      expect(result.stdout).toContain('Skipped');
+      expect(result.stdout).toContain('skills add');
+      expect(lstatSync(canonical('shared')).isDirectory()).toBe(true);
+      const lock = JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8'));
+      expect(lock.skills.shared.sourceType).toBe('github');
+    });
+
+    it('never replaces a hand-written skill directory', () => {
+      declareDeps(['my-lib']);
+      writeSkill(join(createPackage('my-lib'), 'skills', 'mine'), 'mine');
+      writeSkill(canonical('mine'), 'mine');
+      writeFileSync(join(canonical('mine'), 'notes.md'), 'keep me');
+
+      const result = sync();
+
+      expect(result.stdout).toContain('Skipped');
+      expect(result.stdout).toContain('already exists');
+      expect(existsSync(join(canonical('mine'), 'notes.md'))).toBe(true);
+    });
+
+    it('never replaces a symlink that points elsewhere', () => {
+      declareDeps(['my-lib']);
+      writeSkill(join(createPackage('my-lib'), 'skills', 'elsewhere'), 'elsewhere');
+      const other = join(testDir, 'other-skill');
+      writeSkill(other, 'elsewhere');
+      mkdirSync(join(testDir, '.agents', 'skills'), { recursive: true });
+      symlinkSync(other, canonical('elsewhere'), 'dir');
+
+      const result = sync();
+
+      expect(result.stdout).toContain('Skipped');
+      expect(result.stdout).toContain('is a symlink to');
+      expect(realpathSync(canonical('elsewhere'))).toBe(realpathSync(other));
+    });
+
+    it('installs neither when two packages ship the same skill name', () => {
+      declareDeps(['pkg-a', 'pkg-b']);
+      writeSkill(join(createPackage('pkg-a'), 'skills', 'migrate'), 'migrate');
+      writeSkill(join(createPackage('pkg-b'), 'skills', 'migrate'), 'migrate');
+
+      const result = sync();
+
+      expect(result.stdout).toContain('pkg-a');
+      expect(result.stdout).toContain('pkg-b');
+      expect(result.stdout).toContain('Nothing to sync');
+      expect(existsSync(canonical('migrate'))).toBe(false);
     });
   });
 
