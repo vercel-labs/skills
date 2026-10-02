@@ -1,9 +1,9 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
-import { readdir, stat } from 'fs/promises';
+import { readdir, readFile } from 'fs/promises';
 import { join, sep } from 'path';
 import { homedir } from 'os';
-import { parseSkillMd } from './skills.ts';
+import { hasSkillMd, parseSkillMd } from './skills.ts';
 import { installSkillForAgent, getCanonicalPath } from './installer.ts';
 import {
   detectInstalledAgents,
@@ -40,95 +40,75 @@ function shortenPath(fullPath: string, cwd: string): string {
   return fullPath;
 }
 
-/**
- * Crawl node_modules for SKILL.md files.
- * Searches both top-level packages and scoped packages (@org/pkg).
- * Returns discovered skills with their source package name.
- */
-async function discoverNodeModuleSkills(
-  cwd: string
-): Promise<Array<Skill & { packageName: string }>> {
-  const nodeModulesDir = join(cwd, 'node_modules');
-  const skills: Array<Skill & { packageName: string }> = [];
+interface PackageSkill extends Skill {
+  packageName: string;
+  packageVersion?: string;
+  /** Path to SKILL.md relative to the package root, e.g. `skills/pdf/SKILL.md`. */
+  skillPath: string;
+}
 
-  let topNames: string[];
+interface PackageJson {
+  version?: string;
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+}
+
+async function readPackageJson(dir: string): Promise<PackageJson | null> {
   try {
-    topNames = await readdir(nodeModulesDir);
+    return JSON.parse(await readFile(join(dir, 'package.json'), 'utf-8'));
   } catch {
-    return skills;
+    return null;
+  }
+}
+
+async function discoverPackageSkills(pkgDir: string, packageName: string): Promise<PackageSkill[]> {
+  const pkg = await readPackageJson(pkgDir);
+  if (!pkg) return []; // not installed
+
+  const rootSkill = (await hasSkillMd(pkgDir))
+    ? await parseSkillMd(join(pkgDir, 'SKILL.md'))
+    : null;
+  if (rootSkill) {
+    return [{ ...rootSkill, packageName, packageVersion: pkg.version, skillPath: 'SKILL.md' }];
   }
 
-  const processPackageDir = async (pkgDir: string, packageName: string) => {
-    // Check for SKILL.md at package root
-    const rootSkill = await parseSkillMd(join(pkgDir, 'SKILL.md'));
-    if (rootSkill) {
-      skills.push({ ...rootSkill, packageName });
-      return;
-    }
-
-    // Check common skill locations within the package
-    const searchDirs = [pkgDir, join(pkgDir, 'skills'), join(pkgDir, '.agents', 'skills')];
-
-    for (const searchDir of searchDirs) {
-      try {
-        const entries = await readdir(searchDir);
-        for (const name of entries) {
-          const skillDir = join(searchDir, name);
-          try {
-            const s = await stat(skillDir);
-            if (!s.isDirectory()) continue;
-          } catch {
-            continue;
-          }
-          const skill = await parseSkillMd(join(skillDir, 'SKILL.md'));
-          if (skill) {
-            skills.push({ ...skill, packageName });
-          }
-        }
-      } catch {
-        // Directory doesn't exist
+  const skills: PackageSkill[] = [];
+  for (const dir of ['skills', 'dist/skills']) {
+    for (const name of await readdir(join(pkgDir, dir)).catch(() => [])) {
+      const skillDir = join(pkgDir, dir, name);
+      if (!(await hasSkillMd(skillDir))) continue;
+      const skill = await parseSkillMd(join(skillDir, 'SKILL.md'));
+      if (skill) {
+        skills.push({
+          ...skill,
+          packageName,
+          packageVersion: pkg.version,
+          skillPath: `${dir}/${name}/SKILL.md`,
+        });
       }
     }
-  };
-
-  await Promise.all(
-    topNames.map(async (name) => {
-      if (name.startsWith('.')) return;
-
-      const fullPath = join(nodeModulesDir, name);
-      try {
-        const s = await stat(fullPath);
-        if (!s.isDirectory()) return;
-      } catch {
-        return;
-      }
-
-      if (name.startsWith('@')) {
-        // Scoped package: read @org/* entries
-        try {
-          const scopeNames = await readdir(fullPath);
-          await Promise.all(
-            scopeNames.map(async (scopedName) => {
-              const scopedPath = join(fullPath, scopedName);
-              try {
-                const s = await stat(scopedPath);
-                if (!s.isDirectory()) return;
-              } catch {
-                return;
-              }
-              await processPackageDir(scopedPath, `${name}/${scopedName}`);
-            })
-          );
-        } catch {
-          // Scope directory not readable
-        }
-      } else {
-        await processPackageDir(fullPath, name);
-      }
-    })
-  );
-
+  }
   return skills;
+}
+
+/**
+ * Find skills shipped by the project's direct dependencies.
+ * Only packages listed in package.json are read, so transitive dependencies
+ * cannot place a skill in front of the agent, and the package manager's
+ * version resolution decides which copy of a package is seen.
+ */
+async function discoverNodeModuleSkills(cwd: string): Promise<PackageSkill[]> {
+  const pkg = await readPackageJson(cwd);
+  if (!pkg) return [];
+
+  const names = new Set([
+    ...Object.keys(pkg.dependencies ?? {}),
+    ...Object.keys(pkg.devDependencies ?? {}),
+  ]);
+  const perPackage = await Promise.all(
+    [...names].map((name) => discoverPackageSkills(join(cwd, 'node_modules', name), name))
+  );
+  return perPackage.flat();
 }
 
 export async function runSync(args: string[], options: SyncOptions = {}): Promise<void> {
@@ -171,7 +151,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
 
   if (discoveredSkills.length === 0) {
     spinner.stop(pc.yellow('No skills found'));
-    p.outro(pc.dim('No SKILL.md files found in node_modules.'));
+    p.outro(pc.dim('No SKILL.md files found in the dependencies listed in package.json.'));
     return;
   }
 
@@ -189,7 +169,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
 
   // 2. Check which skills are already up-to-date via local lock
   const localLock = await readLocalLock(cwd);
-  const toInstall: Array<Skill & { packageName: string }> = [];
+  const toInstall: PackageSkill[] = [];
   const upToDate: string[] = [];
 
   if (options.force) {
@@ -390,6 +370,8 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
           {
             source: skill.packageName,
             sourceType: 'node_modules',
+            skillPath: skill.skillPath,
+            ...(skill.packageVersion && { version: skill.packageVersion }),
             computedHash,
           },
           cwd
