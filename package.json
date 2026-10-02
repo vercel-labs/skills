@@ -142,7 +142,7 @@
     "xdg-basedir": "^5.1.0"
   },
   "engines": {
-    "node": ">=22.20.0"
+    "node": ">=22.2.0"
   },
   "packageManager": "pnpm@10.17.1",
   "dependencies": {
