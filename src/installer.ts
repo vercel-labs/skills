@@ -6,7 +6,6 @@ import {
   symlink,
   lstat,
   rm,
-  readlink,
   readFile,
   writeFile,
   stat,
@@ -178,10 +177,6 @@ export function getAgentBaseDir(
   return join(baseDir, agent.skillsDir);
 }
 
-function resolveSymlinkTarget(linkPath: string, linkTarget: string): string {
-  return resolve(dirname(linkPath), linkTarget);
-}
-
 /**
  * Cleans and recreates a directory for skill installation.
  *
@@ -254,10 +249,8 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
     try {
       const stats = await lstat(linkPath);
       if (stats.isSymbolicLink()) {
-        const existingTarget = await readlink(linkPath);
-        if (resolveSymlinkTarget(linkPath, existingTarget) === resolvedTarget) {
-          return true;
-        }
+        // A link that already resolves to target returned above, so this one points
+        // elsewhere or nowhere.
         await rm(linkPath);
       } else {
         await rm(linkPath, { recursive: true });
@@ -278,9 +271,10 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
     const linkDir = dirname(linkPath);
     await mkdir(linkDir, { recursive: true });
 
-    // Use the real (symlink-resolved) parent directory for computing the relative path.
-    // This ensures the symlink target is correct even when the link's parent dir is a symlink.
-    const realLinkDir = await resolveParentSymlinks(linkDir);
+    // A relative link is resolved from the directory it physically lives in, so compute it
+    // from the fully resolved linkDir. linkDir can itself be a symlink, e.g. ~/.claude/skills
+    // pointing into a dotfiles repo.
+    const realLinkDir = await realpath(linkDir).catch(() => linkDir);
     const relativePath = relative(realLinkDir, target);
     const symlinkType = platform() === 'win32' ? 'junction' : undefined;
     const symlinkTarget = symlinkType === 'junction' ? resolvedTarget : relativePath;
