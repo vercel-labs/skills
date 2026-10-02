@@ -1,10 +1,23 @@
 import { homedir } from 'os';
+import { readdir } from 'fs/promises';
+import { join } from 'path';
 import type { AgentType } from './types.ts';
 import { agents } from './agents.ts';
-import { listInstalledSkills, sanitizeName, type InstalledSkill } from './installer.ts';
+import {
+  listInstalledSkills,
+  sanitizeName,
+  resolveInstallDir,
+  type InstalledSkill,
+} from './installer.ts';
+import { hasSkillMd } from './skills.ts';
 import { sanitizeMetadata } from './sanitize.ts';
-import { getAllLockedSkills } from './skill-lock.ts';
-import { readLocalLock } from './local-lock.ts';
+import { getAllLockedSkills, getAllDirLocks, getDirLockedSkills } from './skill-lock.ts';
+import {
+  readLocalLock,
+  getProjectSkillsDir,
+  isProjectRelativeDir,
+  resolveProjectSkillsDir,
+} from './local-lock.ts';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -17,6 +30,8 @@ interface ListOptions {
   global?: boolean;
   agent?: string[];
   json?: boolean;
+  /** List skills in a custom install directory (`add --dir`). */
+  dir?: string;
 }
 
 interface ListLockEntry {
@@ -61,6 +76,10 @@ export function parseListOptions(args: string[]): ListOptions {
       options.global = true;
     } else if (arg === '--json') {
       options.json = true;
+    } else if (arg === '--dir' || arg?.startsWith('--dir=')) {
+      const value = arg === '--dir' ? args[i + 1] : arg.slice('--dir='.length);
+      if (arg === '--dir' && value && !value.startsWith('-')) i++;
+      if (value && !value.startsWith('-')) options.dir = value;
     } else if (arg === '-a' || arg === '--agent') {
       options.agent = options.agent || [];
       // Collect all following arguments until next flag
@@ -75,6 +94,36 @@ export function parseListOptions(args: string[]): ListOptions {
 
 export async function runList(args: string[]): Promise<void> {
   const options = parseListOptions(args);
+
+  const projectCwd = process.cwd();
+  if (options.dir) {
+    if (isProjectRelativeDir(options.dir)) {
+      const projectDir = resolveProjectSkillsDir(options.dir, projectCwd);
+      if (!projectDir) {
+        console.log(`${YELLOW}--dir ${options.dir} is outside the project${RESET}`);
+        process.exit(1);
+      }
+      await listDir(projectDir, options.json === true, 'project');
+    } else {
+      await listDir(resolveInstallDir(options.dir), options.json === true, 'user');
+    }
+    return;
+  }
+
+  // A project that pins skillsDir in skills-lock.json lists that directory.
+  if (!options.global && !(options.agent && options.agent.length > 0)) {
+    let projectSkillsDir: string | undefined;
+    try {
+      projectSkillsDir = await getProjectSkillsDir(projectCwd);
+    } catch (error) {
+      console.log(`${YELLOW}${error instanceof Error ? error.message : String(error)}${RESET}`);
+      process.exit(1);
+    }
+    if (projectSkillsDir) {
+      await listDir(projectSkillsDir, options.json === true, 'project');
+      return;
+    }
+  }
 
   // Default to project only (local), use -g for global
   const scope = options.global === true ? true : false;
@@ -138,6 +187,8 @@ export async function runList(args: string[]): Promise<void> {
     console.log(`${DIM}No ${scopeLabel.toLowerCase()} skills found.${RESET}`);
     if (scope) {
       console.log(`${DIM}Try listing project skills without -g${RESET}`);
+      console.log();
+      await printCustomDirsHint(cwd);
     } else {
       console.log(`${DIM}Try listing global skills with -g${RESET}`);
     }
@@ -255,4 +306,88 @@ export async function runList(args: string[]): Promise<void> {
     }
     console.log();
   }
+
+  if (scope) await printCustomDirsHint(cwd);
+}
+
+/**
+ * Point at custom install directories (`add --dir`), which live outside the
+ * agent directories and so are not part of the global listing itself.
+ */
+async function printCustomDirsHint(cwd: string): Promise<void> {
+  const dirs = Object.entries(await getAllDirLocks());
+  if (dirs.length === 0) return;
+  console.log(`${BOLD}Custom Directories${RESET}`);
+  for (const [dir, skills] of dirs.sort(([a], [b]) => a.localeCompare(b))) {
+    const count = Object.keys(skills).length;
+    console.log(
+      `  ${CYAN}${shortenPath(dir, cwd)}${RESET} ${DIM}${count} skill(s) · skills ls --dir ${shortenPath(dir, cwd)}${RESET}`
+    );
+  }
+  console.log();
+}
+
+/**
+ * List skills in a custom install directory, with sources from the lock file.
+ */
+async function listDir(dir: string, json: boolean, scope: 'project' | 'user'): Promise<void> {
+  const cwd = process.cwd();
+  const lockSkills =
+    scope === 'project' ? (await readLocalLock(cwd)).skills : await getDirLockedSkills(dir);
+  const lockBySanitized = new Map(
+    Object.entries(lockSkills).map(([name, entry]) => [sanitizeName(name), entry])
+  );
+
+  const skills: Array<{ name: string; path: string }> = [];
+  try {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+      const path = join(dir, entry.name);
+      if (await hasSkillMd(path)) skills.push({ name: entry.name, path });
+    }
+  } catch {
+    // Missing directory lists as empty
+  }
+  skills.sort((a, b) => a.name.localeCompare(b.name));
+
+  const withLock = skills.map((skill) => ({
+    ...skill,
+    lock: lockSkills[skill.name] ?? lockBySanitized.get(sanitizeName(skill.name)),
+  }));
+
+  if (json) {
+    console.log(
+      JSON.stringify(
+        withLock.map(({ name, path, lock }) => ({
+          name,
+          path,
+          scope: scope === 'project' ? 'project' : 'dir',
+          agents: [],
+          source: lock?.source ?? null,
+          sourceUrl: lock?.sourceUrl ?? null,
+          sourceType: lock?.sourceType ?? null,
+        })),
+        null,
+        2
+      )
+    );
+    return;
+  }
+
+  const label = shortenPath(dir, cwd);
+  if (withLock.length === 0) {
+    console.log(`${DIM}No skills found in ${label}.${RESET}`);
+    return;
+  }
+
+  console.log(`${BOLD}Skills in ${label}${RESET}`);
+  console.log();
+  const maxNameLength = Math.max(...withLock.map((s) => sanitizeMetadata(s.name).length));
+  for (const { name, lock } of withLock) {
+    const source = lock?.source ? sanitizeMetadata(lock.source) : 'local';
+    console.log(
+      `${CYAN}${sanitizeMetadata(name).padEnd(maxNameLength)}${RESET}  ${DIM}Source:${RESET} ${source}`
+    );
+  }
+  console.log();
 }

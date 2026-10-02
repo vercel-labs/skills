@@ -28,8 +28,10 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
     return;
   }
 
-  // Only install to .agents/skills/ (universal agents)
+  // Only install to .agents/skills/ (universal agents), unless the project pins
+  // its own directory with `skillsDir`, which `add` then applies by itself.
   const universalAgentNames = getUniversalAgents();
+  const restoreDir = lock.skillsDir ?? '.agents/skills/';
 
   // Separate node_modules skills from remote skills
   const nodeModuleSkills: string[] = [];
@@ -62,7 +64,7 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
   const remoteCount = skillEntries.length - nodeModuleSkills.length;
   if (remoteCount > 0) {
     p.log.info(
-      `Restoring ${pc.cyan(String(remoteCount))} skill${remoteCount !== 1 ? 's' : ''} from skills-lock.json into ${pc.dim('.agents/skills/')}`
+      `Restoring ${pc.cyan(String(remoteCount))} skill${remoteCount !== 1 ? 's' : ''} from skills-lock.json into ${pc.dim(restoreDir)}`
     );
   }
 
@@ -71,7 +73,7 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
     try {
       await runAdd([source], {
         skill: skills,
-        agent: universalAgentNames,
+        ...(lock.skillsDir ? {} : { agent: universalAgentNames }),
         yes: true,
       });
     } catch (error) {

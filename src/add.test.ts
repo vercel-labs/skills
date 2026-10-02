@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { execFileSync } from 'child_process';
 import { existsSync, rmSync, mkdirSync, writeFileSync, lstatSync, readFileSync } from 'fs';
 import { join } from 'path';
-import { tmpdir } from 'os';
+import { tmpdir, homedir } from 'os';
 import { runCli, stripAnsi } from './test-utils.ts';
 import { shouldInstallInternalSkills } from './skills.ts';
 import {
@@ -11,6 +11,7 @@ import {
   getProjectLockSourceUrl,
   formatEveInstallPromptMessage,
 } from './add.ts';
+import { resolveInstallDir } from './installer.ts';
 
 function countPathLinesForSkill(text: string, skillName: string): number {
   return (
@@ -173,6 +174,189 @@ Instructions here.
     expect(lock.skills['my-skill']).toBeDefined();
     expect(lock.skills['my-skill'].sourceType).toBe('local');
     expect(lock.skills['my-skill'].source).toBe(testDir);
+  });
+
+  describe('--dir', () => {
+    function writeSkill(sourceDir: string, name: string): void {
+      const skillDir = join(sourceDir, 'skills', name);
+      mkdirSync(join(skillDir, 'scripts'), { recursive: true });
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---\nname: ${name}\ndescription: ${name} description\n---\n\n# ${name}\n`
+      );
+      writeFileSync(join(skillDir, 'scripts', 'run.sh'), 'echo hi\n');
+    }
+
+    it('copies skills into the custom directory without touching agent dirs or locks', () => {
+      const sourceDir = join(testDir, 'source');
+      writeSkill(sourceDir, 'dir-skill');
+      const projectDir = join(testDir, 'project');
+      mkdirSync(projectDir, { recursive: true });
+      const customDir = join(testDir, 'custom', 'skills');
+
+      const result = runCli(
+        ['add', sourceDir, '-y', '--dir', customDir],
+        projectDir,
+        noDetectedAgentEnv
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(stripAnsi(result.stdout)).toContain('Done!');
+      const installed = join(customDir, 'dir-skill');
+      expect(existsSync(join(installed, 'SKILL.md'))).toBe(true);
+      expect(existsSync(join(installed, 'scripts', 'run.sh'))).toBe(true);
+      expect(lstatSync(installed).isSymbolicLink()).toBe(false);
+      expect(existsSync(join(projectDir, '.agents'))).toBe(false);
+      expect(existsSync(join(projectDir, 'skills-lock.json'))).toBe(false);
+    });
+
+    it('pins a relative --dir as the project skillsDir and uses it for later commands', () => {
+      const sourceDir = join(testDir, 'source');
+      writeSkill(sourceDir, 'first-skill');
+      const secondSource = join(testDir, 'source2');
+      writeSkill(secondSource, 'second-skill');
+      const projectDir = join(testDir, 'project');
+      mkdirSync(projectDir, { recursive: true });
+      const env = { ...noDetectedAgentEnv, XDG_STATE_HOME: join(testDir, 'state') };
+      const lockPath = join(projectDir, 'skills-lock.json');
+      const readLock = () =>
+        JSON.parse(readFileSync(lockPath, 'utf-8')) as {
+          skillsDir?: string;
+          skills: Record<string, unknown>;
+        };
+
+      // First install pins the directory, relative to the project root.
+      expect(runCli(['add', sourceDir, '-y', '--dir=team-skills'], projectDir, env).exitCode).toBe(
+        0
+      );
+      expect(readLock().skillsDir).toBe('./team-skills');
+      expect(Object.keys(readLock().skills)).toEqual(['first-skill']);
+
+      // Later installs need no flag: they follow skillsDir, not detected agents.
+      const second = runCli(['add', secondSource, '-y'], projectDir, env);
+      expect(second.exitCode).toBe(0);
+      expect(second.stdout).toContain('skillsDir in skills-lock.json');
+      expect(existsSync(join(projectDir, 'team-skills', 'second-skill', 'SKILL.md'))).toBe(true);
+      expect(existsSync(join(projectDir, '.agents'))).toBe(false);
+      expect(Object.keys(readLock().skills).sort()).toEqual(['first-skill', 'second-skill']);
+
+      // Nothing machine-specific goes to the global lock.
+      expect(existsSync(join(testDir, 'state', 'skills', '.skill-lock.json'))).toBe(false);
+
+      const list = runCli(['ls'], projectDir, env);
+      expect(list.stdout).toContain('Skills in ./team-skills');
+      expect(list.stdout).toContain('second-skill');
+
+      const removed = runCli(['rm', 'first-skill', '-y'], projectDir, env);
+      expect(removed.exitCode).toBe(0);
+      expect(existsSync(join(projectDir, 'team-skills', 'first-skill'))).toBe(false);
+      expect(Object.keys(readLock().skills)).toEqual(['second-skill']);
+      expect(readLock().skillsDir).toBe('./team-skills');
+
+      // A different relative directory is refused instead of silently splitting installs.
+      const conflict = runCli(['add', sourceDir, '-y', '--dir', 'other'], projectDir, env);
+      expect(conflict.exitCode).toBe(1);
+      expect(existsSync(join(projectDir, 'other'))).toBe(false);
+    });
+
+    it('restores a pinned project directory with experimental_install', () => {
+      const sourceDir = join(testDir, 'source');
+      writeSkill(sourceDir, 'restored-skill');
+      const projectDir = join(testDir, 'project');
+      mkdirSync(projectDir, { recursive: true });
+      const env = { ...noDetectedAgentEnv, XDG_STATE_HOME: join(testDir, 'state') };
+
+      expect(
+        runCli(['add', sourceDir, '-y', '--dir', './team-skills'], projectDir, env).exitCode
+      ).toBe(0);
+      rmSync(join(projectDir, 'team-skills'), { recursive: true, force: true });
+
+      const restored = runCli(['experimental_install'], projectDir, env);
+      expect(restored.exitCode).toBe(0);
+      expect(existsSync(join(projectDir, 'team-skills', 'restored-skill', 'SKILL.md'))).toBe(true);
+      expect(existsSync(join(projectDir, '.agents'))).toBe(false);
+    });
+
+    it('refuses a checked-in skillsDir outside the project', () => {
+      const sourceDir = join(testDir, 'source');
+      writeSkill(sourceDir, 'evil-skill');
+      const projectDir = join(testDir, 'project');
+      mkdirSync(projectDir, { recursive: true });
+      writeFileSync(
+        join(projectDir, 'skills-lock.json'),
+        JSON.stringify({ version: 1, skillsDir: '../escape', skills: {} })
+      );
+
+      const result = runCli(['add', sourceDir, '-y'], projectDir, noDetectedAgentEnv);
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout + result.stderr).toContain('outside the project');
+      expect(existsSync(join(testDir, 'escape'))).toBe(false);
+    });
+
+    it('lists and removes skills in a custom directory using the lock file', () => {
+      const sourceDir = join(testDir, 'source');
+      writeSkill(sourceDir, 'tracked-skill');
+      writeSkill(sourceDir, 'other-skill');
+      const customDir = join(testDir, 'custom', 'skills');
+      const stateDir = join(testDir, 'state');
+      const env = { ...noDetectedAgentEnv, XDG_STATE_HOME: stateDir };
+
+      expect(runCli(['add', sourceDir, '-y', '--dir', customDir], testDir, env).exitCode).toBe(0);
+
+      // Seed a lock entry as a remote install would record it.
+      mkdirSync(join(stateDir, 'skills'), { recursive: true });
+      writeFileSync(
+        join(stateDir, 'skills', '.skill-lock.json'),
+        JSON.stringify({
+          version: 3,
+          skills: {},
+          customDirs: {
+            [customDir]: {
+              'tracked-skill': {
+                source: 'owner/repo',
+                sourceType: 'github',
+                sourceUrl: 'https://github.com/owner/repo.git',
+                skillFolderHash: 'h',
+                installedAt: '',
+                updatedAt: '',
+              },
+            },
+          },
+        })
+      );
+
+      const list = runCli(['ls', '--dir', customDir], testDir, env);
+      expect(list.exitCode).toBe(0);
+      expect(list.stdout).toMatch(/tracked-skill\s+Source: owner\/repo/);
+      expect(list.stdout).toMatch(/other-skill\s+Source: local/);
+
+      const globalList = runCli(['ls', '-g'], testDir, env);
+      expect(globalList.stdout).toContain('Custom Directories');
+      expect(globalList.stdout).toContain('1 skill(s)');
+
+      const removed = runCli(['rm', 'tracked-skill', '--dir', customDir, '-y'], testDir, env);
+      expect(removed.exitCode).toBe(0);
+      expect(existsSync(join(customDir, 'tracked-skill'))).toBe(false);
+      expect(existsSync(join(customDir, 'other-skill'))).toBe(true);
+      const lock = JSON.parse(
+        readFileSync(join(stateDir, 'skills', '.skill-lock.json'), 'utf-8')
+      ) as { customDirs?: unknown };
+      expect(lock.customDirs).toBeUndefined();
+    });
+
+    it('rejects combining --dir with --agent', () => {
+      const sourceDir = join(testDir, 'source');
+      writeSkill(sourceDir, 'conflict-skill');
+
+      const result = runCli(
+        ['add', sourceDir, '-y', '--dir', join(testDir, 'x'), '-a', 'claude-code'],
+        testDir,
+        noDetectedAgentEnv
+      );
+
+      expect(result.exitCode).toBe(1);
+      expect(existsSync(join(testDir, 'x'))).toBe(false);
+    });
   });
 
   it('creates the project symlink for an explicitly selected non-universal agent', () => {
@@ -1031,7 +1215,36 @@ describe('shouldInstallInternalSkills', () => {
   });
 });
 
+describe('resolveInstallDir', () => {
+  it('expands a leading ~ to the home directory', () => {
+    expect(resolveInstallDir('~/.claude/skills')).toBe(join(homedir(), '.claude/skills'));
+    expect(resolveInstallDir('~')).toBe(homedir());
+  });
+
+  it('resolves relative paths against cwd', () => {
+    expect(resolveInstallDir('skills')).toBe(join(process.cwd(), 'skills'));
+  });
+});
+
 describe('parseAddOptions', () => {
+  it('should parse --dir with a path', () => {
+    const result = parseAddOptions(['source', '--dir', '~/.claude/skills']);
+    expect(result.source).toEqual(['source']);
+    expect(result.options.dir).toBe('~/.claude/skills');
+    expect(result.errors).toEqual([]);
+  });
+
+  it('should parse --dir=<path>', () => {
+    const result = parseAddOptions(['source', '--dir=/tmp/skills']);
+    expect(result.options.dir).toBe('/tmp/skills');
+  });
+
+  it('should report an error when --dir has no value', () => {
+    const result = parseAddOptions(['source', '--dir', '-y']);
+    expect(result.errors).toContain('--dir requires a directory path');
+    expect(result.options.yes).toBe(true);
+  });
+
   it('should parse --all flag', () => {
     const result = parseAddOptions(['source', '--all']);
     expect(result.source).toEqual(['source']);

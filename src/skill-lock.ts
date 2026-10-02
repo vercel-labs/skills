@@ -57,6 +57,12 @@ export interface SkillLockFile {
   dismissed?: DismissedPrompts;
   /** Last selected agents for installation */
   lastSelectedAgents?: string[];
+  /**
+   * Skills installed with `skills add --dir <path>`, keyed by the absolute
+   * directory path, then by skill name. Kept apart from `skills` so a custom
+   * directory never collides with (or rewrites) the agent-managed entries.
+   */
+  customDirs?: Record<string, Record<string, SkillLockEntry>>;
 }
 
 /**
@@ -290,4 +296,65 @@ export async function saveSelectedAgents(agents: string[]): Promise<void> {
   const lock = await readSkillLock();
   lock.lastSelectedAgents = agents;
   await writeSkillLock(lock);
+}
+
+/**
+ * Get the tracked skills for a custom install directory (`add --dir`).
+ */
+export async function getDirLockedSkills(dir: string): Promise<Record<string, SkillLockEntry>> {
+  const lock = await readSkillLock();
+  return lock.customDirs?.[dir] ?? {};
+}
+
+/**
+ * Get every tracked custom install directory and its skills.
+ */
+export async function getAllDirLocks(): Promise<Record<string, Record<string, SkillLockEntry>>> {
+  const lock = await readSkillLock();
+  return lock.customDirs ?? {};
+}
+
+/**
+ * Add or update a skill entry for a custom install directory (`add --dir`).
+ */
+export async function addSkillToDirLock(
+  dir: string,
+  skillName: string,
+  entry: Omit<SkillLockEntry, 'installedAt' | 'updatedAt'>
+): Promise<void> {
+  const lock = await readSkillLock();
+  const now = new Date().toISOString();
+  const customDirs = (lock.customDirs ??= {});
+  const dirSkills = (customDirs[dir] ??= {});
+  const existingEntry = dirSkills[skillName];
+
+  dirSkills[skillName] = {
+    ...entry,
+    installedAt: existingEntry?.installedAt ?? now,
+    updatedAt: now,
+  };
+
+  await writeSkillLock(lock);
+}
+
+/**
+ * Remove a skill entry for a custom install directory. Drops the directory
+ * from the lock once it tracks no skills.
+ */
+export async function removeSkillFromDirLock(dir: string, skillName: string): Promise<boolean> {
+  const lock = await readSkillLock();
+  const dirSkills = lock.customDirs?.[dir];
+  if (!dirSkills || !(skillName in dirSkills)) {
+    return false;
+  }
+
+  delete dirSkills[skillName];
+  if (Object.keys(dirSkills).length === 0) {
+    delete lock.customDirs![dir];
+    if (Object.keys(lock.customDirs!).length === 0) {
+      delete lock.customDirs;
+    }
+  }
+  await writeSkillLock(lock);
+  return true;
 }
