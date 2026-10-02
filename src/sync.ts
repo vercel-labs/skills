@@ -1,10 +1,16 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
-import { readdir, stat } from 'fs/promises';
-import { join, sep } from 'path';
+import { lstat, readdir, readFile, readlink } from 'fs/promises';
+import { dirname, join, resolve, sep } from 'path';
 import { homedir } from 'os';
-import { parseSkillMd } from './skills.ts';
-import { installSkillForAgent, getCanonicalPath } from './installer.ts';
+import { hasSkillMd, parseSkillMd } from './skills.ts';
+import {
+  installSkillForAgent,
+  getCanonicalPath,
+  getInstallPath,
+  sanitizeName,
+  type InstallMode,
+} from './installer.ts';
 import {
   detectInstalledAgents,
   agents,
@@ -13,7 +19,12 @@ import {
   getNonUniversalAgents,
 } from './agents.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
-import { addSkillToLocalLock, computeSkillFolderHash, readLocalLock } from './local-lock.ts';
+import {
+  addSkillToLocalLock,
+  computeSkillFolderHash,
+  readLocalLock,
+  type LocalSkillLockEntry,
+} from './local-lock.ts';
 import type { Skill, AgentType } from './types.ts';
 import { track } from './telemetry.ts';
 import { detectAgent, getAgentType } from './detect-agent.ts';
@@ -23,7 +34,8 @@ const isCancelled = (value: unknown): value is symbol => typeof value === 'symbo
 export interface SyncOptions {
   agent?: string[];
   yes?: boolean;
-  force?: boolean;
+  copy?: boolean;
+  dryRun?: boolean;
 }
 
 /**
@@ -40,95 +52,168 @@ function shortenPath(fullPath: string, cwd: string): string {
   return fullPath;
 }
 
-/**
- * Crawl node_modules for SKILL.md files.
- * Searches both top-level packages and scoped packages (@org/pkg).
- * Returns discovered skills with their source package name.
- */
-async function discoverNodeModuleSkills(
-  cwd: string
-): Promise<Array<Skill & { packageName: string }>> {
-  const nodeModulesDir = join(cwd, 'node_modules');
-  const skills: Array<Skill & { packageName: string }> = [];
+interface PackageSkill extends Skill {
+  packageName: string;
+  packageVersion?: string;
+  /** Path to SKILL.md relative to the package root, e.g. `skills/pdf/SKILL.md`. */
+  skillPath: string;
+}
 
-  let topNames: string[];
+interface PackageJson {
+  version?: string;
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+}
+
+async function readPackageJson(dir: string): Promise<PackageJson | null> {
   try {
-    topNames = await readdir(nodeModulesDir);
+    return JSON.parse(await readFile(join(dir, 'package.json'), 'utf-8'));
   } catch {
-    return skills;
+    return null;
+  }
+}
+
+async function discoverPackageSkills(pkgDir: string, packageName: string): Promise<PackageSkill[]> {
+  const pkg = await readPackageJson(pkgDir);
+  if (!pkg) return []; // not installed
+
+  const rootSkill = (await hasSkillMd(pkgDir))
+    ? await parseSkillMd(join(pkgDir, 'SKILL.md'))
+    : null;
+  if (rootSkill) {
+    return [{ ...rootSkill, packageName, packageVersion: pkg.version, skillPath: 'SKILL.md' }];
   }
 
-  const processPackageDir = async (pkgDir: string, packageName: string) => {
-    // Check for SKILL.md at package root
-    const rootSkill = await parseSkillMd(join(pkgDir, 'SKILL.md'));
-    if (rootSkill) {
-      skills.push({ ...rootSkill, packageName });
-      return;
-    }
-
-    // Check common skill locations within the package
-    const searchDirs = [pkgDir, join(pkgDir, 'skills'), join(pkgDir, '.agents', 'skills')];
-
-    for (const searchDir of searchDirs) {
-      try {
-        const entries = await readdir(searchDir);
-        for (const name of entries) {
-          const skillDir = join(searchDir, name);
-          try {
-            const s = await stat(skillDir);
-            if (!s.isDirectory()) continue;
-          } catch {
-            continue;
-          }
-          const skill = await parseSkillMd(join(skillDir, 'SKILL.md'));
-          if (skill) {
-            skills.push({ ...skill, packageName });
-          }
-        }
-      } catch {
-        // Directory doesn't exist
+  const skills: PackageSkill[] = [];
+  for (const dir of ['skills', 'dist/skills']) {
+    for (const name of await readdir(join(pkgDir, dir)).catch(() => [])) {
+      const skillDir = join(pkgDir, dir, name);
+      if (!(await hasSkillMd(skillDir))) continue;
+      const skill = await parseSkillMd(join(skillDir, 'SKILL.md'));
+      if (skill) {
+        skills.push({
+          ...skill,
+          packageName,
+          packageVersion: pkg.version,
+          skillPath: `${dir}/${name}/SKILL.md`,
+        });
       }
     }
-  };
-
-  await Promise.all(
-    topNames.map(async (name) => {
-      if (name.startsWith('.')) return;
-
-      const fullPath = join(nodeModulesDir, name);
-      try {
-        const s = await stat(fullPath);
-        if (!s.isDirectory()) return;
-      } catch {
-        return;
-      }
-
-      if (name.startsWith('@')) {
-        // Scoped package: read @org/* entries
-        try {
-          const scopeNames = await readdir(fullPath);
-          await Promise.all(
-            scopeNames.map(async (scopedName) => {
-              const scopedPath = join(fullPath, scopedName);
-              try {
-                const s = await stat(scopedPath);
-                if (!s.isDirectory()) return;
-              } catch {
-                return;
-              }
-              await processPackageDir(scopedPath, `${name}/${scopedName}`);
-            })
-          );
-        } catch {
-          // Scope directory not readable
-        }
-      } else {
-        await processPackageDir(fullPath, name);
-      }
-    })
-  );
-
+  }
   return skills;
+}
+
+/**
+ * Find skills shipped by the project's direct dependencies.
+ * Only packages listed in package.json are read, so transitive dependencies
+ * cannot place a skill in front of the agent, and the package manager's
+ * version resolution decides which copy of a package is seen.
+ */
+async function discoverNodeModuleSkills(cwd: string): Promise<PackageSkill[]> {
+  const pkg = await readPackageJson(cwd);
+  if (!pkg) return [];
+
+  const names = new Set([
+    ...Object.keys(pkg.dependencies ?? {}),
+    ...Object.keys(pkg.devDependencies ?? {}),
+  ]);
+  const perPackage = await Promise.all(
+    [...names].map((name) => discoverPackageSkills(join(cwd, 'node_modules', name), name))
+  );
+  return perPackage.flat();
+}
+
+function isUnderNodeModules(path: string): boolean {
+  return path.split(sep).includes('node_modules');
+}
+
+/**
+ * Why `dest` must not be touched, or null when it is free or already ours.
+ * Sync owns a symlink whose target is in node_modules or is the canonical dir,
+ * and a real directory that the lock attributes to node_modules.
+ */
+async function foreignDestination(
+  dest: string,
+  canonicalDir: string,
+  lockEntry: LocalSkillLockEntry | undefined,
+  cwd: string
+): Promise<string | null> {
+  let stats;
+  try {
+    stats = await lstat(dest);
+  } catch {
+    return null;
+  }
+  if (stats.isSymbolicLink()) {
+    const target = resolve(dirname(dest), await readlink(dest));
+    if (isUnderNodeModules(target) || target === canonicalDir) return null;
+    return `${shortenPath(dest, cwd)} is a symlink to ${shortenPath(target, cwd)}`;
+  }
+  if (lockEntry?.sourceType === 'node_modules') return null;
+  return `${shortenPath(dest, cwd)} already exists and was not installed by sync`;
+}
+
+interface SkippedSkill {
+  skill: PackageSkill;
+  reason: string;
+}
+
+/**
+ * Conflict rules, in order:
+ * 1. a skill installed with `skills add` is never shadowed
+ * 2. a directory or symlink sync does not own is never replaced
+ * 3. two packages shipping the same skill name install neither
+ */
+async function resolveConflicts(
+  skills: PackageSkill[],
+  targetAgents: AgentType[],
+  lockSkills: Record<string, LocalSkillLockEntry>,
+  cwd: string
+): Promise<{ install: PackageSkill[]; skipped: SkippedSkill[] }> {
+  const lockBySanitizedName = new Map(
+    Object.entries(lockSkills).map(([name, entry]) => [sanitizeName(name), entry])
+  );
+  const byName = Map.groupBy(skills, (skill) => sanitizeName(skill.name));
+  const install: PackageSkill[] = [];
+  const skipped: SkippedSkill[] = [];
+
+  for (const [name, candidates] of byName) {
+    if (candidates.length > 1) {
+      const packages = candidates.map((c) => c.packageName).join(', ');
+      for (const skill of candidates) {
+        skipped.push({
+          skill,
+          reason: `also shipped by ${packages}; install the one you want with \`skills add\``,
+        });
+      }
+      continue;
+    }
+
+    const skill = candidates[0]!;
+    const lockEntry = lockBySanitizedName.get(name);
+    if (lockEntry && lockEntry.sourceType !== 'node_modules') {
+      skipped.push({ skill, reason: `installed with \`skills add\` from ${lockEntry.source}` });
+      continue;
+    }
+
+    const canonicalDir = getCanonicalPath(name, { cwd });
+    const destinations = new Set([
+      canonicalDir,
+      ...targetAgents.map((agent) => getInstallPath(name, agent, { cwd })),
+    ]);
+    let reason: string | null = null;
+    for (const dest of destinations) {
+      reason = await foreignDestination(dest, canonicalDir, lockEntry, cwd);
+      if (reason) break;
+    }
+    if (reason) {
+      skipped.push({ skill, reason });
+    } else {
+      install.push(skill);
+    }
+  }
+
+  return { install, skipped };
 }
 
 export async function runSync(args: string[], options: SyncOptions = {}): Promise<void> {
@@ -171,7 +256,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
 
   if (discoveredSkills.length === 0) {
     spinner.stop(pc.yellow('No skills found'));
-    p.outro(pc.dim('No SKILL.md files found in node_modules.'));
+    p.outro(pc.dim('No SKILL.md files found in the dependencies listed in package.json.'));
     return;
   }
 
@@ -187,44 +272,9 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     }
   }
 
-  // 2. Check which skills are already up-to-date via local lock
   const localLock = await readLocalLock(cwd);
-  const toInstall: Array<Skill & { packageName: string }> = [];
-  const upToDate: string[] = [];
 
-  if (options.force) {
-    toInstall.push(...discoveredSkills);
-    p.log.info(pc.dim('Force mode: reinstalling all skills'));
-  } else {
-    for (const skill of discoveredSkills) {
-      const existingEntry = localLock.skills[skill.name];
-      if (existingEntry) {
-        // Compute current hash and compare
-        const currentHash = await computeSkillFolderHash(skill.path);
-        if (currentHash === existingEntry.computedHash) {
-          upToDate.push(skill.name);
-          continue;
-        }
-      }
-      toInstall.push(skill);
-    }
-
-    if (upToDate.length > 0) {
-      p.log.info(
-        pc.dim(`${upToDate.length} skill${upToDate.length !== 1 ? 's' : ''} already up to date`)
-      );
-    }
-
-    if (toInstall.length === 0) {
-      console.log();
-      p.outro(pc.green('All skills are up to date.'));
-      return;
-    }
-  }
-
-  p.log.info(`${toInstall.length} skill${toInstall.length !== 1 ? 's' : ''} to install/update`);
-
-  // 3. Select agents
+  // 2. Select agents
   let targetAgents: AgentType[];
   const validAgents = Object.keys(agents);
   const universalAgents = getUniversalAgents();
@@ -321,17 +371,40 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     }
   }
 
+  // 3. Resolve conflicts
+  const { install: toInstall, skipped } = await resolveConflicts(
+    discoveredSkills,
+    targetAgents,
+    localLock.skills,
+    cwd
+  );
+  for (const { skill, reason } of skipped) {
+    p.log.warn(`Skipped ${pc.cyan(skill.name)} ${pc.dim(`from ${skill.packageName}`)}: ${reason}`);
+  }
+  if (toInstall.length === 0) {
+    console.log();
+    p.outro(pc.yellow('Nothing to sync.'));
+    return;
+  }
+
   // 4. Build summary
+  const mode: InstallMode = options.copy ? 'copy' : 'link';
   const summaryLines: string[] = [];
   for (const skill of toInstall) {
-    const canonicalPath = getCanonicalPath(skill.name, { global: false });
-    const shortCanonical = shortenPath(canonicalPath, cwd);
+    const canonicalPath = getCanonicalPath(skill.name, { cwd });
     summaryLines.push(`${pc.cyan(skill.name)} ${pc.dim(`← ${skill.packageName}`)}`);
-    summaryLines.push(`  ${pc.dim(shortCanonical)}`);
+    summaryLines.push(
+      `  ${pc.dim(`${shortenPath(canonicalPath, cwd)} ${mode === 'link' ? '→' : 'copied from'} ${shortenPath(skill.path, cwd)}`)}`
+    );
   }
 
   console.log();
   p.note(summaryLines.join('\n'), 'Sync Summary');
+
+  if (options.dryRun) {
+    p.outro(pc.dim('Dry run — nothing changed.'));
+    return;
+  }
 
   if (!options.yes) {
     const confirmed = await p.confirm({ message: 'Proceed with sync?' });
@@ -342,7 +415,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     }
   }
 
-  // 5. Install skills (always project-scoped, always symlink)
+  // 5. Install skills (always project-scoped)
   spinner.start('Syncing skills…');
 
   const results: Array<{
@@ -360,7 +433,8 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
       const result = await installSkillForAgent(skill, agent, {
         global: false,
         cwd,
-        mode: 'symlink',
+        // Eve rewrites SKILL.md frontmatter on install, which a link cannot do
+        mode: agent === 'eve' ? 'copy' : mode,
       });
       results.push({
         skill: skill.name,
@@ -390,6 +464,8 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
           {
             source: skill.packageName,
             sourceType: 'node_modules',
+            skillPath: skill.skillPath,
+            ...(skill.packageVersion && { version: skill.packageVersion }),
             computedHash,
           },
           cwd
@@ -459,8 +535,10 @@ export function parseSyncOptions(args: string[]): { options: SyncOptions } {
 
     if (arg === '-y' || arg === '--yes') {
       options.yes = true;
-    } else if (arg === '-f' || arg === '--force') {
-      options.force = true;
+    } else if (arg === '--copy') {
+      options.copy = true;
+    } else if (arg === '--dry-run') {
+      options.dryRun = true;
     } else if (arg === '-a' || arg === '--agent') {
       options.agent = options.agent || [];
       i++;

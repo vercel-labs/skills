@@ -162,6 +162,8 @@ ${BOLD}Remove Options:${RESET}
 ${BOLD}Experimental Sync Options:${RESET}
   -a, --agent <agents>   Specify agents to install to (use '*' for all agents)
   -y, --yes              Skip confirmation prompts
+  --copy                 Copy skills instead of linking them to node_modules
+  --dry-run              Show what would change without changing anything
 
 ${BOLD}List Options:${RESET}
   -g, --global           List global skills (default: project)
