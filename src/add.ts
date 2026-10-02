@@ -13,6 +13,7 @@ import {
   installBlobSkillForAgent,
   isSkillInstalled,
   getCanonicalPath,
+  getInstallPath,
   installWellKnownSkillForAgent,
   type InstallMode,
 } from './installer.ts';
@@ -258,29 +259,6 @@ function splitAgentsByType(agentTypes: AgentType[]): {
 }
 
 /**
- * Builds summary lines showing universal vs symlinked agents
- */
-function buildAgentSummaryLines(targetAgents: AgentType[], installMode: InstallMode): string[] {
-  const lines: string[] = [];
-  const { universal, symlinked } = splitAgentsByType(targetAgents);
-
-  if (installMode === 'symlink') {
-    if (universal.length > 0) {
-      lines.push(`  ${pc.green('universal:')} ${formatList(universal)}`);
-    }
-    if (symlinked.length > 0) {
-      lines.push(`  ${pc.dim('symlink →')} ${formatList(symlinked)}`);
-    }
-  } else {
-    // Copy mode - all agents get copies
-    const allNames = targetAgents.map((a) => agents[a].displayName);
-    lines.push(`  ${pc.dim('copy →')} ${formatList(allNames)}`);
-  }
-
-  return lines;
-}
-
-/**
  * A concrete install destination. For Eve, `subagent` optionally targets a
  * subagent's skills directory (`agent/subagents/<name>/skills`); when omitted
  * the skill installs to the root agent (`agent/skills`). Other agents never set
@@ -294,7 +272,7 @@ interface InstallTarget {
 /** Human-readable label for an install target, e.g. "Eve (research)". */
 function targetDisplayName(target: InstallTarget): string {
   const base = agents[target.agent].displayName;
-  return target.subagent ? `${base} (${target.subagent})` : base;
+  return target.subagent ? `${base} (${stripTerminalEscapes(target.subagent)})` : base;
 }
 
 /** Stable key used to deduplicate / index per-target state. */
@@ -321,6 +299,35 @@ function buildInstallTargets(
     }
   }
   return targets;
+}
+
+async function selectEveSubagentTargets(
+  options: AddOptions
+): Promise<Array<string | undefined> | symbol> {
+  if (options.subagent?.length) {
+    return [
+      ...new Set(
+        options.subagent.map((name) => (name === 'root' || name === '.' ? undefined : name))
+      ),
+    ];
+  }
+  const available = getEveSubagents(process.cwd());
+  if (available.length === 0 || options.yes) return [undefined];
+  const selected = await p.multiselect<string>({
+    message: 'Where should Eve skills be installed?',
+    options: [
+      { value: '', label: 'Root agent', hint: 'agent/skills' },
+      ...available.map((name) => ({
+        value: name,
+        label: stripTerminalEscapes(name),
+        hint: `agent/subagents/${stripTerminalEscapes(name)}/skills`,
+      })),
+    ],
+    initialValues: [''],
+    required: true,
+  });
+  if (isCancelled(selected)) return selected;
+  return selected.map((name) => (name === '' ? undefined : name));
 }
 
 /**
@@ -755,6 +762,7 @@ async function handleWellKnownSkills(
 
   // Detect agents
   let targetAgents: AgentType[];
+  const explicitlySelectedAgents = new Set<AgentType>();
   const validAgents = Object.keys(agents);
 
   if (options.agent?.includes('*')) {
@@ -771,6 +779,7 @@ async function handleWellKnownSkills(
     }
 
     targetAgents = options.agent as AgentType[];
+    for (const agent of targetAgents) explicitlySelectedAgents.add(agent);
   } else {
     spinner.start('Loading agents…');
     const installedAgents = await detectInstalledAgents();
@@ -800,6 +809,7 @@ async function handleWellKnownSkills(
         }
 
         targetAgents = selected as AgentType[];
+        for (const agent of targetAgents) explicitlySelectedAgents.add(agent);
       }
     } else if (installedAgents.length === 1 || options.yes) {
       // Auto-select detected agents + ensure universal agents are included
@@ -820,8 +830,19 @@ async function handleWellKnownSkills(
       }
 
       targetAgents = selected as AgentType[];
+      for (const agent of targetAgents) explicitlySelectedAgents.add(agent);
     }
   }
+
+  if (options.subagent?.length) {
+    explicitlySelectedAgents.add('eve');
+    if (!targetAgents.includes('eve')) targetAgents = [...targetAgents, 'eve'];
+  }
+  const eveSubagentTargets = targetAgents.includes('eve')
+    ? await selectEveSubagentTargets(options)
+    : [undefined];
+  if (isCancelled(eveSubagentTargets)) exitInstallationCancelled();
+  const installTargets = buildInstallTargets(targetAgents, eveSubagentTargets);
 
   let installGlobally = options.global ?? false;
 
@@ -852,14 +873,29 @@ async function handleWellKnownSkills(
     installGlobally = scope as boolean;
   }
 
+  if (
+    installGlobally &&
+    targetAgents.includes('eve') &&
+    (explicitlySelectedAgents.has('eve') || !options.yes)
+  ) {
+    p.log.error('Eve skills and subagents only support project installation.');
+    process.exitCode = 1;
+    return true;
+  }
+
   // Determine install mode (symlink vs copy)
   let installMode: InstallMode = options.copy ? 'copy' : 'symlink';
 
   // Only prompt for install mode when there are multiple unique target directories.
   // When all selected agents share the same skillsDir, symlink vs copy is meaningless.
-  const uniqueDirs = new Set(targetAgents.map((a) => agents[a].skillsDir));
+  const allEve = installTargets.every((target) => target.agent === 'eve');
+  const uniqueDirs = new Set(
+    installTargets.map((target) =>
+      target.subagent ? `eve:subagent:${target.subagent}` : agents[target.agent].skillsDir
+    )
+  );
 
-  if (!options.copy && !options.yes && uniqueDirs.size > 1) {
+  if (!options.copy && !options.yes && uniqueDirs.size > 1 && !allEve) {
     const modeChoice = await p.select({
       message: 'Installation method',
       options: [
@@ -877,7 +913,7 @@ async function handleWellKnownSkills(
     }
 
     installMode = modeChoice as InstallMode;
-  } else if (uniqueDirs.size <= 1) {
+  } else if (uniqueDirs.size <= 1 || allEve) {
     // Single target directory — default to copy (no symlink needed)
     installMode = 'copy';
   }
@@ -886,41 +922,51 @@ async function handleWellKnownSkills(
 
   // Build installation summary
   const summaryLines: string[] = [];
-  const agentNames = targetAgents.map((a) => agents[a].displayName);
 
   // Check if any skill will be overwritten (parallel)
   const overwriteChecks = await Promise.all(
     selectedSkills.flatMap((skill) =>
-      targetAgents.map(async (agent) => ({
+      installTargets.map(async (target) => ({
         skillName: skill.installName,
-        agent,
-        installed: await isSkillInstalled(skill.installName, agent, { global: installGlobally }),
+        target,
+        installed: await isSkillInstalled(skill.installName, target.agent, {
+          global: installGlobally,
+          eveSubagent: target.subagent,
+        }),
       }))
     )
   );
   const overwriteStatus = new Map<string, Map<string, boolean>>();
-  for (const { skillName, agent, installed } of overwriteChecks) {
+  for (const { skillName, target, installed } of overwriteChecks) {
     if (!overwriteStatus.has(skillName)) {
       overwriteStatus.set(skillName, new Map());
     }
-    overwriteStatus.get(skillName)!.set(agent, installed);
+    overwriteStatus.get(skillName)!.set(targetKey(target), installed);
   }
 
   for (const skill of selectedSkills) {
     if (summaryLines.length > 0) summaryLines.push('');
 
-    const canonicalPath = getCanonicalPath(skill.installName, { global: installGlobally });
-    const shortCanonical = shortenPath(canonicalPath, cwd);
-    summaryLines.push(`${pc.cyan(shortCanonical)}`);
-    summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
+    const paths = new Set(
+      installTargets.map((target) =>
+        installMode === 'copy' || target.agent === 'eve'
+          ? getInstallPath(skill.installName, target.agent, {
+              global: installGlobally,
+              eveSubagent: target.subagent,
+            })
+          : getCanonicalPath(skill.installName, { global: installGlobally })
+      )
+    );
+    for (const path of paths) summaryLines.push(pc.cyan(shortenPath(path, cwd)));
+    summaryLines.push(...buildTargetSummaryLines(installTargets, installMode));
     if (skill.files.size > 1) {
       summaryLines.push(`  ${pc.dim('files:')} ${skill.files.size}`);
     }
 
     const skillOverwrites = overwriteStatus.get(skill.installName);
-    const overwriteAgents = targetAgents
-      .filter((a) => skillOverwrites?.get(a))
-      .map((a) => agents[a].displayName);
+    const overwriteAgents = installTargets
+      .filter((target) => skillOverwrites?.get(targetKey(target)))
+      .map(targetDisplayName);
 
     if (overwriteAgents.length > 0) {
       summaryLines.push(`  ${pc.yellow('overwrites:')} ${formatList(overwriteAgents)}`);
@@ -947,6 +993,7 @@ async function handleWellKnownSkills(
   const results: {
     skill: string;
     agent: string;
+    target: InstallTarget;
     success: boolean;
     path: string;
     canonicalPath?: string;
@@ -956,14 +1003,16 @@ async function handleWellKnownSkills(
   }[] = [];
 
   for (const skill of selectedSkills) {
-    for (const agent of targetAgents) {
-      const result = await installWellKnownSkillForAgent(skill, agent, {
+    for (const target of installTargets) {
+      const result = await installWellKnownSkillForAgent(skill, target.agent, {
         global: installGlobally,
-        mode: installMode,
+        mode: target.agent === 'eve' ? 'copy' : installMode,
+        eveSubagent: target.subagent,
       });
       results.push({
         skill: skill.installName,
-        agent: agents[agent].displayName,
+        agent: targetDisplayName(target),
+        target,
         ...result,
       });
     }
@@ -1027,6 +1076,16 @@ async function handleWellKnownSkills(
           const installDir = matchingResult?.canonicalPath || matchingResult?.path;
           if (installDir) {
             const computedHash = await computeSkillFolderHash(installDir);
+            const subagents = [
+              ...new Set(
+                successful
+                  .filter(
+                    (result) => result.skill === skill.installName && result.target.agent === 'eve'
+                  )
+                  .map((result) => result.target.subagent ?? '')
+              ),
+            ];
+            const recordSubagents = subagents.length > 1 || subagents.some((name) => name !== '');
             await addSkillToLocalLock(
               skill.installName,
               {
@@ -1035,6 +1094,7 @@ async function handleWellKnownSkills(
                 sourceType: 'well-known',
                 computedHash,
                 wellKnownDigest: computeWellKnownSkillDigest(skill),
+                ...(recordSubagents && { subagents }),
               },
               cwd
             );
@@ -1060,9 +1120,7 @@ async function handleWellKnownSkills(
     const resultLines: string[] = [];
 
     for (const [skillName, skillResults] of bySkill) {
-      const firstResult = skillResults[0]!;
-
-      if (firstResult.mode === 'copy') {
+      if (skillResults.every((result) => result.mode === 'copy')) {
         // Copy mode: show skill name and list all agent paths
         resultLines.push(`${pc.green('✓')} ${skillName} ${pc.dim('(copied)')}`);
         const shortPathsSet = new Set<string>();
@@ -1075,13 +1133,18 @@ async function handleWellKnownSkills(
         }
       } else {
         // Symlink mode: show canonical path and universal/symlinked agents
-        if (firstResult.canonicalPath) {
-          const shortPath = shortenPath(firstResult.canonicalPath, cwd);
+        const linkedResults = skillResults.filter((result) => result.mode === 'symlink');
+        const canonicalPath = linkedResults.find((result) => result.canonicalPath)?.canonicalPath;
+        if (canonicalPath) {
+          const shortPath = shortenPath(canonicalPath, cwd);
           resultLines.push(`${pc.green('✓')} ${shortPath}`);
         } else {
           resultLines.push(`${pc.green('✓')} ${skillName}`);
         }
-        resultLines.push(...buildResultLines(skillResults, targetAgents));
+        resultLines.push(...buildResultLines(linkedResults, targetAgents));
+        for (const result of skillResults.filter((result) => result.mode === 'copy')) {
+          resultLines.push(`  ${pc.dim('copy →')} ${shortenPath(result.path, cwd)}`);
+        }
       }
     }
 
@@ -1705,39 +1768,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Eve supports subagents, each with their own skills directory at
     // agent/subagents/<name>/skills in addition to the root agent/skills.
     // When Eve is a target, choose which of those to install into.
-    let eveSubagentTargets: Array<string | undefined> = [undefined];
-    if (targetAgents.includes('eve')) {
-      const availableSubagents = getEveSubagents(process.cwd());
-
-      if (options.subagent && options.subagent.length > 0) {
-        // Non-interactive: 'root' or '.' selects the root agent.
-        eveSubagentTargets = options.subagent.map((s) =>
-          s === 'root' || s === '.' ? undefined : s
-        );
-      } else if (availableSubagents.length > 0 && !options.yes) {
-        const subagentChoices = [
-          { value: '', label: 'Root agent', hint: 'agent/skills' },
-          ...availableSubagents.map((name) => ({
-            value: name,
-            label: name,
-            hint: `agent/subagents/${name}/skills`,
-          })),
-        ];
-
-        const selectedSubagents = await p.multiselect({
-          message: 'Where should Eve skills be installed?',
-          options: subagentChoices,
-          initialValues: [''],
-          required: true,
-        });
-
-        if (p.isCancel(selectedSubagents)) {
-          await cleanup(tempDir);
-          exitInstallationCancelled();
-        }
-
-        eveSubagentTargets = (selectedSubagents as string[]).map((s) => (s === '' ? undefined : s));
-      }
+    const eveSubagentTargets = targetAgents.includes('eve')
+      ? await selectEveSubagentTargets(options)
+      : [undefined];
+    if (isCancelled(eveSubagentTargets)) {
+      await cleanup(tempDir);
+      exitInstallationCancelled();
     }
 
     const installTargets = buildInstallTargets(targetAgents, eveSubagentTargets);
