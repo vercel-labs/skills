@@ -497,7 +497,46 @@ function stripIgnoredEveFrontmatter(raw: string): string {
   return `---\n${frontmatter}\n---\n${content.replace(/^\r?\n/u, '')}`;
 }
 
-async function copyDirectory(src: string, dest: string, agentType?: AgentType): Promise<void> {
+/**
+ * Whether a symlink inside a skill points outside that skill's own directory.
+ *
+ * Skill files are copied with `dereference: true`, so a symlink is written to
+ * disk as a *copy of its target's contents*. That is right for a link pointing
+ * at a sibling file — the link would not resolve once the skill has moved — and
+ * wrong for one pointing anywhere else: a skill repo containing
+ * `reference.md -> /etc/passwd` would install a readable copy of that file.
+ *
+ * This matters more than an ordinary hostile-dependency risk, because a skill
+ * directory exists to be read into an agent's context. The copied bytes are not
+ * merely on disk; they are content the model reads.
+ *
+ * `readZipArchive` already refuses link entries outright ("Archive links are
+ * not supported"), so without this check the git path is strictly weaker than
+ * the archive path against the same threat.
+ *
+ * Compared with `realpath`, not lexically: the point is where the link actually
+ * lands, after any intermediate symlinks have been resolved.
+ */
+async function symlinkEscapesSkill(srcPath: string, skillRoot: string): Promise<boolean> {
+  try {
+    const [resolvedTarget, resolvedRoot] = await Promise.all([
+      realpath(srcPath),
+      realpath(skillRoot),
+    ]);
+    return !isPathSafe(resolvedRoot, resolvedTarget);
+  } catch {
+    // Broken link. The existing ENOENT handling below reports and skips it;
+    // treating it as an escape here would change that message for the worse.
+    return false;
+  }
+}
+
+async function copyDirectory(
+  src: string,
+  dest: string,
+  agentType?: AgentType,
+  skillRoot: string = src
+): Promise<void> {
   await mkdir(dest, { recursive: true });
 
   const entries = await readdir(src, { withFileTypes: true });
@@ -511,9 +550,22 @@ async function copyDirectory(src: string, dest: string, agentType?: AgentType): 
         const destPath = join(dest, entry.name);
 
         if (entry.isDirectory()) {
-          await copyDirectory(srcPath, destPath, agentType);
+          await copyDirectory(srcPath, destPath, agentType, skillRoot);
         } else {
           try {
+            // Checked before the copy, because the copy is what dereferences.
+            // Skipped rather than fatal, matching how this function already
+            // treats a broken symlink: one bad link should not abort an
+            // otherwise good install.
+            if (entry.isSymbolicLink() && (await symlinkEscapesSkill(srcPath, skillRoot))) {
+              console.warn(
+                `Skipping symlink that points outside the skill: ${entry.name}\n` +
+                  '  Skill files are copied by value, so this would install a copy of a file ' +
+                  'from elsewhere on your machine.'
+              );
+              return;
+            }
+
             if (agentType === 'eve' && entry.name.toLowerCase() === 'skill.md') {
               await writeFile(
                 destPath,
