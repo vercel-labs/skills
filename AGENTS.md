@@ -15,7 +15,7 @@ This file provides guidance to AI coding agents working on the `skills` CLI code
 | `skills use <pkg>@<skill>`    | Use one skill without installing                    |
 | `skills experimental_install` | Restore skills from skills-lock.json                |
 | `skills experimental_sync`    | Sync skills from node_modules into agent dirs       |
-| `skills list`                 | List installed skills (alias: `ls`)                 |
+| `skills list`                 | List installed skills (alias: `ls`; `--export` prints one reinstall command per line) |
 | `skills update [skills...]`   | Update skills to latest versions                    |
 | `skills init [name]`          | Create a new SKILL.md template                      |
 

@@ -5,6 +5,7 @@ import { listInstalledSkills, sanitizeName, type InstalledSkill } from './instal
 import { sanitizeMetadata } from './sanitize.ts';
 import { getAllLockedSkills } from './skill-lock.ts';
 import { readLocalLock } from './local-lock.ts';
+import { buildUpdateInstallSource, shouldUseFullDepthForUpdate } from './update-source.ts';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -17,6 +18,7 @@ interface ListOptions {
   global?: boolean;
   agent?: string[];
   json?: boolean;
+  export?: boolean;
 }
 
 interface ListLockEntry {
@@ -24,6 +26,8 @@ interface ListLockEntry {
   sourceUrl?: string;
   sourceType: string;
   pluginName?: string;
+  ref?: string;
+  skillPath?: string;
 }
 
 /**
@@ -61,6 +65,8 @@ export function parseListOptions(args: string[]): ListOptions {
       options.global = true;
     } else if (arg === '--json') {
       options.json = true;
+    } else if (arg === '--export') {
+      options.export = true;
     } else if (arg === '-a' || arg === '--agent') {
       options.agent = options.agent || [];
       // Collect all following arguments until next flag
@@ -73,11 +79,90 @@ export function parseListOptions(args: string[]): ListOptions {
   return options;
 }
 
+/** Quote a token for POSIX shells while keeping each command on one line. */
+function shellQuote(value: string): string {
+  const clean = value.replace(/[\x00-\x1f\x7f]/g, '');
+  if (/^[A-Za-z0-9-._/:@]+$/.test(clean)) return clean;
+  return `'${clean.replace(/'/g, `'\\''`)}'`;
+}
+
+function getExportSourceArg(entry: ListLockEntry): string {
+  if (entry.sourceType === 'github') {
+    const url = entry.sourceUrl ?? '';
+    if (!url || /^https?:\/\/github\.com\//i.test(url)) {
+      return entry.source;
+    }
+  }
+  return entry.sourceUrl ?? entry.source;
+}
+
+export function buildExportCommands(
+  installedSkills: InstalledSkill[],
+  getLockEntry: (skillName: string) => ListLockEntry | undefined,
+  scope: boolean
+): { commands: string[]; skipped: string[] } {
+  const groups = new Map<string, Map<boolean, string[]>>();
+  const skipped: string[] = [];
+
+  for (const skill of installedSkills) {
+    const entry = getLockEntry(skill.name);
+    if (!entry) {
+      skipped.push(`${sanitizeMetadata(skill.name)} (no recorded source)`);
+      continue;
+    }
+    if (entry.sourceType === 'local' || entry.sourceType === 'node_modules') {
+      skipped.push(
+        `${sanitizeMetadata(skill.name)} (${entry.sourceType === 'local' ? 'local path' : 'node_modules'}: ${sanitizeMetadata(entry.source)})`
+      );
+      continue;
+    }
+
+    const exportEntry = {
+      ...entry,
+      source: getExportSourceArg(entry),
+      sourceUrl: undefined,
+    };
+    const sourceArg = buildUpdateInstallSource(exportEntry);
+    if (!sourceArg) {
+      skipped.push(`${sanitizeMetadata(skill.name)} (missing source URL)`);
+      continue;
+    }
+
+    const fullDepth = shouldUseFullDepthForUpdate(exportEntry);
+    const sourceGroups = groups.get(sourceArg) ?? new Map<boolean, string[]>();
+    const group = sourceGroups.get(fullDepth) ?? [];
+    group.push(skill.name);
+    sourceGroups.set(fullDepth, group);
+    groups.set(sourceArg, sourceGroups);
+  }
+
+  const commands: string[] = [];
+  const sortedSources = [...groups.keys()].sort((a, b) => a.localeCompare(b));
+  for (const sourceArg of sortedSources) {
+    const sourceGroups = groups.get(sourceArg);
+    if (!sourceGroups) continue;
+    for (const fullDepth of [false, true]) {
+      const names = sourceGroups.get(fullDepth)?.sort();
+      if (!names) continue;
+      commands.push(
+        `skills add ${shellQuote(sourceArg)} --skill ${names.map(shellQuote).join(' ')}${fullDepth ? ' --full-depth' : ''}${scope ? ' -g' : ''} -y`
+      );
+    }
+  }
+
+  return { commands, skipped: skipped.sort() };
+}
+
 export async function runList(args: string[]): Promise<void> {
   const options = parseListOptions(args);
 
   // Default to project only (local), use -g for global
   const scope = options.global === true ? true : false;
+
+  if (options.export && options.json) {
+    console.log(`${YELLOW}--export cannot be combined with --json${RESET}`);
+    process.exit(1);
+  }
 
   // Validate agent filter if provided
   let agentFilter: AgentType[] | undefined;
@@ -109,6 +194,21 @@ export async function runList(args: string[]): Promise<void> {
   );
   const getLockEntry = (skillName: string): ListLockEntry | undefined =>
     lockedSkills[skillName] ?? lockEntriesBySanitizedName.get(sanitizeName(skillName));
+
+  // Keep stdout pipeable into sh.
+  if (options.export) {
+    const { commands, skipped } = buildExportCommands(installedSkills, getLockEntry, scope);
+    for (const command of commands) {
+      console.log(command);
+    }
+    for (const note of skipped) {
+      console.error(`${YELLOW}Skipped ${note} — not portable to another machine${RESET}`);
+    }
+    if (commands.length === 0 && skipped.length === 0) {
+      console.error(`${DIM}No ${scope ? 'global' : 'project'} skills found.${RESET}`);
+    }
+    return;
+  }
 
   // JSON output mode: structured, no ANSI, untruncated agent lists
   if (options.json) {
