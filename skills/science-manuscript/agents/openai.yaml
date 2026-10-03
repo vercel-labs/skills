@@ -1,0 +1,4 @@
+interface:
+  display_name: "Science Manuscript"
+  short_description: "Prepare Science journal submissions"
+  default_prompt: "Use Science manuscript guidance to turn my draft, notes, or outline into a Science-ready submission package with policy and template checks."
