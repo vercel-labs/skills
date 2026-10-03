@@ -534,6 +534,62 @@ describe('Source aliases', () => {
     expect(result.type).toBe('github');
     expect(result.url).toBe('https://github.com/vercel-labs/agent-skills.git');
   });
+
+  it('resolves drazenbebic/agent-skills to drazenbebic/skills', () => {
+    const result = parseSource('drazenbebic/agent-skills');
+    expect(result.type).toBe('github');
+    expect(result.url).toBe('https://github.com/drazenbebic/skills.git');
+  });
+
+  it('resolves drazenbebic/agent-skills with subpath to the canonical repo', () => {
+    const result = parseSource('drazenbebic/agent-skills/skills/my-skill');
+    expect(result.type).toBe('github');
+    expect(result.url).toBe('https://github.com/drazenbebic/skills.git');
+    expect(result.subpath).toBe('skills/my-skill');
+  });
+
+  it('resolves drazenbebic/agent-skills@skill to the canonical repo', () => {
+    const result = parseSource('drazenbebic/agent-skills@my-skill');
+    expect(result.type).toBe('github');
+    expect(result.url).toBe('https://github.com/drazenbebic/skills.git');
+    expect(result.skillFilter).toBe('my-skill');
+  });
+
+  it('resolves github:drazenbebic/agent-skills prefix to the canonical repo', () => {
+    const result = parseSource('github:drazenbebic/agent-skills');
+    expect(result.type).toBe('github');
+    expect(result.url).toBe('https://github.com/drazenbebic/skills.git');
+  });
+
+  it('resolves GitHub HTTPS URL with the old slug to the canonical repo', () => {
+    const result = parseSource('https://github.com/drazenbebic/agent-skills');
+    expect(result.type).toBe('github');
+    expect(result.url).toBe('https://github.com/drazenbebic/skills.git');
+  });
+
+  it('resolves GitHub tree URL with the old slug preserving ref and subpath', () => {
+    const result = parseSource(
+      'https://github.com/drazenbebic/agent-skills/tree/main/skills/my-skill'
+    );
+    expect(result.type).toBe('github');
+    expect(result.url).toBe('https://github.com/drazenbebic/skills.git');
+    expect(result.ref).toBe('main');
+    expect(result.subpath).toBe('skills/my-skill');
+  });
+
+  it('resolves SSH URL with the old slug to the canonical repo', () => {
+    const result = parseSource('git@github.com:drazenbebic/agent-skills.git');
+    expect(result.type).toBe('git');
+    expect(result.url).toBe('git@github.com:drazenbebic/skills.git');
+    expect(getOwnerRepo(result)).toBe('drazenbebic/skills');
+  });
+
+  it('reports the canonical slug from getOwnerRepo for old-slug inputs', () => {
+    expect(getOwnerRepo(parseSource('drazenbebic/agent-skills'))).toBe('drazenbebic/skills');
+    expect(getOwnerRepo(parseSource('https://github.com/drazenbebic/agent-skills'))).toBe(
+      'drazenbebic/skills'
+    );
+  });
 });
 
 describe('Prefix shorthand tests', () => {

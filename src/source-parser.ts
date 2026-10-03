@@ -217,7 +217,103 @@ function isLocalPath(input: string): boolean {
 const SOURCE_ALIASES: Record<string, string> = {
   'coinbase/agentWallet': 'coinbase/agentic-wallet-skills',
   'vercel-labs/vercel-skills': 'vercel-labs/agent-skills',
+  'drazenbebic/agent-skills': 'drazenbebic/skills',
 };
+
+/**
+ * GitHub repo renames derived from SOURCE_ALIASES entries that map one bare
+ * owner/repo shorthand to another (e.g. drazenbebic/agent-skills was renamed
+ * to drazenbebic/skills). Unlike the exact-string lookup in parseSource(),
+ * these apply to every GitHub input form — shorthand with subpath/@skill
+ * filters, github: prefixes, HTTPS/SSH clone URLs, and /tree/ URLs — while
+ * preserving any trailing subpath, skill filter, ref, query, or .git suffix.
+ * Matching is case-insensitive because GitHub slugs are case-insensitive.
+ */
+const GITHUB_REPO_RENAMES: Map<string, string> = new Map(
+  Object.entries(SOURCE_ALIASES)
+    .filter(([from, to]) => /^[^/]+\/[^/]+$/.test(from) && /^[^/]+\/[^/]+$/.test(to))
+    .map(([from, to]) => [from.toLowerCase(), to])
+);
+
+function stripGitSuffix(repo: string): { name: string; hadGitSuffix: boolean } {
+  const hadGitSuffix = /\.git$/i.test(repo);
+  return { name: hadGitSuffix ? repo.slice(0, -4) : repo, hadGitSuffix };
+}
+
+/**
+ * Rewrite the leading owner/repo in a slash-separated repo path to its
+ * canonical slug when it matches a known rename. Returns null when the path
+ * does not start with a renamed repo. Anything after the repo (subpath,
+ * .git suffix remainder) is preserved by the caller.
+ */
+function rewriteRenamedRepoPath(path: string): string | null {
+  const match = path.match(/^([^/]+)\/([^/]+)([\s\S]*)$/);
+  if (!match) return null;
+  const { name, hadGitSuffix } = stripGitSuffix(match[2]!);
+  const target = GITHUB_REPO_RENAMES.get(`${match[1]!.toLowerCase()}/${name.toLowerCase()}`);
+  if (!target) return null;
+  return `${target}${hadGitSuffix ? '.git' : ''}${match[3] ?? ''}`;
+}
+
+/**
+ * Consolidate renamed GitHub repos to their canonical slug so installs,
+ * telemetry, lock entries, and skills.sh links stop reinforcing stale slugs.
+ */
+function canonicalizeRenamedGitHubRepo(input: string): string {
+  // Bare shorthand, optionally with a subpath or @skill filter:
+  // owner/repo, owner/repo/path/to/skill, owner/repo@skill-name
+  if (!input.includes(':') && !input.startsWith('.') && !input.startsWith('/')) {
+    const shorthandMatch = input.match(/^([^/]+)\/([^/@]+)([/@][\s\S]*)?$/);
+    if (shorthandMatch) {
+      const target = GITHUB_REPO_RENAMES.get(
+        `${shorthandMatch[1]!.toLowerCase()}/${shorthandMatch[2]!.toLowerCase()}`
+      );
+      if (target) {
+        return `${target}${shorthandMatch[3] ?? ''}`;
+      }
+    }
+    return input;
+  }
+
+  // SCP-style SSH URLs: git@github.com:owner/repo.git
+  if (input.startsWith('git@')) {
+    const sshMatch = input.match(/^git@([^:]+):([\s\S]*)$/);
+    if (sshMatch && sshMatch[1]!.toLowerCase() === 'github.com') {
+      const rewritten = rewriteRenamedRepoPath(sshMatch[2]!);
+      if (rewritten) {
+        return `git@${sshMatch[1]}:${rewritten}`;
+      }
+    }
+    return input;
+  }
+
+  if (
+    !input.startsWith('http://') &&
+    !input.startsWith('https://') &&
+    !input.startsWith('ssh://')
+  ) {
+    return input;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(input);
+  } catch {
+    return input;
+  }
+
+  if (parsed.hostname.toLowerCase() !== 'github.com') {
+    return input;
+  }
+
+  const rewritten = rewriteRenamedRepoPath(parsed.pathname.replace(/^\/+/, ''));
+  if (!rewritten) {
+    return input;
+  }
+  const hadTrailingSlash = parsed.pathname.endsWith('/');
+  parsed.pathname = `/${rewritten}${hadTrailingSlash && !rewritten.endsWith('/') ? '/' : ''}`;
+  return parsed.toString();
+}
 
 interface FragmentRefResult {
   inputWithoutFragment: string;
@@ -373,6 +469,11 @@ export function parseSource(input: string): ParsedSource {
   if (alias) {
     input = alias;
   }
+
+  // Consolidate renamed GitHub repos (owner/repo, URLs, subpaths, @skill
+  // filters) to the canonical slug so installs, telemetry, lock entries,
+  // and skills.sh links stop reinforcing stale slugs.
+  input = canonicalizeRenamedGitHubRepo(input);
 
   // Prefix shorthand: github:owner/repo -> owner/repo (handled by existing shorthand logic)
   // Also supports github:owner/repo/subpath and github:owner/repo@skill
