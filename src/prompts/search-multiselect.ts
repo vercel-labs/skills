@@ -624,13 +624,13 @@ export async function searchMultiselect<T>(
         return;
       }
 
-      if (key.name === 'up') {
+      if (key.name === 'up' || (key.ctrl && key.name === 'p')) {
         cursor = Math.max(0, cursor - 1);
         render();
         return;
       }
 
-      if (key.name === 'down') {
+      if (key.name === 'down' || (key.ctrl && key.name === 'n')) {
         cursor = Math.min(entries.length + cursorOffset - 1, cursor + 1);
         render();
         return;
