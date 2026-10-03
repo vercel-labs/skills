@@ -4,7 +4,7 @@ import { existsSync, rmSync, mkdirSync, writeFileSync, lstatSync, readFileSync }
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli, stripAnsi } from './test-utils.ts';
-import { shouldInstallInternalSkills } from './skills.ts';
+import { isInternalSkill, shouldInstallInternalSkills } from './skills.ts';
 import {
   parseAddOptions,
   getLockSource,
@@ -858,6 +858,31 @@ metadata:
       expect(result.stdout).toContain('not-internal-skill');
     });
 
+    it('should treat metadata.internal: "true" as internal, but not "false"', () => {
+      for (const [name, value] of [
+        ['string-internal-skill', '"true"'],
+        ['string-public-skill', '"false"'],
+      ]) {
+        const skillDir = join(testDir, name!);
+        mkdirSync(skillDir, { recursive: true });
+        writeFileSync(
+          join(skillDir, 'SKILL.md'),
+          `---
+name: ${name}
+description: Internal flag as a string
+metadata:
+  internal: ${value}
+---
+# ${name}
+`
+        );
+      }
+
+      const result = runCli(['add', testDir, '--list'], testDir);
+      expect(result.stdout).not.toContain('string-internal-skill');
+      expect(result.stdout).toContain('string-public-skill');
+    });
+
     it('should not include internal skills for the --skill wildcard', () => {
       const internalDir = join(testDir, 'skills', 'internal-skill');
       const publicDir = join(testDir, 'skills', 'public-skill');
@@ -989,6 +1014,23 @@ describe('formatEveInstallPromptMessage', () => {
     expect(stripAnsi(message)).toBe(
       'Detected an eve project. Install eve-skill for your eve agent to use?'
     );
+  });
+});
+
+describe('isInternalSkill', () => {
+  it('should accept the boolean true and the string "true" only', () => {
+    expect(isInternalSkill({ internal: true })).toBe(true);
+    expect(isInternalSkill({ internal: 'true' })).toBe(true);
+    for (const metadata of [
+      { internal: false },
+      { internal: 'false' },
+      { internal: '1' },
+      {},
+      undefined,
+      ['internal'],
+    ]) {
+      expect(isInternalSkill(metadata)).toBe(false);
+    }
   });
 });
 
