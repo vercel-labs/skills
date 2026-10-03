@@ -48,7 +48,7 @@ describe('use command', () => {
       expect(result.errors).toEqual([]);
     });
 
-    it('parses --skill and -s selectors', () => {
+    it('parses --skill and -s selectors including equals syntax', () => {
       const longFlag = parseUseOptions([
         'vercel-labs/agent-skills',
         '--skill',
@@ -59,11 +59,20 @@ describe('use command', () => {
         '-s',
         'web-design-guidelines',
       ]);
+      const longEquals = parseUseOptions([
+        'vercel-labs/agent-skills',
+        '--skill=web-design-guidelines',
+      ]);
+      const shortEquals = parseUseOptions(['vercel-labs/agent-skills', '-s=web-design-guidelines']);
 
       expect(longFlag.options.skill).toBe('web-design-guidelines');
       expect(shortFlag.options.skill).toBe('web-design-guidelines');
+      expect(longEquals.options.skill).toBe('web-design-guidelines');
+      expect(shortEquals.options.skill).toBe('web-design-guidelines');
       expect(longFlag.errors).toEqual([]);
       expect(shortFlag.errors).toEqual([]);
+      expect(longEquals.errors).toEqual([]);
+      expect(shortEquals.errors).toEqual([]);
     });
 
     it('rejects repeated skill selectors and unknown flags', () => {
@@ -78,6 +87,19 @@ describe('use command', () => {
 
       expect(result.errors).toContain('Only one --skill value can be provided');
       expect(result.errors).toContain('Unknown option: --wat');
+
+      const repeatedEquals = parseUseOptions([
+        'vercel-labs/agent-skills',
+        '--skill=one',
+        '--skill=two',
+      ]);
+      expect(repeatedEquals.errors).toContain('Only one --skill value can be provided');
+
+      const emptySkill = parseUseOptions(['vercel-labs/agent-skills', '--skill=']);
+      expect(emptySkill.errors).toContain('--skill requires a skill name');
+
+      const emptyShortSkill = parseUseOptions(['vercel-labs/agent-skills', '-s=']);
+      expect(emptyShortSkill.errors).toContain('-s requires a skill name');
     });
 
     it('parses OpenClaw sources like other GitHub owners', () => {
@@ -87,14 +109,20 @@ describe('use command', () => {
       expect(result.errors).toEqual([]);
     });
 
-    it('parses --agent and -a values', () => {
+    it('parses --agent and -a values including equals syntax', () => {
       const longFlag = parseUseOptions(['vercel-labs/agent-skills', '--agent', 'claude-code']);
       const shortFlag = parseUseOptions(['vercel-labs/agent-skills', '-a', 'codex']);
+      const longEquals = parseUseOptions(['vercel-labs/agent-skills', '--agent=claude-code']);
+      const shortEquals = parseUseOptions(['vercel-labs/agent-skills', '-a=codex']);
 
       expect(longFlag.options.agent).toEqual(['claude-code']);
       expect(shortFlag.options.agent).toEqual(['codex']);
+      expect(longEquals.options.agent).toEqual(['claude-code']);
+      expect(shortEquals.options.agent).toEqual(['codex']);
       expect(longFlag.errors).toEqual([]);
       expect(shortFlag.errors).toEqual([]);
+      expect(longEquals.errors).toEqual([]);
+      expect(shortEquals.errors).toEqual([]);
     });
 
     it('rejects wildcard, missing, invalid, and multiple agents', () => {
@@ -102,6 +130,9 @@ describe('use command', () => {
       const missing = parseUseOptions(['source', '--agent', '--skill', 'web-design-guidelines']);
       const invalid = parseUseOptions(['source', '--agent', 'not-an-agent']);
       const multiple = parseUseOptions(['source', '--agent', 'claude-code', 'codex']);
+      const multipleEquals = parseUseOptions(['source', '--agent=claude-code,codex']);
+      const emptyAgent = parseUseOptions(['source', '--agent=']);
+      const emptyShortAgent = parseUseOptions(['source', '-a=']);
 
       expect(wildcard.errors).toContain(
         "skills use --agent does not support '*'; specify exactly one agent."
@@ -109,6 +140,9 @@ describe('use command', () => {
       expect(missing.errors).toContain('--agent requires an agent name');
       expect(invalid.errors.join('\n')).toContain('Invalid agents: not-an-agent');
       expect(multiple.errors).toContain('skills use --agent accepts exactly one agent.');
+      expect(multipleEquals.errors).toContain('skills use --agent accepts exactly one agent.');
+      expect(emptyAgent.errors).toContain('--agent requires an agent name');
+      expect(emptyShortAgent.errors).toContain('-a requires an agent name');
     });
   });
 

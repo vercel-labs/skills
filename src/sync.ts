@@ -456,6 +456,7 @@ export function parseSyncOptions(args: string[]): { options: SyncOptions } {
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
+    if (!arg) continue;
 
     if (arg === '-y' || arg === '--yes') {
       options.yes = true;
@@ -471,6 +472,16 @@ export function parseSyncOptions(args: string[]): { options: SyncOptions } {
         nextArg = args[i];
       }
       i--;
+    } else if (arg.startsWith('--agent=') || arg.startsWith('-a=')) {
+      options.agent = options.agent || [];
+      const val = arg.startsWith('--agent=')
+        ? arg.slice('--agent='.length)
+        : arg.slice('-a='.length);
+      const parts = val
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      options.agent.push(...parts);
     }
   }
 
