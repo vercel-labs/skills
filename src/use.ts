@@ -1,6 +1,6 @@
 import { spawn } from 'child_process';
 import { existsSync } from 'fs';
-import { cp, mkdir, mkdtemp, readdir, readFile, writeFile } from 'fs/promises';
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'fs/promises';
 import { dirname, join, normalize, relative, resolve, sep } from 'path';
 import { tmpdir } from 'os';
 import { agents } from './agents.ts';
@@ -161,24 +161,29 @@ export async function materializeUseSkill(skill: UseSkill): Promise<Materialized
   const tempRoot = await mkdtemp(join(tmpdir(), 'skills-use-'));
   const skillDir = join(tempRoot, sanitizeName(skill.directoryName || skill.name));
 
-  if (!isPathSafe(tempRoot, skillDir)) {
-    throw new Error('Invalid skill name: potential path traversal detected');
+  try {
+    if (!isPathSafe(tempRoot, skillDir)) {
+      throw new Error('Invalid skill name: potential path traversal detected');
+    }
+
+    await mkdir(skillDir, { recursive: true });
+
+    if (skill.kind === 'blob') {
+      await writeSnapshotFiles(skillDir, skill.files);
+    } else if (skill.kind === 'well-known') {
+      await writeMapFiles(skillDir, skill.files);
+    } else {
+      await copySkillDirectory(skill.path, skillDir);
+    }
+
+    const skillMd = skill.rawContent ?? (await readFile(join(skillDir, 'SKILL.md'), 'utf-8'));
+    const hasSupportingFiles = await containsSupportingFiles(skillDir, skillDir);
+
+    return { tempRoot, skillDir, skillMd, hasSupportingFiles };
+  } catch (error) {
+    await rm(tempRoot, { recursive: true, force: true }).catch(() => {});
+    throw error;
   }
-
-  await mkdir(skillDir, { recursive: true });
-
-  if (skill.kind === 'blob') {
-    await writeSnapshotFiles(skillDir, skill.files);
-  } else if (skill.kind === 'well-known') {
-    await writeMapFiles(skillDir, skill.files);
-  } else {
-    await copySkillDirectory(skill.path, skillDir);
-  }
-
-  const skillMd = skill.rawContent ?? (await readFile(join(skillDir, 'SKILL.md'), 'utf-8'));
-  const hasSupportingFiles = await containsSupportingFiles(skillDir, skillDir);
-
-  return { tempRoot, skillDir, skillMd, hasSupportingFiles };
 }
 
 export async function runUse(
@@ -586,25 +591,16 @@ async function copySkillDirectory(src: string, dest: string): Promise<void> {
         const destPath = join(dest, entry.name);
         if (!isPathSafe(dest, destPath)) return;
 
+        if (entry.isSymbolicLink()) {
+          throw new Error(`Refusing to copy symbolic link from skill: ${srcPath}`);
+        }
+
         if (entry.isDirectory()) {
           await copySkillDirectory(srcPath, destPath);
           return;
         }
 
-        try {
-          await cp(srcPath, destPath, { dereference: true, recursive: true });
-        } catch (err) {
-          if (
-            err instanceof Error &&
-            'code' in err &&
-            (err as NodeJS.ErrnoException).code === 'ENOENT' &&
-            entry.isSymbolicLink()
-          ) {
-            console.error(`Skipping broken symlink: ${srcPath}`);
-            return;
-          }
-          throw err;
-        }
+        await cp(srcPath, destPath, { recursive: true });
       })
   );
 }

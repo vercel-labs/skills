@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { EventEmitter } from 'events';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import * as tar from 'tar';
@@ -175,6 +175,25 @@ describe('use command', () => {
 
       expect(readFileSync(join(materialized.skillDir, 'reference.md'), 'utf-8')).toBe('Reference');
       expect(materialized.hasSupportingFiles).toBe(true);
+    });
+
+    it('rejects disk-skill symbolic links without materializing their targets', async () => {
+      const skillDir = join(testDir, 'disk-skill');
+      const sentinelDir = join(testDir, 'sentinel');
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(join(skillDir, 'SKILL.md'), '# Disk skill');
+      mkdirSync(sentinelDir, { recursive: true });
+      writeFileSync(join(sentinelDir, 'sentinel.txt'), 'test sentinel only');
+      symlinkSync(sentinelDir, join(skillDir, 'linked-sentinel'), 'junction');
+
+      await expect(
+        materializeUseSkill({
+          kind: 'disk',
+          name: 'Disk Skill',
+          directoryName: 'disk-skill',
+          path: skillDir,
+        })
+      ).rejects.toThrow('Refusing to copy symbolic link from skill');
     });
   });
 
