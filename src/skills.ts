@@ -18,6 +18,7 @@ const AGENT_PROJECT_SKILL_DIRS = [
   '.commandcode/skills',
   '.continue/skills',
   '.factory/skills',
+  '.gigacode/skills',
   '.github/skills',
   '.goose/skills',
   '.grok/skills',
