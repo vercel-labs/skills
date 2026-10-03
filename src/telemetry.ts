@@ -52,12 +52,23 @@ interface SyncTelemetryData {
   agents: string;
 }
 
+export interface UseTelemetryData {
+  event: 'use';
+  source: string;
+  skills: string;
+  agents?: string;
+  sourceType: string;
+  downloadMethod: 'blob' | 'git' | 'well-known' | 'download';
+  mode: 'prompt' | 'agent';
+}
+
 type TelemetryData =
   | InstallTelemetryData
   | RemoveTelemetryData
   | UpdateTelemetryData
   | FindTelemetryData
-  | SyncTelemetryData;
+  | SyncTelemetryData
+  | UseTelemetryData;
 
 let cliVersion: string | null = null;
 let detectedAgentName: string | null = null;
