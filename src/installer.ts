@@ -208,7 +208,7 @@ async function cleanAndCreateDirectory(path: string): Promise<void> {
  * Returns the real path of the parent + the original basename.
  * If realpath fails (parent doesn't exist), returns the original resolved path.
  */
-async function resolveParentSymlinks(path: string): Promise<string> {
+export async function resolveParentSymlinks(path: string): Promise<string> {
   const resolved = resolve(path);
   const dir = dirname(resolved);
   const base = basename(resolved);

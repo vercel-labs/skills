@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, rmSync, mkdirSync, writeFileSync, readdirSync, readFileSync } from 'fs';
+import {
+  existsSync,
+  rmSync,
+  mkdirSync,
+  writeFileSync,
+  readdirSync,
+  readFileSync,
+  symlinkSync,
+} from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli, runCliWithInput } from './test-utils.js';
@@ -593,6 +601,30 @@ describe('remove -a with a subset of agents', { timeout: 30000 }, () => {
     if (existsSync(testDir)) {
       rmSync(testDir, { recursive: true, force: true });
     }
+  });
+
+  it('keeps a global skill shared through a symlinked agent skills dir', () => {
+    const skillName = 'shared-skill';
+    const canonical = join(fakeHome, '.agents', 'skills', skillName);
+    mkdirSync(canonical, { recursive: true });
+    writeFileSync(
+      join(canonical, 'SKILL.md'),
+      `---\nname: ${skillName}\ndescription: shared between two agents\n---\n`
+    );
+    // Claude Code's skills dir is the canonical dir, as in a dotfiles setup.
+    symlinkSync(
+      join(fakeHome, '.agents', 'skills'),
+      join(fakeHome, '.claude', 'skills'),
+      'junction'
+    );
+
+    const result = runCli(['remove', skillName, '--global', '-a', 'claude-code', '-y'], testDir, {
+      HOME: fakeHome,
+    });
+
+    expect(result.exitCode).toBe(0);
+    // codex still reads the canonical copy, so removing Claude Code's view keeps it.
+    expect(existsSync(join(canonical, 'SKILL.md'))).toBe(true);
   });
 
   it('keeps the lock entry when another agent still uses the skill', () => {

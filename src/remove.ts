@@ -1,7 +1,7 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
-import { readdir, rm, lstat } from 'fs/promises';
-import { join } from 'path';
+import { readdir, rm, lstat, realpath, readlink } from 'fs/promises';
+import { dirname, join, resolve } from 'path';
 import { agents, detectInstalledAgents, getEveSubagents } from './agents.ts';
 import { track } from './telemetry.ts';
 import { detectAgent } from './detect-agent.ts';
@@ -14,6 +14,7 @@ import {
   getCanonicalPath,
   getCanonicalSkillsDir,
   getEveSubagentSkillsDir,
+  resolveParentSymlinks,
   sanitizeName,
 } from './installer.ts';
 
@@ -57,6 +58,27 @@ export function resolveSkillsToRemove(
     if (hit) matched.add(hit);
   }
   return Array.from(matched);
+}
+
+function warnRemoveFailed(displayName: string, err: unknown): void {
+  p.log.warn(
+    `Could not remove skill from ${displayName}: ${
+      err instanceof Error ? err.message : String(err)
+    }`
+  );
+}
+
+// Whether following `path` one symlink at a time passes through any of `entries`.
+async function reachesThrough(path: string, entries: Set<string>): Promise<boolean> {
+  let current = path;
+  for (let hop = 0; hop < 40; hop++) {
+    current = await resolveParentSymlinks(current);
+    if (entries.has(current)) return true;
+    const target = await readlink(current).catch(() => null);
+    if (target === null) return false;
+    current = resolve(dirname(current), target);
+  }
+  return false;
 }
 
 export async function removeCommand(skillNames: string[], options: RemoveOptions) {
@@ -247,6 +269,13 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   for (const skillName of selectedSkills) {
     try {
       const canonicalPath = getCanonicalPath(skillName, { global: isGlobal, cwd });
+      const deferredPaths: { path: string; displayName: string }[] = [];
+      const [canonicalEntry, realCanonicalPath] = await Promise.all([
+        resolveParentSymlinks(canonicalPath),
+        realpath(canonicalPath).catch(() => canonicalPath),
+      ]);
+      // Entries removed together with the canonical copy
+      const removalEntries = new Set([canonicalEntry]);
 
       for (const agentKey of targetAgents) {
         const agent = agents[agentKey];
@@ -278,14 +307,24 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
           try {
             const stats = await lstat(pathToCleanup).catch(() => null);
             if (stats) {
+              // Defer the canonical entry and any real directory it points to
+              // until other agents have been checked.
+              if ((await resolveParentSymlinks(pathToCleanup)) === canonicalEntry) {
+                deferredPaths.push({ path: pathToCleanup, displayName: agent.displayName });
+                continue;
+              }
+              if (!stats.isSymbolicLink()) {
+                const realPath = await realpath(pathToCleanup).catch(() => pathToCleanup);
+                if (realPath === realCanonicalPath) {
+                  deferredPaths.push({ path: pathToCleanup, displayName: agent.displayName });
+                  removalEntries.add(await resolveParentSymlinks(pathToCleanup));
+                  continue;
+                }
+              }
               await rm(pathToCleanup, { recursive: true, force: true });
             }
           } catch (err) {
-            p.log.warn(
-              `Could not remove skill from ${agent.displayName}: ${
-                err instanceof Error ? err.message : String(err)
-              }`
-            );
+            warnRemoveFailed(agent.displayName, err);
           }
         }
       }
@@ -296,25 +335,36 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
       const remainingAgents = installedAgents.filter((a) => !targetAgents.includes(a));
 
       let isStillUsed = false;
+      let sharedCopyInUse = false;
       for (const agentKey of remainingAgents) {
         const path = getInstallPath(skillName, agentKey, { global: isGlobal, cwd });
         const exists = await lstat(path).catch(() => null);
-        if (exists) {
-          isStillUsed = true;
+        if (!exists) continue;
+        isStillUsed = true;
+        if (await reachesThrough(path, removalEntries)) {
+          sharedCopyInUse = true;
           break;
         }
       }
 
-      if (!isStillUsed) {
+      // Deferred paths go with the canonical copy, once no remaining agent reaches it.
+      if (!isStillUsed || (deferredPaths.length > 0 && !sharedCopyInUse)) {
         await rm(canonicalPath, { recursive: true, force: true });
+        for (const { path, displayName } of deferredPaths) {
+          try {
+            await rm(path, { recursive: true, force: true });
+          } catch (err) {
+            warnRemoveFailed(displayName, err);
+          }
+        }
       }
 
       let effectiveSource = 'local';
       let effectiveSourceType = 'local';
 
-      // The lock entry tracks the canonical path, so it survives for as long as
-      // that path does. Dropping it while another installed agent still links
-      // the skill leaves the skill in place but no longer updatable (#1718).
+      // The lock entry stays for as long as another installed agent still has
+      // the skill, even once the canonical path is gone. Dropping it then leaves
+      // the skill in place but no longer updatable (#1718).
       if (isGlobal) {
         const lockEntry = await getSkillFromLock(skillName);
         effectiveSource = lockEntry?.source || 'local';
