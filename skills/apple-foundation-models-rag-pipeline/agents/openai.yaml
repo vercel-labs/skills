@@ -1,0 +1,3 @@
+name: apple-foundation-models-rag-pipeline
+description: Build RAG with document indexing and semantic search using LumoKit/VecturaKit
+tools: []
