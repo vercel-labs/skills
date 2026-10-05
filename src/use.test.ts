@@ -110,6 +110,19 @@ describe('use command', () => {
       expect(invalid.errors.join('\n')).toContain('Invalid agents: not-an-agent');
       expect(multiple.errors).toContain('skills use --agent accepts exactly one agent.');
     });
+
+    it('parses --skills-dir', () => {
+      const result = parseUseOptions(['source', '--skills-dir', 'my-skills']);
+
+      expect(result.options.skillsDir).toBe('my-skills');
+      expect(result.errors).toEqual([]);
+    });
+
+    it('errors when --skills-dir is missing a value', () => {
+      const result = parseUseOptions(['source', '--skills-dir']);
+
+      expect(result.errors).toContain('--skills-dir requires a path');
+    });
   });
 
   describe('buildUsePrompt', () => {
