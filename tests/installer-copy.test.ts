@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { access, chmod, mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  access,
+  chmod,
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { installSkillForAgent } from '../src/installer.ts';
@@ -70,6 +80,42 @@ describe('installer copy mode', () => {
       const sourceMode = (await stat(scriptPath)).mode & 0o777;
       const installedMode = (await stat(installedScript)).mode & 0o777;
       expect(installedMode).toBe(sourceMode);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('skips a self-referential AAIF symlink instead of recursing (ENAMETOOLONG regression)', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-cycle-'));
+    const projectDir = join(root, 'project');
+    await mkdir(projectDir, { recursive: true });
+
+    // .agents/skills/<name> -> ../.. : a self-symlink to the repo root that used to recurse forever.
+    const skillName = 'cycle-skill';
+    const skillDir = join(root, 'skill-root');
+    await mkdir(join(skillDir, 'scripts'), { recursive: true });
+    await writeFile(
+      join(skillDir, 'SKILL.md'),
+      `---\nname: ${skillName}\ndescription: test\n---\n`,
+      'utf-8'
+    );
+    await writeFile(join(skillDir, 'scripts', 'run.sh'), '#!/bin/bash\necho hi\n', 'utf-8');
+    await mkdir(join(skillDir, '.agents', 'skills'), { recursive: true });
+    await symlink('../..', join(skillDir, '.agents', 'skills', skillName));
+
+    try {
+      const result = await installSkillForAgent(
+        { name: skillName, description: 'test', path: skillDir },
+        'codex',
+        { cwd: projectDir, mode: 'copy', global: false }
+      );
+
+      expect(result.success).toBe(true);
+
+      const installedDir = join(projectDir, '.agents/skills', skillName);
+      await expect(access(join(installedDir, 'SKILL.md'))).resolves.toBeUndefined();
+      await expect(access(join(installedDir, 'scripts', 'run.sh'))).resolves.toBeUndefined();
+      await expect(access(join(installedDir, '.agents', 'skills', skillName))).rejects.toThrow();
     } finally {
       await rm(root, { recursive: true, force: true });
     }
