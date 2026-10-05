@@ -165,7 +165,7 @@ describe('WellKnownProvider', () => {
   describe('fetchAllSkills', () => {
     it('hides internal skills unless explicitly enabled', async () => {
       vi.stubEnv('INSTALL_INTERNAL_SKILLS', '');
-      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
         const href = String(url);
         if (href === 'https://example.com/.well-known/agent-skills/index.json') {
           return response({
@@ -178,7 +178,7 @@ describe('WellKnownProvider', () => {
               {
                 name: 'internal-skill',
                 description: 'Internal skill.',
-                files: ['SKILL.md'],
+                files: ['SKILL.md', 'references/private.md'],
               },
             ],
           });
@@ -191,11 +191,17 @@ describe('WellKnownProvider', () => {
             '---\nname: internal-skill\ndescription: Internal skill.\nmetadata:\n  internal: true\n---\n# Internal'
           );
         }
+        if (href.endsWith('/internal-skill/references/private.md')) {
+          return response('Internal reference');
+        }
         return response('not found', { status: 404 });
       });
 
       const defaultSkills = await provider.fetchAllSkills('https://example.com');
       expect(defaultSkills.map((skill) => skill.installName)).toEqual(['public-skill']);
+      expect(
+        fetchSpy.mock.calls.some(([url]) => String(url).endsWith('/references/private.md'))
+      ).toBe(false);
 
       vi.stubEnv('INSTALL_INTERNAL_SKILLS', '1');
       const envEnabledSkills = await provider.fetchAllSkills('https://example.com');
@@ -256,6 +262,94 @@ describe('WellKnownProvider', () => {
       expect(skills).toHaveLength(1);
       expect(skills[0]!.installName).toBe('legacy-skill');
       expect(skills[0]!.files.has('references/README.md')).toBe(true);
+    });
+
+    it('loads supporting files only after selection and reuses the discovered SKILL.md', async () => {
+      const skillMd = '---\nname: Legacy Alias\ndescription: Legacy skill.\n---\n# Legacy';
+      const reference = new Uint8Array([0, 127, 128, 255]);
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+          return response({
+            skills: [
+              {
+                name: 'legacy-skill',
+                description: 'Legacy skill.',
+                files: ['SKILL.md', 'references/example.bin'],
+              },
+            ],
+          });
+        }
+        if (href.endsWith('/legacy-skill/SKILL.md')) return response(skillMd);
+        if (href.endsWith('/references/example.bin')) return response(reference);
+        return response('not found', { status: 404 });
+      });
+
+      const skills = await provider.discoverSkills('https://example.com');
+      expect(skills).toHaveLength(1);
+      expect(skills[0]!.name).toBe('Legacy Alias');
+      expect(skills[0]!.filePaths).toEqual(['SKILL.md', 'references/example.bin']);
+      expect(
+        fetchSpy.mock.calls.some(([url]) => String(url).endsWith('/references/example.bin'))
+      ).toBe(false);
+
+      const loaded = await skills[0]!.load();
+      expect(loaded.files.get('SKILL.md')).toBe(skillMd);
+      expect(loaded.files.get('references/example.bin')).toEqual(reference);
+      expect(
+        fetchSpy.mock.calls.filter(([url]) => String(url).endsWith('/legacy-skill/SKILL.md'))
+      ).toHaveLength(1);
+    });
+
+    it.each([404, 429, 500])('rejects incomplete legacy skills after HTTP %i', async (status) => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+          return response({
+            skills: [
+              {
+                name: 'legacy-skill',
+                description: 'Legacy skill.',
+                files: ['SKILL.md', 'references/README.md'],
+              },
+            ],
+          });
+        }
+        if (href.endsWith('/legacy-skill/SKILL.md')) {
+          return response('---\nname: legacy-skill\ndescription: Legacy skill.\n---\n# Legacy');
+        }
+        if (href.endsWith('/legacy-skill/references/README.md')) {
+          return response('supporting file unavailable', { status });
+        }
+        return response('not found', { status: 404 });
+      });
+
+      await expect(provider.fetchAllSkills('https://example.com')).rejects.toThrow(
+        `references/README.md" for skill "legacy-skill" (HTTP ${status})`
+      );
+      await expect(provider.fetchSkill('https://example.com')).rejects.toThrow(
+        `references/README.md" for skill "legacy-skill" (HTTP ${status})`
+      );
+    });
+
+    it.each(['request', 'body'])('rejects a supporting file %s failure', async (failure) => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        if (String(url).endsWith('/SKILL.md')) {
+          return response('---\nname: legacy-skill\ndescription: Legacy skill.\n---\n# Legacy');
+        }
+        if (failure === 'request') throw new Error('private network detail');
+        const result = response('Reference');
+        vi.spyOn(result, 'arrayBuffer').mockRejectedValue(new Error('private response detail'));
+        return result;
+      });
+
+      await expect(
+        provider.fetchSkillByEntry('https://example.com', {
+          name: 'legacy-skill',
+          description: 'Legacy skill.',
+          files: ['SKILL.md', 'references/README.md'],
+        })
+      ).rejects.toThrow('Failed to download "references/README.md" for skill "legacy-skill".');
     });
 
     it('keeps supporting path-relative legacy indexes like code.claude.com/docs', async () => {

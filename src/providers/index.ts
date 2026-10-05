@@ -8,10 +8,12 @@ export { registry, registerProvider, findProvider, getProviders } from './regist
 export {
   WellKnownProvider,
   WellKnownScopeNotFoundError,
+  WellKnownFileFetchError,
   wellKnownProvider,
   computeWellKnownSkillDigest,
   type NormalizedWellKnownEntry,
   type WellKnownIndex,
   type WellKnownSkillEntry,
   type WellKnownSkill,
+  type DiscoveredWellKnownSkill,
 } from './wellknown.ts';

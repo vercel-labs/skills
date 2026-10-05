@@ -37,7 +37,9 @@ import {
   wellKnownProvider,
   computeWellKnownSkillDigest,
   WellKnownScopeNotFoundError,
+  WellKnownFileFetchError,
   type WellKnownSkill,
+  type DiscoveredWellKnownSkill,
 } from './providers/index.ts';
 import { downloadSource } from './download-source.ts';
 import {
@@ -651,10 +653,10 @@ async function handleWellKnownSkills(
 ): Promise<boolean> {
   spinner.start('Discovering skills from well-known endpoint...');
 
-  // Fetch all skills from the well-known endpoint
-  let skills: WellKnownSkill[] = [];
+  // Discover metadata before downloading the selected skills' supporting files.
+  let skills: DiscoveredWellKnownSkill[] = [];
   try {
-    skills = await wellKnownProvider.fetchAllSkills(url, {
+    skills = await wellKnownProvider.discoverSkills(url, {
       includeInternal: Boolean(
         options.skill && options.skill.length > 0 && !options.skill.includes('*')
       ),
@@ -678,8 +680,8 @@ async function handleWellKnownSkills(
   for (const skill of skills) {
     p.log.info(`Skill: ${pc.cyan(skill.installName)}`);
     p.log.message(pc.dim(skill.description));
-    if (skill.files.size > 1) {
-      p.log.message(pc.dim(`  Files: ${Array.from(skill.files.keys()).join(', ')}`));
+    if (skill.filePaths.length > 1) {
+      p.log.message(pc.dim(`  Files: ${skill.filePaths.join(', ')}`));
     }
   }
 
@@ -689,8 +691,8 @@ async function handleWellKnownSkills(
     for (const skill of skills) {
       p.log.message(`  ${pc.cyan(skill.installName)}`);
       p.log.message(`    ${pc.dim(skill.description)}`);
-      if (skill.files.size > 1) {
-        p.log.message(`    ${pc.dim(`Files: ${skill.files.size}`)}`);
+      if (skill.filePaths.length > 1) {
+        p.log.message(`    ${pc.dim(`Files: ${skill.filePaths.length}`)}`);
       }
     }
     console.log();
@@ -699,18 +701,18 @@ async function handleWellKnownSkills(
   }
 
   // Filter skills if --skill option is provided
-  let selectedSkills: WellKnownSkill[];
-  const logWellKnown = (chosen: WellKnownSkill[]): void =>
+  let selectedEntries: DiscoveredWellKnownSkill[];
+  const logWellKnown = (chosen: DiscoveredWellKnownSkill[]): void =>
     logAutoSelectedSkills(
       chosen.map((s) => ({ label: s.installName, description: s.description }))
     );
 
   if (options.skill?.includes('*')) {
     // --skill '*' selects all skills
-    selectedSkills = skills;
-    logWellKnown(selectedSkills);
+    selectedEntries = skills;
+    logWellKnown(selectedEntries);
   } else if (options.skill && options.skill.length > 0) {
-    selectedSkills = skills.filter((s) =>
+    selectedEntries = skills.filter((s) =>
       options.skill!.some(
         (name) =>
           s.installName.toLowerCase() === name.toLowerCase() ||
@@ -718,7 +720,7 @@ async function handleWellKnownSkills(
       )
     );
 
-    if (selectedSkills.length === 0) {
+    if (selectedEntries.length === 0) {
       p.log.error(`No matching skills found for: ${options.skill.join(', ')}`);
       p.log.info('Available skills:');
       for (const s of skills) {
@@ -727,8 +729,8 @@ async function handleWellKnownSkills(
       process.exit(1);
     }
   } else if (skills.length === 1 || options.yes) {
-    selectedSkills = skills;
-    logWellKnown(selectedSkills);
+    selectedEntries = skills;
+    logWellKnown(selectedEntries);
   } else {
     // Prompt user to select skills
     const skillChoices = skills.map((s) => ({
@@ -750,7 +752,22 @@ async function handleWellKnownSkills(
       exitInstallationCancelled();
     }
 
-    selectedSkills = selected as WellKnownSkill[];
+    selectedEntries = selected as DiscoveredWellKnownSkill[];
+  }
+
+  // Finish all selected downloads before any installation or lock-file writes.
+  let selectedSkills: WellKnownSkill[];
+  spinner.start('Downloading skill files...');
+  try {
+    selectedSkills = await Promise.all(selectedEntries.map((skill) => skill.load()));
+    spinner.stop('Downloaded skill files');
+  } catch (error) {
+    if (error instanceof WellKnownFileFetchError) {
+      spinner.stop(pc.red('Failed to download skill files'));
+      p.log.error(error.message);
+      process.exit(1);
+    }
+    throw error;
   }
 
   // Detect agents
