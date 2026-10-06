@@ -12,6 +12,8 @@ import {
   installSkillForAgent,
   installBlobSkillForAgent,
   isSkillInstalled,
+  sanitizeName,
+  resolveInstallDir,
   getCanonicalPath,
   installWellKnownSkillForAgent,
   type InstallMode,
@@ -42,13 +44,22 @@ import {
 import { downloadSource } from './download-source.ts';
 import {
   addSkillToLock,
+  addSkillToDirLock,
   getGitHubToken,
   isPromptDismissed,
   dismissPrompt,
   getLastSelectedAgents,
   saveSelectedAgents,
 } from './skill-lock.ts';
-import { addSkillToLocalLock, computeSkillFolderHash } from './local-lock.ts';
+import {
+  addSkillToLocalLock,
+  computeSkillFolderHash,
+  getProjectSkillsDir,
+  isProjectRelativeDir,
+  resolveProjectSkillsDir,
+  setProjectSkillsDir,
+  toPortableProjectDir,
+} from './local-lock.ts';
 import type { Skill, AgentType } from './types.ts';
 import {
   tryBlobInstall,
@@ -578,6 +589,15 @@ export interface AddOptions {
   subagent?: string[];
   /** Output results as a JSON array (machine-readable, no ANSI codes). */
   json?: boolean;
+  /**
+   * Install skills directly into this directory (e.g. `~/.claude/skills`)
+   * instead of agent directories. Implies copy mode and skips agent/scope prompts.
+   * A relative path is project-scoped (recorded as `skillsDir` in skills-lock.json);
+   * an absolute or `~` path is user-scoped (recorded in the global lock).
+   */
+  dir?: string;
+  /** Internal: whether `dir` is project-scoped or user-scoped. Set by runAdd. */
+  dirScope?: 'project' | 'user';
 }
 
 /** One entry per skill in `add --json` output. */
@@ -616,6 +636,14 @@ function buildJsonSecurity(
     ...(data.snyk && { snyk: data.snyk.risk }),
     ...(source && { details: `https://skills.sh/${source}` }),
   };
+}
+
+/**
+ * Lock writer for an install: `--dir` installs are tracked per directory,
+ * everything else in the global skills map.
+ */
+function getLockWriter(dir: string | undefined): typeof addSkillToLock {
+  return dir ? (name, entry) => addSkillToDirLock(dir, name, entry) : addSkillToLock;
 }
 
 /**
@@ -894,7 +922,10 @@ async function handleWellKnownSkills(
       targetAgents.map(async (agent) => ({
         skillName: skill.installName,
         agent,
-        installed: await isSkillInstalled(skill.installName, agent, { global: installGlobally }),
+        installed: await isSkillInstalled(skill.installName, agent, {
+          global: installGlobally,
+          targetDir: options.dir,
+        }),
       }))
     )
   );
@@ -909,10 +940,12 @@ async function handleWellKnownSkills(
   for (const skill of selectedSkills) {
     if (summaryLines.length > 0) summaryLines.push('');
 
-    const canonicalPath = getCanonicalPath(skill.installName, { global: installGlobally });
+    const canonicalPath = options.dir
+      ? join(options.dir, sanitizeName(skill.installName))
+      : getCanonicalPath(skill.installName, { global: installGlobally });
     const shortCanonical = shortenPath(canonicalPath, cwd);
     summaryLines.push(`${pc.cyan(shortCanonical)}`);
-    summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
+    if (!options.dir) summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
     if (skill.files.size > 1) {
       summaryLines.push(`  ${pc.dim('files:')} ${skill.files.size}`);
     }
@@ -960,10 +993,11 @@ async function handleWellKnownSkills(
       const result = await installWellKnownSkillForAgent(skill, agent, {
         global: installGlobally,
         mode: installMode,
+        targetDir: options.dir,
       });
       results.push({
         skill: skill.installName,
-        agent: agents[agent].displayName,
+        agent: options.dir ? shortenPath(options.dir, cwd) : agents[agent].displayName,
         ...result,
       });
     }
@@ -998,12 +1032,13 @@ async function handleWellKnownSkills(
     });
   }
 
-  // Add to skill lock file for update tracking (only for global installs)
-  if (successful.length > 0 && installGlobally) {
+  // Add to skill lock file for update tracking (global and --dir installs)
+  if (successful.length > 0 && (installGlobally || options.dirScope === 'user')) {
+    const writeLock = getLockWriter(options.dirScope === 'user' ? options.dir : undefined);
     for (const skill of selectedSkills) {
       if (successfulSkillNames.has(skill.installName)) {
         try {
-          await addSkillToLock(skill.installName, {
+          await writeLock(skill.installName, {
             source: sourceIdentifier,
             sourceType: 'well-known',
             sourceUrl: skill.sourceUrl,
@@ -1018,8 +1053,8 @@ async function handleWellKnownSkills(
     }
   }
 
-  // Add to local lock file for project-scoped installs
-  if (successful.length > 0 && !installGlobally) {
+  // Add to local lock file for project-scoped installs (not for --dir installs)
+  if (successful.length > 0 && !installGlobally && options.dirScope !== 'user') {
     for (const skill of selectedSkills) {
       if (successfulSkillNames.has(skill.installName)) {
         try {
@@ -1043,6 +1078,15 @@ async function handleWellKnownSkills(
           // Don't fail installation if lock file update fails
         }
       }
+    }
+  }
+
+  // Pin the project directory so later adds, updates and restores use it for everyone.
+  if (successful.length > 0 && options.dirScope === 'project' && options.dir) {
+    try {
+      await setProjectSkillsDir(options.dir, cwd);
+    } catch {
+      // Don't fail installation if lock file update fails
     }
   }
 
@@ -1204,6 +1248,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     options.agent?.includes('*') ? [] : ((options.agent as AgentType[] | undefined) ?? [])
   );
 
+  const agentFlagGiven = (options.agent?.length ?? 0) > 0;
+
   // --all implies --skill '*' and --agent '*' and -y
   if (options.all) {
     options.skill = ['*'];
@@ -1224,6 +1270,65 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
   }
 
+  // A project can pin its skills directory in skills-lock.json (`skillsDir`).
+  // It applies to project-scoped installs unless the user explicitly picks
+  // agents, Eve subagents or the global scope.
+  // Early argument errors: visible in normal mode, a JSON error in --json mode.
+  const exitWithError: (message: string) => never = (message) => {
+    if (!jsonMode) {
+      console.log();
+      p.log.error(message);
+    }
+    return emitJsonAndExit(1, message);
+  };
+
+  const projectCwd = process.cwd();
+  let projectSkillsDir: string | undefined;
+  try {
+    projectSkillsDir = await getProjectSkillsDir(projectCwd);
+  } catch (error) {
+    exitWithError(error instanceof Error ? error.message : String(error));
+  }
+  const explicitTarget = agentFlagGiven || (options.subagent?.length ?? 0) > 0 || options.global;
+
+  if (options.dir) {
+    if (explicitTarget) {
+      exitWithError('The --dir flag cannot be combined with --agent, --subagent or --global.');
+    }
+    if (isProjectRelativeDir(options.dir)) {
+      // Relative paths are project-scoped and shared through skills-lock.json.
+      const projectDir = resolveProjectSkillsDir(options.dir, projectCwd);
+      if (!projectDir) {
+        exitWithError(
+          `--dir ${options.dir} is outside the project. Use an absolute or ~ path for a directory outside the project.`
+        );
+      }
+      if (projectSkillsDir && projectSkillsDir !== projectDir) {
+        exitWithError(
+          `This project installs skills into ${toPortableProjectDir(projectSkillsDir, projectCwd)} (skillsDir in skills-lock.json). Change skillsDir there to use a different directory.`
+        );
+      }
+      options.dir = projectDir;
+      options.dirScope = 'project';
+    } else {
+      // Absolute and ~ paths are machine-specific and tracked in the global lock.
+      options.dir = resolveInstallDir(options.dir);
+      options.dirScope = 'user';
+    }
+  } else if (projectSkillsDir && !explicitTarget) {
+    options.dir = projectSkillsDir;
+    options.dirScope = 'project';
+  }
+
+  // --dir installs straight into a custom directory: no agent or scope selection.
+  // Route through the universal agent as a neutral carrier; the installer
+  // writes to options.dir instead of any agent directory.
+  if (options.dir) {
+    options.agent = ['universal'];
+    options.global = false;
+    options.copy = true;
+  }
+
   // --json is machine-oriented: never prompt. Require an explicit
   // non-interactive mode instead of hanging on (or cancelling) a prompt.
   if (jsonMode && !options.yes) {
@@ -1237,6 +1342,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
   console.log();
   if (!agentResult.isAgent) {
     p.intro(pc.bgCyan(pc.black(' skills ')));
+  }
+  if (options.dirScope === 'project' && options.dir && options.dir === projectSkillsDir) {
+    p.log.info(
+      `Installing into ${pc.cyan(toPortableProjectDir(options.dir, projectCwd))} ${pc.dim('(skillsDir in skills-lock.json)')}`
+    );
   }
 
   if (agentResult.isAgent) {
@@ -1824,6 +1934,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           installed: await isSkillInstalled(skill.name, target.agent, {
             global: installGlobally,
             eveSubagent: target.subagent,
+            targetDir: options.dir,
           }),
         }))
       )
@@ -1856,8 +1967,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       for (const skill of skills) {
         if (summaryLines.length > 0) summaryLines.push('');
 
-        const canonicalPath =
-          installTargets.length === 1
+        const canonicalPath = options.dir
+          ? join(options.dir, sanitizeName(skill.name))
+          : installTargets.length === 1
             ? getCanonicalPath(skill.name, {
                 global: installGlobally,
                 agent: installTargets[0]!.agent,
@@ -1866,7 +1978,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             : getCanonicalPath(skill.name, { global: installGlobally });
         const shortCanonical = shortenPath(canonicalPath, cwd);
         summaryLines.push(`${pc.cyan(shortCanonical)}`);
-        summaryLines.push(...buildTargetSummaryLines(installTargets, installMode));
+        if (!options.dir) {
+          summaryLines.push(...buildTargetSummaryLines(installTargets, installMode));
+        }
 
         const skillOverwrites = overwriteStatus.get(skill.name);
         const overwriteAgents = installTargets
@@ -1967,6 +2081,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               mode: installMode,
               eveSubagent: subagent,
               createMissingAgentRoot: explicitlySelectedAgents.has(agent),
+              targetDir: options.dir,
             }
           );
         } else {
@@ -1980,11 +2095,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             mode: installMode,
             eveSubagent: subagent,
             createMissingAgentRoot: explicitlySelectedAgents.has(agent),
+            targetDir: options.dir,
           });
         }
         results.push({
           skill: getSkillDisplayName(skill),
-          agent: targetDisplayName(target),
+          agent: options.dir ? shortenPath(options.dir, cwd) : targetDisplayName(target),
           pluginName: skill.pluginName,
           ...result,
         });
@@ -2083,14 +2199,15 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
-    // Add to skill lock file for update tracking (only for global installs)
+    // Add to skill lock file for update tracking (global and --dir installs)
     // Notion installs are downloaded to a temp dir that parses as `local` and is deleted in the
     // finally block below, so only a real local path is recorded (same guard as the project lock).
     if (
       successful.length > 0 &&
-      installGlobally &&
+      (installGlobally || options.dirScope === 'user') &&
       (normalizedSource || (parsed.type === 'local' && !directDownload))
     ) {
+      const writeLock = getLockWriter(options.dirScope === 'user' ? options.dir : undefined);
       // For GitHub clone installs, fetch the repo tree once and reuse it
       // for all skills — avoids N sequential API calls that take ~400ms each.
       let cachedTree: Awaited<ReturnType<typeof fetchRepoTree>> | undefined;
@@ -2122,7 +2239,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               if (hash) skillFolderHash = hash;
             }
 
-            await addSkillToLock(skill.name, {
+            await writeLock(skill.name, {
               source: lockSource || normalizedSource || parsed.url,
               sourceType: parsed.type,
               sourceUrl: parsed.url,
@@ -2139,7 +2256,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     // Add to local lock file for project-scoped installs
-    if (successful.length > 0 && !installGlobally && !directDownload) {
+    if (
+      successful.length > 0 &&
+      !installGlobally &&
+      !directDownload &&
+      options.dirScope !== 'user'
+    ) {
       // Record Eve subagent placement (root = '') so `update` can restore it.
       // Only meaningful when Eve is among the targets and a non-root subagent
       // was selected; otherwise omit for a clean, minimal lock entry.
@@ -2173,6 +2295,15 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             // Don't fail installation if lock file update fails
           }
         }
+      }
+    }
+
+    // Pin the project directory so later adds, updates and restores use it for everyone.
+    if (successful.length > 0 && options.dirScope === 'project' && options.dir) {
+      try {
+        await setProjectSkillsDir(options.dir, cwd);
+      } catch {
+        // Don't fail installation if lock file update fails
       }
     }
 
@@ -2371,6 +2502,7 @@ async function promptForFindSkills(
   // Skip if already dismissed or not in interactive mode
   if (!process.stdin.isTTY) return;
   if (options?.yes) return;
+  if (options?.dir) return;
 
   try {
     const dismissed = await isPromptDismissed('findSkillsPrompt');
@@ -2495,6 +2627,14 @@ export function parseAddOptions(args: string[]): {
       options.json = true;
     } else if (arg === '--copy') {
       options.copy = true;
+    } else if (arg === '--dir' || arg?.startsWith('--dir=')) {
+      const value = arg === '--dir' ? args[++i] : arg.slice('--dir='.length);
+      if (!value || value.startsWith('-')) {
+        errors.push('--dir requires a directory path');
+        if (value?.startsWith('-')) i--;
+      } else {
+        options.dir = value;
+      }
     } else if (arg === '--subagent') {
       options.subagent = options.subagent || [];
       i++;

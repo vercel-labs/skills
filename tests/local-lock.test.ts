@@ -9,6 +9,10 @@ import {
   removeSkillFromLocalLock,
   computeSkillFolderHash,
   getLocalLockPath,
+  getProjectSkillsDir,
+  isProjectRelativeDir,
+  resolveProjectSkillsDir,
+  setProjectSkillsDir,
 } from '../src/local-lock.ts';
 
 describe('local-lock', () => {
@@ -501,6 +505,56 @@ describe('local-lock', () => {
         // No timestamps present
         expect(parsedA.skills['skill-a'].installedAt).toBeUndefined();
         expect(parsedA.skills['skill-a'].updatedAt).toBeUndefined();
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('project skillsDir', () => {
+    it('classifies project-relative and machine-specific paths', () => {
+      expect(isProjectRelativeDir('./.agents/skills')).toBe(true);
+      expect(isProjectRelativeDir('skills')).toBe(true);
+      expect(isProjectRelativeDir('/abs/skills')).toBe(false);
+      expect(isProjectRelativeDir('~/.claude/skills')).toBe(false);
+      expect(isProjectRelativeDir('~')).toBe(false);
+    });
+
+    it('refuses directories that escape the project', () => {
+      const root = join(tmpdir(), 'project-root');
+      expect(resolveProjectSkillsDir('./skills', root)).toBe(join(root, 'skills'));
+      expect(resolveProjectSkillsDir('../elsewhere', root)).toBeNull();
+      expect(resolveProjectSkillsDir('skills/../../x', root)).toBeNull();
+      expect(resolveProjectSkillsDir('.', root)).toBeNull();
+      expect(resolveProjectSkillsDir('/etc', root)).toBeNull();
+    });
+
+    it('stores skillsDir as a portable relative path and keeps it across writes', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await setProjectSkillsDir(join(dir, '.agents', 'skills'), dir);
+        await addSkillToLocalLock(
+          'a',
+          { source: 'owner/repo', sourceType: 'github', computedHash: 'h' },
+          dir
+        );
+        const raw = JSON.parse(await readFile(join(dir, 'skills-lock.json'), 'utf-8'));
+        expect(raw.skillsDir).toBe('./.agents/skills');
+        expect(Object.keys(raw)).toEqual(['version', 'skillsDir', 'skills']);
+        expect(await getProjectSkillsDir(dir)).toBe(join(dir, '.agents', 'skills'));
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('rejects a checked-in skillsDir that points outside the project', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await writeFile(
+          join(dir, 'skills-lock.json'),
+          JSON.stringify({ version: 1, skillsDir: '../../.ssh', skills: {} })
+        );
+        await expect(getProjectSkillsDir(dir)).rejects.toThrow(/outside the project/);
       } finally {
         await rm(dir, { recursive: true, force: true });
       }

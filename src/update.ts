@@ -5,8 +5,18 @@ import { fileURLToPath } from 'url';
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 
-import { readSkillLock, getGitHubToken, type SkillLockEntry } from './skill-lock.ts';
-import { computeSkillFolderHash, readLocalLock, type LocalSkillLockEntry } from './local-lock.ts';
+import {
+  readSkillLock,
+  getGitHubToken,
+  getAllDirLocks,
+  type SkillLockEntry,
+} from './skill-lock.ts';
+import {
+  computeSkillFolderHash,
+  readLocalLock,
+  isProjectRelativeDir,
+  type LocalSkillLockEntry,
+} from './local-lock.ts';
 import {
   formatSourceInput,
   buildUpdateInstallSource,
@@ -27,6 +37,8 @@ import { removeCommand } from './remove.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
 import { agents, isUniversalAgent } from './agents.ts';
+import { resolveInstallDir } from './installer.ts';
+import { homedir } from 'os';
 import type { AgentType } from './types.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -48,6 +60,28 @@ export interface UpdateCheckOptions {
   yes?: boolean;
   /** Optional skill name(s) to filter on (positional args) */
   skills?: string[];
+  /** Only update skills tracked for this custom install directory (`add --dir`). */
+  dir?: string;
+}
+
+/**
+ * CLI flags that re-target an `add` at the same place a skill was installed:
+ * a custom directory (`--dir`), the global scope (`-g`) or the project (none).
+ */
+function scopeFlags(isGlobal: boolean, dir?: string): string[] {
+  if (dir) return ['--dir', dir];
+  return isGlobal ? ['-g'] : [];
+}
+
+/** Human-readable form of a scope's flags, for copy-pasteable hints. */
+function scopeHint(isGlobal: boolean, dir?: string): string {
+  if (dir) return ` --dir ${JSON.stringify(shortenHome(dir))}`;
+  return isGlobal ? ' -g' : '';
+}
+
+function shortenHome(path: string): string {
+  const home = homedir();
+  return path === home || path.startsWith(home + '/') ? '~' + path.slice(home.length) : path;
 }
 
 /**
@@ -65,13 +99,24 @@ function getUpdateChildEnv(sourceType: string): NodeJS.ProcessEnv | undefined {
 export function parseUpdateOptions(args: string[]): UpdateCheckOptions {
   const options: UpdateCheckOptions = {};
   const positional: string[] = [];
-  for (const arg of args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
     if (arg === '-g' || arg === '--global') {
       options.global = true;
     } else if (arg === '-p' || arg === '--project') {
       options.project = true;
     } else if (arg === '-y' || arg === '--yes') {
       options.yes = true;
+    } else if (arg === '--dir' || arg.startsWith('--dir=')) {
+      const value = arg === '--dir' ? args[++i] : arg.slice('--dir='.length);
+      if (value && !value.startsWith('-')) {
+        // A relative --dir refers to the project's skillsDir (skills-lock.json),
+        // which project updates already honor.
+        if (isProjectRelativeDir(value)) options.project = true;
+        else options.dir = resolveInstallDir(value);
+      } else if (value) {
+        i--;
+      }
     } else if (!arg.startsWith('-')) {
       positional.push(arg);
     }
@@ -213,7 +258,7 @@ export function getInstallSource(skill: SkippedSkill): string {
   return formatSourceInput(url, skill.ref);
 }
 
-export function printSkippedSkills(skipped: SkippedSkill[]): void {
+export function printSkippedSkills(skipped: SkippedSkill[], dir?: string): void {
   if (skipped.length === 0) return;
   console.log();
   console.log(`${DIM}${skipped.length} skill(s) cannot be checked automatically:${RESET}`);
@@ -237,7 +282,9 @@ export function printSkippedSkills(skipped: SkippedSkill[]): void {
       const names = skills.map((s) => sanitizeMetadata(s.name)).join(', ');
       console.log(`  ${TEXT}•${RESET} ${names} ${DIM}(${reason})${RESET}`);
     }
-    console.log(`    ${DIM}To update: ${TEXT}npx skills add ${source} -g -y${RESET}`);
+    console.log(
+      `    ${DIM}To update: ${TEXT}npx skills add ${source}${scopeHint(true, dir)} -y${RESET}`
+    );
   }
 }
 
@@ -262,7 +309,8 @@ export async function promptDeletions(
   source: string,
   deletedSkills: string[],
   isGlobal: boolean,
-  options: UpdateCheckOptions
+  options: UpdateCheckOptions,
+  dir?: string
 ): Promise<void> {
   if (deletedSkills.length === 0) return;
 
@@ -288,7 +336,7 @@ export async function promptDeletions(
   if (confirmed && !p.isCancel(confirmed)) {
     for (const s of deletedSkills) {
       console.log(`${DIM}Removing${RESET} ${s}…`);
-      await removeCommand([s], { yes: true, global: isGlobal });
+      await removeCommand([s], dir ? { yes: true, dir } : { yes: true, global: isGlobal });
     }
   }
 }
@@ -299,7 +347,8 @@ export async function checkAndPromptForDeletions(
   lockSkills: Record<string, { skillPath?: string }>,
   isGlobal: boolean,
   options: UpdateCheckOptions,
-  discovered: DiscoveredSkillLocation[]
+  discovered: DiscoveredSkillLocation[],
+  dir?: string
 ): Promise<SkillLocationResolution> {
   const resolution = resolveSkillLocations(allLockedForSource, lockSkills, discovered);
 
@@ -313,7 +362,7 @@ export async function checkAndPromptForDeletions(
     }
   }
 
-  await promptDeletions(source, resolution.deletedSkills, isGlobal, options);
+  await promptDeletions(source, resolution.deletedSkills, isGlobal, options, dir);
   return resolution;
 }
 
@@ -393,21 +442,27 @@ export async function checkWellKnownForUpdates(
   return { status: 'changed', changedSkills, removedSkills, newSkills };
 }
 
-function printNewSkills(baseUrl: string, newSkills: string[], isGlobal: boolean): void {
+function printNewSkills(
+  baseUrl: string,
+  newSkills: string[],
+  isGlobal: boolean,
+  dir?: string
+): void {
   if (newSkills.length === 0) return;
   const names = newSkills.map(sanitizeMetadata);
   console.log(
     `  ${DIM}${newSkills.length} new skill(s) available from this source:${RESET} ${names.join(', ')}`
   );
   console.log(
-    `    ${DIM}To install: ${TEXT}npx skills add ${baseUrl} --skill ${names.join(' ')}${isGlobal ? ' -g' : ''}${RESET}`
+    `    ${DIM}To install: ${TEXT}npx skills add ${baseUrl} --skill ${names.join(' ')}${scopeHint(isGlobal, dir)}${RESET}`
   );
 }
 
 export async function processWellKnownUpdates(
   groups: Map<string, WellKnownUpdateItem[]>,
   isGlobal: boolean,
-  options: UpdateCheckOptions
+  options: UpdateCheckOptions,
+  dir?: string
 ): Promise<{ successCount: number; failCount: number; changed: boolean }> {
   let successCount = 0;
   let failCount = 0;
@@ -424,14 +479,14 @@ export async function processWellKnownUpdates(
     }
 
     if (result.status === 'current') {
-      printNewSkills(baseUrl, result.newSkills, isGlobal);
+      printNewSkills(baseUrl, result.newSkills, isGlobal, dir);
       continue;
     }
 
     changed = true;
 
-    await promptDeletions(baseUrl, result.removedSkills, isGlobal, options);
-    printNewSkills(baseUrl, result.newSkills, isGlobal);
+    await promptDeletions(baseUrl, result.removedSkills, isGlobal, options, dir);
+    printNewSkills(baseUrl, result.newSkills, isGlobal, dir);
 
     if (result.changedSkills.length === 0) continue;
 
@@ -463,7 +518,7 @@ export async function processWellKnownUpdates(
           '--skill',
           name,
           ...subagentArgs,
-          ...(isGlobal ? ['-g'] : []),
+          ...scopeFlags(isGlobal, dir),
           '-y',
         ],
         {
@@ -490,7 +545,58 @@ export async function updateGlobalSkills(
   options: UpdateCheckOptions = {}
 ): Promise<{ successCount: number; failCount: number; checkedCount: number }> {
   const lock = await readSkillLock();
-  const skillNames = Object.keys(lock.skills);
+  return updateLockedSkills(lock.skills, options);
+}
+
+/**
+ * Update skills installed with `add --dir`. Checks every tracked custom
+ * directory, or only `options.dir` when set. Each directory is re-installed
+ * into itself, so it never leaks into agent directories.
+ */
+export async function updateCustomDirSkills(
+  options: UpdateCheckOptions = {}
+): Promise<{ successCount: number; failCount: number; checkedCount: number }> {
+  const allDirs = await getAllDirLocks();
+  const dirs = options.dir ? [options.dir] : Object.keys(allDirs).sort();
+  const totals = { successCount: 0, failCount: 0, checkedCount: 0 };
+
+  if (options.dir && !allDirs[options.dir]) {
+    console.log(`${DIM}No skills tracked for ${shortenHome(options.dir)}.${RESET}`);
+    console.log(
+      `${DIM}Install skills with${RESET} ${TEXT}npx skills add <package>${scopeHint(false, options.dir)}${RESET}`
+    );
+    return totals;
+  }
+
+  for (const dir of dirs) {
+    const dirSkills = allDirs[dir] ?? {};
+    if (!Object.keys(dirSkills).some((name) => matchesSkillFilter(name, options.skills))) {
+      continue;
+    }
+    if (!options.skills) {
+      console.log(`${BOLD}${shortenHome(dir)}${RESET}`);
+    }
+    const result = await updateLockedSkills(dirSkills, options, dir);
+    totals.successCount += result.successCount;
+    totals.failCount += result.failCount;
+    totals.checkedCount += result.checkedCount;
+    if (!options.skills) console.log();
+  }
+
+  return totals;
+}
+
+/**
+ * Check a set of lock entries (the global map, or one custom directory) for
+ * upstream changes and re-install the changed skills into the same place.
+ */
+async function updateLockedSkills(
+  lockSkills: Record<string, SkillLockEntry>,
+  options: UpdateCheckOptions,
+  dir?: string
+): Promise<{ successCount: number; failCount: number; checkedCount: number }> {
+  const skillNames = Object.keys(lockSkills);
+  const scopeLabel = dir ? `skills in ${shortenHome(dir)}` : 'global skills';
   let successCount = 0;
   let failCount = 0;
 
@@ -510,7 +616,7 @@ export async function updateGlobalSkills(
   for (const skillName of skillNames) {
     if (!matchesSkillFilter(skillName, options.skills)) continue;
 
-    const entry = lock.skills[skillName];
+    const entry = lockSkills[skillName];
     if (!entry) continue;
 
     if (entry.sourceType === 'well-known' && entry.sourceBaseUrl && entry.wellKnownDigest) {
@@ -542,7 +648,7 @@ export async function updateGlobalSkills(
     successCount: wkSuccessCount,
     failCount: wkFailCount,
     changed: wkChanged,
-  } = await processWellKnownUpdates(wellKnownGroups, true, options);
+  } = await processWellKnownUpdates(wellKnownGroups, true, options, dir);
   successCount += wkSuccessCount;
   failCount += wkFailCount;
 
@@ -577,14 +683,13 @@ export async function updateGlobalSkills(
             .filter((entry) => entry.type === 'blob')
             .map((entry) => entry.path);
 
-          const allLockedForSource = Object.entries(lock.skills)
+          const allLockedForSource = Object.entries(lockSkills)
             .filter(([_, entry]) => entry.source === source && entry.ref === firstEntry.ref)
             .map(([name, _]) => name);
 
           const hasMissingLockedPath = allLockedForSource.some(
             (name) =>
-              lock.skills[name]?.skillPath &&
-              !discoveredPaths.includes(lock.skills[name]!.skillPath!)
+              lockSkills[name]?.skillPath && !discoveredPaths.includes(lockSkills[name]!.skillPath!)
           );
 
           if (!hasMissingLockedPath) {
@@ -614,17 +719,18 @@ export async function updateGlobalSkills(
         skillPath: join(relative(tempDir!, skill.path), 'SKILL.md').split(sep).join('/'),
       }));
 
-      const allLockedForSource = Object.entries(lock.skills)
+      const allLockedForSource = Object.entries(lockSkills)
         .filter(([_, entry]) => entry.source === source && entry.ref === firstEntry.ref)
         .map(([name, _]) => name);
 
       const resolution = await checkAndPromptForDeletions(
         source,
         allLockedForSource,
-        lock.skills,
+        lockSkills,
         true,
         options,
-        discoveredLocations
+        discoveredLocations,
+        dir
       );
 
       const deletedSkillSet = new Set(resolution.deletedSkills);
@@ -659,31 +765,33 @@ export async function updateGlobalSkills(
 
   if (checkable.length === 0 && skipped.length === 0 && wellKnownCount === 0) {
     if (!options.skills) {
-      console.log(`${DIM}No global skills to check.${RESET}`);
+      console.log(`${DIM}No ${scopeLabel} to check.${RESET}`);
     }
     return { successCount, failCount, checkedCount: 0 };
   }
 
   if (checkable.length === 0 && skipped.length === 0) {
     if (!wkChanged) {
-      console.log(`${TEXT}✓ All global skills are up to date${RESET}`);
+      console.log(`${TEXT}✓ All ${scopeLabel} are up to date${RESET}`);
     }
     return { successCount, failCount, checkedCount };
   }
 
   if (checkable.length === 0 && skipped.length > 0) {
-    printSkippedSkills(skipped);
+    printSkippedSkills(skipped, dir);
     return { successCount, failCount, checkedCount };
   }
 
   if (updates.length === 0) {
     if (!wkChanged) {
-      console.log(`${TEXT}✓ All global skills are up to date${RESET}`);
+      console.log(`${TEXT}✓ All ${scopeLabel} are up to date${RESET}`);
     }
     return { successCount, failCount, checkedCount };
   }
 
-  console.log(`${TEXT}Found ${updates.length} global update(s)${RESET}`);
+  console.log(
+    `${TEXT}Found ${updates.length} ${dir ? `update(s) for ${scopeLabel}` : 'global update(s)'}${RESET}`
+  );
   console.log();
 
   for (const update of updates) {
@@ -709,7 +817,16 @@ export async function updateGlobalSkills(
     const fullDepthArgs = shouldUseFullDepthForUpdate(update.entry) ? ['--full-depth'] : [];
     const result = spawnSync(
       process.execPath,
-      [cliEntry, 'add', installUrl, '--skill', update.name, ...fullDepthArgs, '-g', '-y'],
+      [
+        cliEntry,
+        'add',
+        installUrl,
+        '--skill',
+        update.name,
+        ...fullDepthArgs,
+        ...scopeFlags(true, dir),
+        '-y',
+      ],
       {
         stdio: ['inherit', 'pipe', 'pipe'],
         encoding: 'utf-8',
@@ -732,7 +849,7 @@ export async function updateGlobalSkills(
     }
   }
 
-  printSkippedSkills(skipped);
+  printSkippedSkills(skipped, dir);
   return { successCount, failCount, checkedCount };
 }
 
@@ -804,7 +921,11 @@ export async function updateProjectSkills(
   if (hasUniversal) targetParts.push('Universal');
   targetParts.push(...targetAgentNames);
 
-  if (targetParts.length > 0) {
+  // A pinned project directory overrides agent detection: `add` installs there.
+  const skillsDir = (await readLocalLock(cwd))?.skillsDir;
+  if (skillsDir) {
+    console.log(`${TEXT}Updating in: ${skillsDir}${RESET}`);
+  } else if (targetParts.length > 0) {
     console.log(`${TEXT}Updating for: ${targetParts.join(', ')}${RESET}`);
   }
 
@@ -1013,7 +1134,8 @@ export function printLegacyProjectSkills(
 
 export async function runUpdate(args: string[] = []): Promise<void> {
   const options = parseUpdateOptions(args);
-  const scope = await resolveUpdateScope(options);
+  // `--dir` targets exactly one custom directory, so there is no scope to pick.
+  const scope: UpdateScope | 'dir' = options.dir ? 'dir' : await resolveUpdateScope(options);
 
   if (options.skills) {
     console.log(`${TEXT}Updating ${options.skills.join(', ')}…${RESET}`);
@@ -1036,6 +1158,21 @@ export async function runUpdate(args: string[] = []): Promise<void> {
     totalFound += checkedCount;
     if (scope === 'both' && !options.skills) {
       console.log();
+    }
+  }
+
+  // Custom directories (`add --dir`) are user-level, like global skills.
+  if (scope === 'dir' || scope === 'global' || scope === 'both') {
+    const hasCustomDirs = Object.keys(await getAllDirLocks()).length > 0;
+    if (scope === 'dir' || hasCustomDirs) {
+      if (scope !== 'dir' && !options.skills) {
+        console.log();
+        console.log(`${BOLD}Custom Directories${RESET}`);
+      }
+      const { successCount, failCount, checkedCount } = await updateCustomDirSkills(options);
+      totalSuccess += successCount;
+      totalFail += failCount;
+      totalFound += checkedCount;
     }
   }
 

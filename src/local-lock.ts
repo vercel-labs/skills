@@ -55,6 +55,12 @@ export interface LocalSkillLockEntry {
 export interface LocalSkillLockFile {
   /** Schema version for future migrations */
   version: number;
+  /**
+   * Project-relative directory (e.g. "./.agents/skills") that every project-scoped
+   * command installs into, updates, lists and removes from, instead of agent
+   * directories. Shared by everyone who works on the project. Optional.
+   */
+  skillsDir?: string;
   /** Map of skill name to its lock entry (sorted alphabetically) */
   skills: Record<string, LocalSkillLockEntry>;
 }
@@ -117,9 +123,65 @@ export async function writeLocalLock(lock: LocalSkillLockFile, cwd?: string): Pr
         : entry;
   }
 
-  const sorted: LocalSkillLockFile = { version: lock.version, skills: sortedSkills };
+  const sorted: LocalSkillLockFile = {
+    version: lock.version,
+    ...(lock.skillsDir && { skillsDir: lock.skillsDir }),
+    skills: sortedSkills,
+  };
   const content = JSON.stringify(sorted, null, 2) + '\n';
   await writeFile(lockPath, content, 'utf-8');
+}
+
+/**
+ * Whether a user-supplied `--dir` value is project-relative (`./skills`,
+ * `.agents/skills`) rather than machine-specific (absolute or `~`).
+ */
+export function isProjectRelativeDir(dir: string): boolean {
+  const trimmed = dir.trim();
+  return !isAbsolute(trimmed) && trimmed !== '~' && !/^~[\\/]/.test(trimmed);
+}
+
+/**
+ * Resolve a project skills directory to an absolute path, or null when it
+ * would escape the project. The value may come from a checked-in lock file,
+ * so it must never be allowed to point outside the project root.
+ */
+export function resolveProjectSkillsDir(skillsDir: string, cwd: string): string | null {
+  if (!isProjectRelativeDir(skillsDir)) return null;
+  const absolute = resolve(cwd, skillsDir);
+  const rel = relative(cwd, absolute);
+  if (!rel || rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel)) return null;
+  return absolute;
+}
+
+/** Format an absolute directory inside the project as a portable `./path`. */
+export function toPortableProjectDir(absoluteDir: string, cwd: string): string {
+  return getPortableLocalSource(absoluteDir, cwd);
+}
+
+/**
+ * Read the configured project skills directory (`skillsDir` in skills-lock.json)
+ * as an absolute path. Throws when the configured value escapes the project.
+ */
+export async function getProjectSkillsDir(cwd?: string): Promise<string | undefined> {
+  const lockDir = cwd || process.cwd();
+  const { skillsDir } = await readLocalLock(lockDir);
+  if (!skillsDir) return undefined;
+  const resolved = resolveProjectSkillsDir(skillsDir, lockDir);
+  if (!resolved) {
+    throw new Error(
+      `skills-lock.json sets skillsDir to "${skillsDir}", which is outside the project. Use a path inside the project, such as "./.agents/skills".`
+    );
+  }
+  return resolved;
+}
+
+/** Record the project skills directory in skills-lock.json. */
+export async function setProjectSkillsDir(absoluteDir: string, cwd?: string): Promise<void> {
+  const lockDir = cwd || process.cwd();
+  const lock = await readLocalLock(lockDir);
+  lock.skillsDir = toPortableProjectDir(absoluteDir, lockDir);
+  await writeLocalLock(lock, lockDir);
 }
 
 function getPortableLocalSource(source: string, lockDir: string): string {

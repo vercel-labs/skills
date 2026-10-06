@@ -1,6 +1,12 @@
 import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest';
 import { spawnSync } from 'child_process';
-import { updateProjectSkills, updateGlobalSkills, runUpdate } from '../src/update.ts';
+import {
+  updateProjectSkills,
+  updateGlobalSkills,
+  updateCustomDirSkills,
+  parseUpdateOptions,
+  runUpdate,
+} from '../src/update.ts';
 import * as git from '../src/git.ts';
 import * as skills from '../src/skills.ts';
 import * as blob from '../src/blob.ts';
@@ -74,6 +80,7 @@ describe('Update Cleanup Unit Tests', () => {
     vi.clearAllMocks();
     process.exitCode = undefined;
     process.env.DISABLE_TELEMETRY = '1';
+    vi.mocked(skillLock.getAllDirLocks).mockResolvedValue({});
     // Default mock for isTTY
     Object.defineProperty(process.stdin, 'isTTY', {
       value: true,
@@ -1126,6 +1133,102 @@ describe('Update Cleanup Unit Tests', () => {
       await runUpdate(['--project', '--yes']);
 
       expect(process.exitCode).toBeUndefined();
+    });
+  });
+
+  describe('custom directories (add --dir)', () => {
+    const dir = '/home/me/work/.claude/skills';
+    const entry = (skillPath: string, skillFolderHash: string) => ({
+      source: 'owner/repo',
+      sourceType: 'github',
+      sourceUrl: 'https://github.com/owner/repo.git',
+      skillPath,
+      skillFolderHash,
+      installedAt: '',
+      updatedAt: '',
+    });
+
+    it('parses --dir for update', () => {
+      expect(parseUpdateOptions(['--dir', '/tmp/skills', 'my-skill'])).toEqual({
+        dir: '/tmp/skills',
+        skills: ['my-skill'],
+      });
+      expect(parseUpdateOptions(['--dir=/tmp/skills']).dir).toBe('/tmp/skills');
+      vi.mocked(localLock.isProjectRelativeDir).mockReturnValueOnce(true);
+      expect(parseUpdateOptions(['--dir', './team-skills'])).toEqual({ project: true });
+    });
+
+    it('re-installs changed skills into the same custom directory', async () => {
+      vi.mocked(skillLock.getAllDirLocks).mockResolvedValue({
+        [dir]: {
+          'skill-a': entry('skills/skill-a/SKILL.md', 'old-hash'),
+          'skill-b': entry('skills/skill-b/SKILL.md', 'same-hash'),
+        },
+      });
+      vi.mocked(blob.fetchRepoTree).mockResolvedValue({
+        sha: 'rootsha',
+        branch: 'main',
+        tree: [
+          { path: 'skills/skill-a/SKILL.md', type: 'blob', sha: '1' },
+          { path: 'skills/skill-b/SKILL.md', type: 'blob', sha: '2' },
+        ],
+      });
+      vi.mocked(blob.getSkillFolderHashFromTree).mockImplementation((_tree, path) =>
+        path.includes('skill-a') ? 'new-hash' : 'same-hash'
+      );
+
+      const result = await updateCustomDirSkills({ yes: true });
+
+      expect(result.successCount).toBe(1);
+      expect(spawnSync).toHaveBeenCalledTimes(1);
+      const args = vi.mocked(spawnSync).mock.calls[0]![1] as string[];
+      expect(args).toEqual(expect.arrayContaining(['add', '--skill', 'skill-a', '--dir', dir]));
+      expect(args).not.toContain('-g');
+    });
+
+    it('only checks the requested directory with --dir', async () => {
+      vi.mocked(skillLock.getAllDirLocks).mockResolvedValue({
+        [dir]: { 'skill-a': entry('skills/skill-a/SKILL.md', 'h') },
+        '/other/skills': { 'skill-x': entry('skills/skill-x/SKILL.md', 'h') },
+      });
+      vi.mocked(blob.fetchRepoTree).mockResolvedValue({ sha: 'r', branch: 'main', tree: [] });
+      vi.mocked(blob.getSkillFolderHashFromTree).mockReturnValue('h');
+
+      const result = await updateCustomDirSkills({ yes: true, dir: '/other/skills' });
+
+      expect(result.checkedCount).toBe(1);
+      expect(blob.fetchRepoTree).toHaveBeenCalledTimes(1);
+    });
+
+    it('removes upstream-deleted skills from the custom directory, not globally', async () => {
+      vi.mocked(skillLock.getAllDirLocks).mockResolvedValue({
+        [dir]: {
+          'skill-a': entry('skills/skill-a/SKILL.md', 'abc'),
+          'skill-b': entry('skills/skill-b/SKILL.md', 'def'),
+        },
+      });
+      vi.mocked(blob.fetchRepoTree).mockResolvedValue({
+        sha: 'rootsha',
+        branch: 'main',
+        tree: [{ path: 'skills/skill-a/SKILL.md', type: 'blob', sha: '1' }],
+      });
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        { name: 'skill-a', path: '/tmp/repo/skills/skill-a', description: 'A', rawContent: '' },
+      ]);
+      vi.mocked(p.confirm).mockResolvedValue(true);
+
+      await updateCustomDirSkills();
+
+      expect(remove.removeCommand).toHaveBeenCalledWith(['skill-b'], { yes: true, dir });
+    });
+
+    it('reports an untracked --dir without failing', async () => {
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const result = await updateCustomDirSkills({ dir: '/not/tracked' });
+      expect(result.checkedCount).toBe(0);
+      expect(log.mock.calls.flat().join('\n')).toContain('No skills tracked for /not/tracked');
+      log.mockRestore();
     });
   });
 });
