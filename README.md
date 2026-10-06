@@ -184,6 +184,8 @@ npx skills find react --owner vercel
 
 ### `skills update`
 
+Global updates reuse the destinations where each skill is already installed. They do not install it for newly detected agents; tracked skills that have been removed from every global destination are skipped.
+
 ```bash
 # Update all skills (interactive scope prompt)
 npx skills update

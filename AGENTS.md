@@ -86,6 +86,8 @@ tests/
 5. Compare latest folder tree SHA with lock file `skillFolderHash`; mismatch means update available
 6. `skills update` reinstalls changed skills by invoking the current CLI entrypoint directly (`node <repo>/bin/cli.mjs add <source-tree-url> -g -y`) to avoid nested npm exec/npx behavior
 
+Global reinstalls pass explicit `--agent` targets based on that skill's existing global destinations. Canonical `.agents/skills` content uses the `universal` target; an update must not repeat agent auto-detection and expand installation to unrelated agents.
+
 ### Lock File Compatibility
 
 The lock file format is v3. Key field: `skillFolderHash` (GitHub tree SHA for the skill folder).

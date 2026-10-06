@@ -27,6 +27,7 @@ import { removeCommand } from './remove.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
 import { agents, isUniversalAgent } from './agents.ts';
+import { getAgentBaseDir, sanitizeName } from './installer.ts';
 import type { AgentType } from './types.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -60,6 +61,23 @@ function getUpdateChildEnv(sourceType: string): NodeJS.ProcessEnv | undefined {
     return undefined;
   }
   return { ...process.env, GH_HOST: 'github.com' };
+}
+
+function getGlobalUpdateAgents(skillName: string): AgentType[] {
+  const installed: AgentType[] = [];
+  const name = sanitizeName(skillName);
+  // One universal target updates the shared canonical location without
+  // re-running detection or creating directories for unrelated agents.
+  if (existsSync(join(getAgentBaseDir('universal', true), name, 'SKILL.md'))) {
+    installed.push('universal');
+  }
+  for (const type of Object.keys(agents) as AgentType[]) {
+    if (isUniversalAgent(type) || agents[type].globalSkillsDir === undefined) continue;
+    if (existsSync(join(getAgentBaseDir(type, true), name, 'SKILL.md'))) {
+      installed.push(type);
+    }
+  }
+  return installed;
 }
 
 export function parseUpdateOptions(args: string[]): UpdateCheckOptions {
@@ -448,6 +466,12 @@ export async function processWellKnownUpdates(
       const safeName = sanitizeMetadata(name);
       console.log(`${TEXT}Updating ${safeName}…${RESET}`);
 
+      const targetAgents = isGlobal ? getGlobalUpdateAgents(name) : [];
+      if (isGlobal && targetAgents.length === 0) {
+        console.log(`  ${DIM}Skipping ${safeName}: no global installation found${RESET}`);
+        continue;
+      }
+
       const subagents = itemByName.get(name)?.subagents;
       const subagentArgs =
         !isGlobal && subagents?.length
@@ -463,6 +487,7 @@ export async function processWellKnownUpdates(
           '--skill',
           name,
           ...subagentArgs,
+          ...(isGlobal ? ['--agent', ...targetAgents] : []),
           ...(isGlobal ? ['-g'] : []),
           '-y',
         ],
@@ -689,6 +714,11 @@ export async function updateGlobalSkills(
   for (const update of updates) {
     const safeName = sanitizeMetadata(update.name);
     console.log(`${TEXT}Updating ${safeName}…${RESET}`);
+    const targetAgents = getGlobalUpdateAgents(update.name);
+    if (targetAgents.length === 0) {
+      console.log(`  ${DIM}Skipping ${safeName}: no global installation found${RESET}`);
+      continue;
+    }
     const installUrl = buildUpdateInstallSource(update.entry);
     if (!installUrl) {
       failCount++;
@@ -709,7 +739,18 @@ export async function updateGlobalSkills(
     const fullDepthArgs = shouldUseFullDepthForUpdate(update.entry) ? ['--full-depth'] : [];
     const result = spawnSync(
       process.execPath,
-      [cliEntry, 'add', installUrl, '--skill', update.name, ...fullDepthArgs, '-g', '-y'],
+      [
+        cliEntry,
+        'add',
+        installUrl,
+        '--skill',
+        update.name,
+        ...fullDepthArgs,
+        '--agent',
+        ...targetAgents,
+        '-g',
+        '-y',
+      ],
       {
         stdio: ['inherit', 'pipe', 'pipe'],
         encoding: 'utf-8',

@@ -8,8 +8,11 @@ import * as localLock from '../src/local-lock.ts';
 import * as skillLock from '../src/skill-lock.ts';
 import * as remove from '../src/remove.ts';
 import * as p from '@clack/prompts';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { homedir } from 'os';
+import { agents } from '../src/agents.ts';
+import { wellKnownProvider } from '../src/providers/index.ts';
 
 // Mock dependencies
 vi.mock('../src/git.ts');
@@ -74,6 +77,7 @@ describe('Update Cleanup Unit Tests', () => {
     vi.clearAllMocks();
     process.exitCode = undefined;
     process.env.DISABLE_TELEMETRY = '1';
+    vi.mocked(existsSync).mockReturnValue(true);
     // Default mock for isTTY
     Object.defineProperty(process.stdin, 'isTTY', {
       value: true,
@@ -83,6 +87,7 @@ describe('Update Cleanup Unit Tests', () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.restoreAllMocks();
   });
 
   describe('updateProjectSkills', () => {
@@ -560,6 +565,150 @@ describe('Update Cleanup Unit Tests', () => {
   });
 
   describe('updateGlobalSkills', () => {
+    it('does not reinstall a stale lock entry with no remaining global destination', async () => {
+      vi.mocked(existsSync).mockImplementation(
+        (path) => typeof path === 'string' && path.endsWith(join('bin', 'cli.mjs'))
+      );
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          gh: {
+            source: 'cli/cli',
+            sourceType: 'github',
+            sourceUrl: 'https://github.com/cli/cli.git',
+            skillPath: 'skills/gh/SKILL.md',
+            skillFolderHash: 'old-hash',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+      vi.mocked(blob.fetchRepoTree).mockResolvedValue({
+        sha: 'rootsha',
+        branch: 'main',
+        tree: [
+          { path: 'skills/gh/SKILL.md', type: 'blob', sha: 'blobsha' },
+          { path: 'skills/gh', type: 'tree', sha: 'new-hash' },
+        ],
+      });
+      vi.mocked(blob.getSkillFolderHashFromTree).mockReturnValue('new-hash');
+      const result = await updateGlobalSkills({ yes: true });
+      expect(spawnSync).not.toHaveBeenCalled();
+      expect(result.successCount).toBe(0);
+    });
+
+    it('keeps well-known global updates in their existing universal destination', async () => {
+      const baseUrl = 'https://skills.example.com';
+      const canonical = join(homedir(), '.agents', 'skills', 'gh', 'SKILL.md');
+      vi.mocked(existsSync).mockImplementation(
+        (path) =>
+          typeof path === 'string' && (path.endsWith(join('bin', 'cli.mjs')) || path === canonical)
+      );
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          gh: {
+            source: 'skills.example.com',
+            sourceType: 'well-known',
+            sourceUrl: baseUrl,
+            sourceBaseUrl: baseUrl,
+            wellKnownDigest: 'old-digest',
+            skillFolderHash: '',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+      const entry = {
+        name: 'gh',
+        type: 'skill-md' as const,
+        description: 'CLI skill',
+        url: `${baseUrl}/gh/SKILL.md`,
+        digest: 'new-digest',
+      };
+      vi.spyOn(wellKnownProvider, 'fetchIndex').mockResolvedValue({
+        index: {
+          $schema: 'https://schemas.agentskills.io/discovery/0.2.0/schema.json',
+          skills: [entry],
+        },
+        resolvedBaseUrl: baseUrl,
+        resolvedWellKnownPath: '/.well-known/skills',
+        indexUrl: `${baseUrl}/.well-known/skills/index.json`,
+        entries: [
+          {
+            version: '0.2.0',
+            name: 'gh',
+            type: 'skill-md',
+            description: entry.description,
+            artifactUrl: entry.url,
+            digest: entry.digest,
+            indexEntry: entry,
+          },
+        ],
+      });
+      const result = await updateGlobalSkills({ yes: true });
+      const argv = vi.mocked(spawnSync).mock.calls[0]![1] as string[];
+      expect(argv.slice(argv.indexOf('--agent') + 1, argv.indexOf('-g'))).toEqual(['universal']);
+      expect(result.successCount).toBe(1);
+    });
+
+    it.each([
+      { title: 'only the universal installation', destinations: ['universal'] },
+      {
+        title: 'the existing universal and Claude installations',
+        destinations: ['universal', 'claude-code'],
+      },
+      { title: 'only the existing agent-specific copy', destinations: ['claude-code'] },
+    ])('updates $title without selecting uninstalled agents', async ({ destinations }) => {
+      const skillName = 'gh';
+      const paths = new Set(
+        destinations.map((agent) =>
+          join(
+            agent === 'universal'
+              ? join(homedir(), '.agents', 'skills')
+              : agents['claude-code'].globalSkillsDir!,
+            skillName,
+            'SKILL.md'
+          )
+        )
+      );
+      vi.mocked(existsSync).mockImplementation(
+        (path) =>
+          typeof path === 'string' && (path.endsWith(join('bin', 'cli.mjs')) || paths.has(path))
+      );
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          [skillName]: {
+            source: 'cli/cli',
+            sourceType: 'github',
+            sourceUrl: 'https://github.com/cli/cli.git',
+            skillPath: 'skills/gh/SKILL.md',
+            skillFolderHash: 'old-hash',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+      vi.mocked(blob.fetchRepoTree).mockResolvedValue({
+        sha: 'rootsha',
+        branch: 'main',
+        tree: [
+          { path: 'skills/gh/SKILL.md', type: 'blob', sha: 'blobsha' },
+          { path: 'skills/gh', type: 'tree', sha: 'new-hash' },
+        ],
+      });
+      vi.mocked(blob.getSkillFolderHashFromTree).mockReturnValue('new-hash');
+
+      const result = await updateGlobalSkills({ yes: true });
+      const argv = vi.mocked(spawnSync).mock.calls[0]![1] as string[];
+      const index = argv.indexOf('--agent');
+      expect(index).toBeGreaterThan(0);
+      expect(argv.slice(index + 1, argv.indexOf('-g'))).toEqual(destinations);
+      expect(argv).not.toContain('autohand-code');
+      expect(result.successCount).toBe(1);
+    });
+
     it('should prompt to remove deleted skill on global update', async () => {
       // Mock readSkillLock
       vi.mocked(skillLock.readSkillLock).mockResolvedValue({
