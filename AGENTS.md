@@ -25,7 +25,10 @@ Aliases: `skills a` works for `add`. `skills i`, `skills install` (no args) rest
 
 ```
 src/
-├── cli.ts           # Main entry point, command routing, init/check/update
+├── cli.ts           # Main entry point, command routing and init
+├── update.ts        # Update scope, checking, deletion prompts and reinstallation
+├── update-source.ts # Source URLs and path-targeted update arguments
+├── skill-relocation.ts # Resolve locked paths against discovered locations
 ├── cli.test.ts      # CLI tests
 ├── add.ts           # Core add command logic
 ├── add-prompt.test.ts # Add prompt behavior tests
@@ -77,14 +80,16 @@ tests/
 
 ## Update Checking System
 
-### How `skills check` and `skills update` Work
+### How `skills update` Works
 
-1. Read `~/.agents/.skill-lock.json` for installed skills
-2. Filter to GitHub-backed skills that have both `skillFolderHash` and `skillPath`
-3. For each skill, call `fetchSkillFolderHash(source, skillPath, token)`. Tree requests start anonymously, then use an explicit `GITHUB_TOKEN`/`GH_TOKEN`, then `gh api` without exporting the GitHub CLI credential.
-4. `fetchSkillFolderHash` calls the GitHub Trees API (`/git/trees/<branch>?recursive=1` for `main`, then `master` fallback); update checks fall back to an authenticated Git clone when API access is unavailable.
-5. Compare latest folder tree SHA with lock file `skillFolderHash`; mismatch means update available
-6. `skills update` reinstalls changed skills by invoking the current CLI entrypoint directly (`node <repo>/bin/cli.mjs add <source-tree-url> -g -y`) to avoid nested npm exec/npx behavior
+`skills check` and `skills upgrade` are aliases of `skills update` in `src/cli.ts`; they also reinstall changed skills rather than only reporting available updates. The implementation lives in `src/update.ts`.
+
+1. Resolve project, global, or both scopes from the options, interactive choice, and presence of `skills-lock.json`.
+2. Read the project `skills-lock.json` and/or global `~/.agents/.skill-lock.json`. Git sources are grouped by repository and ref; well-known sources use their catalog digests.
+3. For global GitHub skills, fetch the repository tree once per group with `fetchRepoTree` in `src/blob.ts`. Requests start anonymously, then use an explicit `GITHUB_TOKEN`/`GH_TOKEN`, then `gh api` without exporting the GitHub CLI credential.
+4. Project updates clone the source and discover skills. Global checks also fall back to a clone when API access is unavailable or a locked path has moved. `src/skill-relocation.ts` resolves locations before prompting about deleted skills.
+5. Compare folder tree SHAs for global GitHub tree-hash entries, or computed content hashes for project and other Git entries. Relocated or changed skills are queued for reinstallation; unsupported legacy entries get a manual reinstall hint.
+6. Reinstall changed skills by invoking the current CLI entrypoint directly (`node <repo>/bin/cli.mjs add <source> ...`) to avoid nested npm exec/npx behavior. `src/update-source.ts` retains the source host, ref, and supported skill subpath.
 
 ### Lock File Compatibility
 
@@ -94,12 +99,12 @@ If reading an older lock file version, it's wiped. Users must reinstall skills t
 
 ## Key Integration Points
 
-| Feature                    | Implementation                                                |
-| -------------------------- | ------------------------------------------------------------- |
-| `skills add`               | `src/add.ts` - full implementation                            |
-| `skills experimental_sync` | `src/sync.ts` - crawl node_modules                            |
-| `skills check`             | `src/cli.ts` + `fetchSkillFolderHash` in `src/skill-lock.ts`  |
-| `skills update`            | `src/cli.ts` direct hash compare + reinstall via `skills add` |
+| Feature                    | Implementation                                        |
+| -------------------------- | ----------------------------------------------------- |
+| `skills add`               | `src/add.ts` - full implementation                    |
+| `skills experimental_sync` | `src/sync.ts` - crawl node_modules                    |
+| `skills check`             | Alias of `skills update`, routed to `src/update.ts`   |
+| `skills update`            | `src/update.ts` checking + reinstall via `skills add` |
 
 ## Development
 
