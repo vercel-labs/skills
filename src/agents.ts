@@ -77,7 +77,21 @@ export function isPositAssistantInstalled(
   return pathExists(join(homeDir, '.posit/assistant')) || pathExists(join(homeDir, '.positai'));
 }
 
+export function isAbacusAIInstalled(
+  homeDir = home,
+  pathExists: (path: string) => boolean = existsSync
+) {
+  return pathExists(join(homeDir, '.abacusai'));
+}
+
 export const agents: Record<AgentType, AgentConfig> = {
+  abacusai: {
+    name: 'abacusai',
+    displayName: 'Abacus.AI CLI',
+    skillsDir: '.abacusai/skills',
+    globalSkillsDir: join(home, '.abacusai/skills'),
+    detectInstalled: async () => isAbacusAIInstalled(),
+  },
   'aider-desk': {
     name: 'aider-desk',
     displayName: 'AiderDesk',

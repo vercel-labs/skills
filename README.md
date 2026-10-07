@@ -3,7 +3,7 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [75 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [76 more](#supported-agents).
 <!-- agent-list:end -->
 
 <p>
@@ -283,6 +283,7 @@ Skills can be installed to any of these agents:
 <!-- supported-agents:start -->
 | Agent | `--agent` | Project Path | Global Path |
 |-------|-----------|--------------|-------------|
+| Abacus.AI CLI | `abacusai` | `.abacusai/skills/` | `~/.abacusai/skills/` |
 | AiderDesk | `aider-desk` | `.aider-desk/skills/` | `~/.aider-desk/skills/` |
 | Amp, Replit, Universal | `amp`, `replit`, `universal` | `.agents/skills/` | `~/.config/agents/skills/` |
 | Antigravity | `antigravity` | `.agents/skills/` | `~/.gemini/antigravity/skills/` |
@@ -427,6 +428,7 @@ discover `SKILL.md` files outside these container directories (e.g. under
 - `skills/.curated/`
 - `skills/.experimental/`
 - `skills/.system/`
+- `.abacusai/skills/`
 - `.aider-desk/skills/`
 - `.agents/skills/`
 - `data/skills/`
