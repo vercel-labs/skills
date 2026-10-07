@@ -579,8 +579,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   pi: {
     name: 'pi',
     displayName: 'Pi',
-    skillsDir: '.pi/skills',
-    globalSkillsDir: join(home, '.pi/agent/skills'),
+    // Pi natively reads the Agent Skills locations: `.agents/skills/` from the working
+    // directory up through its ancestors, and `~/.agents/skills/` globally.
+    // See https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/skills.md
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.pi/agent'));
     },

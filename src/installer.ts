@@ -30,7 +30,12 @@ import { parseFrontmatter } from './frontmatter.ts';
 import { stringify } from 'yaml';
 import { parseSkillMd } from './skills.ts';
 
-export type InstallMode = 'symlink' | 'copy';
+/**
+ * - `symlink`: copy into the canonical dir, symlink agent dirs to it
+ * - `copy`: copy into each agent dir
+ * - `link`: symlink the canonical dir to the skill's source, symlink agent dirs to it
+ */
+export type InstallMode = 'symlink' | 'copy' | 'link';
 
 interface InstallOptions {
   global?: boolean;
@@ -380,14 +385,22 @@ export async function installSkillForAgent(
         success: true,
         path: canonicalDir,
         canonicalPath: canonicalDir,
-        mode: 'symlink',
+        mode: installMode,
         skipped: true,
       };
     }
 
-    // Symlink mode: copy to canonical location and symlink to agent location
-    await cleanAndCreateDirectory(canonicalDir);
-    await copyDirectory(skill.path, canonicalDir, agentType);
+    if (installMode === 'link') {
+      // Link mode: the canonical dir itself points at the source, nothing is copied.
+      if (!(await createSymlink(skill.path, canonicalDir))) {
+        await cleanAndCreateDirectory(canonicalDir);
+        await copyDirectory(skill.path, canonicalDir, agentType);
+      }
+    } else {
+      // Symlink mode: copy to canonical location and symlink to agent location
+      await cleanAndCreateDirectory(canonicalDir);
+      await copyDirectory(skill.path, canonicalDir, agentType);
+    }
 
     // For universal agents with global install, the skill is already in the canonical
     // ~/.agents/skills directory. Skip creating a symlink to the agent-specific global dir
@@ -397,7 +410,7 @@ export async function installSkillForAgent(
         success: true,
         path: canonicalDir,
         canonicalPath: canonicalDir,
-        mode: 'symlink',
+        mode: installMode,
       };
     }
 
@@ -417,7 +430,7 @@ export async function installSkillForAgent(
         success: true,
         path: canonicalDir,
         canonicalPath: canonicalDir,
-        mode: 'symlink',
+        mode: installMode,
         skipped: true,
         skipReason: 'missing-agent-project-directory',
       };
@@ -434,7 +447,7 @@ export async function installSkillForAgent(
         success: true,
         path: agentDir,
         canonicalPath: canonicalDir,
-        mode: 'symlink',
+        mode: installMode,
         symlinkFailed: true,
       };
     }
@@ -443,7 +456,7 @@ export async function installSkillForAgent(
       success: true,
       path: agentDir,
       canonicalPath: canonicalDir,
-      mode: 'symlink',
+      mode: installMode,
     };
   } catch (error) {
     return {

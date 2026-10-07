@@ -357,7 +357,9 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     const bySource = new Map<string, { skills: string[]; sourceType?: string }>();
 
     for (const r of successful) {
-      const source = r.source || 'local';
+      // A local lock entry's source is an absolute path on the user's machine; telemetry only
+      // ever receives the generic 'local' for it.
+      const source = r.sourceType === 'local' ? 'local' : r.source || 'local';
       const existing = bySource.get(source) || { skills: [] };
       existing.skills.push(r.skill);
       existing.sourceType = r.sourceType;

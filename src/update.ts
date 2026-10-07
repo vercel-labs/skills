@@ -808,7 +808,7 @@ export async function updateProjectSkills(
     console.log(`${TEXT}Updating for: ${targetParts.join(', ')}${RESET}`);
   }
 
-  console.log(`${TEXT}Refreshing ${updatable.length + wellKnownCount} skill(s)…${RESET}`);
+  console.log(`${TEXT}Checking ${updatable.length + wellKnownCount} skill(s)…${RESET}`);
   console.log();
 
   const { successCount: wkSuccessCount, failCount: wkFailCount } = await processWellKnownUpdates(
@@ -832,6 +832,7 @@ export async function updateProjectSkills(
 
   const localLock = await readLocalLock();
   const cliEntry = join(__dirname, '..', 'bin', 'cli.mjs');
+  let upToDateCount = 0;
 
   if (updatable.length > 0 && !existsSync(cliEntry)) {
     console.log(`${DIM}✗ CLI entrypoint not found at ${cliEntry}${RESET}`);
@@ -855,6 +856,7 @@ export async function updateProjectSkills(
     let tempDir: string | null = null;
     let deletedSkills: string[] = [];
     let resolvedPaths: Map<string, string> | null = null;
+    const latestHashes = new Map<string, string>();
 
     if (cloneSource === null) {
       failCount += skillsForSource.length;
@@ -886,6 +888,17 @@ export async function updateProjectSkills(
       );
       deletedSkills = resolution.deletedSkills;
       resolvedPaths = resolution.resolvedPaths;
+
+      // Hash each remaining skill in the clone the same way `add` records
+      // computedHash, so unchanged skills are not reinstalled.
+      for (const [name, skillPath] of resolution.resolvedPaths) {
+        try {
+          const hash = await computeSkillFolderHash(join(tempDir, dirname(skillPath)));
+          if (hash) latestHashes.set(name, hash);
+        } catch {
+          // Unknown hash: fall through to reinstalling the skill.
+        }
+      }
     } catch (error) {
       console.log(`${DIM}✗ Failed to check for deleted skills from ${source}${RESET}`);
     } finally {
@@ -908,6 +921,12 @@ export async function updateProjectSkills(
         continue;
       }
       const entry = resolvedPath ? { ...skill.entry, skillPath: resolvedPath } : skill.entry;
+      const relocated = entry.skillPath !== skill.entry.skillPath;
+      const latestHash = latestHashes.get(skill.name);
+      if (!relocated && latestHash && latestHash === skill.entry.computedHash) {
+        upToDateCount++;
+        continue;
+      }
       console.log(`${TEXT}Updating ${safeName}…${RESET}`);
       const installUrl = buildLocalUpdateSource(entry);
       if (!installUrl) {
@@ -956,6 +975,14 @@ export async function updateProjectSkills(
         failCount++;
         console.log(`  ${DIM}✗ Failed to update ${safeName}${RESET}`);
       }
+    }
+  }
+
+  if (upToDateCount > 0) {
+    if (upToDateCount === updatable.length && wkSuccessCount === 0 && wkFailCount === 0) {
+      console.log(`${TEXT}✓ All project skills are up to date${RESET}`);
+    } else {
+      console.log(`${DIM}${upToDateCount} project skill(s) already up to date${RESET}`);
     }
   }
 

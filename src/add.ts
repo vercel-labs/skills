@@ -2084,11 +2084,17 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     // Add to skill lock file for update tracking (only for global installs)
-    if (successful.length > 0 && installGlobally && normalizedSource) {
+    // Notion installs are downloaded to a temp dir that parses as `local` and is deleted in the
+    // finally block below, so only a real local path is recorded (same guard as the project lock).
+    if (
+      successful.length > 0 &&
+      installGlobally &&
+      (normalizedSource || (parsed.type === 'local' && !directDownload))
+    ) {
       // For GitHub clone installs, fetch the repo tree once and reuse it
       // for all skills — avoids N sequential API calls that take ~400ms each.
       let cachedTree: Awaited<ReturnType<typeof fetchRepoTree>> | undefined;
-      if (parsed.type === 'github' && !blobResult) {
+      if (parsed.type === 'github' && !blobResult && normalizedSource) {
         cachedTree = await fetchRepoTree(normalizedSource, parsed.ref, getGitHubToken);
       }
 
@@ -2109,10 +2115,15 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               const skillDir = join(tempDir, dirname(skillPathValue));
               const hash = await computeSkillFolderHash(skillDir);
               if (hash) skillFolderHash = hash;
+            } else if (parsed.type === 'local') {
+              // Local sources aren't cloned into tempDir, so hash the skill's
+              // own directory directly (same approach as the project-scope lock below).
+              const hash = await computeSkillFolderHash(skill.path);
+              if (hash) skillFolderHash = hash;
             }
 
             await addSkillToLock(skill.name, {
-              source: lockSource || normalizedSource,
+              source: lockSource || normalizedSource || parsed.url,
               sourceType: parsed.type,
               sourceUrl: parsed.url,
               ref: parsed.ref,
