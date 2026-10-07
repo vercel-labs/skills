@@ -111,6 +111,24 @@ describe('resolveSkillLocations', () => {
     expect(result.resolvedPaths.size).toBe(0);
   });
 
+  it('keeps the locked copy when reinstallation can target its exact folder', () => {
+    const result = resolveSkillLocations(
+      ['swiftui-expert-skill'],
+      lock('skills/swiftui-expert-skill/SKILL.md'),
+      [
+        { name: 'swiftui-expert-skill', skillPath: 'skills/swiftui-expert-skill/SKILL.md' },
+        { name: 'swiftui-expert-skill', skillPath: 'plugins/swiftui-expert-skill/SKILL.md' },
+      ],
+      new Set(['swiftui-expert-skill'])
+    );
+
+    expect(result.resolvedPaths.get('swiftui-expert-skill')).toBe(
+      'skills/swiftui-expert-skill/SKILL.md'
+    );
+    expect(result.ambiguousSkills).toEqual([]);
+    expect(result.deletedSkills).toEqual([]);
+  });
+
   it('normalizes path separators before exact matching', () => {
     const result = resolveSkillLocations(
       ['swiftui-expert-skill'],

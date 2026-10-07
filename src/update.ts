@@ -299,9 +299,15 @@ export async function checkAndPromptForDeletions(
   lockSkills: Record<string, { skillPath?: string }>,
   isGlobal: boolean,
   options: UpdateCheckOptions,
-  discovered: DiscoveredSkillLocation[]
+  discovered: DiscoveredSkillLocation[],
+  pathScopedSkills: ReadonlySet<string> = new Set()
 ): Promise<SkillLocationResolution> {
-  const resolution = resolveSkillLocations(allLockedForSource, lockSkills, discovered);
+  const resolution = resolveSkillLocations(
+    allLockedForSource,
+    lockSkills,
+    discovered,
+    pathScopedSkills
+  );
 
   if (resolution.ambiguousSkills.length > 0) {
     console.log();
@@ -624,7 +630,16 @@ export async function updateGlobalSkills(
         lock.skills,
         true,
         options,
-        discoveredLocations
+        discoveredLocations,
+        new Set(
+          allLockedForSource.filter((name) => {
+            const entry = lock.skills[name]!;
+            return (
+              buildUpdateInstallSource(entry) !==
+              buildUpdateInstallSource({ ...entry, skillPath: undefined })
+            );
+          })
+        )
       );
 
       const deletedSkillSet = new Set(resolution.deletedSkills);
@@ -884,7 +899,16 @@ export async function updateProjectSkills(
         localLock.skills,
         false,
         options,
-        discoveredLocations
+        discoveredLocations,
+        new Set(
+          allLockedForSource.filter((name) => {
+            const entry = localLock.skills[name]!;
+            return (
+              buildLocalUpdateSource(entry) !==
+              buildLocalUpdateSource({ ...entry, skillPath: undefined })
+            );
+          })
+        )
       );
       deletedSkills = resolution.deletedSkills;
       resolvedPaths = resolution.resolvedPaths;

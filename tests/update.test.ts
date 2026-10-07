@@ -373,6 +373,68 @@ describe('Update Cleanup Unit Tests', () => {
       expect(spawnSync).not.toHaveBeenCalled();
     });
 
+    it.each(['project', 'global'] as const)(
+      'updates the exact locked GitHub copy in %s scope when names repeat',
+      async (scope) => {
+        vi.mocked(localLock.readLocalLock).mockResolvedValue({
+          version: 1,
+          skills: {
+            impeccable: {
+              source: 'pbakaus/impeccable',
+              sourceType: 'github',
+              skillPath: '.agents/skills/impeccable/SKILL.md',
+              computedHash: 'old-hash',
+            },
+          },
+        });
+        vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+          version: 3,
+          skills: {
+            impeccable: {
+              source: 'pbakaus/impeccable',
+              sourceType: 'github',
+              skillPath: '.agents/skills/impeccable/SKILL.md',
+              skillFolderHash: 'old-hash',
+              installedAt: '',
+              updatedAt: '',
+            },
+          },
+        });
+        vi.mocked(blob.fetchRepoTree).mockResolvedValue(null);
+        vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+        vi.mocked(skills.discoverSkills).mockResolvedValue([
+          {
+            name: 'impeccable',
+            path: '/tmp/repo/.agents/skills/impeccable',
+            description: 'Locked',
+            rawContent: '',
+          },
+          {
+            name: 'impeccable',
+            path: '/tmp/repo/plugin/skills/impeccable',
+            description: 'Copy',
+            rawContent: '',
+          },
+        ]);
+        vi.mocked(localLock.computeSkillFolderHash).mockResolvedValue('new-hash');
+
+        const result =
+          scope === 'project'
+            ? await updateProjectSkills({ yes: true })
+            : await updateGlobalSkills({ yes: true });
+
+        expect(localLock.computeSkillFolderHash).toHaveBeenCalledWith(
+          '/tmp/repo/.agents/skills/impeccable'
+        );
+        const installCall = vi
+          .mocked(spawnSync)
+          .mock.calls.find((call) => Array.isArray(call[1]) && call[1].includes('add'));
+        expect(installCall?.[1]).toContain('pbakaus/impeccable/.agents/skills/impeccable');
+        expect(result.successCount).toBe(1);
+        expect(remove.removeCommand).not.toHaveBeenCalled();
+      }
+    );
+
     it('does not reinstall an ambiguous exact-path skill from a generic Git source', async () => {
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
         version: 1,

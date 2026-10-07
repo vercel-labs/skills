@@ -27,7 +27,8 @@ function normalizeSkillPath(path: string): string {
 export function resolveSkillLocations(
   lockedSkillNames: string[],
   lockSkills: Record<string, { skillPath?: string }>,
-  discovered: DiscoveredSkillLocation[]
+  discovered: DiscoveredSkillLocation[],
+  pathScopedSkills: ReadonlySet<string> = new Set()
 ): SkillLocationResolution {
   const discoveredPaths = new Set(discovered.map((skill) => normalizeSkillPath(skill.skillPath)));
   const pathsByName = new Map<string, Set<string>>();
@@ -49,6 +50,13 @@ export function resolveSkillLocations(
 
     const normalizedLockedPath = normalizeSkillPath(lockedPath);
     const candidates = [...(pathsByName.get(normalizeSkillName(name)) ?? [])];
+
+    // A source that can reinstall this exact folder does not need a name-only
+    // match across every copy in the repository.
+    if (pathScopedSkills.has(name) && candidates.includes(normalizedLockedPath)) {
+      resolvedPaths.set(name, normalizedLockedPath);
+      continue;
+    }
 
     // Update reinstallation ultimately selects by skill name. If more than one
     // current location has that name, even an exact locked path is not enough
