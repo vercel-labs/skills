@@ -1,6 +1,6 @@
 ---
 name: find-skills
-description: Helps users discover and install agent skills when they ask questions like "how do I do X", "find a skill for X", "is there a skill that can...", or express interest in extending capabilities. This skill should be used when the user is looking for functionality that might exist as an installable skill.
+description: Discover and install agent skills when the user explicitly asks to find, search for, or install a skill, asks whether a skill exists for a task, or wants to extend agent capabilities with an installable skill. Do not use for ordinary how-to questions or task requests the agent can handle directly.
 ---
 
 # Find Skills
@@ -11,12 +11,11 @@ This skill helps you discover and install skills from the open agent skills ecos
 
 Use this skill when the user:
 
-- Asks "how do I do X" where X might be a common task with an existing skill
-- Says "find a skill for X" or "is there a skill for X"
-- Asks "can you do X" where X is a specialized capability
-- Expresses interest in extending agent capabilities
-- Wants to search for tools, templates, or workflows
-- Mentions they wish they had help with a specific domain (design, testing, deployment, etc.)
+- Asks to find, search for, or install an agent skill
+- Asks whether a skill exists for a specific task
+- Wants to extend agent capabilities with a reusable, installable skill
+
+Ordinary requests such as "how do I make my React app faster?", "can you review this PR?", or "create a changelog" do not trigger this skill by themselves. Help with the task directly when you can. A request for tools, templates, or workflows only qualifies when the user is asking for an installable agent skill.
 
 ## What is the Skills CLI?
 
@@ -34,7 +33,7 @@ The Skills CLI (`npx skills`) is the package manager for the open agent skills e
 
 ### Step 1: Understand What They Need
 
-When a user asks for help with something, identify:
+When a user explicitly asks for a skill, identify:
 
 1. The domain (e.g., React, testing, design, deployment)
 2. The specific task (e.g., writing tests, creating animations, reviewing PRs)
@@ -45,8 +44,9 @@ When a user asks for help with something, identify:
 Before running a CLI search, check the [skills.sh leaderboard](https://skills.sh/) to see if a well-known skill already exists for the domain. The leaderboard ranks skills by total installs, surfacing the most popular and battle-tested options.
 
 For example, top skills for web development include:
-- `vercel-labs/agent-skills` — React, Next.js, web design (100K+ installs each)
-- `anthropics/skills` — Frontend design, document processing (100K+ installs)
+
+- `vercel-labs/agent-skills` — React, Next.js, web design
+- `anthropics/skills` — Frontend design, document processing
 
 ### Step 3: Search for Skills
 
@@ -58,9 +58,9 @@ npx skills find [query] [--owner <owner>]
 
 For example:
 
-- User asks "how do I make my React app faster?" → `npx skills find react performance`
-- User asks "can you help me with PR reviews?" → `npx skills find pr review`
-- User asks "I need to create a changelog" → `npx skills find changelog`
+- User asks "find a skill for React performance" → `npx skills find react performance`
+- User asks "is there a skill for PR reviews?" → `npx skills find pr review`
+- User asks "find an agent skill for creating changelogs" → `npx skills find changelog`
 
 ### Step 4: Verify Quality Before Recommending
 
@@ -75,32 +75,19 @@ For example:
 When you find relevant skills, present them to the user with:
 
 1. The skill name and what it does
-2. The install count and source
+2. The source and current install count if you verified it; omit unavailable counts
 3. The install command they can run
 4. A link to learn more at skills.sh
-
-Example response:
-
-```
-I found a skill that might help! The "react-best-practices" skill provides
-React and Next.js performance optimization guidelines from Vercel Engineering.
-(185K installs)
-
-To install it:
-npx skills add vercel-labs/agent-skills@react-best-practices
-
-Learn more: https://skills.sh/vercel-labs/agent-skills/react-best-practices
-```
 
 ### Step 6: Offer to Install
 
 If the user wants to proceed, you can install the skill for them:
 
 ```bash
-npx skills add <owner/repo@skill> -g -y
+npx skills add <owner/repo@skill>
 ```
 
-The `-g` flag installs globally (user-level) and `-y` skips confirmation prompts.
+Use `-g` only when the user requests a global (user-level) install. Keep the CLI confirmation prompts unless the user explicitly requests a non-interactive install; `-y` skips them.
 
 ## Common Skill Categories
 
@@ -129,13 +116,3 @@ If no relevant skills exist:
 1. Acknowledge that no existing skill was found
 2. Offer to help with the task directly using your general capabilities
 3. Suggest the user could create their own skill with `npx skills init`
-
-Example:
-
-```
-I searched for skills related to "xyz" but didn't find any matches.
-I can still help you with this task directly! Would you like me to proceed?
-
-If this is something you do often, you could create your own skill:
-npx skills init my-xyz-skill
-```
