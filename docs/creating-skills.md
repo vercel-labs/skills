@@ -63,6 +63,7 @@ discover `SKILL.md` files outside these container directories (e.g. under
 - `skills/.curated/`
 - `skills/.experimental/`
 - `skills/.system/`
+- `.abacusai/skills/`
 - `.aider-desk/skills/`
 - `.agents/skills/`
 - `data/skills/`
