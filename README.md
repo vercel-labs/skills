@@ -3,10 +3,16 @@
 The CLI for the open agent skills ecosystem.
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [73 more](#supported-agents).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [75 more](#supported-agents).
 <!-- agent-list:end -->
 
-[![skills.sh](https://skills.sh/b/vercel-labs/skills)](https://skills.sh/vercel-labs/skills)
+<p>
+  <a href="https://vercel.com/labs#labs-products"><img alt="Vercel Labs Product" src="https://img.shields.io/badge/LABS-PRODUCT-0a0a0a.svg?style=for-the-badge&amp;logo=Vercel&amp;labelColor=000000" height="28"></a>
+  <a href="https://www.npmjs.com/package/skills"><img alt="npm version: skills" src="https://img.shields.io/npm/v/skills.svg?style=for-the-badge&amp;labelColor=000000" height="28"></a>
+  <a href="https://github.com/vercel-labs/skills/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/vercel-labs/skills.svg?style=for-the-badge&amp;labelColor=000000" height="28"></a>
+  <a href="https://www.npmjs.com/package/skills"><img alt="npm downloads per month: skills" src="https://img.shields.io/npm/dm/skills.svg?style=for-the-badge&amp;labelColor=000000&amp;label=npm%20downloads" height="28"></a>
+  <a href="https://skills.sh/vercel-labs/skills"><img alt="skills.sh" src="https://skills.sh/b/vercel-labs/skills?style=for-the-badge" height="28"></a>
+</p>
 
 ## Install a Skill
 
@@ -40,6 +46,10 @@ npx skills add https://github.com/vercel-labs/agent-skills/tree/main/skills/web-
 # GitLab URL
 npx skills add https://gitlab.com/org/repo
 
+# Azure Repos (Azure DevOps Services or Server)
+npx skills add https://dev.azure.com/org/project/_git/repo
+npx skills add https://dev.azure.com/org/project/_git/repo?path=/skills/web-design&version=GBmain
+
 # Any git URL
 npx skills add git@github.com:vercel-labs/agent-skills.git
 
@@ -61,6 +71,7 @@ npx skills add ssh://git@git.example.com/acme/private-skills.git
 
 # HTTPS on any Git host (uses your configured Git credential helper)
 npx skills add https://git.example.com/acme/private-skills.git
+npx skills add https://dev.azure.com/org/project/_git/private-skills
 ```
 
 For GitHub HTTPS and shorthand sources, `skills` first uses normal Git credentials. If that fails and GitHub CLI is authenticated, it tries `gh repo clone`, followed by SSH. It does not execute `gh auth token` or copy the stored GitHub CLI credential into the Node.js process.
@@ -146,7 +157,7 @@ When installing interactively, you can choose:
 List all installed skills. Similar to `npm ls`.
 
 ```bash
-# List all installed skills (project and global)
+# List project installed skills 
 npx skills list
 
 # List only global skills
@@ -216,6 +227,9 @@ Remove installed skills from agents.
 # Remove interactively (select from installed skills)
 npx skills remove
 
+# Remove all skills from an exact lock source
+npx skills remove owner/repo
+
 # Remove specific skill by name
 npx skills remove web-design-guidelines
 
@@ -278,12 +292,11 @@ Skills can be installed to any of these agents:
 | IBM Bob | `bob` | `.bob/skills/` | `~/.bob/skills/` |
 | Claude Code | `claude-code` | `.claude/skills/` | `~/.claude/skills/` |
 | OpenClaw | `openclaw` | `skills/` | `~/.openclaw/skills/` |
-| Cline, Dexto, Kimi Code CLI, Loaf, Warp, Zed | `cline`, `dexto`, `kimi-code-cli`, `loaf`, `warp`, `zed` | `.agents/skills/` | `~/.agents/skills/` |
+| Cline, Codex, Dexto, Kimi Code CLI, Loaf, Pi, Sarvam Code, Warp, Zed | `cline`, `codex`, `dexto`, `kimi-code-cli`, `loaf`, `pi`, `sarvam-code`, `warp`, `zed` | `.agents/skills/` | `~/.agents/skills/` |
 | CodeArts Agent | `codearts-agent` | `.codeartsdoer/skills/` | `~/.codeartsdoer/skills/` |
 | CodeBuddy | `codebuddy` | `.codebuddy/skills/` | `~/.codebuddy/skills/` |
 | Codemaker | `codemaker` | `.codemaker/skills/` | `~/.codemaker/skills/` |
 | Code Studio | `codestudio` | `.codestudio/skills/` | `~/.codestudio/skills/` |
-| Codex | `codex` | `.agents/skills/` | `~/.codex/skills/` |
 | Command Code | `command-code` | `.commandcode/skills/` | `~/.commandcode/skills/` |
 | Continue | `continue` | `.continue/skills/` | `~/.continue/skills/` |
 | Cortex Code | `cortex` | `.cortex/skills/` | `~/.snowflake/cortex/skills/` |
@@ -291,10 +304,11 @@ Skills can be installed to any of these agents:
 | Cursor | `cursor` | `.agents/skills/` | `~/.cursor/skills/` |
 | Deep Agents | `deepagents` | `.agents/skills/` | `~/.deepagents/agent/skills/` |
 | Devin for Terminal | `devin` | `.devin/skills/` | `~/.config/devin/skills/` |
-| Droid | `droid` | `.factory/skills/` | `~/.factory/skills/` |
+| Droid | `droid` | `.agents/skills/` | `~/.factory/skills/` |
 | Eve | `eve` | `agent/skills/` | N/A (project-only) |
 | Firebender | `firebender` | `.agents/skills/` | `~/.firebender/skills/` |
 | ForgeCode | `forgecode` | `.forge/skills/` | `~/.forge/skills/` |
+| fx | `fx` | `.fx/skills/` | `~/.fx/skills/` |
 | Gemini CLI | `gemini-cli` | `.agents/skills/` | `~/.gemini/skills/` |
 | GitHub Copilot | `github-copilot` | `.agents/skills/` | `~/.copilot/skills/` |
 | Goose | `goose` | `.goose/skills/` | `~/.config/goose/skills/` |
@@ -304,7 +318,7 @@ Skills can be installed to any of these agents:
 | Jazz | `jazz` | `.jazz/skills/` | `~/.jazz/skills/` |
 | Junie | `junie` | `.junie/skills/` | `~/.junie/skills/` |
 | iFlow CLI | `iflow-cli` | `.iflow/skills/` | `~/.iflow/skills/` |
-| Kilo Code | `kilo` | `.kilocode/skills/` | `~/.kilocode/skills/` |
+| Kilo Code | `kilo` | `.agents/skills/` | `~/.kilo/skills/` |
 | Kimchi | `kimchi` | `.kimchi/skills/` | `~/.config/kimchi/harness/skills/` |
 | Kiro CLI | `kiro-cli` | `.kiro/skills/` | `~/.kiro/skills/` |
 | Kode | `kode` | `.kode/skills/` | `~/.kode/skills/` |
@@ -317,7 +331,6 @@ Skills can be installed to any of these agents:
 | OpenCode | `opencode` | `.agents/skills/` | `~/.config/opencode/skills/` |
 | OpenHands | `openhands` | `.openhands/skills/` | `~/.openhands/skills/` |
 | Ona | `ona` | `.ona/skills/` | `~/.ona/skills/` |
-| Pi | `pi` | `.pi/skills/` | `~/.pi/agent/skills/` |
 | Posit Assistant | `posit-assistant` | `.posit/assistant/skills/` | `~/.posit/assistant/skills/` |
 | Qoder | `qoder` | `.qoder/skills/` | `~/.qoder/skills/` |
 | Qoder CN | `qoder-cn` | `.qoder/skills/` | `~/.qoder-cn/skills/` |
@@ -429,9 +442,9 @@ discover `SKILL.md` files outside these container directories (e.g. under
 - `.cortex/skills/`
 - `.crush/skills/`
 - `.devin/skills/`
-- `.factory/skills/`
 - `agent/skills/`
 - `.forge/skills/`
+- `.fx/skills/`
 - `.goose/skills/`
 - `.grok/skills/`
 - `.hermes/skills/`
@@ -439,7 +452,6 @@ discover `SKILL.md` files outside these container directories (e.g. under
 - `.jazz/skills/`
 - `.junie/skills/`
 - `.iflow/skills/`
-- `.kilocode/skills/`
 - `.kimchi/skills/`
 - `.kiro/skills/`
 - `.kode/skills/`
@@ -451,7 +463,6 @@ discover `SKILL.md` files outside these container directories (e.g. under
 - `.mux/skills/`
 - `.openhands/skills/`
 - `.ona/skills/`
-- `.pi/skills/`
 - `.posit/assistant/skills/`
 - `.qoder/skills/`
 - `.qwen/skills/`

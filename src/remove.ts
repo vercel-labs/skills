@@ -7,6 +7,7 @@ import { track } from './telemetry.ts';
 import { detectAgent } from './detect-agent.ts';
 import { removeSkillFromLock, getSkillFromLock, readSkillLock } from './skill-lock.ts';
 import { readLocalLock, removeSkillFromLocalLock } from './local-lock.ts';
+import { hasSkillMd } from './skills.ts';
 import type { AgentType } from './types.ts';
 import {
   getInstallPath,
@@ -39,7 +40,8 @@ export interface RemoveOptions {
 export function resolveSkillsToRemove(
   requested: string[],
   folderNames: string[],
-  lockKeys: string[] = []
+  lockKeys: string[] = [],
+  sourceByKey: Record<string, string | undefined> = {}
 ): string[] {
   const identityBySanitized = new Map<string, string>();
   for (const folder of folderNames) {
@@ -53,7 +55,14 @@ export function resolveSkillsToRemove(
   const matched = new Set<string>();
   for (const name of requested) {
     const hit = identityBySanitized.get(sanitizeName(name));
-    if (hit) matched.add(hit);
+    if (hit) {
+      matched.add(hit);
+      continue;
+    }
+    // Not a skill name: treat it as an exact lock source and take every skill from it.
+    for (const key of lockKeys) {
+      if (sourceByKey[key] === name) matched.add(key);
+    }
   }
   return Array.from(matched);
 }
@@ -101,9 +110,20 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     try {
       const entries = await readdir(dir, { withFileTypes: true });
       for (const entry of entries) {
-        if (entry.isDirectory()) {
-          skillNamesSet.add(entry.name);
-        }
+        // Dot-directories belong to the agent, not to us: sanitizeName() strips
+        // leading dots, so a skill can never be installed under such a name and
+        // removal could never address one either. Offering Codex's bundled
+        // `$CODEX_HOME/skills/.system` was always a dead entry.
+        if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+
+        // A directory is only a skill if it holds a SKILL.md, which is what
+        // listInstalledSkills() already requires. Without this, any directory
+        // in a scanned path counted as installed — including the contents of a
+        // source repo's `skills/` folder, which is also OpenClaw's project
+        // install dir and so is always scanned.
+        if (!(await hasSkillMd(join(dir, entry.name)))) continue;
+
+        skillNamesSet.add(entry.name);
       }
     } catch (err) {
       if (err instanceof Error && (err as { code?: string }).code !== 'ENOENT') {
@@ -136,14 +156,16 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   // Read lock file keys up front. These are needed both to decide whether there is
   // anything to remove (a skill may be missing from disk but still leave a stale lock
   // entry) and to clean up those stale entries below.
-  const lockSkillsKeys = isGlobal
-    ? Object.keys((await readSkillLock()).skills)
-    : Object.keys((await readLocalLock(cwd)).skills);
+  const lockEntries = isGlobal ? (await readSkillLock()).skills : (await readLocalLock(cwd)).skills;
+  const lockSkillsKeys = Object.keys(lockEntries);
+  const sourceByKey = Object.fromEntries(
+    lockSkillsKeys.map((key) => [key, lockEntries[key]?.source])
+  );
 
   const requestedSkills = options.all ? [...installedSkills, ...lockSkillsKeys] : skillNames;
   const resolvedRequestedSkills =
     options.all || skillNames.length > 0
-      ? resolveSkillsToRemove(requestedSkills, installedSkills, lockSkillsKeys)
+      ? resolveSkillsToRemove(requestedSkills, installedSkills, lockSkillsKeys, sourceByKey)
       : [];
 
   if (installedSkills.length === 0 && resolvedRequestedSkills.length === 0) {
@@ -345,7 +367,9 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     const bySource = new Map<string, { skills: string[]; sourceType?: string }>();
 
     for (const r of successful) {
-      const source = r.source || 'local';
+      // A local lock entry's source is an absolute path on the user's machine; telemetry only
+      // ever receives the generic 'local' for it.
+      const source = r.sourceType === 'local' ? 'local' : r.source || 'local';
       const existing = bySource.get(source) || { skills: [] };
       existing.skills.push(r.skill);
       existing.sourceType = r.sourceType;

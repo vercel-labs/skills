@@ -114,4 +114,74 @@ description: Nested skill.
     expect(result!.skills[0]!.files.map((file) => file.path)).toEqual(['SKILL.md', 'reference.md']);
     expect(result!.skills[0]!.snapshotHash).toBe('nested-snapshot-hash');
   });
+
+  it('falls back when a nested snapshot omits an installable repository file', async () => {
+    const nestedSkillMd = `---
+name: nested
+description: Nested skill with a binary resource.
+---
+# Nested
+`;
+
+    fetchMock
+      .mockResolvedValueOnce(
+        okResponse({
+          sha: 'root-tree-sha',
+          tree: [
+            { path: 'skills/nested/SKILL.md', type: 'blob', sha: 'skill-sha' },
+            {
+              path: 'skills/nested/references/example.png',
+              type: 'blob',
+              sha: 'image-sha',
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(textResponse(nestedSkillMd))
+      .mockResolvedValueOnce(
+        okResponse({
+          hash: 'incomplete-snapshot-hash',
+          files: [{ path: 'SKILL.md', contents: nestedSkillMd }],
+        })
+      );
+
+    await expect(tryBlobInstall('vercel-labs/agent-skills')).resolves.toBeNull();
+  });
+
+  it('does not require files excluded by the clone installer', async () => {
+    const nestedSkillMd = `---
+name: nested
+description: Nested skill with excluded source metadata.
+---
+# Nested
+`;
+
+    fetchMock
+      .mockResolvedValueOnce(
+        okResponse({
+          sha: 'root-tree-sha',
+          tree: [
+            { path: 'skills/nested/SKILL.md', type: 'blob', sha: 'skill-sha' },
+            { path: 'skills/nested/metadata.json', type: 'blob', sha: 'metadata-sha' },
+            {
+              path: 'skills/nested/__pycache__/cache.pyc',
+              type: 'blob',
+              sha: 'cache-sha',
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(textResponse(nestedSkillMd))
+      .mockResolvedValueOnce(
+        okResponse({
+          hash: 'complete-installable-snapshot-hash',
+          files: [{ path: 'SKILL.md', contents: nestedSkillMd }],
+        })
+      );
+
+    const result = await tryBlobInstall('vercel-labs/agent-skills');
+
+    expect(result).not.toBeNull();
+    expect(result!.skills[0]!.files).toEqual([{ path: 'SKILL.md', contents: nestedSkillMd }]);
+  });
 });

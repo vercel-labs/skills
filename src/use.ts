@@ -77,12 +77,13 @@ interface UseAgentConfig {
   args: string[];
 }
 
-const BLOB_ALLOWED_OWNERS = ['vercel', 'vercel-labs', 'heygen-com'];
+const BLOB_ALLOWED_OWNERS = ['vercel', 'vercel-labs', 'heygen-com', 'remotion-dev'];
 const EXCLUDE_FILES = new Set(['metadata.json']);
 const EXCLUDE_DIRS = new Set(['.git', '__pycache__', '__pypackages__']);
 const USE_AGENT_CONFIGS: Partial<Record<AgentType, UseAgentConfig>> = {
   'claude-code': { command: 'claude', args: [] },
   codex: { command: 'codex', args: [] },
+  'sarvam-code': { command: 'sarvam-code', args: [] },
 };
 const SUPPORTED_USE_AGENTS = Object.keys(USE_AGENT_CONFIGS) as AgentType[];
 

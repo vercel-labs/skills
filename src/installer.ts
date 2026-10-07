@@ -27,9 +27,24 @@ import {
 } from './agents.ts';
 import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
 import { parseFrontmatter } from './frontmatter.ts';
+import { stringify } from 'yaml';
 import { parseSkillMd } from './skills.ts';
 
-export type InstallMode = 'symlink' | 'copy';
+/**
+ * - `symlink`: copy into the canonical dir, symlink agent dirs to it
+ * - `copy`: copy into each agent dir
+ * - `link`: symlink the canonical dir to the skill's source, symlink agent dirs to it
+ */
+export type InstallMode = 'symlink' | 'copy' | 'link';
+
+interface InstallOptions {
+  global?: boolean;
+  cwd?: string;
+  mode?: InstallMode;
+  eveSubagent?: string;
+  /** Create a missing agent-specific project root because the user selected this agent. */
+  createMissingAgentRoot?: boolean;
+}
 
 interface InstallResult {
   success: boolean;
@@ -38,6 +53,7 @@ interface InstallResult {
   mode: InstallMode;
   symlinkFailed?: boolean;
   skipped?: boolean;
+  skipReason?: 'missing-agent-project-directory';
   error?: string;
 }
 
@@ -79,6 +95,25 @@ function isPathSafe(basePath: string, targetPath: string): boolean {
 
 function pathsOverlap(pathA: string, pathB: string): boolean {
   return isPathSafe(pathA, pathB) || isPathSafe(pathB, pathA);
+}
+
+function shouldSkipProjectAgentSymlink(
+  agentType: AgentType,
+  isGlobal: boolean,
+  cwd: string,
+  createMissingAgentRoot: boolean
+): boolean {
+  if (
+    isGlobal ||
+    isUniversalAgent(agentType) ||
+    createMissingAgentRoot ||
+    agents[agentType].createProjectSkillsDirByDefault
+  ) {
+    return false;
+  }
+
+  const agentRoot = agents[agentType].skillsDir.split('/')[0]!;
+  return !existsSync(join(cwd, agentRoot));
 }
 
 // Dirent.isDirectory() is false for symlinks; follow and verify the target is a directory.
@@ -124,6 +159,12 @@ export function getAgentBaseDir(
   cwd?: string,
   eveSubagent?: string
 ): string {
+  // Eve subagents are inherently project-scoped — they live under the project's
+  // agent/ directory, so the `global` flag does not apply here.
+  if (agentType === 'eve' && eveSubagent) {
+    return getEveSubagentSkillsDir(eveSubagent, cwd);
+  }
+
   const agent = agents[agentType];
   const baseDir = global ? homedir() : cwd || process.cwd();
 
@@ -137,12 +178,6 @@ export function getAgentBaseDir(
 
   if (isUniversalAgent(agentType)) {
     return getCanonicalSkillsDir(global, cwd);
-  }
-
-  // Eve subagents are inherently project-scoped — they live under the project's
-  // agent/ directory, so the `global` flag does not apply here.
-  if (agentType === 'eve' && eveSubagent) {
-    return getEveSubagentSkillsDir(eveSubagent, cwd);
   }
 
   return join(baseDir, agent.skillsDir);
@@ -265,7 +300,7 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
 export async function installSkillForAgent(
   skill: Skill,
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode; eveSubagent?: string } = {}
+  options: InstallOptions = {}
 ): Promise<InstallResult> {
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
@@ -350,14 +385,22 @@ export async function installSkillForAgent(
         success: true,
         path: canonicalDir,
         canonicalPath: canonicalDir,
-        mode: 'symlink',
+        mode: installMode,
         skipped: true,
       };
     }
 
-    // Symlink mode: copy to canonical location and symlink to agent location
-    await cleanAndCreateDirectory(canonicalDir);
-    await copyDirectory(skill.path, canonicalDir, agentType);
+    if (installMode === 'link') {
+      // Link mode: the canonical dir itself points at the source, nothing is copied.
+      if (!(await createSymlink(skill.path, canonicalDir))) {
+        await cleanAndCreateDirectory(canonicalDir);
+        await copyDirectory(skill.path, canonicalDir, agentType);
+      }
+    } else {
+      // Symlink mode: copy to canonical location and symlink to agent location
+      await cleanAndCreateDirectory(canonicalDir);
+      await copyDirectory(skill.path, canonicalDir, agentType);
+    }
 
     // For universal agents with global install, the skill is already in the canonical
     // ~/.agents/skills directory. Skip creating a symlink to the agent-specific global dir
@@ -367,7 +410,7 @@ export async function installSkillForAgent(
         success: true,
         path: canonicalDir,
         canonicalPath: canonicalDir,
-        mode: 'symlink',
+        mode: installMode,
       };
     }
 
@@ -375,17 +418,22 @@ export async function installSkillForAgent(
     // whose config directory doesn't already exist in the project. This prevents
     // creating directories like .windsurf/, .kiro/, etc. when those agents aren't
     // actually used in this project. The skill is already available in .agents/skills/.
-    if (!isGlobal && !isUniversalAgent(agentType)) {
-      const agentRootDir = join(cwd, agents[agentType].skillsDir.split('/')[0]!);
-      if (!existsSync(agentRootDir) && agentType !== 'claude-code') {
-        return {
-          success: true,
-          path: canonicalDir,
-          canonicalPath: canonicalDir,
-          mode: 'symlink',
-          skipped: true,
-        };
-      }
+    if (
+      shouldSkipProjectAgentSymlink(
+        agentType,
+        isGlobal,
+        cwd,
+        options.createMissingAgentRoot ?? false
+      )
+    ) {
+      return {
+        success: true,
+        path: canonicalDir,
+        canonicalPath: canonicalDir,
+        mode: installMode,
+        skipped: true,
+        skipReason: 'missing-agent-project-directory',
+      };
     }
 
     const symlinkCreated = await createSymlink(canonicalDir, agentDir);
@@ -399,7 +447,7 @@ export async function installSkillForAgent(
         success: true,
         path: agentDir,
         canonicalPath: canonicalDir,
-        mode: 'symlink',
+        mode: installMode,
         symlinkFailed: true,
       };
     }
@@ -408,7 +456,7 @@ export async function installSkillForAgent(
       success: true,
       path: agentDir,
       canonicalPath: canonicalDir,
-      mode: 'symlink',
+      mode: installMode,
     };
   } catch (error) {
     return {
@@ -433,21 +481,23 @@ function stripIgnoredEveFrontmatter(raw: string): string {
   const { data, content } = parseFrontmatter(raw);
   const eveData: Record<string, unknown> = {};
 
+  if (typeof data.name === 'string') {
+    eveData.name = data.name;
+  }
   if (typeof data.description === 'string') {
     eveData.description = data.description;
   }
   if (typeof data.license === 'string') {
     eveData.license = data.license;
   }
+  if (data.compatibility !== undefined) {
+    eveData.compatibility = data.compatibility;
+  }
+  if (typeof data.version === 'string' || typeof data.version === 'number') {
+    eveData.version = data.version;
+  }
   if (data.metadata && typeof data.metadata === 'object' && !Array.isArray(data.metadata)) {
-    const metadata = Object.fromEntries(
-      Object.entries(data.metadata).filter(
-        (entry): entry is [string, string] => typeof entry[1] === 'string'
-      )
-    );
-    if (Object.keys(metadata).length > 0) {
-      eveData.metadata = metadata;
-    }
+    eveData.metadata = data.metadata;
   }
 
   const keys = Object.keys(eveData);
@@ -455,7 +505,8 @@ function stripIgnoredEveFrontmatter(raw: string): string {
     return content.replace(/^\r?\n/u, '');
   }
 
-  const frontmatter = keys.map((key) => `${key}: ${JSON.stringify(eveData[key])}`).join('\n');
+  // Real nested YAML, not inline JSON
+  const frontmatter = stringify(eveData).trimEnd();
   return `---\n${frontmatter}\n---\n${content.replace(/^\r?\n/u, '')}`;
 }
 
@@ -903,7 +954,7 @@ export async function installWellKnownSkillForAgent(
 export async function installBlobSkillForAgent(
   skill: { installName: string; files: Array<{ path: string; contents: string }> },
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode; eveSubagent?: string } = {}
+  options: InstallOptions = {}
 ): Promise<InstallResult> {
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
@@ -1015,20 +1066,24 @@ export async function installBlobSkillForAgent(
     }
 
     // For project-level installs, skip creating symlinks for non-universal agents
-    // whose config directory doesn't already exist in the project. Claude Code is
-    // exempted since it can be explicitly selected as the install target even when
-    // .claude/ doesn't exist yet (see installSkillForAgent for the same exemption).
-    if (!isGlobal && !isUniversalAgent(agentType)) {
-      const agentRootDir = join(cwd, agents[agentType].skillsDir.split('/')[0]!);
-      if (!existsSync(agentRootDir) && agentType !== 'claude-code') {
-        return {
-          success: true,
-          path: canonicalDir,
-          canonicalPath: canonicalDir,
-          mode: 'symlink',
-          skipped: true,
-        };
-      }
+    // whose config directory doesn't already exist in the project. Explicitly
+    // selected agents and agents with a compatibility policy are exempt.
+    if (
+      shouldSkipProjectAgentSymlink(
+        agentType,
+        isGlobal,
+        cwd,
+        options.createMissingAgentRoot ?? false
+      )
+    ) {
+      return {
+        success: true,
+        path: canonicalDir,
+        canonicalPath: canonicalDir,
+        mode: 'symlink',
+        skipped: true,
+        skipReason: 'missing-agent-project-directory',
+      };
     }
 
     const symlinkCreated = await createSymlink(canonicalDir, agentDir);

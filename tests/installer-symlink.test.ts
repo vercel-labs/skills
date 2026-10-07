@@ -257,6 +257,43 @@ describe('installer symlink regression', () => {
     }
   });
 
+  it('creates a blob symlink when the caller allows the missing agent root', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
+    const projectDir = join(root, 'project');
+    await mkdir(projectDir, { recursive: true });
+
+    const skillName = 'explicit-kiro-blob-skill';
+
+    try {
+      const result = await installBlobSkillForAgent(
+        {
+          installName: skillName,
+          files: [
+            {
+              path: 'SKILL.md',
+              contents: `---\nname: ${skillName}\ndescription: test\n---\n`,
+            },
+          ],
+        },
+        'kiro-cli',
+        {
+          cwd: projectDir,
+          mode: 'symlink',
+          global: false,
+          createMissingAgentRoot: true,
+        }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.skipped).toBeUndefined();
+      expect((await lstat(join(projectDir, '.kiro/skills', skillName))).isSymbolicLink()).toBe(
+        true
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   // Regression test for #294: universal-only global install should not create agent-specific symlinks
   it('does not create agent-specific symlinks for universal agents on global install', async () => {
     const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
