@@ -533,6 +533,161 @@ describe('experimental_sync command', () => {
     });
   });
 
+  describe('skills field', () => {
+    const sync = (...flags: string[]) =>
+      runCli(['experimental_sync', '-y', '-a', 'claude-code', ...flags], testDir);
+    const installed = (name: string) => existsSync(join(testDir, '.agents', 'skills', name));
+    const readLock = () => JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8'));
+
+    function writePackageJson(dir: string, data: Record<string, unknown>): void {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'package.json'), JSON.stringify(data));
+    }
+
+    /** The project's package.json with the given direct deps and `skills` field. */
+    function declareProject(deps: string[], skills: unknown): void {
+      writePackageJson(testDir, {
+        name: 'test-project',
+        dependencies: Object.fromEntries(deps.map((d) => [d, '*'])),
+        skills,
+      });
+    }
+
+    /** A package at `dir` that only declares a `skills` field (a skills pack). */
+    function createPack(dir: string, name: string, skills: unknown): void {
+      writePackageJson(dir, { name, version: '1.0.0', skills });
+    }
+
+    it('installs the skills of an npm: target named by the project', () => {
+      declareProject([], ['npm:transitive-lib']);
+      writeSkill(join(createPackage('transitive-lib'), 'skills', 'helper'), 'helper');
+
+      sync();
+
+      expect(installed('helper')).toBe(true);
+      expect(readLock().skills.helper).toMatchObject({ source: 'transitive-lib', via: '.' });
+    });
+
+    it('resolves a pack entry from the pack itself (pnpm layout)', () => {
+      declareProject(['my-pack'], undefined);
+      const pack = join(testDir, 'node_modules', 'my-pack');
+      createPack(pack, 'my-pack', ['npm:nested-lib']);
+      const nested = join(pack, 'node_modules', 'nested-lib');
+      writePackageJson(nested, { name: 'nested-lib', version: '2.0.0' });
+      writeSkill(join(nested, 'skills', 'nested'), 'nested');
+
+      sync();
+
+      expect(installed('nested')).toBe(true);
+      expect(readLock().skills.nested).toMatchObject({
+        source: 'nested-lib',
+        version: '2.0.0',
+        via: 'my-pack',
+      });
+    });
+
+    it('keeps only the skills an object entry names', () => {
+      declareProject([], [{ source: 'npm:multi-lib', skills: ['wanted'] }]);
+      const lib = createPackage('multi-lib');
+      writeSkill(join(lib, 'skills', 'wanted'), 'wanted');
+      writeSkill(join(lib, 'skills', 'unwanted'), 'unwanted');
+
+      sync();
+
+      expect(installed('wanted')).toBe(true);
+      expect(installed('unwanted')).toBe(false);
+    });
+
+    it('follows npm: chains and stops at cycles', () => {
+      declareProject(['pack-a'], undefined);
+      createPack(join(testDir, 'node_modules', 'pack-a'), 'pack-a', ['npm:pack-b']);
+      createPack(join(testDir, 'node_modules', 'pack-b'), 'pack-b', ['npm:pack-a', 'npm:leaf']);
+      writeSkill(join(createPackage('leaf'), 'skills', 'leaf-skill'), 'leaf-skill');
+
+      const result = sync();
+
+      expect(result.exitCode).toBe(0);
+      expect(installed('leaf-skill')).toBe(true);
+      expect(readLock().skills['leaf-skill'].via).toBe('pack-b');
+    });
+
+    it('prefers a direct dependency over a transitive package with the same skill', () => {
+      declareProject(['direct-lib', 'my-pack'], undefined);
+      writeSkill(join(createPackage('direct-lib'), 'skills', 'migrate'), 'migrate');
+      createPack(join(testDir, 'node_modules', 'my-pack'), 'my-pack', ['npm:far-lib']);
+      writeSkill(join(createPackage('far-lib'), 'skills', 'migrate'), 'migrate');
+
+      const result = sync();
+
+      expect(result.stdout).toContain('closer to the project');
+      expect(readLock().skills.migrate.source).toBe('direct-lib');
+    });
+
+    it('stops when the project names a package that is not installed', () => {
+      declareProject(['ok-lib'], ['npm:missing-lib']);
+      writeSkill(join(createPackage('ok-lib'), 'skills', 'ok'), 'ok');
+
+      const result = sync();
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('cannot resolve "npm:missing-lib"');
+      expect(installed('ok')).toBe(false);
+    });
+
+    it('stops on a malformed project field', () => {
+      declareProject([], [{ source: 'npm:x', ref: 'v1' }]);
+
+      const result = sync();
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('"ref" cannot be used');
+    });
+
+    it('warns and continues when a dependency names a package that is not installed', () => {
+      declareProject(['my-pack', 'ok-lib'], undefined);
+      createPack(join(testDir, 'node_modules', 'my-pack'), 'my-pack', ['npm:missing-lib']);
+      writeSkill(join(createPackage('ok-lib'), 'skills', 'ok'), 'ok');
+
+      const result = sync();
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('my-pack: cannot resolve "npm:missing-lib"');
+      expect(installed('ok')).toBe(true);
+    });
+
+    it('ignores a dependency whose "skills" key is not an array', () => {
+      declareProject(['odd-lib'], undefined);
+      createPack(join(testDir, 'node_modules', 'odd-lib'), 'odd-lib', { something: 'else' });
+
+      const result = sync();
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).not.toContain('odd-lib:');
+    });
+
+    it('reports remote entries as not synced yet', () => {
+      declareProject([], ['owner/repo@skill']);
+
+      const result = sync();
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Skipped 1 remote "skills" entry');
+    });
+
+    it('removes field skills when the pack is removed', () => {
+      declareProject(['my-pack'], undefined);
+      createPack(join(testDir, 'node_modules', 'my-pack'), 'my-pack', ['npm:far-lib']);
+      writeSkill(join(createPackage('far-lib'), 'skills', 'far'), 'far');
+      sync();
+      expect(installed('far')).toBe(true);
+
+      declareProject([], undefined);
+      sync();
+
+      expect(installed('far')).toBe(false);
+    });
+  });
+
   describe('CLI routing', () => {
     it('shows experimental_sync in help output', () => {
       const result = runCli(['--help']);

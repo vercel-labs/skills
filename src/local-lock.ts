@@ -31,6 +31,8 @@ export interface LocalSkillLockEntry {
   skillPath?: string;
   /** Version of the npm package that shipped the skill (node_modules sources only). */
   version?: string;
+  /** Package whose package.json `skills` field requested the skill; `.` is the project. */
+  via?: string;
   /**
    * SHA-256 hash computed from all files in the skill folder.
    * Unlike the global lock which uses GitHub tree SHA, the local lock

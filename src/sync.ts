@@ -1,7 +1,8 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
-import { lstat, readdir, readFile, readlink, rm } from 'fs/promises';
-import { dirname, join, posix, resolve, sep } from 'path';
+import { existsSync } from 'fs';
+import { lstat, readdir, readFile, readlink, realpath, rm } from 'fs/promises';
+import { basename, dirname, join, posix, resolve, sep } from 'path';
 import { homedir } from 'os';
 import { hasSkillMd, parseSkillMd } from './skills.ts';
 import {
@@ -31,6 +32,7 @@ import {
 import type { Skill, AgentType } from './types.ts';
 import { track } from './telemetry.ts';
 import { detectAgent, getAgentType } from './detect-agent.ts';
+import { parseSkillsField } from './skills-field.ts';
 
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
 
@@ -79,12 +81,18 @@ interface PackageSkill extends Skill {
   packageVersion?: string;
   /** Path to SKILL.md relative to the package root, e.g. `skills/pdf/SKILL.md`. */
   skillPath: string;
+  /** Package whose `skills` field requested this skill (`.` for the project). */
+  via?: string;
+  /** 0 for direct dependencies and the project's own `skills` field, +1 per `npm:` hop. */
+  depth: number;
 }
 
 interface PackageJson {
   version?: string;
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
+  /** Validated by parseSkillsField. */
+  skills?: unknown;
 }
 
 async function readPackageJson(dir: string): Promise<PackageJson | null> {
@@ -95,7 +103,11 @@ async function readPackageJson(dir: string): Promise<PackageJson | null> {
   }
 }
 
-async function discoverPackageSkills(pkgDir: string, packageName: string): Promise<PackageSkill[]> {
+async function discoverPackageSkills(
+  pkgDir: string,
+  packageName: string,
+  depth: number
+): Promise<PackageSkill[]> {
   const pkg = await readPackageJson(pkgDir);
   if (!pkg) return []; // not installed
 
@@ -103,7 +115,9 @@ async function discoverPackageSkills(pkgDir: string, packageName: string): Promi
     ? await parseSkillMd(join(pkgDir, 'SKILL.md'))
     : null;
   if (rootSkill) {
-    return [{ ...rootSkill, packageName, packageVersion: pkg.version, skillPath: 'SKILL.md' }];
+    return [
+      { ...rootSkill, packageName, packageVersion: pkg.version, skillPath: 'SKILL.md', depth },
+    ];
   }
 
   const skills: PackageSkill[] = [];
@@ -118,6 +132,7 @@ async function discoverPackageSkills(pkgDir: string, packageName: string): Promi
           packageName,
           packageVersion: pkg.version,
           skillPath: `${dir}/${name}/SKILL.md`,
+          depth,
         });
       }
     }
@@ -125,24 +140,115 @@ async function discoverPackageSkills(pkgDir: string, packageName: string): Promi
   return skills;
 }
 
-/**
- * Find skills shipped by the project's direct dependencies.
- * Only packages listed in package.json are read, so transitive dependencies
- * cannot place a skill in front of the agent, and the package manager's
- * version resolution decides which copy of a package is seen.
- */
-async function discoverNodeModuleSkills(cwd: string): Promise<PackageSkill[]> {
-  const pkg = await readPackageJson(cwd);
-  if (!pkg) return [];
+/** A problem in the project's own `skills` field; sync stops instead of guessing. */
+class SkillsFieldError extends Error {}
 
-  const names = new Set([
-    ...Object.keys(pkg.dependencies ?? {}),
-    ...Object.keys(pkg.devDependencies ?? {}),
-  ]);
-  const perPackage = await Promise.all(
-    [...names].map((name) => discoverPackageSkills(join(cwd, 'node_modules', name), name))
+/**
+ * Node's node_modules lookup from `from` (realpath, then walk up), so the
+ * declaring package's own dependencies resolve in pnpm's isolated layout.
+ */
+function findInstalledPackage(from: string, name: string): string | undefined {
+  for (let dir = from; ; dir = dirname(dir)) {
+    const candidate = join(dir, 'node_modules', name);
+    if (existsSync(join(candidate, 'package.json'))) return candidate;
+    if (dirname(dir) === dir) return undefined;
+  }
+}
+
+/**
+ * Find skills shipped by the project's direct dependencies, plus the skills
+ * that `npm:` entries in `skills` fields point at. Fields are read from the
+ * project and its direct dependencies, then from every `npm:` target in turn.
+ *
+ * Only packages listed in package.json are scanned, so a transitive package
+ * reaches the agent only when a direct dependency names it, and the package
+ * manager's version resolution decides which copy of a package is seen.
+ */
+async function discoverNodeModuleSkills(
+  cwd: string
+): Promise<{ skills: PackageSkill[]; warnings: string[]; remoteEntries: number }> {
+  const warnings: string[] = [];
+  let remoteEntries = 0;
+  const pkg = await readPackageJson(cwd);
+  if (!pkg) return { skills: [], warnings, remoteEntries };
+
+  const skills: PackageSkill[] = [];
+  const seen = new Set<string>();
+  const add = async (found: PackageSkill[]) => {
+    for (const skill of found) {
+      const key = await realpath(skill.path).catch(() => skill.path);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      skills.push(skill);
+    }
+  };
+
+  const deps = [
+    ...new Set([...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.devDependencies ?? {})]),
+  ];
+  const shipped = await Promise.all(
+    deps.map((name) => discoverPackageSkills(join(cwd, 'node_modules', name), name, 0))
   );
-  return perPackage.flat();
+  await add(shipped.flat());
+
+  // `depth` is what this declarer's npm: targets get; strict fields fail the run
+  const declarers = [
+    { name: '.', dir: cwd, depth: 0, strict: true },
+    ...deps.map((name) => ({
+      name,
+      dir: join(cwd, 'node_modules', name),
+      depth: 1,
+      strict: false,
+    })),
+  ];
+  const visited = new Set<string>();
+  for (const declarer of declarers) {
+    const dir = await realpath(declarer.dir).catch(() => null);
+    if (!dir || visited.has(dir)) continue;
+    visited.add(dir);
+
+    const field = (await readPackageJson(dir))?.skills;
+    if (field === undefined) continue;
+    if (!Array.isArray(field)) {
+      // a dependency may use the key for something else
+      if (declarer.strict) throw new SkillsFieldError('package.json: "skills" must be an array');
+      continue;
+    }
+
+    const parsed = parseSkillsField(field, declarer.name);
+    remoteEntries += parsed.remote;
+    const problems = [...parsed.errors];
+    for (const request of parsed.npm) {
+      const target = findInstalledPackage(dir, request.package);
+      if (!target) {
+        problems.push(
+          `${declarer.name}: cannot resolve "npm:${request.package}"; add it to the dependencies of ${declarer.name === '.' ? 'package.json' : declarer.name}`
+        );
+        continue;
+      }
+      const found = await discoverPackageSkills(target, request.package, declarer.depth);
+      await add(
+        found
+          .filter(
+            (skill) =>
+              request.skills.length === 0 ||
+              request.skills.includes(basename(skill.path)) ||
+              request.skills.includes(sanitizeName(skill.name))
+          )
+          .map((skill) => ({ ...skill, via: declarer.name }))
+      );
+      declarers.push({
+        name: request.package,
+        dir: target,
+        depth: declarer.depth + 1,
+        strict: false,
+      });
+    }
+    if (declarer.strict && problems.length > 0) throw new SkillsFieldError(problems.join('\n'));
+    warnings.push(...problems);
+  }
+
+  return { skills, warnings, remoteEntries };
 }
 
 function isUnderNodeModules(path: string): boolean {
@@ -239,7 +345,8 @@ interface SkippedSkill {
  * Conflict rules, in order:
  * 1. a skill installed with `skills add` is never shadowed
  * 2. a directory or symlink sync does not own is never replaced
- * 3. two packages shipping the same skill name install neither
+ * 3. a skill from a direct dependency wins over one from a transitive package
+ * 4. two packages at the same depth shipping the same skill name install neither
  */
 async function resolveConflicts(
   skills: PackageSkill[],
@@ -254,7 +361,13 @@ async function resolveConflicts(
   const install: PackageSkill[] = [];
   const skipped: SkippedSkill[] = [];
 
-  for (const [name, candidates] of byName) {
+  for (const [name, all] of byName) {
+    // A direct dependency (or the project's own field) wins over a transitive package
+    const depth = Math.min(...all.map((c) => c.depth));
+    const candidates = all.filter((c) => c.depth === depth);
+    for (const skill of all.filter((c) => c.depth !== depth)) {
+      skipped.push({ skill, reason: `${candidates[0]!.packageName} is closer to the project` });
+    }
     if (candidates.length > 1) {
       const packages = candidates.map((c) => c.packageName).join(', ');
       for (const skill of candidates) {
@@ -329,8 +442,19 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
 
   // 1. Discover skills from node_modules
   spinner.start('Scanning node_modules for skills…');
+  let discovery: Awaited<ReturnType<typeof discoverNodeModuleSkills>>;
+  try {
+    discovery = await discoverNodeModuleSkills(cwd);
+  } catch (error) {
+    if (!(error instanceof SkillsFieldError)) throw error;
+    spinner.stop(pc.red('Invalid skills field'));
+    for (const line of error.message.split('\n')) p.log.error(line);
+    p.outro(pc.red('Fix the "skills" field in package.json and run sync again.'));
+    process.exitCode = 1;
+    return;
+  }
   const { include, exclude } = options;
-  const discoveredSkills = (await discoverNodeModuleSkills(cwd)).filter(
+  const discoveredSkills = discovery.skills.filter(
     (skill) =>
       (!include?.length || matchesSkill(skill, include)) &&
       !(exclude?.length && matchesSkill(skill, exclude))
@@ -340,6 +464,14 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
       ? pc.yellow('No skills found')
       : `Found ${pc.green(String(discoveredSkills.length))} skill${discoveredSkills.length > 1 ? 's' : ''} in node_modules`
   );
+  for (const warning of discovery.warnings) p.log.warn(warning);
+  if (discovery.remoteEntries > 0) {
+    p.log.info(
+      pc.dim(
+        `Skipped ${discovery.remoteEntries} remote "skills" entr${discovery.remoteEntries === 1 ? 'y' : 'ies'}; only npm: entries are synced for now`
+      )
+    );
+  }
 
   const localLock = await readLocalLock(cwd);
   if (options.cleanup !== false) {
@@ -359,7 +491,8 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
 
   // Show discovered skills
   for (const skill of discoveredSkills) {
-    p.log.info(`${pc.cyan(skill.name)} ${pc.dim(`from ${skill.packageName}`)}`);
+    const via = skill.via ? ` via ${skill.via}` : '';
+    p.log.info(`${pc.cyan(skill.name)} ${pc.dim(`from ${skill.packageName}${via}`)}`);
     if (skill.description) {
       p.log.message(pc.dim(`  ${skill.description}`));
     }
@@ -557,6 +690,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
             sourceType: 'node_modules',
             skillPath: skill.skillPath,
             ...(skill.packageVersion && { version: skill.packageVersion }),
+            ...(skill.via && { via: skill.via }),
             computedHash,
           },
           cwd
