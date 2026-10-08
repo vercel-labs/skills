@@ -307,6 +307,33 @@ describe('parseSource', () => {
     });
   });
 
+  describe('fragment skill filters', () => {
+    it.each([
+      ['https://github.com/owner/repo', undefined],
+      ['https://github.com/owner/repo.git', undefined],
+      ['https://github.com/owner/repo/tree/main', undefined],
+      ['https://github.com/owner/repo/tree/main/skills', 'skills'],
+      ['https://gitlab.com/group/subgroup/repo', undefined],
+      ['gitlab:owner/repo', undefined],
+      ['https://gitlab.example.com/group/repo/-/tree/main', undefined],
+      ['https://gitlab.example.com/group/repo/-/tree/main/skills', 'skills'],
+      ['ssh://git@example.com/owner/repo.git', undefined],
+      ['git@example.com:owner/repo.git', undefined],
+    ])('preserves the selected skill for %s', (source, subpath) => {
+      const result = parseSource(`${source}#main@my%20skill`);
+      expect(result.ref).toBe('main');
+      expect(result.skillFilter).toBe('my skill');
+      expect(result.subpath).toBe(subpath);
+      expect(result.url).not.toContain('#');
+    });
+
+    it('keeps the tree URL ref when the fragment specifies another ref', () => {
+      const result = parseSource('https://github.com/owner/repo/tree/main#other@review');
+      expect(result.ref).toBe('main');
+      expect(result.skillFilter).toBe('review');
+    });
+  });
+
   describe('Local path tests', () => {
     it('Local path - relative with ./', () => {
       const result = parseSource('./my-skills');

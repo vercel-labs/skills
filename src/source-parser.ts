@@ -257,6 +257,11 @@ function looksLikeGitSource(input: string): boolean {
         return /^\/.+?\/[^/]+(?:\.git)?(?:\/-\/tree\/[^/]+(?:\/.*)?)?\/?$/.test(pathname);
       }
 
+      // Self-hosted GitLab tree URLs have the same distinctive /-/tree/ marker.
+      if (/^\/.+?\/-\/tree\/[^/]+(?:\/.*)?$/.test(pathname)) {
+        return true;
+      }
+
       // Azure Repos clone and web URLs use /_git/{repo} on any host
       // (dev.azure.com, *.visualstudio.com, Azure DevOps Server).
       const azureSegments = pathname.split('/').filter(Boolean);
@@ -415,6 +420,7 @@ export function parseSource(input: string): ParsedSource {
           const isTreeUrl = marker === 'tree' && ref;
           return {
             type: 'git',
+            ...(fragmentSkillFilter ? { skillFilter: fragmentSkillFilter } : {}),
             url: `${parsedUrl.protocol}//${parsedUrl.host}/${owner}/${repo}.git`,
             ...(isTreeUrl ? { ref } : fragmentRef ? { ref: fragmentRef } : {}),
             ...(isTreeUrl && subpathSegments.length > 0
@@ -434,6 +440,7 @@ export function parseSource(input: string): ParsedSource {
     const [, owner, repo, ref, subpath] = githubTreeWithPathMatch;
     return {
       type: 'github',
+      ...(fragmentSkillFilter ? { skillFilter: fragmentSkillFilter } : {}),
       url: `https://github.com/${owner}/${repo}.git`,
       ref: ref || fragmentRef,
       subpath: subpath ? sanitizeSubpath(subpath) : subpath,
@@ -446,6 +453,7 @@ export function parseSource(input: string): ParsedSource {
     const [, owner, repo, ref] = githubTreeMatch;
     return {
       type: 'github',
+      ...(fragmentSkillFilter ? { skillFilter: fragmentSkillFilter } : {}),
       url: `https://github.com/${owner}/${repo}.git`,
       ref: ref || fragmentRef,
     };
@@ -458,6 +466,7 @@ export function parseSource(input: string): ParsedSource {
     const cleanRepo = repo!.replace(/\.git$/, '');
     return {
       type: 'github',
+      ...(fragmentSkillFilter ? { skillFilter: fragmentSkillFilter } : {}),
       url: `https://github.com/${owner}/${cleanRepo}.git`,
       ...(fragmentRef ? { ref: fragmentRef } : {}),
     };
@@ -474,6 +483,7 @@ export function parseSource(input: string): ParsedSource {
     if (hostname !== 'github.com' && repoPath) {
       return {
         type: 'gitlab',
+        ...(fragmentSkillFilter ? { skillFilter: fragmentSkillFilter } : {}),
         url: `${protocol}://${hostname}/${repoPath.replace(/\.git$/, '')}.git`,
         ref: ref || fragmentRef,
         subpath: subpath ? sanitizeSubpath(subpath) : subpath,
@@ -488,6 +498,7 @@ export function parseSource(input: string): ParsedSource {
     if (hostname !== 'github.com' && repoPath) {
       return {
         type: 'gitlab',
+        ...(fragmentSkillFilter ? { skillFilter: fragmentSkillFilter } : {}),
         url: `${protocol}://${hostname}/${repoPath.replace(/\.git$/, '')}.git`,
         ref: ref || fragmentRef,
       };
@@ -504,6 +515,7 @@ export function parseSource(input: string): ParsedSource {
     if (repoPath.includes('/')) {
       return {
         type: 'gitlab',
+        ...(fragmentSkillFilter ? { skillFilter: fragmentSkillFilter } : {}),
         url: `https://gitlab.com/${repoPath}.git`,
         ...(fragmentRef ? { ref: fragmentRef } : {}),
       };
@@ -562,6 +574,7 @@ export function parseSource(input: string): ParsedSource {
   // Fallback: treat as direct git URL
   return {
     type: 'git',
+    ...(fragmentSkillFilter ? { skillFilter: fragmentSkillFilter } : {}),
     url: input,
     ...(fragmentRef ? { ref: fragmentRef } : {}),
   };

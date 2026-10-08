@@ -4,7 +4,7 @@ import { readLocalLock } from './local-lock.ts';
 import { installFromSource, runAdd } from './add.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { getUniversalAgents } from './agents.ts';
-import { buildLocalUpdateSource } from './update-source.ts';
+import { buildLocalUpdateSource, shouldUseFullDepthForUpdate } from './update-source.ts';
 
 /**
  * Install all skills from the local skills-lock.json.
@@ -34,7 +34,7 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
 
   // Separate node_modules skills from remote skills
   const nodeModuleSkills: string[] = [];
-  const bySource = new Map<string, { sourceType: string; skills: string[] }>();
+  const bySource = new Map<string, { sourceType: string; skills: string[]; fullDepth: boolean }>();
 
   for (const [skillName, entry] of skillEntries) {
     if (entry.sourceType === 'node_modules') {
@@ -52,10 +52,12 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
     const existing = bySource.get(installSource);
     if (existing) {
       existing.skills.push(skillName);
+      existing.fullDepth ||= shouldUseFullDepthForUpdate(entry);
     } else {
       bySource.set(installSource, {
         sourceType: entry.sourceType,
         skills: [skillName],
+        fullDepth: shouldUseFullDepthForUpdate(entry),
       });
     }
   }
@@ -68,13 +70,17 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
   }
 
   // Install remote skills grouped by source
-  for (const [source, { sourceType, skills }] of bySource) {
+  for (const [source, { sourceType, skills, fullDepth }] of bySource) {
     // well-known sources go through their provider flow, which installs on its own
     if (sourceType === 'well-known') {
       await runAdd([source], { skill: skills, agent: universalAgentNames, yes: true });
       continue;
     }
-    const result = await installFromSource(source, { skills, agents: universalAgentNames });
+    const result = await installFromSource(source, {
+      skills,
+      agents: universalAgentNames,
+      fullDepth,
+    });
     if (result.error) {
       p.log.error(`Failed to install from ${pc.cyan(source)}: ${result.error}`);
       process.exitCode = 1;

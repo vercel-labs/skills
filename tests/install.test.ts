@@ -37,8 +37,58 @@ describe('runInstallFromLock', () => {
 
     expect(add.installFromSource).toHaveBeenCalledWith(
       'https://gitlab.example.com/acme/skills.git',
-      { skills: ['skill-a'], agents: ['cursor'] }
+      { skills: ['skill-a'], agents: ['cursor'], fullDepth: true }
     );
+  });
+
+  it('searches full depth when any skill in a shared Git source requires it', async () => {
+    vi.mocked(localLock.readLocalLock).mockResolvedValue({
+      version: 1,
+      skills: {
+        root: {
+          source: 'acme/skills',
+          sourceUrl: 'ssh://git@example.com/acme/skills.git',
+          sourceType: 'git',
+          computedHash: 'hash',
+        },
+        nested: {
+          source: 'acme/skills',
+          sourceUrl: 'ssh://git@example.com/acme/skills.git',
+          sourceType: 'git',
+          skillPath: 'skills/nested/SKILL.md',
+          computedHash: 'hash',
+        },
+      },
+    });
+
+    await runInstallFromLock([]);
+
+    expect(add.installFromSource).toHaveBeenCalledExactlyOnceWith(
+      'ssh://git@example.com/acme/skills.git',
+      { skills: ['root', 'nested'], agents: ['cursor'], fullDepth: true }
+    );
+  });
+
+  it('keeps path-targeted GitHub restores on ordinary discovery', async () => {
+    vi.mocked(localLock.readLocalLock).mockResolvedValue({
+      version: 1,
+      skills: {
+        review: {
+          source: 'acme/skills',
+          sourceType: 'github',
+          skillPath: 'skills/review/SKILL.md',
+          computedHash: 'hash',
+        },
+      },
+    });
+
+    await runInstallFromLock([]);
+
+    expect(add.installFromSource).toHaveBeenCalledExactlyOnceWith('acme/skills/skills/review', {
+      skills: ['review'],
+      agents: ['cursor'],
+      fullDepth: false,
+    });
   });
 
   it('does not restore generic git shorthands as GitHub without sourceUrl', async () => {
