@@ -1330,13 +1330,17 @@ interface SourceInstallResult {
  */
 export async function installFromSource(
   source: string,
-  options: { skills: string[]; agents: AgentType[] }
+  options: { skills: string[]; agents: AgentType[]; fullDepth?: boolean }
 ): Promise<SourceInstallResult> {
   const parsed = parseSource(source);
   const spinner = p.spinner();
   let resolved: ResolvedSkills | null = null;
   try {
-    resolved = await resolveSkills(parsed, { includeInternal: options.skills.length > 0 }, spinner);
+    resolved = await resolveSkills(
+      parsed,
+      { includeInternal: options.skills.length > 0, fullDepth: options.fullDepth },
+      spinner
+    );
     const selected =
       options.skills.length > 0 ? filterSkills(resolved.skills, options.skills) : resolved.skills;
     if (selected.length === 0) {

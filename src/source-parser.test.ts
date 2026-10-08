@@ -186,6 +186,20 @@ describe('source-parser', () => {
       });
     });
 
+    it('preserves fragment skill filters on explicit GitHub Enterprise URLs', () => {
+      vi.stubEnv('GH_HOST', 'github.example.com');
+      const result = parseSource(
+        'https://github.example.com/acme/skills/tree/main/tools#other@review'
+      );
+      expect(result).toEqual({
+        type: 'git',
+        url: 'https://github.example.com/acme/skills.git',
+        ref: 'main',
+        subpath: 'tools',
+        skillFilter: 'review',
+      });
+    });
+
     it('does not override explicit github.com URLs with GH_HOST', () => {
       vi.stubEnv('GH_HOST', 'github.example.com');
 

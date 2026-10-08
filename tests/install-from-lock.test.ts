@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import { execFileSync } from 'child_process';
+import { pathToFileURL } from 'url';
 import { tmpdir } from 'os';
 import { runCli } from '../src/test-utils.ts';
 
@@ -57,6 +59,57 @@ describe('experimental_install', () => {
     expect(installed('beta')).toBe(true);
     const lock = JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8'));
     expect(lock.skills.alpha.computedHash).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('restores nested skills from a full-depth Git install without installing the root skill', () => {
+    const repo = join(testDir, 'fixture.git');
+    const project = join(testDir, 'project');
+    mkdirSync(project);
+    writeSkill(repo, 'root');
+    writeSkill(join(repo, 'skills', 'demo'), 'demo');
+    execFileSync('git', ['init', '-b', 'main', repo]);
+    execFileSync('git', ['add', '.'], { cwd: repo });
+    execFileSync(
+      'git',
+      [
+        '-c',
+        'user.name=Fixture',
+        '-c',
+        'user.email=fixture@example.com',
+        '-c',
+        'commit.gpgsign=false',
+        'commit',
+        '-m',
+        'fixture',
+      ],
+      { cwd: repo }
+    );
+    const env = { DISABLE_TELEMETRY: '1' };
+    const added = runCli(
+      [
+        'add',
+        pathToFileURL(repo).href,
+        '--full-depth',
+        '--skill',
+        'demo',
+        '--agent',
+        'universal',
+        '--yes',
+      ],
+      project,
+      env
+    );
+    expect(added.exitCode, added.stdout + added.stderr).toBe(0);
+    rmSync(join(project, '.agents'), { recursive: true });
+
+    const restored = runCli(['experimental_install'], project, env);
+
+    expect(restored.exitCode, restored.stdout + restored.stderr).toBe(0);
+    expect(existsSync(join(project, '.agents', 'skills', 'demo', 'SKILL.md'))).toBe(true);
+    expect(existsSync(join(project, '.agents', 'skills', 'root'))).toBe(false);
+    const lock = JSON.parse(readFileSync(join(project, 'skills-lock.json'), 'utf-8'));
+    expect(lock.skills.demo.skillPath).toBe('skills/demo/SKILL.md');
+    expect(lock.skills.demo.sourceUrl).toBe(pathToFileURL(repo).href);
   });
 
   it('keeps restoring after a source fails', () => {
