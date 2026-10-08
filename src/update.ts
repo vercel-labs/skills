@@ -1,12 +1,17 @@
 import { spawnSync } from 'child_process';
 import { existsSync, readdirSync } from 'fs';
-import { join, dirname, relative, sep } from 'path';
+import { basename, join, dirname, relative, sep } from 'path';
 import { fileURLToPath } from 'url';
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 
 import { readSkillLock, getGitHubToken, type SkillLockEntry } from './skill-lock.ts';
-import { computeSkillFolderHash, readLocalLock, type LocalSkillLockEntry } from './local-lock.ts';
+import {
+  computeSkillFileHash,
+  computeSkillFolderHash,
+  readLocalLock,
+  type LocalSkillLockEntry,
+} from './local-lock.ts';
 import {
   formatSourceInput,
   buildUpdateInstallSource,
@@ -893,7 +898,11 @@ export async function updateProjectSkills(
       // computedHash, so unchanged skills are not reinstalled.
       for (const [name, skillPath] of resolution.resolvedPaths) {
         try {
-          const hash = await computeSkillFolderHash(join(tempDir, dirname(skillPath)));
+          const skillDir = join(tempDir, dirname(skillPath));
+          const hash =
+            localLock.skills[name]?.computedHashScope === 'skill-file'
+              ? await computeSkillFileHash(skillDir, basename(skillPath))
+              : await computeSkillFolderHash(skillDir);
           if (hash) latestHashes.set(name, hash);
         } catch {
           // Unknown hash: fall through to reinstalling the skill.
