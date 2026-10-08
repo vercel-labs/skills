@@ -1,43 +1,81 @@
 export type AgentType =
+  | 'aider-desk'
   | 'amp'
   | 'antigravity'
+  | 'antigravity-cli'
+  | 'astrbot'
+  | 'autohand-code'
   | 'augment'
+  | 'bob'
   | 'claude-code'
   | 'openclaw'
   | 'cline'
+  | 'codearts-agent'
   | 'codebuddy'
+  | 'codemaker'
+  | 'codestudio'
   | 'codex'
   | 'command-code'
   | 'continue'
   | 'cortex'
   | 'crush'
   | 'cursor'
+  | 'deepagents'
+  | 'devin'
+  | 'dexto'
   | 'droid'
+  | 'eve'
+  | 'firebender'
+  | 'forgecode'
+  | 'fx'
   | 'gemini-cli'
   | 'github-copilot'
   | 'goose'
+  | 'grok'
+  | 'hermes-agent'
+  | 'inference-sh'
   | 'iflow-cli'
+  | 'jazz'
   | 'junie'
   | 'kilo'
-  | 'kimi-cli'
+  | 'kimchi'
+  | 'kimi-code-cli'
   | 'kiro-cli'
   | 'kode'
+  | 'lingma'
+  | 'loaf'
   | 'mcpjam'
+  | 'minimax-code'
   | 'mistral-vibe'
+  | 'moxby'
   | 'mux'
   | 'neovate'
   | 'opencode'
   | 'openhands'
+  | 'ona'
   | 'pi'
+  | 'posit-assistant'
   | 'qoder'
+  | 'qoder-cn'
   | 'qwen-code'
   | 'replit'
+  | 'reasonix'
   | 'roo'
+  | 'rovodev'
+  | 'sarvam-code'
+  | 'tabnine-cli'
+  | 'terramind'
+  | 'tinycloud'
   | 'trae'
   | 'trae-cn'
+  | 'warp'
   | 'windsurf'
+  | 'zed'
+  | 'zcode'
   | 'zencoder'
+  | 'zenflow'
   | 'pochi'
+  | 'promptscript'
   | 'adal'
   | 'universal';
 
@@ -61,10 +99,14 @@ export interface AgentConfig {
   detectInstalled: () => Promise<boolean>;
   /** Whether to show this agent in the universal agents list. Defaults to true. */
   showInUniversalList?: boolean;
+  /** Whether to display this universal agent in the interactive locked section. Defaults to true. */
+  showInUniversalPrompt?: boolean;
+  /** Whether automatic project installs may create this agent's missing skills root. */
+  createProjectSkillsDirByDefault?: boolean;
 }
 
 export interface ParsedSource {
-  type: 'github' | 'gitlab' | 'git' | 'local' | 'well-known';
+  type: 'github' | 'gitlab' | 'git' | 'local' | 'well-known' | 'download';
   url: string;
   subpath?: string;
   localPath?: string;

@@ -1,27 +1,65 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
-import { readdir, stat } from 'fs/promises';
-import { join, sep } from 'path';
+import { existsSync } from 'fs';
+import { lstat, readdir, readFile, readlink, realpath, rm } from 'fs/promises';
+import { basename, dirname, join, posix, resolve, sep } from 'path';
 import { homedir } from 'os';
-import { parseSkillMd } from './skills.ts';
-import { installSkillForAgent, getCanonicalPath } from './installer.ts';
+import { hasSkillMd, parseSkillMd } from './skills.ts';
+import {
+  installSkillForAgent,
+  getCanonicalPath,
+  getCanonicalSkillsDir,
+  getInstallPath,
+  sanitizeName,
+  type InstallMode,
+} from './installer.ts';
 import {
   detectInstalledAgents,
   agents,
   getUniversalAgents,
+  getVisibleUniversalAgents,
   getNonUniversalAgents,
 } from './agents.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
-import { addSkillToLocalLock, computeSkillFolderHash, readLocalLock } from './local-lock.ts';
+import {
+  addSkillToLocalLock,
+  computeSkillFolderHash,
+  readLocalLock,
+  writeLocalLock,
+  type LocalSkillLockEntry,
+  type LocalSkillLockFile,
+} from './local-lock.ts';
 import type { Skill, AgentType } from './types.ts';
 import { track } from './telemetry.ts';
+import { detectAgent, getAgentType } from './detect-agent.ts';
+import { parseSkillsField } from './skills-field.ts';
 
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
 
 export interface SyncOptions {
   agent?: string[];
   yes?: boolean;
-  force?: boolean;
+  copy?: boolean;
+  dryRun?: boolean;
+  cleanup?: boolean;
+  include?: string[];
+  exclude?: string[];
+}
+
+/**
+ * `<package>` matches every skill of a package, `<package>#<skill>` one of them.
+ * Both parts are globs. Package names cannot contain `#`, so the split is unambiguous.
+ */
+function matchesSkill(skill: PackageSkill, patterns: string[]): boolean {
+  return patterns.some((pattern) => {
+    const hash = pattern.indexOf('#');
+    const packagePattern = hash === -1 ? pattern : pattern.slice(0, hash);
+    const skillPattern = hash === -1 ? '**' : pattern.slice(hash + 1);
+    return (
+      posix.matchesGlob(skill.packageName, packagePattern) &&
+      posix.matchesGlob(sanitizeName(skill.name), skillPattern)
+    );
+  });
 }
 
 /**
@@ -38,168 +76,433 @@ function shortenPath(fullPath: string, cwd: string): string {
   return fullPath;
 }
 
+interface PackageSkill extends Skill {
+  packageName: string;
+  packageVersion?: string;
+  /** Path to SKILL.md relative to the package root, e.g. `skills/pdf/SKILL.md`. */
+  skillPath: string;
+  /** Package whose `skills` field requested this skill (`.` for the project). */
+  via?: string;
+  /** 0 for direct dependencies and the project's own `skills` field, +1 per `npm:` hop. */
+  depth: number;
+}
+
+interface PackageJson {
+  version?: string;
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  /** Validated by parseSkillsField. */
+  skills?: unknown;
+}
+
+async function readPackageJson(dir: string): Promise<PackageJson | null> {
+  try {
+    return JSON.parse(await readFile(join(dir, 'package.json'), 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+async function discoverPackageSkills(
+  pkgDir: string,
+  packageName: string,
+  depth: number
+): Promise<PackageSkill[]> {
+  const pkg = await readPackageJson(pkgDir);
+  if (!pkg) return []; // not installed
+
+  const rootSkill = (await hasSkillMd(pkgDir))
+    ? await parseSkillMd(join(pkgDir, 'SKILL.md'))
+    : null;
+  if (rootSkill) {
+    return [
+      { ...rootSkill, packageName, packageVersion: pkg.version, skillPath: 'SKILL.md', depth },
+    ];
+  }
+
+  const skills: PackageSkill[] = [];
+  for (const dir of ['skills', 'dist/skills']) {
+    for (const name of await readdir(join(pkgDir, dir)).catch(() => [])) {
+      const skillDir = join(pkgDir, dir, name);
+      if (!(await hasSkillMd(skillDir))) continue;
+      const skill = await parseSkillMd(join(skillDir, 'SKILL.md'));
+      if (skill) {
+        skills.push({
+          ...skill,
+          packageName,
+          packageVersion: pkg.version,
+          skillPath: `${dir}/${name}/SKILL.md`,
+          depth,
+        });
+      }
+    }
+  }
+  return skills;
+}
+
+/** A problem in the project's own `skills` field; sync stops instead of guessing. */
+class SkillsFieldError extends Error {}
+
 /**
- * Crawl node_modules for SKILL.md files.
- * Searches both top-level packages and scoped packages (@org/pkg).
- * Returns discovered skills with their source package name.
+ * Node's node_modules lookup from `from` (realpath, then walk up), so the
+ * declaring package's own dependencies resolve in pnpm's isolated layout.
+ */
+function findInstalledPackage(from: string, name: string): string | undefined {
+  for (let dir = from; ; dir = dirname(dir)) {
+    const candidate = join(dir, 'node_modules', name);
+    if (existsSync(join(candidate, 'package.json'))) return candidate;
+    if (dirname(dir) === dir) return undefined;
+  }
+}
+
+/**
+ * Find skills shipped by the project's direct dependencies, plus the skills
+ * that `npm:` entries in `skills` fields point at. Fields are read from the
+ * project and its direct dependencies, then from every `npm:` target in turn.
+ *
+ * Only packages listed in package.json are scanned, so a transitive package
+ * reaches the agent only when a direct dependency names it, and the package
+ * manager's version resolution decides which copy of a package is seen.
  */
 async function discoverNodeModuleSkills(
   cwd: string
-): Promise<Array<Skill & { packageName: string }>> {
-  const nodeModulesDir = join(cwd, 'node_modules');
-  const skills: Array<Skill & { packageName: string }> = [];
+): Promise<{ skills: PackageSkill[]; warnings: string[]; remoteEntries: number }> {
+  const warnings: string[] = [];
+  let remoteEntries = 0;
+  const pkg = await readPackageJson(cwd);
+  if (!pkg) return { skills: [], warnings, remoteEntries };
 
-  let topNames: string[];
-  try {
-    topNames = await readdir(nodeModulesDir);
-  } catch {
-    return skills;
-  }
-
-  const processPackageDir = async (pkgDir: string, packageName: string) => {
-    // Check for SKILL.md at package root
-    const rootSkill = await parseSkillMd(join(pkgDir, 'SKILL.md'));
-    if (rootSkill) {
-      skills.push({ ...rootSkill, packageName });
-      return;
-    }
-
-    // Check common skill locations within the package
-    const searchDirs = [pkgDir, join(pkgDir, 'skills'), join(pkgDir, '.agents', 'skills')];
-
-    for (const searchDir of searchDirs) {
-      try {
-        const entries = await readdir(searchDir);
-        for (const name of entries) {
-          const skillDir = join(searchDir, name);
-          try {
-            const s = await stat(skillDir);
-            if (!s.isDirectory()) continue;
-          } catch {
-            continue;
-          }
-          const skill = await parseSkillMd(join(skillDir, 'SKILL.md'));
-          if (skill) {
-            skills.push({ ...skill, packageName });
-          }
-        }
-      } catch {
-        // Directory doesn't exist
-      }
+  const skills: PackageSkill[] = [];
+  const seen = new Set<string>();
+  const add = async (found: PackageSkill[]) => {
+    for (const skill of found) {
+      const key = await realpath(skill.path).catch(() => skill.path);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      skills.push(skill);
     }
   };
 
-  await Promise.all(
-    topNames.map(async (name) => {
-      if (name.startsWith('.')) return;
-
-      const fullPath = join(nodeModulesDir, name);
-      try {
-        const s = await stat(fullPath);
-        if (!s.isDirectory()) return;
-      } catch {
-        return;
-      }
-
-      if (name.startsWith('@')) {
-        // Scoped package: read @org/* entries
-        try {
-          const scopeNames = await readdir(fullPath);
-          await Promise.all(
-            scopeNames.map(async (scopedName) => {
-              const scopedPath = join(fullPath, scopedName);
-              try {
-                const s = await stat(scopedPath);
-                if (!s.isDirectory()) return;
-              } catch {
-                return;
-              }
-              await processPackageDir(scopedPath, `${name}/${scopedName}`);
-            })
-          );
-        } catch {
-          // Scope directory not readable
-        }
-      } else {
-        await processPackageDir(fullPath, name);
-      }
-    })
+  const deps = [
+    ...new Set([...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.devDependencies ?? {})]),
+  ];
+  const shipped = await Promise.all(
+    deps.map((name) => discoverPackageSkills(join(cwd, 'node_modules', name), name, 0))
   );
+  await add(shipped.flat());
 
-  return skills;
+  // `depth` is what this declarer's npm: targets get; strict fields fail the run
+  const declarers = [
+    { name: '.', dir: cwd, depth: 0, strict: true },
+    ...deps.map((name) => ({
+      name,
+      dir: join(cwd, 'node_modules', name),
+      depth: 1,
+      strict: false,
+    })),
+  ];
+  const visited = new Set<string>();
+  for (const declarer of declarers) {
+    const dir = await realpath(declarer.dir).catch(() => null);
+    if (!dir || visited.has(dir)) continue;
+    visited.add(dir);
+
+    const field = (await readPackageJson(dir))?.skills;
+    if (field === undefined) continue;
+    if (!Array.isArray(field)) {
+      // a dependency may use the key for something else
+      if (declarer.strict) throw new SkillsFieldError('package.json: "skills" must be an array');
+      continue;
+    }
+
+    const parsed = parseSkillsField(field, declarer.name);
+    remoteEntries += parsed.remote;
+    const problems = [...parsed.errors];
+    for (const request of parsed.npm) {
+      const target = findInstalledPackage(dir, request.package);
+      if (!target) {
+        problems.push(
+          `${declarer.name}: cannot resolve "npm:${request.package}"; add it to the dependencies of ${declarer.name === '.' ? 'package.json' : declarer.name}`
+        );
+        continue;
+      }
+      const found = await discoverPackageSkills(target, request.package, declarer.depth);
+      await add(
+        found
+          .filter(
+            (skill) =>
+              request.skills.length === 0 ||
+              request.skills.includes(basename(skill.path)) ||
+              request.skills.includes(sanitizeName(skill.name))
+          )
+          .map((skill) => ({ ...skill, via: declarer.name }))
+      );
+      declarers.push({
+        name: request.package,
+        dir: target,
+        depth: declarer.depth + 1,
+        strict: false,
+      });
+    }
+    if (declarer.strict && problems.length > 0) throw new SkillsFieldError(problems.join('\n'));
+    warnings.push(...problems);
+  }
+
+  return { skills, warnings, remoteEntries };
+}
+
+function isUnderNodeModules(path: string): boolean {
+  return path.split(sep).includes('node_modules');
+}
+
+/**
+ * Why `dest` must not be touched, or null when it is free or already ours.
+ * Sync owns a symlink whose target is in node_modules or is the canonical dir,
+ * and a real directory that the lock attributes to node_modules.
+ */
+async function foreignDestination(
+  dest: string,
+  canonicalDir: string,
+  lockEntry: LocalSkillLockEntry | undefined,
+  cwd: string
+): Promise<string | null> {
+  let stats;
+  try {
+    stats = await lstat(dest);
+  } catch {
+    return null;
+  }
+  if (stats.isSymbolicLink()) {
+    const target = resolve(dirname(dest), await readlink(dest));
+    if (isUnderNodeModules(target) || target === canonicalDir) return null;
+    return `${shortenPath(dest, cwd)} is a symlink to ${shortenPath(target, cwd)}`;
+  }
+  if (lockEntry?.sourceType === 'node_modules') return null;
+  return `${shortenPath(dest, cwd)} already exists and was not installed by sync`;
+}
+
+async function linksIntoNodeModules(path: string): Promise<boolean> {
+  try {
+    if (!(await lstat(path)).isSymbolicLink()) return false;
+    return isUnderNodeModules(resolve(dirname(path), await readlink(path)));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Remove skills that sync installed earlier and no dependency ships anymore.
+ * A name is a candidate when its lock entry comes from node_modules or its
+ * canonical dir links into node_modules. Only destinations sync owns are removed.
+ */
+async function pruneStaleSkills(
+  cwd: string,
+  keep: Set<string>,
+  lock: LocalSkillLockFile,
+  dryRun: boolean
+): Promise<string[]> {
+  const canonicalBase = getCanonicalSkillsDir(false, cwd);
+  const lockKeys = new Map<string, string>();
+  const explicit = new Set<string>();
+  for (const [key, entry] of Object.entries(lock.skills)) {
+    if (entry.sourceType === 'node_modules') lockKeys.set(sanitizeName(key), key);
+    else explicit.add(sanitizeName(key));
+  }
+
+  const candidates = new Set(lockKeys.keys());
+  for (const name of await readdir(canonicalBase).catch(() => [])) {
+    if (await linksIntoNodeModules(join(canonicalBase, name))) candidates.add(name);
+  }
+  const stale = [...candidates].filter((name) => !keep.has(name) && !explicit.has(name)).sort();
+  if (dryRun || stale.length === 0) return stale;
+
+  const allAgents = Object.keys(agents) as AgentType[];
+  for (const name of stale) {
+    const canonicalDir = join(canonicalBase, name);
+    const key = lockKeys.get(name);
+    const lockEntry = key ? lock.skills[key] : undefined;
+    const destinations = new Set([
+      canonicalDir,
+      ...allAgents.map((agent) => getInstallPath(name, agent, { cwd })),
+    ]);
+    for (const dest of destinations) {
+      if (!(await foreignDestination(dest, canonicalDir, lockEntry, cwd))) {
+        await rm(dest, { recursive: true, force: true });
+      }
+    }
+    if (key) delete lock.skills[key];
+  }
+  await writeLocalLock(lock, cwd);
+  return stale;
+}
+
+interface SkippedSkill {
+  skill: PackageSkill;
+  reason: string;
+}
+
+/**
+ * Conflict rules, in order:
+ * 1. a skill installed with `skills add` is never shadowed
+ * 2. a directory or symlink sync does not own is never replaced
+ * 3. a skill from a direct dependency wins over one from a transitive package
+ * 4. two packages at the same depth shipping the same skill name install neither
+ */
+async function resolveConflicts(
+  skills: PackageSkill[],
+  targetAgents: AgentType[],
+  lockSkills: Record<string, LocalSkillLockEntry>,
+  cwd: string
+): Promise<{ install: PackageSkill[]; skipped: SkippedSkill[] }> {
+  const lockBySanitizedName = new Map(
+    Object.entries(lockSkills).map(([name, entry]) => [sanitizeName(name), entry])
+  );
+  const byName = Map.groupBy(skills, (skill) => sanitizeName(skill.name));
+  const install: PackageSkill[] = [];
+  const skipped: SkippedSkill[] = [];
+
+  for (const [name, all] of byName) {
+    // A direct dependency (or the project's own field) wins over a transitive package
+    const depth = Math.min(...all.map((c) => c.depth));
+    const candidates = all.filter((c) => c.depth === depth);
+    for (const skill of all.filter((c) => c.depth !== depth)) {
+      skipped.push({ skill, reason: `${candidates[0]!.packageName} is closer to the project` });
+    }
+    if (candidates.length > 1) {
+      const packages = candidates.map((c) => c.packageName).join(', ');
+      for (const skill of candidates) {
+        skipped.push({
+          skill,
+          reason: `shipped by ${packages}; drop this one with --exclude ${skill.packageName}#${name}`,
+        });
+      }
+      continue;
+    }
+
+    const skill = candidates[0]!;
+    const lockEntry = lockBySanitizedName.get(name);
+    if (lockEntry && lockEntry.sourceType !== 'node_modules') {
+      skipped.push({ skill, reason: `installed with \`skills add\` from ${lockEntry.source}` });
+      continue;
+    }
+
+    const canonicalDir = getCanonicalPath(name, { cwd });
+    const destinations = new Set([
+      canonicalDir,
+      ...targetAgents.map((agent) => getInstallPath(name, agent, { cwd })),
+    ]);
+    let reason: string | null = null;
+    for (const dest of destinations) {
+      reason = await foreignDestination(dest, canonicalDir, lockEntry, cwd);
+      if (reason) break;
+    }
+    if (reason) {
+      skipped.push({ skill, reason });
+    } else {
+      install.push(skill);
+    }
+  }
+
+  return { install, skipped };
 }
 
 export async function runSync(args: string[], options: SyncOptions = {}): Promise<void> {
   const cwd = process.cwd();
 
+  // Auto-enable non-interactive mode when running inside an AI agent
+  const agentResult = await detectAgent();
+  if (agentResult.isAgent) {
+    options.yes = true;
+    if (!options.agent || options.agent.length === 0) {
+      const mappedAgent = getAgentType(agentResult.agent.name);
+      if (mappedAgent) {
+        const agentList: AgentType[] = [mappedAgent];
+        for (const ua of getUniversalAgents()) {
+          if (!agentList.includes(ua)) agentList.push(ua);
+        }
+        options.agent = agentList;
+      }
+    }
+  }
+
   console.log();
-  p.intro(pc.bgCyan(pc.black(' skills experimental_sync ')));
+  if (!agentResult.isAgent) {
+    p.intro(pc.bgCyan(pc.black(' skills experimental_sync ')));
+  }
+
+  if (agentResult.isAgent) {
+    p.log.info(
+      pc.bgCyan(pc.black(pc.bold(` ${agentResult.agent.name} `))) +
+        ' ' +
+        'Agent detected — installing non-interactively'
+    );
+  }
 
   const spinner = p.spinner();
 
   // 1. Discover skills from node_modules
-  spinner.start('Scanning node_modules for skills...');
-  const discoveredSkills = await discoverNodeModuleSkills(cwd);
+  spinner.start('Scanning node_modules for skills…');
+  let discovery: Awaited<ReturnType<typeof discoverNodeModuleSkills>>;
+  try {
+    discovery = await discoverNodeModuleSkills(cwd);
+  } catch (error) {
+    if (!(error instanceof SkillsFieldError)) throw error;
+    spinner.stop(pc.red('Invalid skills field'));
+    for (const line of error.message.split('\n')) p.log.error(line);
+    p.outro(pc.red('Fix the "skills" field in package.json and run sync again.'));
+    process.exitCode = 1;
+    return;
+  }
+  const { include, exclude } = options;
+  const discoveredSkills = discovery.skills.filter(
+    (skill) =>
+      (!include?.length || matchesSkill(skill, include)) &&
+      !(exclude?.length && matchesSkill(skill, exclude))
+  );
+  spinner.stop(
+    discoveredSkills.length === 0
+      ? pc.yellow('No skills found')
+      : `Found ${pc.green(String(discoveredSkills.length))} skill${discoveredSkills.length > 1 ? 's' : ''} in node_modules`
+  );
+  for (const warning of discovery.warnings) p.log.warn(warning);
+  if (discovery.remoteEntries > 0) {
+    p.log.info(
+      pc.dim(
+        `Skipped ${discovery.remoteEntries} remote "skills" entr${discovery.remoteEntries === 1 ? 'y' : 'ies'}; only npm: entries are synced for now`
+      )
+    );
+  }
+
+  const localLock = await readLocalLock(cwd);
+  if (options.cleanup !== false) {
+    const keep = new Set(discoveredSkills.map((skill) => sanitizeName(skill.name)));
+    const stale = await pruneStaleSkills(cwd, keep, localLock, options.dryRun ?? false);
+    for (const name of stale) {
+      p.log.info(
+        `${options.dryRun ? 'Would remove' : 'Removed'} ${pc.cyan(name)} ${pc.dim('(no longer shipped by a dependency)')}`
+      );
+    }
+  }
 
   if (discoveredSkills.length === 0) {
-    spinner.stop(pc.yellow('No skills found'));
-    p.outro(pc.dim('No SKILL.md files found in node_modules.'));
+    p.outro(pc.dim('No SKILL.md files found in the dependencies listed in package.json.'));
     return;
   }
 
-  spinner.stop(
-    `Found ${pc.green(String(discoveredSkills.length))} skill${discoveredSkills.length > 1 ? 's' : ''} in node_modules`
-  );
-
   // Show discovered skills
   for (const skill of discoveredSkills) {
-    p.log.info(`${pc.cyan(skill.name)} ${pc.dim(`from ${skill.packageName}`)}`);
+    const via = skill.via ? ` via ${skill.via}` : '';
+    p.log.info(`${pc.cyan(skill.name)} ${pc.dim(`from ${skill.packageName}${via}`)}`);
     if (skill.description) {
       p.log.message(pc.dim(`  ${skill.description}`));
     }
   }
 
-  // 2. Check which skills are already up-to-date via local lock
-  const localLock = await readLocalLock(cwd);
-  const toInstall: Array<Skill & { packageName: string }> = [];
-  const upToDate: string[] = [];
-
-  if (options.force) {
-    toInstall.push(...discoveredSkills);
-    p.log.info(pc.dim('Force mode: reinstalling all skills'));
-  } else {
-    for (const skill of discoveredSkills) {
-      const existingEntry = localLock.skills[skill.name];
-      if (existingEntry) {
-        // Compute current hash and compare
-        const currentHash = await computeSkillFolderHash(skill.path);
-        if (currentHash === existingEntry.computedHash) {
-          upToDate.push(skill.name);
-          continue;
-        }
-      }
-      toInstall.push(skill);
-    }
-
-    if (upToDate.length > 0) {
-      p.log.info(
-        pc.dim(`${upToDate.length} skill${upToDate.length !== 1 ? 's' : ''} already up to date`)
-      );
-    }
-
-    if (toInstall.length === 0) {
-      console.log();
-      p.outro(pc.green('All skills are up to date.'));
-      return;
-    }
-  }
-
-  p.log.info(`${toInstall.length} skill${toInstall.length !== 1 ? 's' : ''} to install/update`);
-
-  // 3. Select agents
+  // 2. Select agents
   let targetAgents: AgentType[];
   const validAgents = Object.keys(agents);
   const universalAgents = getUniversalAgents();
+  const visibleUniversalAgents = getVisibleUniversalAgents();
 
   if (options.agent?.includes('*')) {
     targetAgents = validAgents as AgentType[];
@@ -213,7 +516,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     }
     targetAgents = options.agent as AgentType[];
   } else {
-    spinner.start('Loading agents...');
+    spinner.start('Loading agents…');
     const installedAgents = await detectInstalledAgents();
     const totalAgents = Object.keys(agents).length;
     spinner.stop(`${totalAgents} agents`);
@@ -237,10 +540,11 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
           initialSelected: [],
           lockedSection: {
             title: 'Universal (.agents/skills)',
-            items: universalAgents.map((a) => ({
+            items: visibleUniversalAgents.map((a) => ({
               value: a,
               label: agents[a].displayName,
             })),
+            hiddenCount: universalAgents.length - visibleUniversalAgents.length,
           },
         });
 
@@ -274,10 +578,11 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
         initialSelected: installedAgents.filter((a) => !universalAgents.includes(a)),
         lockedSection: {
           title: 'Universal (.agents/skills)',
-          items: universalAgents.map((a) => ({
+          items: visibleUniversalAgents.map((a) => ({
             value: a,
             label: agents[a].displayName,
           })),
+          hiddenCount: universalAgents.length - visibleUniversalAgents.length,
         },
       });
 
@@ -290,17 +595,40 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     }
   }
 
+  // 3. Resolve conflicts
+  const { install: toInstall, skipped } = await resolveConflicts(
+    discoveredSkills,
+    targetAgents,
+    localLock.skills,
+    cwd
+  );
+  for (const { skill, reason } of skipped) {
+    p.log.warn(`Skipped ${pc.cyan(skill.name)} ${pc.dim(`from ${skill.packageName}`)}: ${reason}`);
+  }
+  if (toInstall.length === 0) {
+    console.log();
+    p.outro(pc.yellow('Nothing to sync.'));
+    return;
+  }
+
   // 4. Build summary
+  const mode: InstallMode = options.copy ? 'copy' : 'link';
   const summaryLines: string[] = [];
   for (const skill of toInstall) {
-    const canonicalPath = getCanonicalPath(skill.name, { global: false });
-    const shortCanonical = shortenPath(canonicalPath, cwd);
+    const canonicalPath = getCanonicalPath(skill.name, { cwd });
     summaryLines.push(`${pc.cyan(skill.name)} ${pc.dim(`← ${skill.packageName}`)}`);
-    summaryLines.push(`  ${pc.dim(shortCanonical)}`);
+    summaryLines.push(
+      `  ${pc.dim(`${shortenPath(canonicalPath, cwd)} ${mode === 'link' ? '→' : 'copied from'} ${shortenPath(skill.path, cwd)}`)}`
+    );
   }
 
   console.log();
   p.note(summaryLines.join('\n'), 'Sync Summary');
+
+  if (options.dryRun) {
+    p.outro(pc.dim('Dry run — nothing changed.'));
+    return;
+  }
 
   if (!options.yes) {
     const confirmed = await p.confirm({ message: 'Proceed with sync?' });
@@ -311,8 +639,8 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     }
   }
 
-  // 5. Install skills (always project-scoped, always symlink)
-  spinner.start('Syncing skills...');
+  // 5. Install skills (always project-scoped)
+  spinner.start('Syncing skills…');
 
   const results: Array<{
     skill: string;
@@ -329,7 +657,8 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
       const result = await installSkillForAgent(skill, agent, {
         global: false,
         cwd,
-        mode: 'symlink',
+        // Eve rewrites SKILL.md frontmatter on install, which a link cannot do
+        mode: agent === 'eve' ? 'copy' : mode,
       });
       results.push({
         skill: skill.name,
@@ -359,6 +688,9 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
           {
             source: skill.packageName,
             sourceType: 'node_modules',
+            skillPath: skill.skillPath,
+            ...(skill.packageVersion && { version: skill.packageVersion }),
+            ...(skill.via && { via: skill.via }),
             computedHash,
           },
           cwd
@@ -422,24 +754,31 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
 
 export function parseSyncOptions(args: string[]): { options: SyncOptions } {
   const options: SyncOptions = {};
+  let i = 0;
+  /** Consume the values after a flag, up to the next flag. */
+  const takeValues = (): string[] => {
+    const values: string[] = [];
+    while (args[i + 1] !== undefined && !args[i + 1]!.startsWith('-')) values.push(args[++i]!);
+    return values;
+  };
 
-  for (let i = 0; i < args.length; i++) {
+  for (; i < args.length; i++) {
     const arg = args[i];
 
     if (arg === '-y' || arg === '--yes') {
       options.yes = true;
-    } else if (arg === '-f' || arg === '--force') {
-      options.force = true;
+    } else if (arg === '--copy') {
+      options.copy = true;
+    } else if (arg === '--dry-run') {
+      options.dryRun = true;
+    } else if (arg === '--no-cleanup') {
+      options.cleanup = false;
     } else if (arg === '-a' || arg === '--agent') {
-      options.agent = options.agent || [];
-      i++;
-      let nextArg = args[i];
-      while (i < args.length && nextArg && !nextArg.startsWith('-')) {
-        options.agent.push(nextArg);
-        i++;
-        nextArg = args[i];
-      }
-      i--;
+      options.agent = [...(options.agent ?? []), ...takeValues()];
+    } else if (arg === '--include') {
+      options.include = [...(options.include ?? []), ...takeValues()];
+    } else if (arg === '--exclude') {
+      options.exclude = [...(options.exclude ?? []), ...takeValues()];
     }
   }
 

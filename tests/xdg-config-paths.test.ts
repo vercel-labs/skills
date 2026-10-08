@@ -47,6 +47,18 @@ describe('XDG config paths', () => {
     });
   });
 
+  describe('Kimi Code CLI', () => {
+    it('uses the current agent id', () => {
+      expect('kimi-code-cli' in agents).toBe(true);
+      expect('kimi-cli' in agents).toBe(false);
+    });
+
+    it('uses ~/.agents/skills for global skills', () => {
+      const expected = join(home, '.agents', 'skills');
+      expect(agents['kimi-code-cli'].globalSkillsDir).toBe(expected);
+    });
+  });
+
   describe('Goose', () => {
     it('uses ~/.config/goose/skills for global skills', () => {
       const expected = join(home, '.config', 'goose', 'skills');
@@ -57,6 +69,38 @@ describe('XDG config paths', () => {
       expect(agents.goose.globalSkillsDir).not.toContain('Library');
       expect(agents.goose.globalSkillsDir).not.toContain('Preferences');
       expect(agents.goose.globalSkillsDir).not.toContain('AppData');
+    });
+  });
+
+  describe('Antigravity CLI', () => {
+    it('uses ~/.gemini/antigravity-cli/skills for global skills', () => {
+      const expected = join(home, '.gemini', 'antigravity-cli', 'skills');
+      expect(agents['antigravity-cli'].globalSkillsDir).toBe(expected);
+    });
+
+    it('uses a distinct global directory from the Antigravity IDE', () => {
+      expect(agents['antigravity-cli'].globalSkillsDir).not.toBe(
+        agents.antigravity.globalSkillsDir
+      );
+    });
+  });
+
+  describe('skill lock file path', () => {
+    function getSkillLockPath(xdgStateHome: string | undefined, homeDir: string): string {
+      if (xdgStateHome) {
+        return join(xdgStateHome, 'skills', '.skill-lock.json');
+      }
+      return join(homeDir, '.agents', '.skill-lock.json');
+    }
+
+    it('uses XDG_STATE_HOME when set', () => {
+      const result = getSkillLockPath('/custom/state', home);
+      expect(result).toBe(join('/custom/state', 'skills', '.skill-lock.json'));
+    });
+
+    it('falls back to ~/.agents when XDG_STATE_HOME is not set', () => {
+      const result = getSkillLockPath(undefined, home);
+      expect(result).toBe(join(home, '.agents', '.skill-lock.json'));
     });
   });
 

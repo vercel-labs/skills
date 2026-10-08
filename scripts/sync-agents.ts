@@ -16,7 +16,7 @@ function generateAgentList(): string {
 }
 
 function generateAgentNames(): string {
-  return 'Target specific agents (e.g., `claude-code`, `codex`). See [Available Agents](#supported-agents)';
+  return 'Target specific agents (e.g., `claude-code`, `codex`). See [Supported Agents](#supported-agents)';
 }
 
 function generateAvailableAgentsTable(): string {
@@ -70,9 +70,9 @@ function generateSkillDiscoveryPaths(): string {
     '- `skills/.system/`',
   ];
 
-  const agentPaths = [...new Set(Object.values(agents).map((a) => a.skillsDir))].map(
-    (p) => `- \`.${p.startsWith('.') ? p.slice(1) : '/' + p}/\``
-  );
+  const agentPaths = [...new Set(Object.values(agents).map((a) => a.skillsDir))]
+    .filter((p) => p !== 'skills') // Filter out the standard `skills/` path
+    .map((p) => `- \`${p}/\``);
 
   return [...standardPaths, ...agentPaths].join('\n');
 }

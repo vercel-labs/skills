@@ -12,11 +12,11 @@ This file provides guidance to AI coding agents working on the `skills` CLI code
 | ----------------------------- | --------------------------------------------------- |
 | `skills`                      | Show banner with available commands                 |
 | `skills add <pkg>`            | Install skills from git repos, URLs, or local paths |
+| `skills use <pkg>@<skill>`    | Use one skill without installing                    |
 | `skills experimental_install` | Restore skills from skills-lock.json                |
 | `skills experimental_sync`    | Sync skills from node_modules into agent dirs       |
 | `skills list`                 | List installed skills (alias: `ls`)                 |
-| `skills check`                | Check for available skill updates                   |
-| `skills update`               | Update all skills to latest versions                |
+| `skills update [skills...]`   | Update skills to latest versions                    |
 | `skills init [name]`          | Create a new SKILL.md template                      |
 
 Aliases: `skills a` works for `add`. `skills i`, `skills install` (no args) restore from `skills-lock.json`. `skills ls` works for `list`. `skills experimental_install` restores from `skills-lock.json`. `skills experimental_sync` crawls `node_modules` for skills.
@@ -28,9 +28,14 @@ src/
 ├── cli.ts           # Main entry point, command routing, init/check/update
 ├── cli.test.ts      # CLI tests
 ├── add.ts           # Core add command logic
+├── add-prompt.test.ts # Add prompt behavior tests
 ├── add.test.ts      # Add command tests
+├── constants.ts      # Shared constants
+├── find.ts           # Find/search command
 ├── list.ts          # List installed skills command
 ├── list.test.ts     # List command tests
+├── remove.ts         # Remove command implementation
+├── remove.test.ts    # Remove command tests
 ├── agents.ts        # Agent definitions and detection
 ├── installer.ts     # Skill installation logic (symlink/copy) + listInstalledSkills
 ├── skills.ts        # Skill discovery and parsing
@@ -41,17 +46,24 @@ src/
 ├── git.ts           # Git clone operations
 ├── telemetry.ts     # Anonymous usage tracking
 ├── types.ts         # TypeScript types
-├── mintlify.ts      # Mintlify skill fetching (legacy)
+├── plugin-manifest.ts # Plugin manifest discovery support
+├── prompts/         # Interactive prompt helpers
+│   └── search-multiselect.ts
 ├── providers/       # Remote skill providers (GitHub, HuggingFace, Mintlify)
 │   ├── index.ts
 │   ├── registry.ts
 │   ├── types.ts
-│   ├── huggingface.ts
-│   └── mintlify.ts
+│   └── wellknown.ts
 ├── init.test.ts     # Init command tests
+├── use.ts           # Use command - generate a skill prompt or launch an agent
+├── use.test.ts      # Use command tests
 └── test-utils.ts    # Test utilities
 
 tests/
+├── cross-platform-paths.test.ts # Path normalization across platforms
+├── full-depth-discovery.test.ts # --full-depth skill discovery tests
+├── openclaw-paths.test.ts       # OpenClaw-specific path tests
+├── plugin-manifest-discovery.test.ts # Plugin manifest skill discovery
 ├── sanitize-name.test.ts     # Tests for sanitizeName (path traversal prevention)
 ├── skill-matching.test.ts    # Tests for filterSkills (multi-word skill name matching)
 ├── source-parser.test.ts     # Tests for URL/path parsing
@@ -59,7 +71,8 @@ tests/
 ├── list-installed.test.ts    # Tests for listing installed skills
 ├── skill-path.test.ts        # Tests for skill path handling
 ├── wellknown-provider.test.ts # Tests for well-known provider
-└── dist.test.ts              # Tests for built distribution
+├── xdg-config-paths.test.ts   # XDG global path handling tests
+└── dist.test.ts               # Tests for built distribution
 ```
 
 ## Update Checking System
@@ -67,24 +80,11 @@ tests/
 ### How `skills check` and `skills update` Work
 
 1. Read `~/.agents/.skill-lock.json` for installed skills
-2. For each skill, get `skillFolderHash` from lock file
-3. POST to `https://add-skill.vercel.sh/check-updates` with:
-   ```json
-   {
-     "skills": [{ "name": "...", "source": "...", "skillFolderHash": "..." }],
-     "forceRefresh": true
-   }
-   ```
-4. API fetches fresh content from GitHub, computes hash, compares
-5. Returns list of skills with different hashes (updates available)
-
-### Why `forceRefresh: true`?
-
-Both `check` and `update` always send `forceRefresh: true`. This ensures the API fetches fresh content from GitHub rather than using its Redis cache.
-
-**Without forceRefresh:** Users saw phantom "updates available" due to stale cached hashes. The fix was to always fetch fresh.
-
-**Tradeoff:** Slightly slower (GitHub API call per skill), but always accurate.
+2. Filter to GitHub-backed skills that have both `skillFolderHash` and `skillPath`
+3. For each skill, call `fetchSkillFolderHash(source, skillPath, token)`. Tree requests start anonymously, then use an explicit `GITHUB_TOKEN`/`GH_TOKEN`, then `gh api` without exporting the GitHub CLI credential.
+4. `fetchSkillFolderHash` calls the GitHub Trees API (`/git/trees/<branch>?recursive=1` for `main`, then `master` fallback); update checks fall back to an authenticated Git clone when API access is unavailable.
+5. Compare latest folder tree SHA with lock file `skillFolderHash`; mismatch means update available
+6. `skills update` reinstalls changed skills by invoking the current CLI entrypoint directly (`node <repo>/bin/cli.mjs add <source-tree-url> -g -y`) to avoid nested npm exec/npx behavior
 
 ### Lock File Compatibility
 
@@ -94,12 +94,12 @@ If reading an older lock file version, it's wiped. Users must reinstall skills t
 
 ## Key Integration Points
 
-| Feature                    | Implementation                              |
-| -------------------------- | ------------------------------------------- |
-| `skills add`               | `src/add.ts` - full implementation          |
-| `skills experimental_sync` | `src/sync.ts` - crawl node_modules          |
-| `skills check`             | `POST /check-updates` API                   |
-| `skills update`            | `POST /check-updates` + reinstall per skill |
+| Feature                    | Implementation                                                |
+| -------------------------- | ------------------------------------------------------------- |
+| `skills add`               | `src/add.ts` - full implementation                            |
+| `skills experimental_sync` | `src/sync.ts` - crawl node_modules                            |
+| `skills check`             | `src/cli.ts` + `fetchSkillFolderHash` in `src/skill-lock.ts`  |
+| `skills update`            | `src/cli.ts` direct hash compare + reinstall via `skills add` |
 
 ## Development
 
@@ -129,6 +129,13 @@ pnpm type-check
 
 # Format code
 pnpm format
+
+# Check formatting
+pnpm format:check
+
+# Validate and sync agent metadata/docs
+pnpm run -C scripts validate-agents.ts
+pnpm run -C scripts sync-agents.ts
 ```
 
 ## Code Style
@@ -140,7 +147,7 @@ This project uses Prettier for code formatting. **Always run `pnpm format` befor
 pnpm format
 
 # Check formatting without fixing
-pnpm prettier --check .
+pnpm format:check
 ```
 
 CI will fail if code is not properly formatted.
@@ -159,4 +166,4 @@ npm publish
 
 1. Add the agent definition to `src/agents.ts`
 2. Run `pnpm run -C scripts validate-agents.ts` to validate
-3. Run `pnpm run -C scripts sync-agents.ts` to update README.md
+3. Run `pnpm run -C scripts sync-agents.ts` to update README.md and package keywords

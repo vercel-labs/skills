@@ -1,6 +1,6 @@
 import { homedir } from 'os';
 import { join } from 'path';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync, readdirSync } from 'fs';
 import { xdgConfig } from 'xdg-basedir';
 import type { AgentConfig, AgentType } from './types.ts';
 
@@ -9,6 +9,27 @@ const home = homedir();
 const configHome = xdgConfig ?? join(home, '.config');
 const codexHome = process.env.CODEX_HOME?.trim() || join(home, '.codex');
 const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude');
+const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
+const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
+const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
+const grokHome = process.env.GROK_HOME?.trim() || join(home, '.grok');
+const sarvamHome = process.env.SARVAM_HOME?.trim() || join(home, '.sarvam');
+const zedAppDataHome = process.env.APPDATA?.trim();
+const zedFlatpakConfigHome = process.env.FLATPAK_XDG_CONFIG_HOME?.trim();
+
+function packageJsonHasDependency(packageJsonPath: string, dependencyName: string): boolean {
+  try {
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8')) as {
+      dependencies?: Record<string, unknown>;
+      devDependencies?: Record<string, unknown>;
+    };
+    return !!(
+      packageJson.dependencies?.[dependencyName] || packageJson.devDependencies?.[dependencyName]
+    );
+  } catch {
+    return false;
+  }
+}
 
 export function getOpenClawGlobalSkillsDir(
   homeDir = home,
@@ -26,7 +47,46 @@ export function getOpenClawGlobalSkillsDir(
   return join(homeDir, '.openclaw/skills');
 }
 
+export function isZCodeInstalled(
+  homeDir = home,
+  pathExists: (path: string) => boolean = existsSync
+) {
+  return pathExists(join(homeDir, '.zcode')) || pathExists('/Applications/ZCode.app');
+}
+
+export function isKimchiInstalled(
+  homeDir = home,
+  pathExists: (path: string) => boolean = existsSync
+) {
+  return pathExists(join(homeDir, '.config', 'kimchi'));
+}
+
+export function isMiniMaxCodeInstalled(
+  homeDir = home,
+  pathExists: (path: string) => boolean = existsSync
+) {
+  return pathExists(join(homeDir, '.minimax')) || pathExists('/Applications/MiniMax Code.app');
+}
+
+export function isPositAssistantInstalled(
+  homeDir = home,
+  pathExists: (path: string) => boolean = existsSync
+) {
+  // ~/.positai is the pre-rename config dir, still present on installs
+  // that haven't launched a current version yet.
+  return pathExists(join(homeDir, '.posit/assistant')) || pathExists(join(homeDir, '.positai'));
+}
+
 export const agents: Record<AgentType, AgentConfig> = {
+  'aider-desk': {
+    name: 'aider-desk',
+    displayName: 'AiderDesk',
+    skillsDir: '.aider-desk/skills',
+    globalSkillsDir: join(home, '.aider-desk/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.aider-desk'));
+    },
+  },
   amp: {
     name: 'amp',
     displayName: 'Amp',
@@ -39,10 +99,39 @@ export const agents: Record<AgentType, AgentConfig> = {
   antigravity: {
     name: 'antigravity',
     displayName: 'Antigravity',
-    skillsDir: '.agent/skills',
+    skillsDir: '.agents/skills',
     globalSkillsDir: join(home, '.gemini/antigravity/skills'),
+    showInUniversalPrompt: false,
     detectInstalled: async () => {
       return existsSync(join(home, '.gemini/antigravity'));
+    },
+  },
+  'antigravity-cli': {
+    name: 'antigravity-cli',
+    displayName: 'Antigravity CLI',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.gemini/antigravity-cli/skills'),
+    showInUniversalPrompt: false,
+    detectInstalled: async () => {
+      return existsSync(join(home, '.gemini/antigravity-cli'));
+    },
+  },
+  astrbot: {
+    name: 'astrbot',
+    displayName: 'AstrBot',
+    skillsDir: 'data/skills',
+    globalSkillsDir: join(home, '.astrbot/data/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(process.cwd(), 'data/skills')) || existsSync(join(home, '.astrbot'));
+    },
+  },
+  'autohand-code': {
+    name: 'autohand-code',
+    displayName: 'Autohand Code CLI',
+    skillsDir: '.autohand/skills',
+    globalSkillsDir: join(autohandHome, 'skills'),
+    detectInstalled: async () => {
+      return existsSync(autohandHome);
     },
   },
   augment: {
@@ -54,11 +143,22 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.augment'));
     },
   },
+  bob: {
+    name: 'bob',
+    displayName: 'IBM Bob',
+    skillsDir: '.bob/skills',
+    globalSkillsDir: join(home, '.bob/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.bob'));
+    },
+  },
   'claude-code': {
     name: 'claude-code',
     displayName: 'Claude Code',
     skillsDir: '.claude/skills',
     globalSkillsDir: join(claudeHome, 'skills'),
+    // Preserve the established project-install behavior from #1138 and #1607.
+    createProjectSkillsDirByDefault: true,
     detectInstalled: async () => {
       return existsSync(claudeHome);
     },
@@ -85,6 +185,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.cline'));
     },
   },
+  'codearts-agent': {
+    name: 'codearts-agent',
+    displayName: 'CodeArts Agent',
+    skillsDir: '.codeartsdoer/skills',
+    globalSkillsDir: join(home, '.codeartsdoer/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.codeartsdoer'));
+    },
+  },
   codebuddy: {
     name: 'codebuddy',
     displayName: 'CodeBuddy',
@@ -94,11 +203,29 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(process.cwd(), '.codebuddy')) || existsSync(join(home, '.codebuddy'));
     },
   },
+  codemaker: {
+    name: 'codemaker',
+    displayName: 'Codemaker',
+    skillsDir: '.codemaker/skills',
+    globalSkillsDir: join(home, '.codemaker/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.codemaker'));
+    },
+  },
+  codestudio: {
+    name: 'codestudio',
+    displayName: 'Code Studio',
+    skillsDir: '.codestudio/skills',
+    globalSkillsDir: join(home, '.codestudio/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.codestudio'));
+    },
+  },
   codex: {
     name: 'codex',
     displayName: 'Codex',
     skillsDir: '.agents/skills',
-    globalSkillsDir: join(codexHome, 'skills'),
+    globalSkillsDir: join(home, '.agents', 'skills'),
     detectInstalled: async () => {
       return existsSync(codexHome) || existsSync('/etc/codex');
     },
@@ -148,13 +275,86 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.cursor'));
     },
   },
+  deepagents: {
+    name: 'deepagents',
+    displayName: 'Deep Agents',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.deepagents/agent/skills'),
+    showInUniversalPrompt: false,
+    detectInstalled: async () => {
+      return existsSync(join(home, '.deepagents'));
+    },
+  },
+  devin: {
+    name: 'devin',
+    displayName: 'Devin for Terminal',
+    skillsDir: '.devin/skills',
+    globalSkillsDir: join(configHome, 'devin/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(configHome, 'devin'));
+    },
+  },
+  dexto: {
+    name: 'dexto',
+    displayName: 'Dexto',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents/skills'),
+    showInUniversalPrompt: false,
+    detectInstalled: async () => {
+      return existsSync(join(home, '.dexto'));
+    },
+  },
   droid: {
     name: 'droid',
     displayName: 'Droid',
-    skillsDir: '.factory/skills',
+    // Droid reads .agents/skills and ~/.agents/skills as compatibility
+    // locations, so installing there avoids defining the same skill twice.
+    // globalSkillsDir stays on ~/.factory/skills so `remove` still cleans up
+    // skills placed there by earlier versions.
+    skillsDir: '.agents/skills',
     globalSkillsDir: join(home, '.factory/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.factory'));
+    },
+  },
+  eve: {
+    name: 'eve',
+    displayName: 'Eve',
+    skillsDir: 'agent/skills',
+    globalSkillsDir: undefined,
+    detectInstalled: async () => {
+      const cwd = process.cwd();
+      return (
+        existsSync(join(cwd, 'agent')) && packageJsonHasDependency(join(cwd, 'package.json'), 'eve')
+      );
+    },
+  },
+  firebender: {
+    name: 'firebender',
+    displayName: 'Firebender',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.firebender/skills'),
+    showInUniversalPrompt: false,
+    detectInstalled: async () => {
+      return existsSync(join(home, '.firebender'));
+    },
+  },
+  forgecode: {
+    name: 'forgecode',
+    displayName: 'ForgeCode',
+    skillsDir: '.forge/skills',
+    globalSkillsDir: join(home, '.forge/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.forge'));
+    },
+  },
+  fx: {
+    name: 'fx',
+    displayName: 'fx',
+    skillsDir: '.fx/skills',
+    globalSkillsDir: join(home, '.fx/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.fx'));
     },
   },
   'gemini-cli': {
@@ -184,6 +384,42 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(configHome, 'goose'));
     },
   },
+  grok: {
+    name: 'grok',
+    displayName: 'Grok Build',
+    skillsDir: '.grok/skills',
+    globalSkillsDir: join(grokHome, 'skills'),
+    detectInstalled: async () => {
+      return existsSync(grokHome);
+    },
+  },
+  'hermes-agent': {
+    name: 'hermes-agent',
+    displayName: 'Hermes Agent',
+    skillsDir: '.hermes/skills',
+    globalSkillsDir: join(hermesHome, 'skills'),
+    detectInstalled: async () => {
+      return existsSync(hermesHome);
+    },
+  },
+  'inference-sh': {
+    name: 'inference-sh',
+    displayName: 'inference.sh',
+    skillsDir: '.inferencesh/skills',
+    globalSkillsDir: join(home, '.inferencesh/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.inferencesh'));
+    },
+  },
+  jazz: {
+    name: 'jazz',
+    displayName: 'Jazz',
+    skillsDir: '.jazz/skills',
+    globalSkillsDir: join(home, '.jazz/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.jazz')) || existsSync(join(process.cwd(), '.jazz'));
+    },
+  },
   junie: {
     name: 'junie',
     displayName: 'Junie',
@@ -205,19 +441,30 @@ export const agents: Record<AgentType, AgentConfig> = {
   kilo: {
     name: 'kilo',
     displayName: 'Kilo Code',
-    skillsDir: '.kilocode/skills',
-    globalSkillsDir: join(home, '.kilocode/skills'),
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.kilo/skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.kilocode'));
+      // `.kilocode` is the legacy config directory, kept here so existing
+      // installs are still detected.
+      return existsSync(join(home, '.kilo')) || existsSync(join(home, '.kilocode'));
     },
   },
-  'kimi-cli': {
-    name: 'kimi-cli',
+  kimchi: {
+    name: 'kimchi',
+    displayName: 'Kimchi',
+    skillsDir: '.kimchi/skills',
+    globalSkillsDir: join(home, '.config', 'kimchi', 'harness', 'skills'),
+    detectInstalled: async () => {
+      return isKimchiInstalled();
+    },
+  },
+  'kimi-code-cli': {
+    name: 'kimi-code-cli',
     displayName: 'Kimi Code CLI',
     skillsDir: '.agents/skills',
-    globalSkillsDir: join(home, '.config/agents/skills'),
+    globalSkillsDir: join(home, '.agents/skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.kimi'));
+      return existsSync(join(home, '.kimi-code')) || existsSync(join(home, '.kimi'));
     },
   },
   'kiro-cli': {
@@ -238,6 +485,25 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.kode'));
     },
   },
+  lingma: {
+    name: 'lingma',
+    displayName: 'Lingma',
+    skillsDir: '.lingma/skills',
+    globalSkillsDir: join(home, '.lingma/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.lingma'));
+    },
+  },
+  loaf: {
+    name: 'loaf',
+    displayName: 'Loaf',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents/skills'),
+    showInUniversalPrompt: false,
+    detectInstalled: async () => {
+      return existsSync(join(home, '.loaf'));
+    },
+  },
   mcpjam: {
     name: 'mcpjam',
     displayName: 'MCPJam',
@@ -247,13 +513,31 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.mcpjam'));
     },
   },
+  'minimax-code': {
+    name: 'minimax-code',
+    displayName: 'MiniMax Code',
+    skillsDir: '.minimax/skills',
+    globalSkillsDir: join(home, '.minimax/skills'),
+    detectInstalled: async () => {
+      return isMiniMaxCodeInstalled();
+    },
+  },
   'mistral-vibe': {
     name: 'mistral-vibe',
     displayName: 'Mistral Vibe',
     skillsDir: '.vibe/skills',
-    globalSkillsDir: join(home, '.vibe/skills'),
+    globalSkillsDir: join(vibeHome, 'skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.vibe'));
+      return existsSync(vibeHome);
+    },
+  },
+  moxby: {
+    name: 'moxby',
+    displayName: 'Moxby',
+    skillsDir: '.moxby/skills',
+    globalSkillsDir: join(home, '.moxby/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.moxby'));
     },
   },
   mux: {
@@ -283,13 +567,34 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.openhands'));
     },
   },
+  ona: {
+    name: 'ona',
+    displayName: 'Ona',
+    skillsDir: '.ona/skills',
+    globalSkillsDir: join(home, '.ona/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.ona'));
+    },
+  },
   pi: {
     name: 'pi',
     displayName: 'Pi',
-    skillsDir: '.pi/skills',
-    globalSkillsDir: join(home, '.pi/agent/skills'),
+    // Pi natively reads the Agent Skills locations: `.agents/skills/` from the working
+    // directory up through its ancestors, and `~/.agents/skills/` globally.
+    // See https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/skills.md
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.pi/agent'));
+    },
+  },
+  'posit-assistant': {
+    name: 'posit-assistant',
+    displayName: 'Posit Assistant',
+    skillsDir: '.posit/assistant/skills',
+    globalSkillsDir: join(home, '.posit/assistant/skills'),
+    detectInstalled: async () => {
+      return isPositAssistantInstalled();
     },
   },
   qoder: {
@@ -299,6 +604,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.qoder/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.qoder'));
+    },
+  },
+  'qoder-cn': {
+    name: 'qoder-cn',
+    displayName: 'Qoder CN',
+    skillsDir: '.qoder/skills',
+    globalSkillsDir: join(home, '.qoder-cn/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.qoder-cn'));
     },
   },
   'qwen-code': {
@@ -320,6 +634,24 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(process.cwd(), '.replit'));
     },
   },
+  reasonix: {
+    name: 'reasonix',
+    displayName: 'Reasonix',
+    skillsDir: '.reasonix/skills',
+    globalSkillsDir: join(home, '.reasonix/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.reasonix'));
+    },
+  },
+  rovodev: {
+    name: 'rovodev',
+    displayName: 'Rovo Dev',
+    skillsDir: '.rovodev/skills',
+    globalSkillsDir: join(home, '.rovodev/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.rovodev'));
+    },
+  },
   roo: {
     name: 'roo',
     displayName: 'Roo Code',
@@ -327,6 +659,43 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.roo/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.roo'));
+    },
+  },
+  'sarvam-code': {
+    name: 'sarvam-code',
+    displayName: 'Sarvam Code',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents/skills'),
+    showInUniversalPrompt: false,
+    detectInstalled: async () => {
+      return existsSync(sarvamHome);
+    },
+  },
+  'tabnine-cli': {
+    name: 'tabnine-cli',
+    displayName: 'Tabnine CLI',
+    skillsDir: '.tabnine/agent/skills',
+    globalSkillsDir: join(home, '.tabnine/agent/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.tabnine'));
+    },
+  },
+  terramind: {
+    name: 'terramind',
+    displayName: 'Terramind',
+    skillsDir: '.terramind/skills',
+    globalSkillsDir: join(home, '.terramind/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.terramind'));
+    },
+  },
+  tinycloud: {
+    name: 'tinycloud',
+    displayName: 'Tinycloud',
+    skillsDir: '.tinycloud/skills',
+    globalSkillsDir: join(home, '.tinycloud/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.tinycloud'));
     },
   },
   trae: {
@@ -347,6 +716,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.trae-cn'));
     },
   },
+  warp: {
+    name: 'warp',
+    displayName: 'Warp',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.warp'));
+    },
+  },
   windsurf: {
     name: 'windsurf',
     displayName: 'Windsurf',
@@ -356,9 +734,41 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.codeium/windsurf'));
     },
   },
+  zed: {
+    name: 'zed',
+    displayName: 'Zed',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents/skills'),
+    detectInstalled: async () => {
+      // Per Zed's config_dir() in crates/paths/src/paths.rs.
+      return (
+        existsSync(join(configHome, 'zed')) ||
+        (!!zedAppDataHome && existsSync(join(zedAppDataHome, 'Zed'))) ||
+        (!!zedFlatpakConfigHome && existsSync(join(zedFlatpakConfigHome, 'zed')))
+      );
+    },
+  },
+  zcode: {
+    name: 'zcode',
+    displayName: 'ZCode',
+    skillsDir: '.zcode/skills',
+    globalSkillsDir: join(home, '.zcode/skills'),
+    detectInstalled: async () => {
+      return isZCodeInstalled();
+    },
+  },
   zencoder: {
     name: 'zencoder',
     displayName: 'Zencoder',
+    skillsDir: '.zencoder/skills',
+    globalSkillsDir: join(home, '.zencoder/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.zencoder'));
+    },
+  },
+  zenflow: {
+    name: 'zenflow',
+    displayName: 'Zenflow',
     skillsDir: '.zencoder/skills',
     globalSkillsDir: join(home, '.zencoder/skills'),
     detectInstalled: async () => {
@@ -381,6 +791,19 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.pochi/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.pochi'));
+    },
+  },
+  promptscript: {
+    name: 'promptscript',
+    displayName: 'PromptScript',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: undefined,
+    showInUniversalPrompt: false,
+    detectInstalled: async () => {
+      return (
+        existsSync(join(process.cwd(), '.promptscript')) ||
+        existsSync(join(process.cwd(), 'promptscript.yaml'))
+      );
     },
   },
   adal: {
@@ -417,6 +840,36 @@ export function getAgentConfig(type: AgentType): AgentConfig {
 }
 
 /**
+ * Directory (relative to an Eve project root) that holds subagents.
+ * Each subagent owns its own skills at `agent/subagents/<name>/skills`,
+ * mirroring the root agent's `agent/skills`.
+ */
+export const EVE_SUBAGENTS_DIR = join('agent', 'subagents');
+
+/**
+ * Discover the names of Eve subagents in a project.
+ *
+ * Eve supports subagents that each have their own skills directory at
+ * `agent/subagents/<name>/skills`. This returns the `<name>` of every
+ * subagent directory found under `agent/subagents/`, sorted alphabetically.
+ * Returns an empty list when the directory doesn't exist or can't be read.
+ */
+export function getEveSubagents(cwd: string = process.cwd()): string[] {
+  const dir = join(cwd, EVE_SUBAGENTS_DIR);
+  if (!existsSync(dir)) {
+    return [];
+  }
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Returns agents that use the universal .agents/skills directory.
  * These agents share a common skill location and don't need symlinks.
  * Agents with showInUniversalList: false are excluded.
@@ -425,6 +878,21 @@ export function getUniversalAgents(): AgentType[] {
   return (Object.entries(agents) as [AgentType, AgentConfig][])
     .filter(
       ([_, config]) => config.skillsDir === '.agents/skills' && config.showInUniversalList !== false
+    )
+    .map(([type]) => type);
+}
+
+/**
+ * Returns the subset of universal agents shown in the interactive locked section.
+ * All universal agents are still installed; this only keeps the prompt readable.
+ */
+export function getVisibleUniversalAgents(): AgentType[] {
+  return (Object.entries(agents) as [AgentType, AgentConfig][])
+    .filter(
+      ([_, config]) =>
+        config.skillsDir === '.agents/skills' &&
+        config.showInUniversalList !== false &&
+        config.showInUniversalPrompt !== false
     )
     .map(([type]) => type);
 }

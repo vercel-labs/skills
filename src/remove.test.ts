@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, rmSync, mkdirSync, writeFileSync, readdirSync } from 'fs';
+import { existsSync, rmSync, mkdirSync, writeFileSync, readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli, runCliWithInput } from './test-utils.js';
@@ -23,14 +23,18 @@ describe('remove command', { timeout: 30000 }, () => {
     }
   });
 
-  function createTestSkill(name: string, description?: string) {
-    const skillDir = join(skillsDir, name);
+  function createTestSkill(
+    name: string,
+    description = `A test skill called ${name}`,
+    targetSkillsDir = skillsDir
+  ): string {
+    const skillDir = join(targetSkillsDir, name);
     mkdirSync(skillDir, { recursive: true });
     writeFileSync(
       join(skillDir, 'SKILL.md'),
       `---
 name: ${name}
-description: ${description || `A test skill called ${name}`}
+description: ${description}
 ---
 
 # ${name}
@@ -38,6 +42,7 @@ description: ${description || `A test skill called ${name}`}
 This is a test skill.
 `
     );
+    return skillDir;
   }
 
   function createAgentSkillsDir(agentName: string) {
@@ -71,6 +76,59 @@ This is a test skill.
       const result = runCli(['remove', 'non-existent-skill', '-y'], testDir);
       expect(result.stdout).toContain('No skills found');
       expect(result.exitCode).toBe(0);
+    });
+
+    it('should clean stale lock entry even when no skills are installed on disk', () => {
+      const lockPath = join(testDir, 'skills-lock.json');
+      const lockContent = {
+        version: 1,
+        skills: {
+          'stale-skill': {
+            source: 'some-source',
+            sourceType: 'github',
+            computedHash: 'somehash',
+          },
+        },
+      };
+      writeFileSync(lockPath, JSON.stringify(lockContent, null, 2));
+
+      // No skills exist on disk, but stale-skill lingers in the lock file
+      const result = runCli(['remove', 'stale-skill', '-y'], testDir);
+
+      expect(result.stdout).toContain('Successfully removed');
+      expect(result.exitCode).toBe(0);
+
+      const updatedLock = JSON.parse(readFileSync(lockPath, 'utf-8'));
+      expect(updatedLock.skills['stale-skill']).toBeUndefined();
+    });
+
+    it('should clean all stale lock entries with --all', () => {
+      const lockPath = join(testDir, 'skills-lock.json');
+      writeFileSync(
+        lockPath,
+        JSON.stringify(
+          {
+            version: 1,
+            skills: {
+              'stale-skill': {
+                source: 'some-source',
+                sourceType: 'github',
+                computedHash: 'somehash',
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      const result = runCli(['remove', '--all', '-y'], testDir);
+
+      expect(result.stdout).toContain('Successfully removed');
+      expect(result.exitCode).toBe(0);
+
+      const updatedLock = JSON.parse(readFileSync(lockPath, 'utf-8'));
+      expect(updatedLock.skills['stale-skill']).toBeUndefined();
     });
   });
 
@@ -127,6 +185,29 @@ This is a test skill.
       expect(existsSync(join(skillsDir, 'skill-three'))).toBe(false);
     });
 
+    it('should refuse --all combined with a named skill (mass-delete footgun)', () => {
+      const result = runCli(['remove', '--skill', 'skill-one', '--all', '-y'], testDir);
+
+      expect(result.stdout + result.stderr).toContain(
+        'Cannot combine --all with specific skill names'
+      );
+      expect(result.exitCode).toBe(1);
+
+      // Named skill and siblings must still be present
+      expect(existsSync(join(skillsDir, 'skill-one'))).toBe(true);
+      expect(existsSync(join(skillsDir, 'skill-two'))).toBe(true);
+      expect(existsSync(join(skillsDir, 'skill-three'))).toBe(true);
+    });
+
+    it('should remove a skill specified with --skill', () => {
+      const result = runCli(['remove', '--skill', 'skill-two', '-y'], testDir);
+
+      expect(result.stdout).toContain('Successfully removed');
+      expect(existsSync(join(skillsDir, 'skill-one'))).toBe(true);
+      expect(existsSync(join(skillsDir, 'skill-two'))).toBe(false);
+      expect(existsSync(join(skillsDir, 'skill-three'))).toBe(true);
+    });
+
     it('should show error for non-existent skill name when skills exist', () => {
       const result = runCli(['remove', 'non-existent', '-y'], testDir);
 
@@ -134,11 +215,105 @@ This is a test skill.
       expect(result.exitCode).toBe(0);
     });
 
+    it('should remove skill that is missing from disk but exists in local lock file', () => {
+      const lockPath = join(testDir, 'skills-lock.json');
+      const lockContent = {
+        version: 1,
+        skills: {
+          'stale-skill': {
+            source: 'some-source',
+            sourceType: 'github',
+            computedHash: 'somehash',
+          },
+        },
+      };
+      writeFileSync(lockPath, JSON.stringify(lockContent, null, 2));
+
+      // stale-skill is missing from disk, but exists in lock file
+      const result = runCli(['remove', 'stale-skill', '-y'], testDir);
+
+      expect(result.stdout).toContain('Successfully removed');
+      expect(result.stdout).toContain('1 skill');
+      expect(result.exitCode).toBe(0);
+
+      // Verify lock file has been updated to remove the skill
+      const updatedLock = JSON.parse(readFileSync(lockPath, 'utf-8'));
+      expect(updatedLock.skills['stale-skill']).toBeUndefined();
+    });
+
+    it('should remove a sanitized folder using its exact local lock key', () => {
+      createTestSkill('ce-review');
+      const lockPath = join(testDir, 'skills-lock.json');
+      writeFileSync(
+        lockPath,
+        JSON.stringify(
+          {
+            version: 1,
+            skills: {
+              'ce:review': {
+                source: 'everyinc/compound-engineering-plugin',
+                sourceType: 'github',
+                computedHash: 'somehash',
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      const result = runCli(['remove', 'ce:review', '-y'], testDir);
+
+      expect(result.stdout).toContain('Successfully removed');
+      expect(existsSync(join(skillsDir, 'ce-review'))).toBe(false);
+
+      const updatedLock = JSON.parse(readFileSync(lockPath, 'utf-8'));
+      expect(updatedLock.skills['ce:review']).toBeUndefined();
+    });
+
     it('should be case-insensitive when matching skill names', () => {
       const result = runCli(['remove', 'SKILL-ONE', '-y'], testDir);
 
       expect(result.stdout).toContain('Successfully removed');
       expect(existsSync(join(skillsDir, 'skill-one'))).toBe(false);
+    });
+
+    it('should remove all skills from an exact lock source', () => {
+      const lockPath = join(testDir, 'skills-lock.json');
+      writeFileSync(
+        lockPath,
+        JSON.stringify({
+          version: 1,
+          skills: {
+            'skill-one': {
+              source: 'mattpocock/skills',
+              sourceType: 'github',
+              computedHash: 'one',
+            },
+            'skill-two': {
+              source: 'mattpocock/skills',
+              ref: 'dev',
+              sourceType: 'github',
+              computedHash: 'two',
+            },
+            'skill-three': {
+              source: 'other/source',
+              sourceType: 'github',
+              computedHash: 'three',
+            },
+          },
+        })
+      );
+
+      const result = runCli(['remove', 'mattpocock/skills', '-y'], testDir);
+
+      expect(result.stdout).toContain('2 skill');
+      expect(existsSync(join(skillsDir, 'skill-one'))).toBe(false);
+      expect(existsSync(join(skillsDir, 'skill-two'))).toBe(false);
+      expect(existsSync(join(skillsDir, 'skill-three'))).toBe(true);
+
+      const updatedLock = JSON.parse(readFileSync(lockPath, 'utf-8'));
+      expect(Object.keys(updatedLock.skills)).toEqual(['skill-three']);
     });
 
     it('should remove only the specified skill and leave others', () => {
@@ -200,14 +375,136 @@ This is a test skill.
   });
 
   describe('global flag', () => {
-    beforeEach(() => {
-      createTestSkill('global-skill');
+    it('should remove a skill from the isolated global home', () => {
+      const testHome = join(testDir, 'home');
+      const globalSkillDir = createTestSkill(
+        'global-skill',
+        'A global skill',
+        join(testHome, '.agents', 'skills')
+      );
+
+      const result = runCli(['remove', 'global-skill', '--global', '-y'], testDir, {
+        HOME: testHome,
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Successfully removed');
+      expect(existsSync(globalSkillDir)).toBe(false);
     });
 
-    it('should accept --global flag without error', () => {
-      const result = runCli(['remove', 'global-skill', '--global', '-y'], testDir);
-      // Command should run without error (skill may not be found in global scope from test dir)
+    it('should remove a sanitized folder and its exact global lock key', () => {
+      const testHome = join(testDir, 'home');
+      const globalSkillDir = createTestSkill(
+        'ce-review',
+        'A plugin skill',
+        join(testHome, '.agents', 'skills')
+      );
+      const lockPath = join(testHome, '.local', 'state', 'skills', '.skill-lock.json');
+      mkdirSync(join(testHome, '.local', 'state', 'skills'), { recursive: true });
+      writeFileSync(
+        lockPath,
+        JSON.stringify(
+          {
+            version: 3,
+            skills: {
+              'ce:review': {
+                source: 'everyinc/compound-engineering-plugin',
+                sourceType: 'github',
+                sourceUrl: 'https://github.com/everyinc/compound-engineering-plugin',
+                skillFolderHash: 'somehash',
+                installedAt: '2026-07-01T00:00:00.000Z',
+                updatedAt: '2026-07-01T00:00:00.000Z',
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      const result = runCli(['remove', 'ce-review', '--global', '-y'], testDir, {
+        HOME: testHome,
+      });
+
       expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Successfully removed');
+      expect(existsSync(globalSkillDir)).toBe(false);
+
+      const updatedLock = JSON.parse(readFileSync(lockPath, 'utf-8'));
+      expect(updatedLock.skills['ce:review']).toBeUndefined();
+    });
+  });
+
+  describe('non-skill directories', () => {
+    it('should not offer an agent-internal dot-directory as an installed skill', () => {
+      const testHome = join(testDir, 'home');
+      createTestSkill('real-skill', 'A real skill', join(testHome, '.agents', 'skills'));
+
+      // Codex ships its own bundled skills in $CODEX_HOME/skills/.system.
+      // It is not something this CLI installed, so it must not be removable.
+      const codexSystemDir = join(testHome, '.codex', 'skills', '.system');
+      mkdirSync(join(codexSystemDir, 'imagegen'), { recursive: true });
+      writeFileSync(join(codexSystemDir, '.codex-system-skills.marker'), '');
+
+      const result = runCli(['remove', '.system', '--global', '-y'], testDir, {
+        HOME: testHome,
+      });
+
+      expect(result.stdout).toContain('Found 1 unique installed skill(s)');
+      expect(result.stdout).toContain('No matching skills found');
+      expect(result.stdout).not.toContain('Successfully removed');
+      expect(existsSync(codexSystemDir)).toBe(true);
+    });
+
+    it('should still remove a lock-tracked skill whose SKILL.md is missing', () => {
+      // A half-finished install leaves a directory with no SKILL.md, so the
+      // folder scan skips it. The lock entry still names it, so it stays
+      // removable and both the directory and the entry get cleaned up.
+      const brokenDir = join(skillsDir, 'broken-skill');
+      mkdirSync(brokenDir, { recursive: true });
+      const lockPath = join(testDir, 'skills-lock.json');
+      writeFileSync(
+        lockPath,
+        JSON.stringify(
+          {
+            version: 1,
+            skills: {
+              'broken-skill': {
+                source: 'some-source',
+                sourceType: 'github',
+                computedHash: 'somehash',
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      const result = runCli(['remove', 'broken-skill', '-y'], testDir);
+
+      expect(result.stdout).toContain('Successfully removed');
+      expect(existsSync(brokenDir)).toBe(false);
+
+      const updatedLock = JSON.parse(readFileSync(lockPath, 'utf-8'));
+      expect(updatedLock.skills['broken-skill']).toBeUndefined();
+    });
+
+    it('should ignore directories without a SKILL.md when scanning agent skill dirs', () => {
+      createTestSkill('installed-skill');
+
+      // A source repo laid out like `skills/<category>/<skill>/SKILL.md`.
+      // `skills/` is also OpenClaw's project install dir, so it gets scanned.
+      mkdirSync(join(testDir, 'skills', 'templates'), { recursive: true });
+      writeFileSync(join(testDir, 'skills', 'templates', 'base.md'), 'authoring template');
+      mkdirSync(join(testDir, 'skills', '.experimental', 'wip-skill'), { recursive: true });
+
+      const result = runCli(['remove', '--all'], testDir);
+
+      expect(result.stdout).toContain('Found 1 unique installed skill(s)');
+      expect(existsSync(join(testDir, 'skills', 'templates', 'base.md'))).toBe(true);
+      expect(existsSync(join(testDir, 'skills', '.experimental', 'wip-skill'))).toBe(true);
+      expect(existsSync(join(skillsDir, 'installed-skill'))).toBe(false);
     });
   });
 
@@ -314,5 +611,78 @@ This is a test skill.
       );
       expect(result.stdout).not.toContain('Invalid agents');
     });
+  });
+});
+
+describe('remove -a with a subset of agents', { timeout: 30000 }, () => {
+  let testDir: string;
+  let fakeHome: string;
+
+  // Both agents are detected from directories under HOME, so the test drives
+  // HOME rather than relying on whatever is installed on the host.
+  beforeEach(() => {
+    testDir = join(tmpdir(), `skills-remove-subset-${Date.now()}`);
+    fakeHome = join(testDir, 'home');
+    mkdirSync(join(fakeHome, '.claude'), { recursive: true });
+    mkdirSync(join(fakeHome, '.codex'), { recursive: true });
+  });
+
+  afterEach(() => {
+    if (existsSync(testDir)) {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the lock entry when another agent still uses the skill', () => {
+    const project = join(testDir, 'project');
+    const skillName = 'shared-skill';
+
+    // Canonical copy — also codex's project skills dir.
+    const canonical = join(project, '.agents', 'skills', skillName);
+    mkdirSync(canonical, { recursive: true });
+    writeFileSync(
+      join(canonical, 'SKILL.md'),
+      `---\nname: ${skillName}\ndescription: shared between two agents\n---\n`
+    );
+
+    // Claude Code's own copy, the one being removed.
+    const claudeCopy = join(project, '.claude', 'skills', skillName);
+    mkdirSync(claudeCopy, { recursive: true });
+    writeFileSync(
+      join(claudeCopy, 'SKILL.md'),
+      `---\nname: ${skillName}\ndescription: shared between two agents\n---\n`
+    );
+
+    const lockPath = join(project, 'skills-lock.json');
+    writeFileSync(
+      lockPath,
+      JSON.stringify(
+        {
+          version: 1,
+          skills: {
+            [skillName]: {
+              source: 'owner/repo',
+              sourceType: 'github',
+              computedHash: 'somehash',
+            },
+          },
+        },
+        null,
+        2
+      )
+    );
+
+    const result = runCli(['remove', skillName, '-a', 'claude-code', '-y'], project, {
+      HOME: fakeHome,
+    });
+
+    expect(result.exitCode).toBe(0);
+    // Claude Code's copy goes, codex keeps working.
+    expect(existsSync(claudeCopy)).toBe(false);
+    expect(existsSync(canonical)).toBe(true);
+
+    // The skill is still installed, so it must still be updatable.
+    const updatedLock = JSON.parse(readFileSync(lockPath, 'utf-8'));
+    expect(updatedLock.skills[skillName]).toBeDefined();
   });
 });

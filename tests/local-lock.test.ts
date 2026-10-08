@@ -62,6 +62,29 @@ describe('local-lock', () => {
       }
     });
 
+    it('resolves relative local sources from the lock file directory', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        const content = {
+          version: 1,
+          skills: {
+            'my-skill': {
+              source: './skills',
+              sourceType: 'local',
+              computedHash: 'abc123',
+            },
+          },
+        };
+        await writeFile(join(dir, 'skills-lock.json'), JSON.stringify(content), 'utf-8');
+
+        const lock = await readLocalLock(dir);
+
+        expect(lock.skills['my-skill']!.source).toBe(join(dir, 'skills'));
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
     it('returns empty lock for corrupted JSON (merge conflict markers)', async () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
@@ -157,6 +180,46 @@ describe('local-lock', () => {
       }
     });
 
+    it('stores absolute local sources relative to the lock file', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await addSkillToLocalLock(
+          'local-skill',
+          {
+            source: join(dir, 'skills'),
+            sourceType: 'local',
+            computedHash: 'hash123',
+          },
+          dir
+        );
+
+        const raw = JSON.parse(await readFile(join(dir, 'skills-lock.json'), 'utf-8'));
+        expect(raw.skills['local-skill'].source).toBe('./skills');
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('keeps hidden local sources recognizable as local paths', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await addSkillToLocalLock(
+          'hidden-skill',
+          {
+            source: join(dir, '.skills'),
+            sourceType: 'local',
+            computedHash: 'hash123',
+          },
+          dir
+        );
+
+        const raw = JSON.parse(await readFile(join(dir, 'skills-lock.json'), 'utf-8'));
+        expect(raw.skills['hidden-skill'].source).toBe('./.skills');
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
     it('updates an existing skill hash', async () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
@@ -196,6 +259,89 @@ describe('local-lock', () => {
         expect(Object.keys(lock.skills)).toHaveLength(2);
         expect(lock.skills['skill-a']!.computedHash).toBe('aaa');
         expect(lock.skills['skill-b']!.computedHash).toBe('bbb');
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('stores optional ref when present', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await addSkillToLocalLock(
+          'branch-skill',
+          {
+            source: 'org/repo',
+            ref: 'feature/install',
+            sourceType: 'github',
+            computedHash: 'hash123',
+          },
+          dir
+        );
+
+        const lock = await readLocalLock(dir);
+        expect(lock.skills['branch-skill']).toEqual({
+          source: 'org/repo',
+          ref: 'feature/install',
+          sourceType: 'github',
+          computedHash: 'hash123',
+        });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('stores optional sourceUrl for normalized remote sources', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await addSkillToLocalLock(
+          'gitlab-skill',
+          {
+            source: 'acme/skills',
+            sourceUrl: 'https://gitlab.example.com/acme/skills.git',
+            sourceType: 'git',
+            computedHash: 'hash123',
+          },
+          dir
+        );
+
+        const lock = await readLocalLock(dir);
+        expect(lock.skills['gitlab-skill']).toEqual({
+          source: 'acme/skills',
+          sourceUrl: 'https://gitlab.example.com/acme/skills.git',
+          sourceType: 'git',
+          computedHash: 'hash123',
+        });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('prototype-named skills', () => {
+    it('preserves __proto__ when adding and rewriting the lock', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      const entry = { source: 'org/repo', sourceType: 'github', computedHash: 'hash123' };
+      try {
+        await addSkillToLocalLock('__proto__', entry, dir);
+        await addSkillToLocalLock('ordinary-skill', entry, dir);
+
+        const lock = await readLocalLock(dir);
+        expect(Object.keys(lock.skills)).toEqual(['__proto__', 'ordinary-skill']);
+        expect(Object.hasOwn(lock.skills, '__proto__')).toBe(true);
+        expect(lock.skills['__proto__']).toEqual(entry);
+        expect(await removeSkillFromLocalLock('__proto__', dir)).toBe(true);
+        expect(Object.keys((await readLocalLock(dir)).skills)).toEqual(['ordinary-skill']);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('does not remove inherited names from an empty lock', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        expect(await removeSkillFromLocalLock('constructor', dir)).toBe(false);
+        expect(await removeSkillFromLocalLock('__proto__', dir)).toBe(false);
+        expect(await readLocalLock(dir)).toEqual({ version: 1, skills: {} });
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
