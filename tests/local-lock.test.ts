@@ -455,6 +455,24 @@ describe('local-lock', () => {
       }
     });
 
+    it('distinguishes a filename change from an offsetting content change', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        const first = join(dir, 'first');
+        const second = join(dir, 'second');
+        await mkdir(first);
+        await mkdir(second);
+        await writeFile(join(first, 'SKILL.md'), 'same skill');
+        await writeFile(join(second, 'SKILL.md'), 'same skill');
+        await writeFile(join(first, 'a'), 'bc');
+        await writeFile(join(second, 'ab'), 'c');
+
+        expect(await computeSkillFolderHash(first)).not.toBe(await computeSkillFolderHash(second));
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
     it('includes nested files in subdirectories', async () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
