@@ -16,6 +16,7 @@ vi.mock('../src/agents.ts', () => ({
 describe('runInstallFromLock', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(add.installFromSource).mockResolvedValue({ installed: ['skill-a'], failed: [] });
   });
 
   it('restores self-hosted GitLab project locks from sourceUrl', async () => {
@@ -34,13 +35,9 @@ describe('runInstallFromLock', () => {
 
     await runInstallFromLock([]);
 
-    expect(add.runAdd).toHaveBeenCalledWith(
-      ['https://gitlab.example.com/acme/skills.git'],
-      expect.objectContaining({
-        skill: ['skill-a'],
-        agent: ['cursor'],
-        yes: true,
-      })
+    expect(add.installFromSource).toHaveBeenCalledWith(
+      'https://gitlab.example.com/acme/skills.git',
+      { skills: ['skill-a'], agents: ['cursor'] }
     );
   });
 
@@ -59,6 +56,6 @@ describe('runInstallFromLock', () => {
 
     await runInstallFromLock([]);
 
-    expect(add.runAdd).not.toHaveBeenCalled();
+    expect(add.installFromSource).not.toHaveBeenCalled();
   });
 });

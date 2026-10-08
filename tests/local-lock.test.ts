@@ -317,6 +317,37 @@ describe('local-lock', () => {
     });
   });
 
+  describe('prototype-named skills', () => {
+    it('preserves __proto__ when adding and rewriting the lock', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      const entry = { source: 'org/repo', sourceType: 'github', computedHash: 'hash123' };
+      try {
+        await addSkillToLocalLock('__proto__', entry, dir);
+        await addSkillToLocalLock('ordinary-skill', entry, dir);
+
+        const lock = await readLocalLock(dir);
+        expect(Object.keys(lock.skills)).toEqual(['__proto__', 'ordinary-skill']);
+        expect(Object.hasOwn(lock.skills, '__proto__')).toBe(true);
+        expect(lock.skills['__proto__']).toEqual(entry);
+        expect(await removeSkillFromLocalLock('__proto__', dir)).toBe(true);
+        expect(Object.keys((await readLocalLock(dir)).skills)).toEqual(['ordinary-skill']);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('does not remove inherited names from an empty lock', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        expect(await removeSkillFromLocalLock('constructor', dir)).toBe(false);
+        expect(await removeSkillFromLocalLock('__proto__', dir)).toBe(false);
+        expect(await readLocalLock(dir)).toEqual({ version: 1, skills: {} });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe('removeSkillFromLocalLock', () => {
     it('removes an existing skill', async () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));

@@ -162,6 +162,11 @@ ${BOLD}Remove Options:${RESET}
 ${BOLD}Experimental Sync Options:${RESET}
   -a, --agent <agents>   Specify agents to install to (use '*' for all agents)
   -y, --yes              Skip confirmation prompts
+  --copy                 Copy skills instead of linking them to node_modules
+  --dry-run              Show what would change without changing anything
+  --no-cleanup           Keep skills whose package no longer ships them
+  --include <patterns>   Only sync matching packages (<pkg>) or skills (<pkg>#<skill>)
+  --exclude <patterns>   Skip matching packages (<pkg>) or skills (<pkg>#<skill>)
 
 ${BOLD}List Options:${RESET}
   -g, --global           List global skills (default: project)

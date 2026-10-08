@@ -24,11 +24,15 @@ export interface LocalSkillLockEntry {
   /**
    * Path to the skill's SKILL.md within the source repo (e.g., "skills/pdf/SKILL.md").
    * Required to re-install only this skill on update — without it, an update would
-   * refetch every skill in the source repo. Optional for backward compatibility with
-   * lock files written before this field existed, and omitted for non-repo sources
-   * (node_modules, local paths) where there is no subfolder to target.
+   * refetch every skill in the source repo. For node_modules sources it is relative
+   * to the package root. Optional for backward compatibility with lock files written
+   * before this field existed, and omitted for local paths.
    */
   skillPath?: string;
+  /** Version of the npm package that shipped the skill (node_modules sources only). */
+  version?: string;
+  /** Package whose package.json `skills` field requested the skill; `.` is the project. */
+  via?: string;
   /**
    * SHA-256 hash computed from all files in the skill folder.
    * Unlike the global lock which uses GitHub tree SHA, the local lock
@@ -108,14 +112,19 @@ export async function writeLocalLock(lock: LocalSkillLockFile, cwd?: string): Pr
   const lockPath = getLocalLockPath(lockDir);
 
   // Sort skills alphabetically for deterministic output / clean diffs
-  const sortedSkills: Record<string, LocalSkillLockEntry> = {};
-  for (const key of Object.keys(lock.skills).sort()) {
-    const entry = lock.skills[key]!;
-    sortedSkills[key] =
-      entry.sourceType === 'local'
-        ? { ...entry, source: getPortableLocalSource(entry.source, lockDir) }
-        : entry;
-  }
+  const sortedSkills = Object.fromEntries(
+    Object.keys(lock.skills)
+      .sort()
+      .map((key): [string, LocalSkillLockEntry] => {
+        const entry = lock.skills[key]!;
+        return [
+          key,
+          entry.sourceType === 'local'
+            ? { ...entry, source: getPortableLocalSource(entry.source, lockDir) }
+            : entry,
+        ];
+      })
+  );
 
   const sorted: LocalSkillLockFile = { version: lock.version, skills: sortedSkills };
   const content = JSON.stringify(sorted, null, 2) + '\n';
@@ -192,7 +201,7 @@ export async function addSkillToLocalLock(
   cwd?: string
 ): Promise<void> {
   const lock = await readLocalLock(cwd);
-  lock.skills[skillName] = entry;
+  lock.skills = { ...lock.skills, [skillName]: entry };
   await writeLocalLock(lock, cwd);
 }
 
@@ -202,7 +211,7 @@ export async function addSkillToLocalLock(
 export async function removeSkillFromLocalLock(skillName: string, cwd?: string): Promise<boolean> {
   const lock = await readLocalLock(cwd);
 
-  if (!(skillName in lock.skills)) {
+  if (!Object.hasOwn(lock.skills, skillName)) {
     return false;
   }
 

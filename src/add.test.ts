@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { execFileSync } from 'child_process';
-import { existsSync, rmSync, mkdirSync, writeFileSync, lstatSync } from 'fs';
+import { existsSync, rmSync, mkdirSync, writeFileSync, lstatSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli, stripAnsi } from './test-utils.ts';
@@ -138,6 +138,41 @@ Instructions here.
     expect(result.stdout).toContain('my-skill');
     expect(result.stdout).toContain('Done!');
     expect(result.exitCode).toBe(0);
+  });
+
+  it('records a global install from a local path in the global skill lock', () => {
+    const skillDir = join(testDir, 'skills', 'my-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: my-skill
+description: My test skill
+---
+
+# My Skill
+
+Instructions here.
+`
+    );
+
+    const home = join(testDir, 'home');
+    mkdirSync(home, { recursive: true });
+    const targetDir = join(testDir, 'project');
+    mkdirSync(targetDir, { recursive: true });
+
+    const result = runCli(['add', testDir, '-y', '-g', '--agent', 'claude-code'], targetDir, {
+      HOME: home,
+      USERPROFILE: home,
+    });
+    expect(result.exitCode).toBe(0);
+
+    const lockPath = join(home, '.local', 'state', 'skills', '.skill-lock.json');
+    expect(existsSync(lockPath)).toBe(true);
+    const lock = JSON.parse(readFileSync(lockPath, 'utf-8'));
+    expect(lock.skills['my-skill']).toBeDefined();
+    expect(lock.skills['my-skill'].sourceType).toBe('local');
+    expect(lock.skills['my-skill'].source).toBe(testDir);
   });
 
   it('creates the project symlink for an explicitly selected non-universal agent', () => {
