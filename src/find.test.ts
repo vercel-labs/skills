@@ -76,10 +76,7 @@ describe('searchSkillsAPI', () => {
 
     const results = await searchSkillsAPI('eval');
 
-    expect(results.map((skill) => skill.name)).toEqual([
-      'eval-harness',
-      'hyperframes-registry',
-    ]);
+    expect(results.map((skill) => skill.name)).toEqual(['eval-harness', 'hyperframes-registry']);
   });
 
   it('prints every result in API order for a non-interactive query', async () => {
