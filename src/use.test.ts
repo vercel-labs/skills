@@ -29,6 +29,7 @@ describe('use command', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     for (const dir of cleanupDirs.splice(0)) {
       if (existsSync(dir)) {
         rmSync(dir, { recursive: true, force: true });
@@ -233,6 +234,78 @@ describe('use command', () => {
   });
 
   describe('CLI behavior', () => {
+    it.each(['healthy', 'broken'])(
+      'only downloads supporting files for the selected well-known skill: %s',
+      async (selector) => {
+        const source = 'https://example.com';
+        const baseUrl = `${source}/.well-known/agent-skills`;
+        const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+          const href = String(url);
+          if (href === `${baseUrl}/index.json`) {
+            return Response.json({
+              skills: ['healthy', 'broken'].map((name) => ({
+                name,
+                description: `${name} skill.`,
+                files: ['SKILL.md', 'reference.txt'],
+              })),
+            });
+          }
+          for (const name of ['healthy', 'broken']) {
+            if (href === `${baseUrl}/${name}/SKILL.md`) {
+              return new Response(
+                `---\nname: ${name}\ndescription: ${name} skill.\n---\n# ${name}`
+              );
+            }
+          }
+          if (href === `${baseUrl}/healthy/reference.txt`) {
+            return new Response('Healthy reference');
+          }
+          if (href === `${baseUrl}/broken/reference.txt`) {
+            return new Response('rate limited', { status: 429 });
+          }
+          return new Response('not found', { status: 404 });
+        });
+        const writes: string[] = [];
+        vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: unknown) => {
+          writes.push(String(chunk));
+          return true;
+        }) as typeof process.stdout.write);
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        vi.spyOn(process, 'exit').mockImplementation((() => {
+          throw new Error('process.exit called');
+        }) as never);
+
+        if (selector === 'healthy') {
+          await runUse([source], { skill: selector });
+          const stdout = writes.join('');
+          const supportDir = extractSupportDir(stdout);
+          if (supportDir) cleanupDirs.push(join(supportDir, '..'));
+          expect(stdout).toContain('# healthy');
+          expect(supportDir).toBeTruthy();
+          expect(readFileSync(join(supportDir!, 'reference.txt'), 'utf-8')).toBe(
+            'Healthy reference'
+          );
+          expect(process.exit).not.toHaveBeenCalled();
+          expect(
+            fetchSpy.mock.calls.some(([url]) => String(url) === `${baseUrl}/broken/reference.txt`)
+          ).toBe(false);
+        } else {
+          await expect(runUse([source], { skill: selector })).rejects.toThrow(
+            'process.exit called'
+          );
+          expect(process.exit).toHaveBeenCalledWith(1);
+          expect(errorSpy).toHaveBeenCalledWith(
+            expect.stringContaining('reference.txt" for skill "broken" (HTTP 429)')
+          );
+          expect(writes.join('')).toBe('');
+          expect(
+            fetchSpy.mock.calls.some(([url]) => String(url) === `${baseUrl}/healthy/reference.txt`)
+          ).toBe(false);
+        }
+        expect(fetchSpy.mock.calls.some(([url]) => String(url) === source)).toBe(false);
+      }
+    );
+
     it('uses a direct archive when well-known discovery misses', async () => {
       const archiveRoot = join(testDir, 'direct-archive');
       writeSkill(archiveRoot, 'direct-skill', 'Direct archive body.');

@@ -13,12 +13,13 @@ vi.mock('@clack/prompts', () => {
     outro: noop,
     note: noop,
     confirm: vi.fn().mockResolvedValue(true),
+    isCancel: () => false,
     cancel: noop,
     log: {
-      info: noop,
-      message: noop,
+      info: vi.fn(),
+      message: vi.fn(),
       warn: noop,
-      error: noop,
+      error: vi.fn(),
       step: noop,
       success: noop,
     },
@@ -65,6 +66,14 @@ vi.mock('../src/detect-agent.ts', () => ({
   ensureUniversalAgents: vi.fn((agents: string[]) => agents),
 }));
 
+vi.mock('../src/prompts/search-multiselect.ts', () => ({
+  searchMultiselect: vi.fn(async ({ items }) =>
+    items
+      .filter((item: { label: string }) => item.label === 'healthy')
+      .map((item: { value: unknown }) => item.value)
+  ),
+}));
+
 vi.mock('../src/source-parser.ts', async (importActual) => {
   const actual = await importActual<typeof import('../src/source-parser.ts')>();
   return {
@@ -75,8 +84,46 @@ vi.mock('../src/source-parser.ts', async (importActual) => {
 
 import { runAdd } from '../src/add.ts';
 import { track } from '../src/telemetry.ts';
+import { searchMultiselect } from '../src/prompts/search-multiselect.ts';
+import * as p from '@clack/prompts';
 
 const DISCOVERY_SCHEMA_V2 = 'https://schemas.agentskills.io/discovery/0.2.0/schema.json';
+
+function mockLegacyPack({ internal = false } = {}) {
+  const installUrl = 'https://registry.example.com/p/example-pack';
+  const baseUrl = `${installUrl}/.well-known/agent-skills`;
+  const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+    const href = String(url);
+    if (href === `${baseUrl}/index.json`) {
+      return Response.json({
+        skills: [
+          { name: 'healthy', description: 'Healthy skill.', files: ['SKILL.md', 'reference.txt'] },
+          {
+            name: 'incomplete',
+            description: 'Incomplete skill.',
+            files: ['SKILL.md', 'references/README.md'],
+          },
+        ],
+      });
+    }
+    if (href === `${baseUrl}/healthy/SKILL.md`) {
+      return new Response('---\nname: Friendly Skill\ndescription: Healthy skill.\n---\n# Healthy');
+    }
+    if (href === `${baseUrl}/healthy/reference.txt`) {
+      return new Response('Healthy reference');
+    }
+    if (href === `${baseUrl}/incomplete/SKILL.md`) {
+      return new Response(
+        `---\nname: incomplete\ndescription: Incomplete skill.\n${internal ? 'metadata:\n  internal: true\n' : ''}---\n# Incomplete`
+      );
+    }
+    if (href === `${baseUrl}/incomplete/references/README.md`) {
+      return new Response('rate limited', { status: 429 });
+    }
+    return new Response('not found', { status: 404 });
+  });
+  return { installUrl, baseUrl, fetchSpy };
+}
 
 function createTarGz(files: Record<string, string>): Uint8Array {
   const chunks: Buffer[] = [];
@@ -124,6 +171,7 @@ describe('direct download add', () => {
 
   afterEach(async () => {
     process.chdir(originalCwd);
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
     await rm(project, { recursive: true, force: true });
   });
@@ -152,6 +200,138 @@ describe('direct download add', () => {
     await expect(
       readFile(join(project, '.agents', 'skills', 'direct-skill', 'SKILL.md'), 'utf-8')
     ).resolves.toContain('# Direct skill');
+    expect(existsSync(join(project, 'skills-lock.json'))).toBe(false);
+  });
+
+  it('stops before installing or falling back when a pack file cannot be downloaded', async () => {
+    const installUrl = 'https://registry.example.com/p/example-pack';
+    const baseUrl = `${installUrl}/.well-known/agent-skills`;
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      const href = String(url);
+      if (href === `${baseUrl}/index.json`) {
+        return Response.json({
+          skills: [
+            { name: 'complete', description: 'Complete skill.', files: ['SKILL.md'] },
+            {
+              name: 'incomplete',
+              description: 'Incomplete skill.',
+              files: ['SKILL.md', 'references/README.md'],
+            },
+          ],
+        });
+      }
+      for (const name of ['complete', 'incomplete']) {
+        if (href === `${baseUrl}/${name}/SKILL.md`) {
+          return new Response(`---\nname: ${name}\ndescription: Example skill.\n---\n# Skill`);
+        }
+      }
+      if (href === `${baseUrl}/incomplete/references/README.md`) {
+        return new Response('rate limited', { status: 429 });
+      }
+      return new Response('not found', { status: 404 });
+    });
+
+    await expect(
+      runAdd([installUrl], { yes: true, agent: ['codex'], global: false, copy: true })
+    ).rejects.toThrow('process.exit called');
+
+    expect(process.exit).toHaveBeenCalledWith(1);
+    expect(p.log.error).toHaveBeenCalledWith(
+      expect.stringContaining('references/README.md" for skill "incomplete" (HTTP 429)')
+    );
+    expect(existsSync(join(project, '.agents', 'skills'))).toBe(false);
+    expect(existsSync(join(project, 'skills-lock.json'))).toBe(false);
+    expect(fetchSpy.mock.calls.some(([url]) => String(url) === installUrl)).toBe(false);
+    expect(track).not.toHaveBeenCalledWith(expect.objectContaining({ event: 'install' }));
+  });
+
+  it.each(['healthy', 'FRIENDLY SKILL'])(
+    'installs the selected skill %s without downloading an unselected broken skill',
+    async (selector) => {
+      const { installUrl, baseUrl, fetchSpy } = mockLegacyPack();
+
+      await runAdd([installUrl], {
+        yes: true,
+        agent: ['codex'],
+        global: false,
+        copy: true,
+        skill: [selector],
+      });
+
+      await expect(
+        readFile(join(project, '.agents', 'skills', 'healthy', 'reference.txt'), 'utf-8')
+      ).resolves.toBe('Healthy reference');
+      expect(existsSync(join(project, '.agents', 'skills', 'incomplete'))).toBe(false);
+      expect(
+        fetchSpy.mock.calls.some(
+          ([url]) => String(url) === `${baseUrl}/incomplete/references/README.md`
+        )
+      ).toBe(false);
+      expect(process.exit).not.toHaveBeenCalled();
+    }
+  );
+
+  it('installs public skills without downloading a hidden internal skill', async () => {
+    vi.stubEnv('INSTALL_INTERNAL_SKILLS', '');
+    const { installUrl, baseUrl, fetchSpy } = mockLegacyPack({ internal: true });
+
+    await runAdd([installUrl], { yes: true, agent: ['codex'], global: false, copy: true });
+
+    await expect(
+      readFile(join(project, '.agents', 'skills', 'healthy', 'reference.txt'), 'utf-8')
+    ).resolves.toBe('Healthy reference');
+    expect(existsSync(join(project, '.agents', 'skills', 'incomplete'))).toBe(false);
+    expect(
+      fetchSpy.mock.calls.some(
+        ([url]) => String(url) === `${baseUrl}/incomplete/references/README.md`
+      )
+    ).toBe(false);
+  });
+
+  it('lets an interactive selection skip a broken skill', async () => {
+    const { installUrl, baseUrl, fetchSpy } = mockLegacyPack();
+
+    await runAdd([installUrl], { agent: ['codex'], global: false, copy: true });
+
+    expect(searchMultiselect).toHaveBeenCalled();
+    await expect(
+      readFile(join(project, '.agents', 'skills', 'healthy', 'reference.txt'), 'utf-8')
+    ).resolves.toBe('Healthy reference');
+    expect(
+      fetchSpy.mock.calls.some(
+        ([url]) => String(url) === `${baseUrl}/incomplete/references/README.md`
+      )
+    ).toBe(false);
+  });
+
+  it('lists all discovered skills without downloading their supporting files', async () => {
+    const { installUrl, fetchSpy } = mockLegacyPack();
+
+    await expect(runAdd([installUrl], { list: true, skill: ['healthy'] })).rejects.toThrow(
+      'process.exit called'
+    );
+
+    expect(process.exit).toHaveBeenNthCalledWith(1, 0);
+    expect(p.log.message).toHaveBeenCalledWith('  healthy');
+    expect(p.log.message).toHaveBeenCalledWith('  incomplete');
+    expect(fetchSpy.mock.calls.every(([url]) => /\/(index.json|SKILL.md)$/.test(String(url)))).toBe(
+      true
+    );
+    expect(existsSync(join(project, '.agents', 'skills'))).toBe(false);
+  });
+
+  it('reports an unmatched selector without downloading files or falling back', async () => {
+    const { installUrl, fetchSpy } = mockLegacyPack();
+
+    await expect(
+      runAdd([installUrl], { yes: true, skill: ['missing'], agent: ['codex'] })
+    ).rejects.toThrow('process.exit called');
+
+    expect(p.log.error).toHaveBeenCalledWith('No matching skills found for: missing');
+    expect(p.log.info).toHaveBeenCalledWith('Available skills:');
+    expect(fetchSpy.mock.calls.every(([url]) => /\/(index.json|SKILL.md)$/.test(String(url)))).toBe(
+      true
+    );
     expect(existsSync(join(project, 'skills-lock.json'))).toBe(false);
   });
 
