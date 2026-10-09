@@ -149,7 +149,7 @@ function getPortableLocalSource(source: string, lockDir: string): string {
 /**
  * Compute a SHA-256 hash from all files in a skill directory.
  * Reads all files recursively, sorts them by relative path for determinism,
- * and produces a single hash from their concatenated contents.
+ * and produces a single hash from their framed paths and contents.
  */
 export async function computeSkillFolderHash(skillDir: string): Promise<string> {
   const files: Array<{ relativePath: string; content: Buffer }> = [];
@@ -160,8 +160,11 @@ export async function computeSkillFolderHash(skillDir: string): Promise<string> 
 
   const hash = createHash('sha256');
   for (const file of files) {
-    // Include the path in the hash so renames are detected
+    // Frame each file so a path change cannot be offset by a content change.
     hash.update(file.relativePath);
+    hash.update('\0');
+    hash.update(String(file.content.length));
+    hash.update('\0');
     hash.update(file.content);
   }
 
