@@ -72,6 +72,9 @@ vi.mock('child_process', async (importOriginal) => {
 describe('Update Cleanup Unit Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(git.withGitCloneCache).mockImplementation(async (run) =>
+      run({ ...process.env, SKILLS_UPDATE_CLONE_CACHE_DIR: '/tmp/update-clone-cache' })
+    );
     process.exitCode = undefined;
     process.env.DISABLE_TELEMETRY = '1';
     // Default mock for isTTY
@@ -1121,7 +1124,60 @@ describe('Update Cleanup Unit Tests', () => {
           'skill-a',
         ])
       );
-      expect((options as { env?: NodeJS.ProcessEnv }).env).toBeUndefined();
+      expect((options as { env?: NodeJS.ProcessEnv }).env?.GH_HOST).toBe('github.example.com');
+      expect((options as { env?: NodeJS.ProcessEnv }).env?.SKILLS_UPDATE_CLONE_CACHE_DIR).toBe(
+        '/tmp/update-clone-cache'
+      );
+    });
+
+    it('shares the cache while continuing after an individual installation fails', async () => {
+      const entry = {
+        source: 'owner/repo',
+        sourceUrl: 'https://github.com/owner/repo.git',
+        sourceType: 'github',
+        skillFolderHash: 'old-hash',
+        installedAt: '',
+        updatedAt: '',
+      };
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': { ...entry, skillPath: 'skills/skill-a/SKILL.md' },
+          'skill-b': { ...entry, skillPath: 'skills/skill-b/SKILL.md' },
+        },
+      });
+      vi.mocked(blob.fetchRepoTree).mockResolvedValue({
+        sha: 'rootsha',
+        branch: 'main',
+        tree: [
+          { path: 'skills/skill-a/SKILL.md', type: 'blob', sha: 'a' },
+          { path: 'skills/skill-b/SKILL.md', type: 'blob', sha: 'b' },
+        ],
+      });
+      vi.mocked(blob.getSkillFolderHashFromTree).mockReturnValue('new-hash');
+      vi.mocked(spawnSync)
+        .mockReturnValueOnce({ status: 1 } as ReturnType<typeof spawnSync>)
+        .mockReturnValueOnce({ status: 0 } as ReturnType<typeof spawnSync>);
+
+      const result = await updateGlobalSkills({ yes: true });
+
+      expect(result.successCount).toBe(1);
+      expect(result.failCount).toBe(1);
+      expect(spawnSync).toHaveBeenCalledTimes(2);
+      const calls = vi.mocked(spawnSync).mock.calls;
+      for (const [, argv, options] of calls) {
+        expect((options as { env?: NodeJS.ProcessEnv }).env?.SKILLS_UPDATE_CLONE_CACHE_DIR).toBe(
+          '/tmp/update-clone-cache'
+        );
+        expect((options as { shell?: boolean }).shell).toBe(false);
+        expect(argv).toEqual(expect.arrayContaining(['--skill']));
+      }
+      expect(calls[0]![1]).toEqual(
+        expect.arrayContaining(['owner/repo/skills/skill-a', 'skill-a'])
+      );
+      expect(calls[1]![1]).toEqual(
+        expect.arrayContaining(['owner/repo/skills/skill-b', 'skill-b'])
+      );
     });
 
     it('spawns the update without a shell so a crafted ref cannot inject commands', async () => {

@@ -14,7 +14,7 @@ import {
   buildLocalCloneSource,
   shouldUseFullDepthForUpdate,
 } from './update-source.ts';
-import { cloneRepo, cleanupTempDir, getGitTreeHash } from './git.ts';
+import { cloneRepo, cleanupTempDir, getGitTreeHash, withGitCloneCache } from './git.ts';
 import { discoverSkills } from './skills.ts';
 import { fetchRepoTree, getSkillFolderHashFromTree } from './blob.ts';
 import {
@@ -56,11 +56,14 @@ export interface UpdateCheckOptions {
  * skill subpath. Pin that shorthand to github.com so an ambient GH_HOST for a
  * GitHub Enterprise account cannot redirect an existing public installation.
  */
-function getUpdateChildEnv(sourceType: string): NodeJS.ProcessEnv | undefined {
+function getUpdateChildEnv(
+  sourceType: string,
+  cloneCacheEnv?: NodeJS.ProcessEnv
+): NodeJS.ProcessEnv | undefined {
   if (sourceType !== 'github') {
-    return undefined;
+    return cloneCacheEnv;
   }
-  return { ...process.env, GH_HOST: 'github.com' };
+  return { ...process.env, ...cloneCacheEnv, GH_HOST: 'github.com' };
 }
 
 export function parseUpdateOptions(args: string[]): UpdateCheckOptions {
@@ -697,51 +700,53 @@ export async function updateGlobalSkills(
   console.log(`${TEXT}Found ${updates.length} global update(s)${RESET}`);
   console.log();
 
-  for (const update of updates) {
-    const safeName = sanitizeMetadata(update.name);
-    console.log(`${TEXT}Updating ${safeName}…${RESET}`);
-    const installUrl = buildUpdateInstallSource(update.entry);
-    if (!installUrl) {
-      failCount++;
-      console.log(
-        `  ${DIM}✗ Cannot update ${safeName}: lock file is missing sourceUrl for this generic Git source${RESET}`
-      );
-      continue;
-    }
-
-    const cliEntry = join(__dirname, '..', 'bin', 'cli.mjs');
-    if (!existsSync(cliEntry)) {
-      failCount++;
-      console.log(
-        `  ${DIM}✗ Failed to update ${safeName}: CLI entrypoint not found at ${cliEntry}${RESET}`
-      );
-      continue;
-    }
-    const fullDepthArgs = shouldUseFullDepthForUpdate(update.entry) ? ['--full-depth'] : [];
-    const result = spawnSync(
-      process.execPath,
-      [cliEntry, 'add', installUrl, '--skill', update.name, ...fullDepthArgs, '-g', '-y'],
-      {
-        stdio: ['inherit', 'pipe', 'pipe'],
-        encoding: 'utf-8',
-        env: getUpdateChildEnv(update.entry.sourceType),
-        // Never spawn through a shell. process.execPath is an absolute path to the
-        // node binary, so no shell is needed to resolve it. installUrl is derived
-        // from the lock file (and ref is URL-decoded, so influenceable by whoever
-        // publishes a skill); a shell on Windows would let metacharacters in that
-        // value inject commands. Passing argv directly keeps it inert.
-        shell: false,
+  await withGitCloneCache(async (cloneCacheEnv) => {
+    for (const update of updates) {
+      const safeName = sanitizeMetadata(update.name);
+      console.log(`${TEXT}Updating ${safeName}…${RESET}`);
+      const installUrl = buildUpdateInstallSource(update.entry);
+      if (!installUrl) {
+        failCount++;
+        console.log(
+          `  ${DIM}✗ Cannot update ${safeName}: lock file is missing sourceUrl for this generic Git source${RESET}`
+        );
+        continue;
       }
-    );
 
-    if (result.status === 0) {
-      successCount++;
-      console.log(`  ${TEXT}✓${RESET} Updated ${safeName}`);
-    } else {
-      failCount++;
-      console.log(`  ${DIM}✗ Failed to update ${safeName}${RESET}`);
+      const cliEntry = join(__dirname, '..', 'bin', 'cli.mjs');
+      if (!existsSync(cliEntry)) {
+        failCount++;
+        console.log(
+          `  ${DIM}✗ Failed to update ${safeName}: CLI entrypoint not found at ${cliEntry}${RESET}`
+        );
+        continue;
+      }
+      const fullDepthArgs = shouldUseFullDepthForUpdate(update.entry) ? ['--full-depth'] : [];
+      const result = spawnSync(
+        process.execPath,
+        [cliEntry, 'add', installUrl, '--skill', update.name, ...fullDepthArgs, '-g', '-y'],
+        {
+          stdio: ['inherit', 'pipe', 'pipe'],
+          encoding: 'utf-8',
+          env: getUpdateChildEnv(update.entry.sourceType, cloneCacheEnv),
+          // Never spawn through a shell. process.execPath is an absolute path to the
+          // node binary, so no shell is needed to resolve it. installUrl is derived
+          // from the lock file (and ref is URL-decoded, so influenceable by whoever
+          // publishes a skill); a shell on Windows would let metacharacters in that
+          // value inject commands. Passing argv directly keeps it inert.
+          shell: false,
+        }
+      );
+
+      if (result.status === 0) {
+        successCount++;
+        console.log(`  ${TEXT}✓${RESET} Updated ${safeName}`);
+      } else {
+        failCount++;
+        console.log(`  ${DIM}✗ Failed to update ${safeName}${RESET}`);
+      }
     }
-  }
+  });
 
   printSkippedSkills(skipped);
   return { successCount, failCount, checkedCount };

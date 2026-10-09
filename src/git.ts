@@ -1,6 +1,7 @@
 import simpleGit from 'simple-git';
-import { join, normalize, resolve, sep } from 'path';
-import { mkdtemp, mkdir, rm } from 'fs/promises';
+import { isAbsolute, join, normalize, resolve, sep } from 'path';
+import { access, mkdtemp, mkdir, rename, rm } from 'fs/promises';
+import { createHash } from 'crypto';
 import { tmpdir } from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -292,11 +293,70 @@ function buildGitHubAuthError(url: string, repo: GitHubRepoInfo | null, message:
   );
 }
 
+// Internal, invocation-scoped cache shared only by update's sequential add children.
+// Source paths and lock metadata still come from each child's original arguments.
+const CLONE_CACHE_ENV = 'SKILLS_UPDATE_CLONE_CACHE_DIR';
+const borrowedCloneDirs = new Set<string>();
+const pendingClones = new Map<string, Promise<string>>();
+
+export async function withGitCloneCache<T>(
+  run: (childEnv: NodeJS.ProcessEnv) => Promise<T>
+): Promise<T> {
+  const cacheDir = await mkdtemp(join(tmpdir(), 'skills-update-clones-'));
+  try {
+    return await run({ ...process.env, [CLONE_CACHE_ENV]: cacheDir });
+  } finally {
+    await rm(cacheDir, { recursive: true, force: true });
+  }
+}
+
 export async function cloneRepo(url: string, ref?: string): Promise<string> {
   if (/^ext::/i.test(url)) {
     throw new GitCloneError('Unsupported Git transport: ext', url);
   }
 
+  const cacheDir = process.env[CLONE_CACHE_ENV];
+  if (!cacheDir || !isAbsolute(cacheDir)) return cloneRepoUncached(url, ref);
+
+  // Exact URL and ref: never mix hosts, transports, branches, or tags.
+  const key = createHash('sha256')
+    .update(JSON.stringify([url, ref ?? null]))
+    .digest('hex');
+  const cachedDir = join(cacheDir, key);
+  let pending = pendingClones.get(cachedDir);
+  if (!pending) {
+    pending = (async () => {
+      try {
+        await access(join(cachedDir, '.git'));
+        return cachedDir;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+
+      // Publish only a complete clone. Failed clones are not cached, so a later
+      // skill can retry using the existing authentication/transport fallbacks.
+      const freshDir = await cloneRepoUncached(url, ref);
+      try {
+        await rename(freshDir, cachedDir);
+      } catch (error) {
+        await cleanupTempDir(freshDir);
+        throw error;
+      }
+      return cachedDir;
+    })();
+    pendingClones.set(cachedDir, pending);
+  }
+
+  try {
+    const dir = await pending;
+    borrowedCloneDirs.add(normalize(resolve(dir)));
+    return dir;
+  } finally {
+    if (pendingClones.get(cachedDir) === pending) pendingClones.delete(cachedDir);
+  }
+}
+
+async function cloneRepoUncached(url: string, ref?: string): Promise<string> {
   const tempDir = await mkdtemp(join(tmpdir(), 'skills-'));
   const cloneOptions = ref ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
   const refCanBeSha = !!ref && isCommitSha(ref);
@@ -425,6 +485,10 @@ export async function cleanupTempDir(dir: string): Promise<void> {
   if (!normalizedDir.startsWith(normalizedTmpDir + sep) && normalizedDir !== normalizedTmpDir) {
     throw new Error('Attempted to clean up directory outside of temp directory');
   }
+
+  // A cached checkout is borrowed by add. Its owner (the update process)
+  // removes it after all sequential installations, including failure paths.
+  if (borrowedCloneDirs.has(normalizedDir)) return;
 
   await rm(dir, { recursive: true, force: true });
 }
