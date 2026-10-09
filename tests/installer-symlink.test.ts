@@ -13,8 +13,9 @@ import {
   readlink,
   symlink,
   readdir,
+  realpath,
 } from 'node:fs/promises';
-import { join } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { installSkillForAgent, installBlobSkillForAgent } from '../src/installer.ts';
 
@@ -179,6 +180,117 @@ describe('installer symlink regression', () => {
           expect(entryStats.isDirectory()).toBe(true);
         }
       }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  // Regression test for #456 and #481: when the agent skills dir itself is a symlink
+  it.each([
+    ['deeper', ['dotfiles', 'config', 'claude', 'skills']],
+    ['shallower', ['skills']],
+  ])(
+    'links to the canonical dir when the agent skills dir is a symlink to a %s directory',
+    async (_depth, realSkillsSegments) => {
+      // Resolve the temp root so macOS's /var -> /private/var cannot mask a wrong relative link
+      const root = await realpath(await mkdtemp(join(tmpdir(), 'add-skill-')));
+      const projectDir = join(root, 'project');
+      await mkdir(join(projectDir, '.claude'), { recursive: true });
+
+      const realSkillsDir = join(root, ...realSkillsSegments);
+      await mkdir(realSkillsDir, { recursive: true });
+      await symlink(realSkillsDir, join(projectDir, '.claude', 'skills'));
+
+      const skillName = 'symlinked-agent-dir-skill';
+      const skillDir = await makeSkillSource(root, skillName);
+
+      try {
+        const result = await installSkillForAgent(
+          { name: skillName, description: 'test', path: skillDir },
+          'claude-code',
+          { cwd: projectDir, mode: 'symlink', global: false }
+        );
+
+        expect(result.success).toBe(true);
+        expect(result.symlinkFailed).toBeUndefined();
+
+        const claudeSkillDir = join(projectDir, '.claude', 'skills', skillName);
+        const canonicalSkillDir = join(projectDir, '.agents', 'skills', skillName);
+        expect((await lstat(claudeSkillDir)).isSymbolicLink()).toBe(true);
+        expect(await realpath(claudeSkillDir)).toBe(await realpath(canonicalSkillDir));
+        // Relative, so a committed project install still resolves in another clone
+        if (process.platform !== 'win32') {
+          expect(isAbsolute(await readlink(claudeSkillDir))).toBe(false);
+        }
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    }
+  );
+
+  it('keeps a working link in a symlinked skills dir when the skill is installed again', async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'add-skill-')));
+    const projectDir = join(root, 'project');
+    await mkdir(join(projectDir, '.claude'), { recursive: true });
+
+    const realSkillsDir = join(root, 'dotfiles', 'config', 'claude', 'skills');
+    await mkdir(realSkillsDir, { recursive: true });
+    await symlink(realSkillsDir, join(projectDir, '.claude', 'skills'));
+
+    const skillName = 'reinstalled-skill';
+    const skill = {
+      name: skillName,
+      description: 'test',
+      path: await makeSkillSource(root, skillName),
+    };
+    const options = { cwd: projectDir, mode: 'symlink' as const, global: false };
+    const claudeSkillDir = join(projectDir, '.claude', 'skills', skillName);
+    const canonicalSkillDir = join(projectDir, '.agents', 'skills', skillName);
+
+    try {
+      await installSkillForAgent(skill, 'claude-code', options);
+      // A link that works but reads differently from the one the installer writes
+      await rm(claudeSkillDir);
+      await symlink(canonicalSkillDir, claudeSkillDir);
+
+      const result = await installSkillForAgent(skill, 'claude-code', options);
+
+      expect(result.success).toBe(true);
+      expect(await readlink(claudeSkillDir)).toBe(canonicalSkillDir);
+      expect(await realpath(claudeSkillDir)).toBe(await realpath(canonicalSkillDir));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('replaces a dangling link left by an earlier install into a symlinked skills dir', async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'add-skill-')));
+    const projectDir = join(root, 'project');
+    await mkdir(join(projectDir, '.claude'), { recursive: true });
+
+    const realSkillsDir = join(root, 'dotfiles', 'config', 'claude', 'skills');
+    await mkdir(realSkillsDir, { recursive: true });
+    const claudeSkillsDir = join(projectDir, '.claude', 'skills');
+    await symlink(realSkillsDir, claudeSkillsDir);
+
+    const skillName = 'dangling-link-skill';
+    const skillDir = await makeSkillSource(root, skillName);
+    const claudeSkillDir = join(claudeSkillsDir, skillName);
+    const canonicalSkillDir = join(projectDir, '.agents', 'skills', skillName);
+
+    // The link earlier versions wrote: right from the symlink's path, dangling from the real one
+    await symlink(relative(claudeSkillsDir, canonicalSkillDir), claudeSkillDir);
+
+    try {
+      const result = await installSkillForAgent(
+        { name: skillName, description: 'test', path: skillDir },
+        'claude-code',
+        { cwd: projectDir, mode: 'symlink', global: false }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.symlinkFailed).toBeUndefined();
+      expect(await realpath(claudeSkillDir)).toBe(await realpath(canonicalSkillDir));
     } finally {
       await rm(root, { recursive: true, force: true });
     }
