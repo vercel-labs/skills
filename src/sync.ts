@@ -82,6 +82,8 @@ function shortenPath(fullPath: string, cwd: string): string {
 interface PackageSkill extends Skill {
   packageName: string;
   packageVersion?: string;
+  /** `"private": true` in package.json, e.g. a linked workspace package; never published. */
+  packagePrivate?: boolean;
   /** Path to SKILL.md relative to the package root, e.g. `skills/pdf/SKILL.md`. */
   skillPath: string;
   /** Package whose `skills` field requested this skill (`.` for the project). */
@@ -92,6 +94,7 @@ interface PackageSkill extends Skill {
 
 interface PackageJson {
   version?: string;
+  private?: boolean;
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
   /** Validated by parseSkillsField. */
@@ -119,7 +122,14 @@ async function discoverPackageSkills(
     : null;
   if (rootSkill) {
     return [
-      { ...rootSkill, packageName, packageVersion: pkg.version, skillPath: 'SKILL.md', depth },
+      {
+        ...rootSkill,
+        packageName,
+        packageVersion: pkg.version,
+        packagePrivate: pkg.private,
+        skillPath: 'SKILL.md',
+        depth,
+      },
     ];
   }
 
@@ -134,6 +144,7 @@ async function discoverPackageSkills(
           ...skill,
           packageName,
           packageVersion: pkg.version,
+          packagePrivate: pkg.private,
           skillPath: `${dir}/${name}/SKILL.md`,
           depth,
         });
@@ -818,11 +829,25 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   }
 
   // Track telemetry
+  const packages = discoveredSkills.flatMap((skill) =>
+    skill.packageVersion && !skill.packagePrivate
+      ? [
+          {
+            skill: skill.name,
+            package: skill.packageName,
+            ecosystem: 'npm',
+            registry: 'npm',
+            version: skill.packageVersion,
+          },
+        ]
+      : []
+  );
   track({
     event: 'experimental_sync',
     skillCount: String(toInstall.length),
     successCount: String(successfulSkillNames.size),
     agents: targetAgents.join(','),
+    ...(packages.length > 0 && { packages: JSON.stringify(packages) }),
   });
 
   console.log();

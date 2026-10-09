@@ -50,6 +50,12 @@ interface SyncTelemetryData {
   skillCount: string;
   successCount: string;
   agents: string;
+  /**
+   * JSON array of `{ skill, package, ecosystem, registry, version }` for the
+   * npm package skills seen during sync, so the server can index the published
+   * package instead of trusting local node_modules contents.
+   */
+  packages?: string;
 }
 
 type TelemetryData =
