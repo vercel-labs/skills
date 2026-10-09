@@ -396,16 +396,17 @@ Describe the scenarios where this skill should be used.
 
 ### Optional Fields
 
-- `metadata.internal`: Set to `true` to hide the skill from normal discovery. Internal skills are only visible and
+- `metadata.internal`: Set to `"true"` to hide the skill from normal discovery. Internal skills are only visible and
   installable when `INSTALL_INTERNAL_SKILLS=1` is set. Useful for work-in-progress skills or skills meant only for
-  internal tooling.
+  internal tooling. The [Agent Skills spec](https://agentskills.io/specification) makes metadata values strings, so
+  quote it. The YAML boolean `true` also works, and is the only form older versions of the CLI read.
 
 ```markdown
 ---
 name: my-internal-skill
 description: An internal skill not shown by default
 metadata:
-  internal: true
+  internal: "true"
 ---
 ```
 

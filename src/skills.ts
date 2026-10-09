@@ -63,6 +63,15 @@ export function shouldInstallInternalSkills(): boolean {
   return envValue === '1' || envValue === 'true';
 }
 
+/**
+ * Check if frontmatter metadata marks a skill as internal.
+ * The Agent Skills spec makes metadata values strings, so "true" counts as well as true.
+ */
+export function isInternalSkill(metadata: unknown): boolean {
+  const internal = isRecord(metadata) ? metadata.internal : undefined;
+  return internal === true || internal === 'true';
+}
+
 export async function hasSkillMd(dir: string): Promise<boolean> {
   try {
     const skillPath = join(dir, 'SKILL.md');
@@ -118,7 +127,7 @@ export async function parseSkillMd(
   // 1. INSTALL_INTERNAL_SKILLS=1 is set, OR
   // 2. includeInternal option is true (e.g., when user explicitly requests a skill)
   const metadata = isRecord(data.metadata) ? data.metadata : undefined;
-  const isInternal = metadata?.internal === true;
+  const isInternal = isInternalSkill(metadata);
   if (isInternal && !shouldInstallInternalSkills() && !options?.includeInternal) {
     return null;
   }
