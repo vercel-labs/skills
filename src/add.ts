@@ -358,17 +358,34 @@ function buildTargetSummaryLines(targets: InstallTarget[], installMode: InstallM
  * Ensures universal agents are always included in the target agents list.
  * Used when -y flag is passed or when auto-selecting agents.
  */
-function ensureUniversalAgents(targetAgents: AgentType[]): AgentType[] {
+export function ensureUniversalAgents(
+  targetAgents: AgentType[],
+  options: { global?: boolean } = {}
+): AgentType[] {
   const universalAgents = getUniversalAgents();
   const result = [...targetAgents];
 
   for (const ua of universalAgents) {
+    if (options.global && agents[ua].globalSkillsDir === undefined) {
+      continue;
+    }
     if (!result.includes(ua)) {
       result.push(ua);
     }
   }
 
   return result;
+}
+
+export function filterAgentsForRequestedScope(
+  targetAgents: AgentType[],
+  options: { global?: boolean } = {}
+): AgentType[] {
+  if (!options.global) {
+    return targetAgents;
+  }
+
+  return targetAgents.filter((agent) => agents[agent].globalSkillsDir !== undefined);
 }
 
 /**
@@ -763,7 +780,7 @@ async function handleWellKnownSkills(
 
   if (options.agent?.includes('*')) {
     // --agent '*' selects all agents
-    targetAgents = validAgents as AgentType[];
+    targetAgents = filterAgentsForRequestedScope(validAgents as AgentType[], options);
     p.log.info(`Installing to all ${targetAgents.length} agents`);
   } else if (options.agent && options.agent.length > 0) {
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
@@ -783,7 +800,7 @@ async function handleWellKnownSkills(
 
     if (installedAgents.length === 0) {
       if (options.yes) {
-        targetAgents = validAgents as AgentType[];
+        targetAgents = filterAgentsForRequestedScope(validAgents as AgentType[], options);
         p.log.info('Installing to all agents');
       } else {
         p.log.info('Select agents to install skills to');
@@ -807,7 +824,10 @@ async function handleWellKnownSkills(
       }
     } else if (installedAgents.length === 1 || options.yes) {
       // Auto-select detected agents + ensure universal agents are included
-      targetAgents = ensureUniversalAgents(installedAgents);
+      targetAgents = filterAgentsForRequestedScope(
+        ensureUniversalAgents(installedAgents, options),
+        options
+      );
       if (installedAgents.length === 1) {
         const firstAgent = installedAgents[0]!;
         p.log.info(`Installing to: ${pc.cyan(agents[firstAgent].displayName)}`);
@@ -854,6 +874,10 @@ async function handleWellKnownSkills(
     }
 
     installGlobally = scope as boolean;
+  }
+
+  if (!options.agent || options.agent.includes('*')) {
+    targetAgents = filterAgentsForRequestedScope(targetAgents, { global: installGlobally });
   }
 
   // Determine install mode (symlink vs copy)
@@ -1495,7 +1519,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     if (!options.agent || options.agent.length === 0) {
       const mappedAgent = getAgentType(agentResult.agent.name);
       if (mappedAgent) {
-        options.agent = ensureUniversalAgents([mappedAgent]);
+        options.agent = filterAgentsForRequestedScope(
+          ensureUniversalAgents([mappedAgent], options),
+          options
+        );
       }
     }
   }
@@ -1809,7 +1836,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     if (options.agent?.includes('*')) {
       // --agent '*' selects all agents
-      targetAgents = validAgents as AgentType[];
+      targetAgents = filterAgentsForRequestedScope(validAgents as AgentType[], options);
       p.log.info(`Installing to all ${targetAgents.length} agents`);
     } else if (options.agent && options.agent.length > 0) {
       const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
@@ -1828,7 +1855,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       const totalAgents = Object.keys(agents).length;
       spinner.stop(`${totalAgents} agents`);
 
-      if (installedAgents.includes('eve') && (options.yes || !agentResult.isAgent)) {
+      if (
+        !options.global &&
+        installedAgents.includes('eve') &&
+        (options.yes || !agentResult.isAgent)
+      ) {
         const useEve = options.yes
           ? true
           : await p.confirm({
@@ -1858,7 +1889,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         }
       } else if (installedAgents.length === 0) {
         if (options.yes) {
-          targetAgents = validAgents as AgentType[];
+          targetAgents = filterAgentsForRequestedScope(validAgents as AgentType[], options);
           p.log.info('Installing to all agents');
         } else {
           p.log.info('Select agents to install skills to');
@@ -1886,7 +1917,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         }
       } else if (installedAgents.length === 1 || options.yes) {
         // Auto-select detected agents + ensure universal agents are included
-        targetAgents = ensureUniversalAgents(installedAgents);
+        targetAgents = filterAgentsForRequestedScope(
+          ensureUniversalAgents(installedAgents, options),
+          options
+        );
         if (installedAgents.length === 1) {
           const firstAgent = installedAgents[0]!;
           p.log.info(`Installing to: ${pc.cyan(agents[firstAgent].displayName)}`);
@@ -1952,8 +1986,6 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
-    const installTargets = buildInstallTargets(targetAgents, eveSubagentTargets);
-
     let installGlobally = options.global ?? false;
 
     // Check if any selected agents support global installation
@@ -1983,6 +2015,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
       installGlobally = scope as boolean;
     }
+
+    if (!options.agent || options.agent.includes('*')) {
+      targetAgents = filterAgentsForRequestedScope(targetAgents, { global: installGlobally });
+    }
+
+    const installTargets = buildInstallTargets(targetAgents, eveSubagentTargets);
 
     // Determine install mode (symlink vs copy)
     let installMode: InstallMode = options.copy ? 'copy' : 'symlink';
