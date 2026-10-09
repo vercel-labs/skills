@@ -65,6 +65,7 @@ export type AgentType =
   | 'sarvam-code'
   | 'tabnine-cli'
   | 'terramind'
+  | 'thursday'
   | 'tinycloud'
   | 'trae'
   | 'trae-cn'
