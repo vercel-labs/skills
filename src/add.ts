@@ -9,6 +9,7 @@ import { searchMultiselect } from './prompts/search-multiselect.ts';
 import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
 import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
 import {
+  installCommandsForAgent,
   installSkillForAgent,
   installBlobSkillForAgent,
   isSkillInstalled,
@@ -2156,7 +2157,29 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       createMissingAgentRoot: (agent) => explicitlySelectedAgents.has(agent),
     });
 
+    const commandsRepoRoot = tempDir ?? parsed.localPath ?? null;
+    const installedCommands = new Set<string>();
+    if (commandsRepoRoot) {
+      const commandAgents = [...new Set(installTargets.map((target) => target.agent))];
+      for (const agent of commandAgents) {
+        const commandResult = await installCommandsForAgent(commandsRepoRoot, agent, {
+          global: installGlobally,
+          cwd: process.cwd(),
+        });
+        for (const name of commandResult.installed) {
+          installedCommands.add(name);
+        }
+      }
+    }
+
     spinner.stop('Installation complete');
+
+    if (installedCommands.size > 0) {
+      const commandNames = [...installedCommands].join(', ');
+      p.log.info(
+        `Installed ${pc.cyan(String(installedCommands.size))} command${installedCommands.size === 1 ? '' : 's'}: ${commandNames}`
+      );
+    }
 
     console.log();
     const successful = results.filter((r) => r.success);

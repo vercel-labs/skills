@@ -1131,11 +1131,7 @@ export interface InstalledSkill {
  * @returns Array of installed skills with metadata
  */
 export async function listInstalledSkills(
-  options: {
-    global?: boolean;
-    cwd?: string;
-    agentFilter?: AgentType[];
-  } = {}
+  options: { global?: boolean; cwd?: string; agentFilter?: AgentType[] } = {}
 ): Promise<InstalledSkill[]> {
   const cwd = options.cwd || process.cwd();
   // Use a Map to deduplicate skills by scope:name
@@ -1364,4 +1360,62 @@ export async function listInstalledSkills(
   }
 
   return Array.from(skillsMap.values());
+}
+
+export interface InstallCommandsResult {
+  success: boolean;
+  dir?: string;
+  installed: string[];
+  error?: string;
+}
+
+export async function installCommandsForAgent(
+  sourceRepo: string,
+  agentType: AgentType,
+  options: InstallOptions = {}
+): Promise<InstallCommandsResult> {
+  const agent = agents[agentType];
+  const isGlobal = options.global ?? false;
+  const cwd = options.cwd || process.cwd();
+  const configuredDir = isGlobal ? agent.globalCommandsDir : agent.commandsDir;
+
+  if (!configuredDir) {
+    return { success: true, installed: [] };
+  }
+
+  const sourceDir = join(sourceRepo, 'commands');
+  if (!existsSync(sourceDir)) {
+    return { success: true, installed: [] };
+  }
+
+  const targetDir = isGlobal ? configuredDir : join(cwd, configuredDir);
+
+  try {
+    const entries = await readdir(sourceDir, { withFileTypes: true });
+    const files = entries
+      .filter((entry) => entry.isFile() && extname(entry.name) === '.md')
+      .map((entry) => entry.name)
+      .sort();
+
+    if (files.length === 0) {
+      return { success: true, installed: [] };
+    }
+
+    await mkdir(targetDir, { recursive: true });
+    for (const file of files) {
+      await cp(join(sourceDir, file), join(targetDir, file));
+    }
+
+    return {
+      success: true,
+      dir: targetDir,
+      installed: files.map((file) => file.replace(/\.md$/, '')),
+    };
+  } catch (error) {
+    return {
+      success: false,
+      installed: [],
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
 }
