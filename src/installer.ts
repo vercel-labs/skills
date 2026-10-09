@@ -160,6 +160,17 @@ export function getAgentBaseDir(
   eveSubagent?: string
 ): string {
   if (isUniversalAgent(agentType)) {
+    // If a universal agent defines its own globalSkillsDir that differs from the
+    // shared canonical path (~/.agents/skills), use it for global installs so that
+    // skills are written to the agent's expected location (e.g. antigravity-cli
+    // reads from ~/.gemini/antigravity-cli/skills, not ~/.agents/skills globally).
+    if (global) {
+      const agentGlobalDir = agents[agentType].globalSkillsDir;
+      const canonicalGlobalDir = getCanonicalSkillsDir(true, cwd);
+      if (agentGlobalDir && agentGlobalDir !== canonicalGlobalDir) {
+        return agentGlobalDir;
+      }
+    }
     return getCanonicalSkillsDir(global, cwd);
   }
 
@@ -404,8 +415,9 @@ export async function installSkillForAgent(
 
     // For universal agents with global install, the skill is already in the canonical
     // ~/.agents/skills directory. Skip creating a symlink to the agent-specific global dir
-    // (e.g. ~/.copilot/skills) to avoid duplicates.
-    if (isGlobal && isUniversalAgent(agentType)) {
+    // only when the two dirs are the same (e.g. Warp/Zed/Cline all use ~/.agents/skills).
+    // Agents with a distinct globalSkillsDir (e.g. antigravity-cli) still need a symlink.
+    if (isGlobal && isUniversalAgent(agentType) && agentDir === canonicalDir) {
       return {
         success: true,
         path: canonicalDir,
@@ -750,7 +762,8 @@ export async function installRemoteSkillForAgent(
     );
 
     // For universal agents with global install, skip creating agent-specific symlink
-    if (isGlobal && isUniversalAgent(agentType)) {
+    // only when the agent and canonical dirs are the same path.
+    if (isGlobal && isUniversalAgent(agentType) && agentDir === canonicalDir) {
       return {
         success: true,
         path: canonicalDir,
@@ -905,7 +918,8 @@ export async function installWellKnownSkillForAgent(
     await writeSkillFiles(canonicalDir);
 
     // For universal agents with global install, skip creating agent-specific symlink
-    if (isGlobal && isUniversalAgent(agentType)) {
+    // only when the agent and canonical dirs are the same path.
+    if (isGlobal && isUniversalAgent(agentType) && agentDir === canonicalDir) {
       return {
         success: true,
         path: canonicalDir,
@@ -1056,7 +1070,7 @@ export async function installBlobSkillForAgent(
     await cleanAndCreateDirectory(canonicalDir);
     await writeSkillFiles(canonicalDir);
 
-    if (isGlobal && isUniversalAgent(agentType)) {
+    if (isGlobal && isUniversalAgent(agentType) && agentDir === canonicalDir) {
       return {
         success: true,
         path: canonicalDir,
@@ -1331,6 +1345,24 @@ export async function listInstalledSkills(
               }
             } catch {
               // Agent base directory doesn't exist
+            }
+          }
+
+          // For universal agents with a distinct globalSkillsDir (e.g. opencode,
+          // antigravity-cli), getAgentBaseDir returns the agent-specific global dir,
+          // but skills land in canonical (~/.agents/skills) first and are symlinked out.
+          // When scanning the canonical dir, attribute the skill to these agents too.
+          if (!found && scope.global && isUniversalAgent(agentType) && agentBase !== scope.path) {
+            for (const possibleName of possibleNames) {
+              const canonicalSkillDir = join(scope.path, possibleName);
+              if (!isPathSafe(scope.path, canonicalSkillDir)) continue;
+              try {
+                await access(canonicalSkillDir);
+                found = true;
+                break;
+              } catch {
+                // Try next name
+              }
             }
           }
 
