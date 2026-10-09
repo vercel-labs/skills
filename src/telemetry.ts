@@ -98,10 +98,68 @@ export interface PartnerAudit {
   alerts?: number;
   score?: number;
   analyzedAt: string;
+  provider?: string;
+  providerSlug?: string;
+  status?: string;
+  summary?: string;
+  riskLevel?: string;
+  categories?: string[];
 }
 
 export type SkillAuditData = Record<string, PartnerAudit>;
 export type AuditResponse = Record<string, SkillAuditData>;
+
+interface DetailedPartnerAudit {
+  provider: string;
+  slug: string;
+  status: string;
+  summary: string;
+  riskLevel?: string;
+  categories?: string[];
+}
+
+interface SkillAuditDetails {
+  audits: DetailedPartnerAudit[];
+}
+
+const DETAIL_PROVIDER_KEYS: Record<string, string> = {
+  'agent-trust-hub': 'ath',
+  socket: 'socket',
+  snyk: 'snyk',
+};
+
+function needsAuditDetails(audit: PartnerAudit): boolean {
+  return (
+    (audit.alerts ?? 0) > 0 ||
+    audit.risk === 'medium' ||
+    audit.risk === 'high' ||
+    audit.risk === 'critical'
+  );
+}
+
+async function fetchSkillAuditDetails(
+  source: string,
+  skillSlug: string,
+  timeoutMs: number
+): Promise<SkillAuditDetails | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const encodedSource = encodeURIComponent(source);
+    const encodedSkill = encodeURIComponent(skillSlug);
+    const response = await fetch(
+      `https://skills.sh/api/v1/skills/audit/${encodedSource}/${encodedSkill}`,
+      { signal: controller.signal }
+    );
+    if (!response.ok) return null;
+    return (await response.json()) as SkillAuditDetails;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 /**
  * Fetch security audit results for skills from the audit API.
@@ -130,7 +188,39 @@ export async function fetchAuditData(
     clearTimeout(timeout);
 
     if (!response.ok) return null;
-    return (await response.json()) as AuditResponse;
+    const auditData = (await response.json()) as AuditResponse;
+
+    // The compact endpoint only returns counts and risk levels. Enrich flagged
+    // skills with the provider's status and summary so users can review the
+    // finding before accepting the installation. Detail failures remain
+    // advisory: the compact result and a direct review URL are still shown.
+    const flaggedSkills = skillSlugs.filter((skillSlug) =>
+      Object.values(auditData[skillSlug] ?? {}).some(needsAuditDetails)
+    );
+
+    await Promise.all(
+      flaggedSkills.map(async (skillSlug) => {
+        const details = await fetchSkillAuditDetails(source, skillSlug, timeoutMs);
+        if (!details) return;
+
+        if (!Array.isArray(details.audits)) return;
+
+        for (const detail of details.audits) {
+          const providerKey = DETAIL_PROVIDER_KEYS[detail.slug];
+          const partnerAudit = providerKey ? auditData[skillSlug]?.[providerKey] : undefined;
+          if (!partnerAudit) continue;
+
+          partnerAudit.provider = detail.provider;
+          partnerAudit.providerSlug = detail.slug;
+          partnerAudit.status = detail.status;
+          partnerAudit.summary = detail.summary;
+          partnerAudit.riskLevel = detail.riskLevel;
+          partnerAudit.categories = detail.categories;
+        }
+      })
+    );
+
+    return auditData;
   } catch {
     return null;
   }
