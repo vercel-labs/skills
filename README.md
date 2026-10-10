@@ -352,6 +352,12 @@ Skills can be installed to any of these agents:
 | AdaL | `adal` | `.adal/skills/` | `~/.adal/skills/` |
 <!-- supported-agents:end -->
 
+Global paths in the table are defaults. OpenClaw honors `OPENCLAW_STATE_DIR` and
+`OPENCLAW_HOME`; Hermes Agent honors `HERMES_HOME`, or the platform default with
+`HERMES_DATA_DIR_SUFFIX` (`%LOCALAPPDATA%/hermes` on Windows); Qwen Code honors
+`QWEN_HOME`. Set these variables when running `skills` to target the same profile
+as your agent. Installation, detection, listing and removal use the resolved path.
+
 > [!NOTE]
 > **Kiro CLI users:** The default agent automatically loads skills from `.kiro/skills/` and `~/.kiro/skills/` — no
 > configuration needed. If you use a **custom agent**, add skills to its `resources` in `.kiro/agents/<agent>.json`:
