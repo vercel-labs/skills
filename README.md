@@ -157,7 +157,7 @@ When installing interactively, you can choose:
 List all installed skills. Similar to `npm ls`.
 
 ```bash
-# List all installed skills (project and global)
+# List project installed skills 
 npx skills list
 
 # List only global skills
@@ -227,6 +227,9 @@ Remove installed skills from agents.
 # Remove interactively (select from installed skills)
 npx skills remove
 
+# Remove all skills from an exact lock source
+npx skills remove owner/repo
+
 # Remove specific skill by name
 npx skills remove web-design-guidelines
 
@@ -290,12 +293,11 @@ Skills can be installed to any of these agents:
 | IBM Bob | `bob` | `.bob/skills/` | `~/.bob/skills/` |
 | Claude Code | `claude-code` | `.claude/skills/` | `~/.claude/skills/` |
 | OpenClaw | `openclaw` | `skills/` | `~/.openclaw/skills/` |
-| Cline, Dexto, Kimi Code CLI, Loaf, Pi, Sarvam Code, Warp, Zed | `cline`, `dexto`, `kimi-code-cli`, `loaf`, `pi`, `sarvam-code`, `warp`, `zed` | `.agents/skills/` | `~/.agents/skills/` |
+| Cline, Codex, Dexto, fx, Kimi Code CLI, Loaf, Pi, Sarvam Code, Warp, Zed | `cline`, `codex`, `dexto`, `fx`, `kimi-code-cli`, `loaf`, `pi`, `sarvam-code`, `warp`, `zed` | `.agents/skills/` | `~/.agents/skills/` |
 | CodeArts Agent | `codearts-agent` | `.codeartsdoer/skills/` | `~/.codeartsdoer/skills/` |
 | CodeBuddy | `codebuddy` | `.codebuddy/skills/` | `~/.codebuddy/skills/` |
 | Codemaker | `codemaker` | `.codemaker/skills/` | `~/.codemaker/skills/` |
 | Code Studio | `codestudio` | `.codestudio/skills/` | `~/.codestudio/skills/` |
-| Codex | `codex` | `.agents/skills/` | `~/.codex/skills/` |
 | Command Code | `command-code` | `.commandcode/skills/` | `~/.commandcode/skills/` |
 | Continue | `continue` | `.continue/skills/` | `~/.continue/skills/` |
 | Cortex Code | `cortex` | `.cortex/skills/` | `~/.snowflake/cortex/skills/` |
@@ -307,7 +309,6 @@ Skills can be installed to any of these agents:
 | Eve | `eve` | `agent/skills/` | N/A (project-only) |
 | Firebender | `firebender` | `.agents/skills/` | `~/.firebender/skills/` |
 | ForgeCode | `forgecode` | `.forge/skills/` | `~/.forge/skills/` |
-| fx | `fx` | `.fx/skills/` | `~/.fx/skills/` |
 | Gemini CLI | `gemini-cli` | `.agents/skills/` | `~/.gemini/skills/` |
 | GitHub Copilot | `github-copilot` | `.agents/skills/` | `~/.copilot/skills/` |
 | Goose | `goose` | `.goose/skills/` | `~/.config/goose/skills/` |
@@ -443,7 +444,6 @@ discover `SKILL.md` files outside these container directories (e.g. under
 - `.devin/skills/`
 - `agent/skills/`
 - `.forge/skills/`
-- `.fx/skills/`
 - `.goose/skills/`
 - `.grok/skills/`
 - `.hermes/skills/`

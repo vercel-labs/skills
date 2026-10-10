@@ -9,7 +9,7 @@ export function parseFrontmatter(raw: string): {
   data: Record<string, unknown>;
   content: string;
 } {
-  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  const match = raw.match(/^\uFEFF?---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   if (!match) return { data: {}, content: raw };
   const data = (parseYaml(match[1]!) as Record<string, unknown>) ?? {};
   return { data, content: match[2] ?? '' };

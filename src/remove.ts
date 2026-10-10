@@ -40,7 +40,8 @@ export interface RemoveOptions {
 export function resolveSkillsToRemove(
   requested: string[],
   folderNames: string[],
-  lockKeys: string[] = []
+  lockKeys: string[] = [],
+  sourceByKey: Record<string, string | undefined> = {}
 ): string[] {
   const identityBySanitized = new Map<string, string>();
   for (const folder of folderNames) {
@@ -54,7 +55,14 @@ export function resolveSkillsToRemove(
   const matched = new Set<string>();
   for (const name of requested) {
     const hit = identityBySanitized.get(sanitizeName(name));
-    if (hit) matched.add(hit);
+    if (hit) {
+      matched.add(hit);
+      continue;
+    }
+    // Not a skill name: treat it as an exact lock source and take every skill from it.
+    for (const key of lockKeys) {
+      if (sourceByKey[key] === name) matched.add(key);
+    }
   }
   return Array.from(matched);
 }
@@ -148,14 +156,16 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   // Read lock file keys up front. These are needed both to decide whether there is
   // anything to remove (a skill may be missing from disk but still leave a stale lock
   // entry) and to clean up those stale entries below.
-  const lockSkillsKeys = isGlobal
-    ? Object.keys((await readSkillLock()).skills)
-    : Object.keys((await readLocalLock(cwd)).skills);
+  const lockEntries = isGlobal ? (await readSkillLock()).skills : (await readLocalLock(cwd)).skills;
+  const lockSkillsKeys = Object.keys(lockEntries);
+  const sourceByKey = Object.fromEntries(
+    lockSkillsKeys.map((key) => [key, lockEntries[key]?.source])
+  );
 
   const requestedSkills = options.all ? [...installedSkills, ...lockSkillsKeys] : skillNames;
   const resolvedRequestedSkills =
     options.all || skillNames.length > 0
-      ? resolveSkillsToRemove(requestedSkills, installedSkills, lockSkillsKeys)
+      ? resolveSkillsToRemove(requestedSkills, installedSkills, lockSkillsKeys, sourceByKey)
       : [];
 
   if (installedSkills.length === 0 && resolvedRequestedSkills.length === 0) {

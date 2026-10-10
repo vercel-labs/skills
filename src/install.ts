@@ -1,14 +1,16 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { readLocalLock } from './local-lock.ts';
-import { runAdd } from './add.ts';
+import { installFromSource, runAdd } from './add.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { getUniversalAgents } from './agents.ts';
 import { buildLocalUpdateSource } from './update-source.ts';
+import { parseSource } from './source-parser.ts';
 
 /**
  * Install all skills from the local skills-lock.json.
- * Groups skills by source and calls `runAdd` for each group.
+ * Groups skills by source and installs each group; a failing source does not
+ * stop the others.
  *
  * Only installs to .agents/skills/ (universal agents) -- the canonical
  * project-level location. Does not install to agent-specific directories.
@@ -67,18 +69,24 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
   }
 
   // Install remote skills grouped by source
-  for (const [source, { skills }] of bySource) {
-    try {
-      await runAdd([source], {
-        skill: skills,
-        agent: universalAgentNames,
-        yes: true,
-      });
-    } catch (error) {
-      p.log.error(
-        `Failed to install from ${pc.cyan(source)}: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
+  for (const [source, { sourceType, skills }] of bySource) {
+    // well-known sources go through their provider flow, which installs on its own
+    if (sourceType === 'well-known') {
+      await runAdd([source], { skill: skills, agent: universalAgentNames, yes: true });
+      continue;
     }
+    const result = await installFromSource(parseSource(source), {
+      skills,
+      agents: universalAgentNames,
+    });
+    if (result.error) {
+      p.log.error(`Failed to install from ${pc.cyan(source)}: ${result.error}`);
+      process.exitCode = 1;
+      continue;
+    }
+    p.log.success(`Restored ${result.installed.map((name) => pc.cyan(name)).join(', ')}`);
+    for (const failure of result.failed) p.log.error(failure);
+    if (result.failed.length > 0) process.exitCode = 1;
   }
 
   // Handle node_modules skills via sync

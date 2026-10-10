@@ -278,6 +278,44 @@ This is a test skill.
       expect(existsSync(join(skillsDir, 'skill-one'))).toBe(false);
     });
 
+    it('should remove all skills from an exact lock source', () => {
+      const lockPath = join(testDir, 'skills-lock.json');
+      writeFileSync(
+        lockPath,
+        JSON.stringify({
+          version: 1,
+          skills: {
+            'skill-one': {
+              source: 'mattpocock/skills',
+              sourceType: 'github',
+              computedHash: 'one',
+            },
+            'skill-two': {
+              source: 'mattpocock/skills',
+              ref: 'dev',
+              sourceType: 'github',
+              computedHash: 'two',
+            },
+            'skill-three': {
+              source: 'other/source',
+              sourceType: 'github',
+              computedHash: 'three',
+            },
+          },
+        })
+      );
+
+      const result = runCli(['remove', 'mattpocock/skills', '-y'], testDir);
+
+      expect(result.stdout).toContain('2 skill');
+      expect(existsSync(join(skillsDir, 'skill-one'))).toBe(false);
+      expect(existsSync(join(skillsDir, 'skill-two'))).toBe(false);
+      expect(existsSync(join(skillsDir, 'skill-three'))).toBe(true);
+
+      const updatedLock = JSON.parse(readFileSync(lockPath, 'utf-8'));
+      expect(Object.keys(updatedLock.skills)).toEqual(['skill-three']);
+    });
+
     it('should remove only the specified skill and leave others', () => {
       runCli(['remove', 'skill-two', '-y'], testDir);
 
