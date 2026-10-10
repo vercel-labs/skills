@@ -1,5 +1,5 @@
 import { homedir } from 'os';
-import { join } from 'path';
+import { dirname, join, resolve } from 'path';
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { xdgConfig } from 'xdg-basedir';
 import type { AgentConfig, AgentType } from './types.ts';
@@ -10,7 +10,9 @@ const configHome = xdgConfig ?? join(home, '.config');
 const codexHome = process.env.CODEX_HOME?.trim() || join(home, '.codex');
 const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude');
 const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
-const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
+const hermesHome = getHermesHome();
+const qwenHome = getQwenHome();
+const openClawSkillsDir = getOpenClawGlobalSkillsDir();
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
 const grokHome = process.env.GROK_HOME?.trim() || join(home, '.grok');
 const sarvamHome = process.env.SARVAM_HOME?.trim() || join(home, '.sarvam');
@@ -31,10 +33,60 @@ function packageJsonHasDependency(packageJsonPath: string, dependencyName: strin
   }
 }
 
+// Only expand a standalone home prefix; paths such as ~other-user stay literal.
+function expandHomePrefix(value: string, homeDir: string): string {
+  if (value === '~') return homeDir;
+  if (value.startsWith('~/') || value.startsWith('~\\')) {
+    return join(homeDir, ...value.slice(2).split(/[/\\]+/));
+  }
+  return value;
+}
+
+export function getQwenHome(homeDir = home, env: NodeJS.ProcessEnv = process.env): string {
+  // Qwen resolves QWEN_HOME against cwd, without trimming or expanding env variables.
+  return env.QWEN_HOME ? resolve(expandHomePrefix(env.QWEN_HOME, homeDir)) : join(homeDir, '.qwen');
+}
+
+export function getHermesHome(
+  homeDir = home,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform
+): string {
+  const override = env.HERMES_HOME?.trim();
+  if (override) {
+    // Hermes applies expandvars before expanduser. Leave undefined variables literal.
+    const expanded = override.replace(
+      /\$(?:\{([^}]+)\}|(\w+))/g,
+      (match, braced, name) => env[braced ?? name] ?? match
+    );
+    const platformExpanded =
+      platform === 'win32'
+        ? expanded.replace(/%([^%]+)%/g, (match, name) => env[name] ?? match)
+        : expanded;
+    return expandHomePrefix(platformExpanded, homeDir);
+  }
+  const suffix = env.HERMES_DATA_DIR_SUFFIX ?? '';
+  if (platform === 'win32') {
+    const localAppData = env.LOCALAPPDATA?.trim() || join(homeDir, 'AppData', 'Local');
+    return join(localAppData, `hermes${suffix}`);
+  }
+  return join(homeDir, `.hermes${suffix}`);
+}
+
 export function getOpenClawGlobalSkillsDir(
   homeDir = home,
-  pathExists: (path: string) => boolean = existsSync
+  pathExists: (path: string) => boolean = existsSync,
+  env: NodeJS.ProcessEnv = process.env
 ) {
+  const overrideHome = env.OPENCLAW_HOME?.trim();
+  if (overrideHome && overrideHome !== 'undefined' && overrideHome !== 'null') {
+    homeDir = resolve(expandHomePrefix(overrideHome, homeDir));
+  }
+  const stateDir = env.OPENCLAW_STATE_DIR?.trim();
+  if (stateDir) {
+    return join(resolve(expandHomePrefix(stateDir, homeDir)), 'skills');
+  }
+  // Preserve legacy discovery only when no explicit state directory was selected.
   if (pathExists(join(homeDir, '.openclaw'))) {
     return join(homeDir, '.openclaw/skills');
   }
@@ -167,13 +219,9 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'openclaw',
     displayName: 'OpenClaw',
     skillsDir: 'skills',
-    globalSkillsDir: getOpenClawGlobalSkillsDir(),
+    globalSkillsDir: openClawSkillsDir,
     detectInstalled: async () => {
-      return (
-        existsSync(join(home, '.openclaw')) ||
-        existsSync(join(home, '.clawdbot')) ||
-        existsSync(join(home, '.moltbot'))
-      );
+      return existsSync(dirname(openClawSkillsDir));
     },
   },
   cline: {
@@ -620,9 +668,9 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'qwen-code',
     displayName: 'Qwen Code',
     skillsDir: '.qwen/skills',
-    globalSkillsDir: join(home, '.qwen/skills'),
+    globalSkillsDir: join(qwenHome, 'skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.qwen'));
+      return existsSync(qwenHome);
     },
   },
   replit: {
