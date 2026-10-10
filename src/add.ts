@@ -13,6 +13,7 @@ import {
   installBlobSkillForAgent,
   isSkillInstalled,
   getCanonicalPath,
+  getInstallPath,
   installWellKnownSkillForAgent,
   type InstallMode,
 } from './installer.ts';
@@ -959,12 +960,46 @@ async function handleWellKnownSkills(
     error?: string;
   }[] = [];
 
+  // See the writeCache comment in installToTargets: multiple targets can resolve
+  // to the same physical directory, so install once per resolved directory and
+  // reuse the result for the rest.
+  const writeCache = new Map<
+    string,
+    {
+      path: string;
+      canonicalPath?: string;
+      mode: InstallMode;
+      symlinkFailed?: boolean;
+      skipped?: boolean;
+    }
+  >();
+
   for (const skill of selectedSkills) {
     for (const agent of targetAgents) {
-      const result = await installWellKnownSkillForAgent(skill, agent, {
-        global: installGlobally,
-        mode: installMode,
-      });
+      const writeKey =
+        installMode === 'copy'
+          ? getInstallPath(skill.installName, agent, { global: installGlobally })
+          : getCanonicalPath(skill.installName, { global: installGlobally, agent });
+
+      let result;
+      const cached = writeCache.get(writeKey);
+      if (cached) {
+        result = { success: true as const, ...cached };
+      } else {
+        result = await installWellKnownSkillForAgent(skill, agent, {
+          global: installGlobally,
+          mode: installMode,
+        });
+        if (result.success) {
+          writeCache.set(writeKey, {
+            path: result.path,
+            canonicalPath: result.canonicalPath,
+            mode: result.mode,
+            symlinkFailed: result.symlinkFailed,
+            skipped: result.skipped,
+          });
+        }
+      }
       results.push({
         skill: skill.installName,
         agent: agents[agent].displayName,
@@ -1241,6 +1276,24 @@ async function installToTargets(
   }
 ): Promise<TargetInstallResult[]> {
   const results: TargetInstallResult[] = [];
+
+  // Multiple selected targets can resolve to the identical physical directory
+  // (e.g. several universal agents all writing to ~/.agents/skills). Without this
+  // cache, each target redundantly wipes and rewrites that shared directory in a
+  // tight loop, which is at best wasteful and, when an ancestor directory is a
+  // symlink to a location watched by sync software, can fail outright. Install
+  // once per resolved directory and reuse the result for the rest.
+  const writeCache = new Map<
+    string,
+    {
+      path: string;
+      canonicalPath?: string;
+      mode: InstallMode;
+      symlinkFailed?: boolean;
+      skipped?: boolean;
+    }
+  >();
+
   for (const skill of skills) {
     for (const target of targets) {
       const { agent, subagent } = target;
@@ -1250,8 +1303,22 @@ async function installToTargets(
         eveSubagent: subagent,
         createMissingAgentRoot: options.createMissingAgentRoot(agent),
       };
+      const isBlob = resolved.blobResult && 'files' in skill;
+      const installName = isBlob ? (skill as BlobSkill).name : skill.name;
+      const writeKey =
+        options.mode === 'copy'
+          ? getInstallPath(installName, agent, { global: options.global, eveSubagent: subagent })
+          : getCanonicalPath(installName, {
+              global: options.global,
+              agent,
+              eveSubagent: subagent,
+            });
+
       let result;
-      if (resolved.blobResult && 'files' in skill) {
+      const cached = writeCache.get(writeKey);
+      if (cached) {
+        result = { success: true as const, ...cached };
+      } else if (isBlob) {
         // Blob-based install: write files from snapshot
         const blobSkill = skill as BlobSkill;
         result = await installBlobSkillForAgent(
@@ -1266,6 +1333,15 @@ async function installToTargets(
         // copyDirectory, which excludes .git), so their scripts/, references/,
         // assets/, etc. are installed too. See issue #1603.
         result = await installSkillForAgent(skill, agent, installOptions);
+      }
+      if (!cached && result.success) {
+        writeCache.set(writeKey, {
+          path: result.path,
+          canonicalPath: result.canonicalPath,
+          mode: result.mode,
+          symlinkFailed: result.symlinkFailed,
+          skipped: result.skipped,
+        });
       }
       results.push({
         skill: getSkillDisplayName(skill),
