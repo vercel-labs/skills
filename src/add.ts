@@ -1167,7 +1167,7 @@ async function resolveSkills(
       // Eligible per repo (a BLOB_ALLOWED_REPOS entry = self-hosted download URL) or
       // per owner (BLOB_ALLOWED_OWNERS = all their repos, skills.sh-hosted).
       let attemptedBlobInstall = false;
-      const BLOB_ALLOWED_OWNERS = ['vercel', 'vercel-labs', 'heygen-com', 'remotion-dev'];
+      const BLOB_ALLOWED_OWNERS = ['vercel', 'vercel-labs', 'heygen-com', 'remotion-dev', 'cline'];
       const ownerRepo = getOwnerRepo(parsed);
       const owner = ownerRepo?.split('/')[0]?.toLowerCase();
       const isSelfHostedRepo =
