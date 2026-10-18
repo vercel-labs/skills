@@ -50,4 +50,31 @@ describe('direct telemetry endpoints', () => {
       vi.useRealTimers();
     }
   });
+
+  it('passes an AbortSignal to fetch and aborts in-flight requests on timeout', async () => {
+    let capturedSignal: AbortSignal | undefined;
+    fetchMock.mockImplementation((_url: string, init?: RequestInit) => {
+      capturedSignal = init?.signal as AbortSignal;
+      return new Promise(() => {}); // never resolves
+    });
+
+    track({ event: 'install', source: 'mattpocock/skills', skills: 'ask-matt' });
+    expect(capturedSignal).toBeDefined();
+    expect(capturedSignal?.aborted).toBe(false);
+
+    await flushTelemetry(10);
+    expect(capturedSignal?.aborted).toBe(true);
+  });
+
+  it('aborts pending controllers when telemetry settles normally to avoid socket leaks', async () => {
+    let capturedSignal: AbortSignal | undefined;
+    fetchMock.mockImplementation((_url: string, init?: RequestInit) => {
+      capturedSignal = init?.signal as AbortSignal;
+      return Promise.resolve({ ok: true, json: async () => ({}) });
+    });
+
+    track({ event: 'install', source: 'mattpocock/skills', skills: 'ask-matt' });
+    await flushTelemetry(5000);
+    expect(capturedSignal?.aborted).toBe(true);
+  });
 });
