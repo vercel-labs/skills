@@ -362,17 +362,22 @@ export function findSkillMdPaths(tree: RepoTree, subpath?: string): string[] {
 
   // Check priority directories first (same order as discoverSkills).
   // Non-root prefixes also accept paths up to depth 3 so the blob fast path stays
-  // in sync with the on-disk walk's catalog-layout discovery.
+  // in sync with the on-disk walk's catalog-layout discovery. So does the root
+  // prefix when the subpath is itself a `skills` dir without its own `skills/`
+  // subdir, as in discoverSkills().
   const priorityResults: string[] = [];
   const seen = new Set<string>();
-  // Mirror of SKIP_DIRS at the top of src/skills.ts. Kept local to avoid
+  // Mirror of CONTAINER_SKIP_DIRS at the top of src/skills.ts. Kept local to avoid
   // a cross-file import; if these ever drift, update both.
-  const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '__pycache__']);
+  const CONTAINER_SKIP_DIRS = new Set(['node_modules', '.git', '__pycache__']);
   const lowerSkillMdSet = new Set(filtered.map((p) => p.toLowerCase()));
+  const subpathIsContainer =
+    (prefix === 'skills/' || prefix.endsWith('/skills/')) &&
+    !tree.tree.some((e) => e.path.startsWith(`${prefix}skills/`));
 
   for (const priorityPrefix of PRIORITY_PREFIXES) {
     const fullPrefix = prefix + priorityPrefix;
-    const isContainer = priorityPrefix !== '';
+    const isContainer = priorityPrefix !== '' || subpathIsContainer;
 
     for (const skillMd of filtered) {
       // Check if this SKILL.md is directly inside the priority dir (one level deep)
@@ -412,7 +417,7 @@ export function findSkillMdPaths(tree: RepoTree, subpath?: string): string[] {
         parts.length >= 3 &&
         parts.length <= DEFAULT_SKILL_CONTAINER_DEPTH + 1 &&
         parts.at(-1)!.toLowerCase() === 'skill.md' &&
-        skillDirs.every((part) => !SKIP_DIRS.has(part)) &&
+        skillDirs.every((part) => !CONTAINER_SKIP_DIRS.has(part)) &&
         !hasAncestorSkill
       ) {
         if (!seen.has(skillMd)) {
