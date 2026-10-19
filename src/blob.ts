@@ -14,6 +14,7 @@ import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { parseFrontmatter } from './frontmatter.ts';
 import { sanitizeMetadata } from './sanitize.ts';
+import { isInternalSkill } from './skills.ts';
 import { getGitHubHost } from './github-host.ts';
 import type { Skill } from './types.ts';
 import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
@@ -616,7 +617,7 @@ export async function tryBlobInstall(
     if (typeof data.name !== 'string' || typeof data.description !== 'string') continue;
 
     // Skip internal skills unless explicitly requested
-    const isInternal = (data.metadata as Record<string, unknown>)?.internal === true;
+    const isInternal = isInternalSkill(data.metadata);
     if (isInternal && !options.includeInternal) continue;
 
     const safeName = sanitizeMetadata(data.name);

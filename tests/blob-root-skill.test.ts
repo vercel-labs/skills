@@ -79,6 +79,47 @@ describe('tryBlobInstall', () => {
     expect(result!.skills[0]!.snapshotHash).not.toBe('full-repo-hash');
   });
 
+  it('skips a skill whose metadata.internal is the string "true"', async () => {
+    const internalSkillMd = `---
+name: hidden
+description: Internal skill.
+metadata:
+  internal: "true"
+---
+# Hidden
+`;
+    const publicSkillMd = `---
+name: shown
+description: Public skill.
+---
+# Shown
+`;
+
+    fetchMock
+      .mockResolvedValueOnce(
+        okResponse({
+          sha: 'root-tree-sha',
+          tree: [
+            { path: 'skills/hidden/SKILL.md', type: 'blob', sha: 'hidden-sha' },
+            { path: 'skills/shown/SKILL.md', type: 'blob', sha: 'shown-sha' },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(textResponse(internalSkillMd))
+      .mockResolvedValueOnce(textResponse(publicSkillMd))
+      .mockResolvedValueOnce(
+        okResponse({
+          hash: 'shown-snapshot-hash',
+          files: [{ path: 'SKILL.md', contents: publicSkillMd }],
+        })
+      );
+
+    const result = await tryBlobInstall('vercel-labs/agent-skills');
+
+    expect(result!.skills.map((skill) => skill.name)).toEqual(['shown']);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
   it('keeps supporting files for nested skill snapshots', async () => {
     const nestedSkillMd = `---
 name: nested
