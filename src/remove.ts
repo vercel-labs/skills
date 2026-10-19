@@ -1,7 +1,9 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { readdir, rm, lstat } from 'fs/promises';
-import { join } from 'path';
+import { realpathSync } from 'fs';
+import { homedir } from 'os';
+import { join, resolve } from 'path';
 import { agents, detectInstalledAgents, getEveSubagents } from './agents.ts';
 import { track } from './telemetry.ts';
 import { detectAgent } from './detect-agent.ts';
@@ -67,6 +69,17 @@ export function resolveSkillsToRemove(
   return Array.from(matched);
 }
 
+function isSamePath(a: string, b: string): boolean {
+  const real = (path: string) => {
+    try {
+      return realpathSync(path);
+    } catch {
+      return resolve(path);
+    }
+  };
+  return real(a) === real(b);
+}
+
 export async function removeCommand(skillNames: string[], options: RemoveOptions) {
   // Auto-enable non-interactive mode when running inside an AI agent
   const agentResult = await detectAgent();
@@ -98,8 +111,13 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     process.exit(1);
   }
 
-  const isGlobal = options.global ?? false;
   const cwd = process.cwd();
+  // In the home directory the project dirs (<cwd>/.agents/skills, <cwd>/.claude/skills, ...)
+  // are the global dirs, so a remove without -g deletes global skills. Use the global scope
+  // there so the global lock is cleaned too, and drop any entry from a project lock that
+  // happens to live in home as well (#2469).
+  const cwdIsHome = options.global === undefined && isSamePath(cwd, homedir());
+  const isGlobal = options.global ?? cwdIsHome;
 
   const spinner = p.spinner();
 
@@ -156,7 +174,12 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   // Read lock file keys up front. These are needed both to decide whether there is
   // anything to remove (a skill may be missing from disk but still leave a stale lock
   // entry) and to clean up those stale entries below.
-  const lockEntries = isGlobal ? (await readSkillLock()).skills : (await readLocalLock(cwd)).skills;
+  const lockEntries = isGlobal
+    ? {
+        ...(cwdIsHome ? (await readLocalLock(cwd)).skills : {}),
+        ...(await readSkillLock()).skills,
+      }
+    : (await readLocalLock(cwd)).skills;
   const lockSkillsKeys = Object.keys(lockEntries);
   const sourceByKey = Object.fromEntries(
     lockSkillsKeys.map((key) => [key, lockEntries[key]?.source])
@@ -331,6 +354,9 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
         effectiveSourceType = lockEntry?.sourceType || 'local';
         if (!isStillUsed) {
           await removeSkillFromLock(skillName);
+          if (cwdIsHome) {
+            await removeSkillFromLocalLock(skillName, cwd);
+          }
         }
       } else {
         const localLock = await readLocalLock(cwd);
