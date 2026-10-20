@@ -38,6 +38,7 @@ const AGENT_PROJECT_SKILL_DIRS = [
   '.roo/skills',
   '.trae/skills',
   '.windsurf/skills',
+  '.workbuddy/skills',
   '.zcode/skills',
   '.zencoder/skills',
 ];
