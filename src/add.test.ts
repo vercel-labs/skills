@@ -75,7 +75,7 @@ describe('add command', () => {
     const docsLine = result.stdout
       .split('\n')
       .find((line) => line.includes('https://developers.notion.com/cli/get-started/overview'));
-    expect(docsLine?.replace(/^\s*│?\s*/, '')).toBe(
+    expect(docsLine?.replace(/^\s*[│|]?\s*/, '')).toBe(
       'https://developers.notion.com/cli/get-started/overview'
     );
     expect(result.stdout).toContain('ntn login');
