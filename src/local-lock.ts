@@ -187,6 +187,19 @@ async function collectFiles(
         const content = await readFile(fullPath);
         const relativePath = relative(baseDir, fullPath).split('\\').join('/');
         results.push({ relativePath, content });
+      } else if (entry.isSymbolicLink()) {
+        // Follow symlinks so that changes to the linked target are detected.
+        // Installation already dereferences symlinks, but the folder hash
+        // skipped them, so updating a shared helper outside the skill folder
+        // left the installed copy stale (vercel-labs/skills#2428).
+        const targetStat = await stat(fullPath);
+        if (targetStat.isDirectory()) {
+          await collectFiles(baseDir, fullPath, results);
+        } else if (targetStat.isFile()) {
+          const content = await readFile(fullPath);
+          const relativePath = relative(baseDir, fullPath).split('\\').join('/');
+          results.push({ relativePath, content });
+        }
       }
     })
   );
