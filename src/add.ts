@@ -358,17 +358,38 @@ function buildTargetSummaryLines(targets: InstallTarget[], installMode: InstallM
  * Ensures universal agents are always included in the target agents list.
  * Used when -y flag is passed or when auto-selecting agents.
  */
-function ensureUniversalAgents(targetAgents: AgentType[]): AgentType[] {
+export function ensureUniversalAgents(
+  targetAgents: AgentType[],
+  options: { global?: boolean } = {}
+): AgentType[] {
   const universalAgents = getUniversalAgents();
   const result = [...targetAgents];
 
   for (const ua of universalAgents) {
+    if (options.global && agents[ua].globalSkillsDir === undefined) {
+      continue;
+    }
     if (!result.includes(ua)) {
       result.push(ua);
     }
   }
 
   return result;
+}
+
+/** Keep explicit unsupported targets so the installer can report their errors. */
+export function filterAgentsForRequestedScope(
+  targetAgents: AgentType[],
+  options: { global?: boolean } = {},
+  explicitlySelectedAgents?: ReadonlySet<AgentType>
+): AgentType[] {
+  if (!options.global) {
+    return targetAgents;
+  }
+
+  return targetAgents.filter(
+    (agent) => agents[agent].globalSkillsDir !== undefined || explicitlySelectedAgents?.has(agent)
+  );
 }
 
 /**
@@ -651,7 +672,8 @@ async function handleWellKnownSkills(
   source: string,
   url: string,
   options: AddOptions,
-  spinner: ReturnType<typeof p.spinner>
+  spinner: ReturnType<typeof p.spinner>,
+  explicitlySelectedAgents: Set<AgentType>
 ): Promise<boolean> {
   spinner.start('Discovering skills from well-known endpoint...');
 
@@ -759,12 +781,13 @@ async function handleWellKnownSkills(
 
   // Detect agents
   let targetAgents: AgentType[];
+  let selectionMode: 'all' | 'detected' | undefined;
   const validAgents = Object.keys(agents);
 
   if (options.agent?.includes('*')) {
     // --agent '*' selects all agents
-    targetAgents = validAgents as AgentType[];
-    p.log.info(`Installing to all ${targetAgents.length} agents`);
+    targetAgents = filterAgentsForRequestedScope(validAgents as AgentType[], options);
+    selectionMode = 'all';
   } else if (options.agent && options.agent.length > 0) {
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 
@@ -783,8 +806,8 @@ async function handleWellKnownSkills(
 
     if (installedAgents.length === 0) {
       if (options.yes) {
-        targetAgents = validAgents as AgentType[];
-        p.log.info('Installing to all agents');
+        targetAgents = filterAgentsForRequestedScope(validAgents as AgentType[], options);
+        selectionMode = 'all';
       } else {
         p.log.info('Select agents to install skills to');
 
@@ -804,18 +827,15 @@ async function handleWellKnownSkills(
         }
 
         targetAgents = selected as AgentType[];
+        for (const agent of targetAgents) explicitlySelectedAgents.add(agent);
       }
     } else if (installedAgents.length === 1 || options.yes) {
       // Auto-select detected agents + ensure universal agents are included
-      targetAgents = ensureUniversalAgents(installedAgents);
-      if (installedAgents.length === 1) {
-        const firstAgent = installedAgents[0]!;
-        p.log.info(`Installing to: ${pc.cyan(agents[firstAgent].displayName)}`);
-      } else {
-        p.log.info(
-          `Installing to: ${installedAgents.map((a) => pc.cyan(agents[a].displayName)).join(', ')}`
-        );
-      }
+      targetAgents = filterAgentsForRequestedScope(
+        ensureUniversalAgents(installedAgents, options),
+        options
+      );
+      selectionMode = 'detected';
     } else {
       const selected = await selectAgentsInteractive({ global: options.global });
 
@@ -824,6 +844,7 @@ async function handleWellKnownSkills(
       }
 
       targetAgents = selected as AgentType[];
+      for (const agent of targetAgents) explicitlySelectedAgents.add(agent);
     }
   }
 
@@ -854,6 +875,20 @@ async function handleWellKnownSkills(
     }
 
     installGlobally = scope as boolean;
+  }
+
+  targetAgents = filterAgentsForRequestedScope(
+    targetAgents,
+    { global: installGlobally },
+    explicitlySelectedAgents
+  );
+
+  if (selectionMode === 'all') {
+    p.log.info(`Installing to all ${targetAgents.length} agents`);
+  } else if (selectionMode === 'detected') {
+    p.log.info(
+      `Installing to: ${targetAgents.map((a) => pc.cyan(agents[a].displayName)).join(', ')}`
+    );
   }
 
   // Determine install mode (symlink vs copy)
@@ -1477,7 +1512,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
   // Capture command-line intent before agent-context detection populates
   // options.agent with automatic defaults.
   const explicitlySelectedAgents = new Set<AgentType>(
-    options.agent?.includes('*') ? [] : ((options.agent as AgentType[] | undefined) ?? [])
+    options.all || options.agent?.includes('*')
+      ? []
+      : ((options.agent as AgentType[] | undefined) ?? [])
   );
 
   // --all implies --skill '*' and --agent '*' and -y
@@ -1495,7 +1532,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     if (!options.agent || options.agent.length === 0) {
       const mappedAgent = getAgentType(agentResult.agent.name);
       if (mappedAgent) {
-        options.agent = ensureUniversalAgents([mappedAgent]);
+        options.agent = filterAgentsForRequestedScope(
+          ensureUniversalAgents([mappedAgent], options),
+          options
+        );
       }
     }
   }
@@ -1589,7 +1629,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         // feed the JSON accumulator yet.
         emitJsonAndExit(1, '--json is not yet supported for well-known skill sources.');
       }
-      const handled = await handleWellKnownSkills(source, parsed.url, options, spinner);
+      const handled = await handleWellKnownSkills(
+        source,
+        parsed.url,
+        options,
+        spinner,
+        explicitlySelectedAgents
+      );
       if (handled) return;
       directDownload = true;
     }
@@ -1805,12 +1851,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       : Promise.resolve(null);
 
     let targetAgents: AgentType[];
+    let selectionMode: 'all' | 'detected' | undefined;
     const validAgents = Object.keys(agents);
 
     if (options.agent?.includes('*')) {
       // --agent '*' selects all agents
-      targetAgents = validAgents as AgentType[];
-      p.log.info(`Installing to all ${targetAgents.length} agents`);
+      targetAgents = filterAgentsForRequestedScope(validAgents as AgentType[], options);
+      selectionMode = 'all';
     } else if (options.agent && options.agent.length > 0) {
       const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 
@@ -1828,7 +1875,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       const totalAgents = Object.keys(agents).length;
       spinner.stop(`${totalAgents} agents`);
 
-      if (installedAgents.includes('eve') && (options.yes || !agentResult.isAgent)) {
+      if (
+        !options.global &&
+        installedAgents.includes('eve') &&
+        (options.yes || !agentResult.isAgent)
+      ) {
         const useEve = options.yes
           ? true
           : await p.confirm({
@@ -1858,8 +1909,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         }
       } else if (installedAgents.length === 0) {
         if (options.yes) {
-          targetAgents = validAgents as AgentType[];
-          p.log.info('Installing to all agents');
+          targetAgents = filterAgentsForRequestedScope(validAgents as AgentType[], options);
+          selectionMode = 'all';
         } else {
           p.log.info('Select agents to install skills to');
 
@@ -1886,15 +1937,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         }
       } else if (installedAgents.length === 1 || options.yes) {
         // Auto-select detected agents + ensure universal agents are included
-        targetAgents = ensureUniversalAgents(installedAgents);
-        if (installedAgents.length === 1) {
-          const firstAgent = installedAgents[0]!;
-          p.log.info(`Installing to: ${pc.cyan(agents[firstAgent].displayName)}`);
-        } else {
-          p.log.info(
-            `Installing to: ${installedAgents.map((a) => pc.cyan(agents[a].displayName)).join(', ')}`
-          );
-        }
+        targetAgents = filterAgentsForRequestedScope(
+          ensureUniversalAgents(installedAgents, options),
+          options
+        );
+        selectionMode = 'detected';
       } else {
         const selected = await selectAgentsInteractive({ global: options.global });
 
@@ -1952,8 +1999,6 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
-    const installTargets = buildInstallTargets(targetAgents, eveSubagentTargets);
-
     let installGlobally = options.global ?? false;
 
     // Check if any selected agents support global installation
@@ -1983,6 +2028,22 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
       installGlobally = scope as boolean;
     }
+
+    targetAgents = filterAgentsForRequestedScope(
+      targetAgents,
+      { global: installGlobally },
+      explicitlySelectedAgents
+    );
+
+    if (selectionMode === 'all') {
+      p.log.info(`Installing to all ${targetAgents.length} agents`);
+    } else if (selectionMode === 'detected') {
+      p.log.info(
+        `Installing to: ${targetAgents.map((a) => pc.cyan(agents[a].displayName)).join(', ')}`
+      );
+    }
+
+    const installTargets = buildInstallTargets(targetAgents, eveSubagentTargets);
 
     // Determine install mode (symlink vs copy)
     let installMode: InstallMode = options.copy ? 'copy' : 'symlink';
