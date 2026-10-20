@@ -77,6 +77,31 @@ export function isPositAssistantInstalled(
   return pathExists(join(homeDir, '.posit/assistant')) || pathExists(join(homeDir, '.positai'));
 }
 
+export function isAstrBotProjectInstalled(
+  cwd = process.cwd(),
+  pathExists: (path: string) => boolean = existsSync
+) {
+  // Project-local markers only — not ASTRBOT_ROOT, ~/.astrbot, or bare data/.
+  if (pathExists(join(cwd, 'astrbot'))) {
+    return true;
+  }
+  return pathExists(join(cwd, 'data', 'plugins'));
+}
+
+export function isAstrBotInstalled(
+  cwd = process.cwd(),
+  homeDir = home,
+  pathExists: (path: string) => boolean = existsSync
+) {
+  if (process.env.ASTRBOT_ROOT?.trim()) {
+    return true;
+  }
+  if (pathExists(join(homeDir, '.astrbot'))) {
+    return true;
+  }
+  return isAstrBotProjectInstalled(cwd, pathExists);
+}
+
 export const agents: Record<AgentType, AgentConfig> = {
   'aider-desk': {
     name: 'aider-desk',
@@ -122,7 +147,7 @@ export const agents: Record<AgentType, AgentConfig> = {
     skillsDir: 'data/skills',
     globalSkillsDir: join(home, '.astrbot/data/skills'),
     detectInstalled: async () => {
-      return existsSync(join(process.cwd(), 'data/skills')) || existsSync(join(home, '.astrbot'));
+      return isAstrBotInstalled();
     },
   },
   'autohand-code': {
