@@ -349,7 +349,11 @@ function isHostedArtifactUrl(input: string): boolean {
   }
 }
 
-export function parseSource(input: string): ParsedSource {
+/**
+ * `githubHost` pins `owner/repo` shorthand to a host regardless of GH_HOST,
+ * for inputs known to come from github.com (e.g. a public lock entry).
+ */
+export function parseSource(input: string, options: { githubHost?: string } = {}): ParsedSource {
   // Local path: absolute, relative, or current directory
   if (isLocalPath(input)) {
     const resolvedPath = resolve(input);
@@ -522,7 +526,7 @@ export function parseSource(input: string): ParsedSource {
   // GH_HOST selects a GitHub Enterprise host for shorthand inputs. Enterprise
   // sources use the generic git path because GitHub.com API optimizations do
   // not apply to them.
-  const githubHost = getGitHubHost();
+  const githubHost = options.githubHost ?? getGitHubHost();
   const shorthandSourceType = githubHost === 'github.com' ? 'github' : 'git';
 
   // First check for @skill syntax: owner/repo@skill-name
