@@ -1,4 +1,5 @@
 import { crc32, inflateRawSync } from 'node:zlib';
+import { diagnostics } from './diagnostics.ts';
 
 const ZIP_LOCAL_FILE_HEADER = 0x04034b50;
 const ZIP_CENTRAL_DIRECTORY_HEADER = 0x02014b50;
@@ -23,12 +24,7 @@ export interface ArchiveLimits {
   maxEntries: number;
 }
 
-export class ArchiveValidationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'ArchiveValidationError';
-  }
-}
+const corrupt = (reason: string) => diagnostics.SKILLS_A001({ reason });
 
 function ensureRange(buffer: Buffer, offset: number, length: number, label: string): void {
   if (
@@ -38,7 +34,7 @@ function ensureRange(buffer: Buffer, offset: number, length: number, label: stri
     length < 0 ||
     offset + length > buffer.length
   ) {
-    throw new Error(`Invalid zip archive: ${label} is out of bounds`);
+    throw corrupt(`Invalid zip archive: ${label} is out of bounds`);
   }
 }
 
@@ -59,7 +55,7 @@ function readUInt64AsNumber(buffer: Buffer, offset: number, label: string): numb
   ensureRange(buffer, offset, 8, label);
   const value = buffer.readBigUInt64LE(offset);
   if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new Error(`Invalid zip archive: ${label} exceeds the safe integer range`);
+    throw corrupt(`Invalid zip archive: ${label} exceeds the safe integer range`);
   }
   return Number(value);
 }
@@ -87,46 +83,46 @@ function readCentralDirectory(
 
   if (!usesZip64) {
     if (diskNumber !== 0 || centralDirectoryDisk !== 0 || entriesOnDisk !== totalEntries) {
-      throw new Error('Multi-disk zip archives are not supported');
+      throw diagnostics.SKILLS_A002();
     }
     return { entries: totalEntries, offset, size, trailerOffset: endOffset };
   }
 
   if (diskNumber !== 0 || centralDirectoryDisk !== 0) {
-    throw new Error('Multi-disk zip archives are not supported');
+    throw diagnostics.SKILLS_A002();
   }
 
   const locatorOffset = endOffset - 20;
   ensureRange(buffer, locatorOffset, 20, 'zip64 locator');
   if (buffer.readUInt32LE(locatorOffset) !== ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR) {
-    throw new Error('Invalid zip64 locator');
+    throw corrupt('Invalid zip64 locator');
   }
   if (
     buffer.readUInt32LE(locatorOffset + 4) !== 0 ||
     buffer.readUInt32LE(locatorOffset + 16) !== 1
   ) {
-    throw new Error('Multi-disk zip archives are not supported');
+    throw diagnostics.SKILLS_A002();
   }
 
   const zip64EndOffset = readUInt64AsNumber(buffer, locatorOffset + 8, 'zip64 end offset');
   ensureRange(buffer, zip64EndOffset, 56, 'zip64 end of central directory');
   if (buffer.readUInt32LE(zip64EndOffset) !== ZIP64_END_OF_CENTRAL_DIRECTORY) {
-    throw new Error('Invalid zip64 end of central directory');
+    throw corrupt('Invalid zip64 end of central directory');
   }
 
   const recordSize = readUInt64AsNumber(buffer, zip64EndOffset + 4, 'zip64 end size');
   if (recordSize < 44) {
-    throw new Error('Invalid zip64 end of central directory');
+    throw corrupt('Invalid zip64 end of central directory');
   }
   ensureRange(buffer, zip64EndOffset, recordSize + 12, 'zip64 end of central directory');
   if (zip64EndOffset + recordSize + 12 !== locatorOffset) {
-    throw new Error('Invalid zip64 end of central directory');
+    throw corrupt('Invalid zip64 end of central directory');
   }
   if (
     buffer.readUInt32LE(zip64EndOffset + 16) !== 0 ||
     buffer.readUInt32LE(zip64EndOffset + 20) !== 0
   ) {
-    throw new Error('Multi-disk zip archives are not supported');
+    throw diagnostics.SKILLS_A002();
   }
 
   const zip64EntriesOnDisk = readUInt64AsNumber(
@@ -136,7 +132,7 @@ function readCentralDirectory(
   );
   const zip64TotalEntries = readUInt64AsNumber(buffer, zip64EndOffset + 32, 'zip64 total entries');
   if (zip64EntriesOnDisk !== zip64TotalEntries) {
-    throw new Error('Multi-disk zip archives are not supported');
+    throw diagnostics.SKILLS_A002();
   }
 
   return {
@@ -170,13 +166,13 @@ function findExtraField(
   const extraEnd = extraOffset + extraLength;
   let offset = extraOffset;
   while (offset < extraEnd) {
-    if (offset + 4 > extraEnd) throw new Error('Invalid zip extra field');
+    if (offset + 4 > extraEnd) throw corrupt('Invalid zip extra field');
 
     const id = buffer.readUInt16LE(offset);
     const size = buffer.readUInt16LE(offset + 2);
     const dataOffset = offset + 4;
     ensureRange(buffer, dataOffset, size, 'zip extra field');
-    if (dataOffset + size > extraEnd) throw new Error('Invalid zip extra field');
+    if (dataOffset + size > extraEnd) throw corrupt('Invalid zip extra field');
     if (id === targetId) return buffer.subarray(dataOffset, dataOffset + size);
 
     offset = dataOffset + size;
@@ -223,17 +219,17 @@ function readZip64EntryValues(
     values.diskStart === 0xffff;
 
   if (!needsZip64) {
-    if (values.diskStart !== 0) throw new Error('Multi-disk zip archives are not supported');
+    if (values.diskStart !== 0) throw diagnostics.SKILLS_A002();
     return values;
   }
 
   const zip64Extra = findExtraField(buffer, extraOffset, extraLength, 0x0001);
-  if (!zip64Extra) throw new Error('Invalid zip64 extra field');
+  if (!zip64Extra) throw corrupt('Invalid zip64 extra field');
 
   let valueOffset = 0;
   const readNextUInt64 = (label: string): number => {
     if (valueOffset + 8 > zip64Extra.length) {
-      throw new Error(`Invalid zip64 extra field: missing ${label}`);
+      throw corrupt(`Invalid zip64 extra field: missing ${label}`);
     }
     const value = readUInt64AsNumber(zip64Extra, valueOffset, `zip64 ${label}`);
     valueOffset += 8;
@@ -252,12 +248,12 @@ function readZip64EntryValues(
   }
   if (resolved.diskStart === 0xffff) {
     if (valueOffset + 4 > zip64Extra.length) {
-      throw new Error('Invalid zip64 extra field: missing disk start');
+      throw corrupt('Invalid zip64 extra field: missing disk start');
     }
     resolved.diskStart = zip64Extra.readUInt32LE(valueOffset);
   }
   if (resolved.diskStart !== 0) {
-    throw new Error('Multi-disk zip archives are not supported');
+    throw diagnostics.SKILLS_A002();
   }
   return resolved;
 }
@@ -265,19 +261,17 @@ function readZip64EntryValues(
 export function readZipArchive(bytes: Uint8Array, limits: ArchiveLimits): Map<string, Uint8Array> {
   const buffer = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const endOffset = findEndOfCentralDirectory(buffer);
-  if (endOffset < 0) throw new Error('Invalid zip archive');
+  if (endOffset < 0) throw corrupt('Invalid zip archive');
 
   const centralDirectory = readCentralDirectory(buffer, endOffset);
   const totalEntries = centralDirectory.entries;
   if (totalEntries > limits.maxEntries) {
-    throw new ArchiveValidationError(
-      `Archive contains too many files (${totalEntries}). Maximum is ${limits.maxEntries}.`
-    );
+    throw diagnostics.SKILLS_A006({ count: totalEntries, max: limits.maxEntries });
   }
 
   ensureRange(buffer, centralDirectory.offset, centralDirectory.size, 'central directory');
   if (centralDirectory.offset + centralDirectory.size > centralDirectory.trailerOffset) {
-    throw new Error('Invalid zip archive: central directory overlaps archive trailer');
+    throw corrupt('Invalid zip archive: central directory overlaps archive trailer');
   }
 
   const files = new Map<string, Uint8Array>();
@@ -287,7 +281,7 @@ export function readZipArchive(bytes: Uint8Array, limits: ArchiveLimits): Map<st
   for (let index = 0; index < totalEntries; index++) {
     ensureRange(buffer, offset, 46, 'central directory entry');
     if (buffer.readUInt32LE(offset) !== ZIP_CENTRAL_DIRECTORY_HEADER) {
-      throw new Error('Invalid zip central directory entry');
+      throw corrupt('Invalid zip central directory entry');
     }
 
     const flags = buffer.readUInt16LE(offset + 8);
@@ -325,29 +319,27 @@ export function readZipArchive(bytes: Uint8Array, limits: ArchiveLimits): Map<st
     );
     const fileName = normalizeArchivePath(rawFileName);
     if (fileName === null) {
-      throw new ArchiveValidationError(`Archive contains unsafe path: ${rawFileName}`);
+      throw diagnostics.SKILLS_A003({ path: rawFileName });
     }
     if (flags & 0x1) {
-      throw new ArchiveValidationError('Encrypted zip entries are not supported');
+      throw diagnostics.SKILLS_A004();
     }
     const fileType = (externalAttributes >>> 16) & 0o170000;
     if (fileType !== 0 && fileType !== 0o100000 && fileType !== 0o040000) {
-      throw new ArchiveValidationError('Archive links are not supported');
+      throw diagnostics.SKILLS_A005();
     }
     const isDirectory = rawFileName.replace(/\\/g, '/').endsWith('/') || fileType === 0o040000;
     offset += 46 + variableSize;
 
     extractedBytes += uncompressedSize;
     if (extractedBytes > limits.maxExtractedBytes) {
-      throw new ArchiveValidationError(
-        `Archive extracts to more than ${limits.maxExtractedBytes} bytes.`
-      );
+      throw diagnostics.SKILLS_A007({ maxBytes: limits.maxExtractedBytes });
     }
     if (isDirectory) continue;
 
     ensureRange(buffer, localHeaderOffset, 30, 'local file header');
     if (buffer.readUInt32LE(localHeaderOffset) !== ZIP_LOCAL_FILE_HEADER) {
-      throw new Error('Invalid zip local file header');
+      throw corrupt('Invalid zip local file header');
     }
 
     const localFlags = buffer.readUInt16LE(localHeaderOffset + 6);
@@ -363,13 +355,13 @@ export function readZipArchive(bytes: Uint8Array, limits: ArchiveLimits): Map<st
     );
     const localFileName = buffer.subarray(localNameOffset, localNameOffset + localFileNameLength);
     if (localFlags !== flags || localMethod !== method || !localFileName.equals(centralFileName)) {
-      throw new Error('Zip local header does not match central directory');
+      throw corrupt('Zip local header does not match central directory');
     }
 
     const dataOffset = localHeaderOffset + 30 + localFileNameLength + localExtraLength;
     ensureRange(buffer, dataOffset, compressedSize, 'file data');
     if (dataOffset + compressedSize > centralDirectory.offset) {
-      throw new Error('Invalid zip archive: file data overlaps central directory');
+      throw corrupt('Invalid zip archive: file data overlaps central directory');
     }
 
     const compressed = buffer.subarray(dataOffset, dataOffset + compressedSize);
@@ -381,20 +373,20 @@ export function readZipArchive(bytes: Uint8Array, limits: ArchiveLimits): Map<st
         maxOutputLength: uncompressedSize + 1,
       });
     } else {
-      throw new Error(`Unsupported zip compression method: ${method}`);
+      throw diagnostics.SKILLS_A008({ method });
     }
 
     if (contents.byteLength !== uncompressedSize) {
-      throw new Error('Zip entry size mismatch');
+      throw corrupt('Zip entry size mismatch');
     }
     if (crc32(contents) !== expectedChecksum) {
-      throw new Error('Zip entry checksum mismatch');
+      throw corrupt('Zip entry checksum mismatch');
     }
     files.set(fileName, new Uint8Array(contents));
   }
 
   if (offset !== centralDirectory.offset + centralDirectory.size) {
-    throw new Error('Invalid zip central directory size');
+    throw corrupt('Invalid zip central directory size');
   }
 
   return files;

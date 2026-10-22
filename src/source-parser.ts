@@ -1,5 +1,6 @@
 import { isAbsolute, resolve } from 'path';
 import type { ParsedSource } from './types.ts';
+import { diagnostics } from './diagnostics.ts';
 import { getGitHubHost, isGitHubHost } from './github-host.ts';
 
 /**
@@ -111,10 +112,7 @@ export function sanitizeSubpath(subpath: string): string {
   const segments = normalized.split('/');
   for (const segment of segments) {
     if (segment === '..') {
-      throw new Error(
-        `Unsafe subpath: "${subpath}" contains path traversal segments. ` +
-          `Subpaths must not contain ".." components.`
-      );
+      throw diagnostics.SKILLS_S001({ subpath });
     }
   }
 

@@ -3,6 +3,7 @@ import pc from 'picocolors';
 import { readdir, rm, lstat } from 'fs/promises';
 import { join } from 'path';
 import { agents, detectInstalledAgents, getEveSubagents } from './agents.ts';
+import { diagnostics, formatError } from './diagnostics.ts';
 import { track } from './telemetry.ts';
 import { detectAgent } from './detect-agent.ts';
 import { removeSkillFromLock, getSkillFromLock, readSkillLock } from './skill-lock.ts';
@@ -90,11 +91,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   // Refuse the combination so agents/scripts cannot accidentally mass-delete.
   const namedSkills = skillNames.filter((name) => name !== '*');
   if (options.all && namedSkills.length > 0) {
-    p.log.error('Cannot combine --all with specific skill names.');
-    p.log.info(
-      'Use `skills remove --all` to remove every skill, or omit --all to remove only the named skills.'
-    );
-    p.log.info(`Example: skills remove ${namedSkills[0]} -y`);
+    p.log.error(formatError(diagnostics.SKILLS_C006({ example: namedSkills[0]! })));
     process.exit(1);
   }
 
@@ -179,8 +176,9 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 
     if (invalidAgents.length > 0) {
-      p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
-      p.log.info(`Valid agents: ${validAgents.join(', ')}`);
+      p.log.error(
+        formatError(diagnostics.SKILLS_C001({ invalid: invalidAgents, valid: validAgents }))
+      );
       process.exit(1);
     }
   }
@@ -193,7 +191,14 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     selectedSkills = resolvedRequestedSkills;
 
     if (selectedSkills.length === 0) {
-      p.log.error(`No matching skills found for: ${skillNames.join(', ')}`);
+      p.log.error(
+        formatError(
+          diagnostics.SKILLS_S003({
+            requested: skillNames,
+            available: installedSkills,
+          })
+        )
+      );
       return;
     }
   } else {

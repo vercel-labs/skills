@@ -45,7 +45,11 @@ describe('parseSkillsField', () => {
   });
 
   it('rejects sources that are not git-hosted', () => {
-    expect(parseSkillsField(['./local', 'https://example.com/skills'], 'my-pack').errors).toEqual([
+    expect(
+      parseSkillsField(['./local', 'https://example.com/skills'], 'my-pack').errors.map(
+        (e) => e.message
+      )
+    ).toEqual([
       'my-pack: "./local" is not a git source',
       'my-pack: "https://example.com/skills" is not a git source',
     ]);
@@ -59,17 +63,17 @@ describe('parseSkillsField', () => {
           { source: 'https://github.com/o/r/tree/main/x', ref: 'v2' },
         ],
         '.'
-      ).errors
+      ).errors.map((e) => e.message)
     ).toEqual([
-      '.: "owner/repo#v1" already has a ref; remove "ref"',
-      '.: "https://github.com/o/r/tree/main/x" already has a ref; remove "ref"',
+      '.: "owner/repo#v1" already has a ref',
+      '.: "https://github.com/o/r/tree/main/x" already has a ref',
     ]);
   });
 
   it('rejects ref on an npm: entry', () => {
-    expect(parseSkillsField([{ source: 'npm:x', ref: 'v1' }], 'my-pack').errors).toEqual([
-      'my-pack: "ref" cannot be used with "npm:x"',
-    ]);
+    expect(
+      parseSkillsField([{ source: 'npm:x', ref: 'v1' }], 'my-pack').errors.map((e) => e.message)
+    ).toEqual(['my-pack: "ref" cannot be used with "npm:x"']);
   });
 
   it('rejects malformed entries and keeps the valid ones', () => {
@@ -77,7 +81,7 @@ describe('parseSkillsField', () => {
       [42, { skills: ['a'] }, { source: 'npm:x', skills: 'a' }, 'npm:ok'],
       '.'
     );
-    expect(parsed.errors).toEqual([
+    expect(parsed.errors.map((e) => e.message)).toEqual([
       '.: invalid "skills" entry 42',
       '.: invalid "skills" entry {"skills":["a"]}',
       '.: invalid "skills" entry {"source":"npm:x","skills":"a"}',

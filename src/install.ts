@@ -4,6 +4,7 @@ import { readLocalLock } from './local-lock.ts';
 import { installFromSource, runAdd } from './add.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { getUniversalAgents } from './agents.ts';
+import { diagnostics, formatError } from './diagnostics.ts';
 import { buildLocalUpdateSource } from './update-source.ts';
 import { parseSource } from './source-parser.ts';
 
@@ -45,9 +46,7 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
 
     const installSource = buildLocalUpdateSource(entry);
     if (!installSource) {
-      p.log.error(
-        `Cannot restore ${pc.cyan(skillName)}: skills-lock.json is missing sourceUrl for this generic Git source`
-      );
+      p.log.error(formatError(diagnostics.SKILLS_I004({ skill: pc.cyan(skillName) })));
       continue;
     }
     const existing = bySource.get(installSource);
@@ -98,9 +97,7 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
       const { options: syncOptions } = parseSyncOptions(args);
       await runSync(args, { ...syncOptions, yes: true, agent: universalAgentNames });
     } catch (error) {
-      p.log.error(
-        `Failed to sync node_modules skills: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
+      p.log.error(`Failed to sync node_modules skills: ${formatError(error)}`);
     }
   }
 }

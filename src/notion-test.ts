@@ -4,6 +4,8 @@ import { spawn } from 'node:child_process';
 import { cp, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
+import type { Diagnostic } from 'nostics';
+import { diagnostics } from './diagnostics.ts';
 import { downloadSource, type DownloadedSource } from './download-source.ts';
 import { cleanupTempDir } from './git.ts';
 import { sanitizeName } from './installer.ts';
@@ -72,13 +74,15 @@ interface PrepareNotionSkillSourceOptions {
   download?: (url: string) => Promise<DownloadedSource>;
 }
 
+const invalidResponse = (reason: string) => diagnostics.SKILLS_N003({ reason });
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function assertString(value: unknown, field: string): string {
   if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`Notion Agent Plugins response is missing ${field}`);
+    throw invalidResponse(`Notion Agent Plugins response is missing ${field}`);
   }
   return value;
 }
@@ -86,18 +90,18 @@ function assertString(value: unknown, field: string): string {
 function optionalMetadata(value: unknown, field: string): string {
   if (value === undefined || value === null) return '';
   if (typeof value !== 'string') {
-    throw new Error(`Notion Agent Plugins response has an invalid ${field}`);
+    throw invalidResponse(`Notion Agent Plugins response has an invalid ${field}`);
   }
   return sanitizeMetadata(value);
 }
 
 function parsePack(value: unknown): NotionPack | null {
   if (!isRecord(value)) {
-    throw new Error('Notion Agent Plugins response contains an invalid pack');
+    throw invalidResponse('Notion Agent Plugins response contains an invalid pack');
   }
 
   if (typeof value.name !== 'string') {
-    throw new Error('Notion Agent Plugins response is missing pack.name');
+    throw invalidResponse('Notion Agent Plugins response is missing pack.name');
   }
   const name = sanitizeMetadata(value.name);
   if (!name) return null;
@@ -112,15 +116,15 @@ function parsePack(value: unknown): NotionPack | null {
 
 function parsePackList(value: unknown): NotionPackListResponse {
   if (!isRecord(value) || !Array.isArray(value.results)) {
-    throw new Error('Notion Agent Plugins list response is invalid');
+    throw invalidResponse('Notion Agent Plugins list response is invalid');
   }
   if (typeof value.has_more !== 'boolean') {
-    throw new Error('Notion Agent Plugins list response is missing has_more');
+    throw invalidResponse('Notion Agent Plugins list response is missing has_more');
   }
 
   const nextCursor = value.next_cursor;
   if (nextCursor !== null && typeof nextCursor !== 'string') {
-    throw new Error('Notion Agent Plugins list response has an invalid next_cursor');
+    throw invalidResponse('Notion Agent Plugins list response has an invalid next_cursor');
   }
 
   const results = value.results.map(parsePack).filter((pack) => pack !== null);
@@ -134,7 +138,7 @@ function parsePackList(value: unknown): NotionPackListResponse {
 
 function parseDirectory(value: unknown, label: string): NotionDirectory {
   if (!isRecord(value)) {
-    throw new Error(`Notion ${label} directory response is invalid`);
+    throw invalidResponse(`Notion ${label} directory response is invalid`);
   }
 
   return {
@@ -176,12 +180,12 @@ export async function runNtnApi(args: string[]): Promise<string> {
       clearTimeout(timeout);
       callback();
     };
-    const fail = (message: string): void => finish(() => reject(new Error(message)));
+    const fail = (error: Diagnostic): void => finish(() => reject(error));
     const append = (chunks: Buffer[], chunk: Buffer): void => {
       outputBytes += chunk.length;
       if (outputBytes > NTN_MAX_BUFFER_BYTES) {
         child.kill('SIGTERM');
-        fail('ntn api output exceeded 10 MiB');
+        fail(diagnostics.SKILLS_N002({ reason: 'output exceeded 10 MiB' }));
         return;
       }
       chunks.push(chunk);
@@ -189,19 +193,22 @@ export async function runNtnApi(args: string[]): Promise<string> {
 
     const timeout = setTimeout(() => {
       child.kill('SIGTERM');
-      fail(`ntn api timed out after ${NTN_TIMEOUT_MS / 1000} seconds`);
+      fail(diagnostics.SKILLS_N002({ reason: `timed out after ${NTN_TIMEOUT_MS / 1000} seconds` }));
     }, NTN_TIMEOUT_MS);
 
     child.stdout.on('data', (chunk: Buffer) => append(stdoutChunks, chunk));
     child.stderr.on('data', (chunk: Buffer) => append(stderrChunks, chunk));
     child.on('error', (error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT') {
-        fail(
-          'Notion CLI (ntn) is required. Install it from:\nhttps://developers.notion.com/cli/get-started/overview\nThen run `ntn login`.'
-        );
+        fail(diagnostics.SKILLS_N001({ cause: error }));
         return;
       }
-      fail(`Unable to start ntn: ${stripTerminalEscapes(error.message)}`);
+      fail(
+        diagnostics.SKILLS_N002({
+          reason: `unable to start ntn: ${stripTerminalEscapes(error.message)}`,
+          cause: error,
+        })
+      );
     });
     child.on('close', (code) => {
       const stdout = Buffer.concat(stdoutChunks).toString('utf8');
@@ -210,7 +217,7 @@ export async function runNtnApi(args: string[]): Promise<string> {
         finish(() => resolve(stdout));
         return;
       }
-      fail(`ntn api failed${stderr ? `: ${stderr}` : ` with exit code ${code ?? 'unknown'}`}`);
+      fail(diagnostics.SKILLS_N002({ reason: stderr || `exit code ${code ?? 'unknown'}` }));
     });
   });
 }
@@ -225,7 +232,7 @@ async function fetchNotionJson(
     return JSON.parse(output) as unknown;
   } catch (error) {
     if (error instanceof SyntaxError) {
-      throw new Error(`ntn returned invalid JSON for ${label}`);
+      throw invalidResponse(`ntn returned invalid JSON for ${label}`);
     }
     throw error;
   }
@@ -249,7 +256,7 @@ export async function fetchNotionPacks(
 
     if (!page.has_more) break;
     if (!page.next_cursor || seenCursors.has(page.next_cursor)) {
-      throw new Error('Notion Agent Plugins pagination returned an invalid cursor');
+      throw invalidResponse('Notion Agent Plugins pagination returned an invalid cursor');
     }
     cursor = page.next_cursor;
     seenCursors.add(cursor);
@@ -270,9 +277,7 @@ export async function fetchNotionPackDirectory(
 
   const directory = parseDirectory(value, 'pack');
   if (directory.id !== pack.id || directory.version_id !== pack.version_id) {
-    throw new Error(
-      `Notion pack ${JSON.stringify(pack.name)} changed while preparing installation`
-    );
+    throw diagnostics.SKILLS_N006({ pack: pack.name });
   }
   return directory;
 }
@@ -425,7 +430,7 @@ export async function prepareNotionPackSource(
     `Found ${pc.green(packs.length)} Notion pack${packs.length === 1 ? '' : 's'}${inWorkspace(workspace)}`
   );
   if (packs.length === 0) {
-    throw new Error('Notion returned no packs for the authenticated workspace');
+    throw diagnostics.SKILLS_N004();
   }
 
   if (options.list) {
@@ -438,7 +443,7 @@ export async function prepareNotionPackSource(
   if (options.skill && options.skill.length > 0) {
     selectedPacks = filterPacks(packs, options.skill);
     if (selectedPacks.length === 0) {
-      throw new Error(`No matching Notion packs found for: ${options.skill.join(', ')}`);
+      throw diagnostics.SKILLS_N005({ requested: options.skill });
     }
   } else if (options.yes || !process.stdin.isTTY) {
     selectedPacks = packs;
@@ -490,7 +495,7 @@ export async function prepareNotionPackSource(
           fullDepth: true,
         });
         if (skills.length === 0) {
-          throw new Error('pack contains no valid skills');
+          throw diagnostics.SKILLS_S004();
         }
 
         const directoryName = `pack-${index + 1}-${sanitizeName(pack.name).slice(0, 100)}`;
@@ -512,7 +517,7 @@ export async function prepareNotionPackSource(
         skillCount += skills.length;
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Unknown error';
-        throw new Error(`Failed to prepare Notion pack ${JSON.stringify(pack.name)}: ${detail}`);
+        throw diagnostics.SKILLS_N007({ pack: pack.name, detail, cause: error });
       } finally {
         if (downloaded) await cleanupTempDir(downloaded.tempDir).catch(() => {});
       }

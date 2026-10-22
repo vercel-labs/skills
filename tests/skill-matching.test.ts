@@ -271,8 +271,9 @@ description: Configure \x1b[31mthe harness: Hooks
 
     expect(warnSpy).toHaveBeenCalledTimes(1);
     const warning = String(warnSpy.mock.calls[0]?.[0]);
+    // The warning itself may be colored; only the escape from SKILL.md must be gone.
     expect(warning).toContain('Configure the harness: Hooks');
-    expect(warning).not.toContain('\x1b');
+    expect(warning).not.toContain('Configure \x1b');
   });
 
   it('warns when name is missing', async () => {

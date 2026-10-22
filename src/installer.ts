@@ -26,6 +26,7 @@ import {
   EVE_SUBAGENTS_DIR,
 } from './agents.ts';
 import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
+import { diagnostics, formatError } from './diagnostics.ts';
 import { parseFrontmatter } from './frontmatter.ts';
 import { stringify } from 'yaml';
 import { parseSkillMd } from './skills.ts';
@@ -558,7 +559,7 @@ async function copyDirectory(src: string, dest: string, agentType?: AgentType): 
               (err as NodeJS.ErrnoException).code === 'ENOENT' &&
               entry.isSymbolicLink()
             ) {
-              console.warn(`Skipping broken symlink: ${srcPath}`);
+              console.warn(formatError(diagnostics.SKILLS_I003({ path: srcPath })));
             } else {
               throw err;
             }
@@ -635,7 +636,7 @@ export function getInstallPath(
   const installPath = join(targetBase, sanitized);
 
   if (!isPathSafe(targetBase, installPath)) {
-    throw new Error('Invalid skill name: potential path traversal detected');
+    throw diagnostics.SKILLS_I001();
   }
 
   return installPath;
@@ -656,7 +657,7 @@ export function getCanonicalPath(
   const canonicalPath = join(canonicalBase, sanitized);
 
   if (!isPathSafe(canonicalBase, canonicalPath)) {
-    throw new Error('Invalid skill name: potential path traversal detected');
+    throw diagnostics.SKILLS_I001();
   }
 
   return canonicalPath;

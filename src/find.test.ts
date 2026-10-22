@@ -25,12 +25,12 @@ describe('parseFindOptions', () => {
   });
 
   it('rejects missing and invalid owners', () => {
-    expect(parseFindOptions(['react', '--owner']).errors).toEqual([
+    expect(parseFindOptions(['react', '--owner']).errors.map((e) => e.message)).toEqual([
       '--owner requires a GitHub owner',
     ]);
-    expect(parseFindOptions(['react', '--owner', 'not/an/owner']).errors).toEqual([
-      '--owner must be a valid GitHub owner',
-    ]);
+    expect(
+      parseFindOptions(['react', '--owner', 'not/an/owner']).errors.map((e) => e.message)
+    ).toEqual(['--owner must be a valid GitHub owner']);
   });
 });
 

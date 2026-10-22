@@ -6,7 +6,9 @@ import { sep, join, dirname } from 'path';
 import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
 import { stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
-import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
+import type { Diagnostic } from 'nostics';
+import { diagnostics, formatError, isDiagnostic } from './diagnostics.ts';
+import { cloneRepo, cleanupTempDir } from './git.ts';
 import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
 import {
   installSkillForAgent,
@@ -36,7 +38,6 @@ import { detectAgent, getAgentType } from './detect-agent.ts';
 import {
   wellKnownProvider,
   computeWellKnownSkillDigest,
-  WellKnownScopeNotFoundError,
   type WellKnownSkill,
 } from './providers/index.ts';
 import { downloadSource } from './download-source.ts';
@@ -432,10 +433,7 @@ function buildResultLines(
 function exitInstallationCancelled(): never {
   p.cancel('Installation cancelled');
   if (!process.stdin.isTTY) {
-    console.error(
-      'Interactive prompt required but stdin is not a TTY. Nothing was installed. ' +
-        `Use --agent <name> (or --agent '*') and -y to run non-interactively.`
-    );
+    console.error(formatError(diagnostics.SKILLS_C007()));
     process.exit(1);
   }
   process.exit(0);
@@ -664,9 +662,9 @@ async function handleWellKnownSkills(
       ),
     });
   } catch (error) {
-    if (error instanceof WellKnownScopeNotFoundError) {
+    if (isDiagnostic(error, 'SKILLS_S009')) {
       spinner.stop(pc.red('No matching skills'));
-      p.log.error(error.message);
+      p.log.error(formatError(error));
       process.exit(1);
     }
   }
@@ -723,11 +721,14 @@ async function handleWellKnownSkills(
     );
 
     if (selectedSkills.length === 0) {
-      p.log.error(`No matching skills found for: ${options.skill.join(', ')}`);
-      p.log.info('Available skills:');
-      for (const s of skills) {
-        p.log.message(`  - ${s.installName}`);
-      }
+      p.log.error(
+        formatError(
+          diagnostics.SKILLS_S003({
+            requested: options.skill,
+            available: skills.map((s) => s.installName),
+          })
+        )
+      );
       process.exit(1);
     }
   } else if (skills.length === 1 || options.yes) {
@@ -769,8 +770,9 @@ async function handleWellKnownSkills(
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 
     if (invalidAgents.length > 0) {
-      p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
-      p.log.info(`Valid agents: ${validAgents.join(', ')}`);
+      p.log.error(
+        formatError(diagnostics.SKILLS_C001({ invalid: invalidAgents, valid: validAgents }))
+      );
       process.exit(1);
     }
 
@@ -1351,7 +1353,11 @@ export async function installFromSource(
       options.skills.length > 0 ? filterSkills(resolved.skills, options.skills) : resolved.skills;
     if (selected.length === 0) {
       spinner.stop(pc.red('No matching skills found'));
-      return { installed: [], failed: [], error: 'No matching skills found' };
+      const error = diagnostics.SKILLS_S003({
+        requested: options.skills,
+        available: resolved.skills.map(getSkillDisplayName),
+      });
+      return { installed: [], failed: [], error: formatError(error) };
     }
     spinner.stop(`Found ${pc.green(selected.length)} skill${selected.length > 1 ? 's' : ''}`);
     if (options.select) selected = await options.select(selected);
@@ -1375,11 +1381,7 @@ export async function installFromSource(
     };
   } catch (error) {
     spinner.stop(pc.red('Installation failed'));
-    return {
-      installed: [],
-      failed: [],
-      error: error instanceof Error ? error.message : String(error),
-    };
+    return { installed: [], failed: [], error: formatError(error) };
   } finally {
     await cleanup(resolved?.tempDir ?? null);
   }
@@ -1617,8 +1619,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       spinner.start('Validating local path…');
       if (!existsSync(parsed.localPath!)) {
         spinner.stop(pc.red('Path not found'));
-        p.outro(pc.red(`Local path does not exist: ${parsed.localPath}`));
-        emitJsonAndExit(1, `Local path does not exist: ${parsed.localPath}`);
+        const error = diagnostics.SKILLS_S008({ path: parsed.localPath! });
+        p.log.error(formatError(error));
+        p.outro(pc.red('Installation failed'));
+        emitJsonAndExit(1, error.message);
       }
       spinner.stop('Local path validated');
     }
@@ -1634,14 +1638,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     if (skills.length === 0) {
       spinner.stop(pc.red('No skills found'));
-      p.outro(
-        pc.red('No valid skills found. Skills require a SKILL.md with name and description.')
-      );
+      const error = diagnostics.SKILLS_S004();
+      p.log.error(formatError(error));
+      p.outro(pc.red('Installation failed'));
       await cleanup(tempDir);
-      emitJsonAndExit(
-        1,
-        'No valid skills found. Skills require a SKILL.md with name and description.'
-      );
+      emitJsonAndExit(1, error.message);
     }
 
     if (!blobResult) {
@@ -1725,13 +1726,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
 
       if (selectedSkills.length === 0) {
-        p.log.error(`No matching skills found for: ${options.skill.join(', ')}`);
-        p.log.info('Available skills:');
-        for (const s of skills) {
-          p.log.message(`  - ${getSkillDisplayName(s)}`);
-        }
+        const error = diagnostics.SKILLS_S003({
+          requested: options.skill,
+          available: skills.map(getSkillDisplayName),
+        });
+        p.log.error(formatError(error));
         await cleanup(tempDir);
-        emitJsonAndExit(1, `No matching skills found for: ${options.skill.join(', ')}`);
+        emitJsonAndExit(1, error.message);
       }
 
       p.log.info(
@@ -1815,10 +1816,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 
       if (invalidAgents.length > 0) {
-        p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
-        p.log.info(`Valid agents: ${validAgents.join(', ')}`);
+        const error = diagnostics.SKILLS_C001({ invalid: invalidAgents, valid: validAgents });
+        p.log.error(formatError(error));
         await cleanup(tempDir);
-        emitJsonAndExit(1, `Invalid agents: ${invalidAgents.join(', ')}`);
+        emitJsonAndExit(1, error.message);
       }
 
       targetAgents = options.agent as AgentType[];
@@ -2458,24 +2459,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Prompt for find-skills after successful install
     await promptForFindSkills(options, targetAgents);
   } catch (error) {
-    if (error instanceof GitCloneError) {
-      p.log.error(pc.red('Failed to clone repository'));
-      // Print each line of the error message separately for better formatting
-      for (const line of error.message.split('\n')) {
-        p.log.message(pc.dim(line));
-      }
-    } else {
-      p.log.error(error instanceof Error ? error.message : 'Unknown error occurred');
-    }
+    p.log.error(formatError(error));
     showInstallTip();
     p.outro(pc.red('Installation failed'));
-    const errorMessage =
-      error instanceof GitCloneError
-        ? `Failed to clone repository\n${error.message}`
-        : error instanceof Error
-          ? error.message
-          : 'Unknown error occurred';
-    emitJsonAndExit(1, errorMessage);
+    emitJsonAndExit(1, error instanceof Error ? error.message : 'Unknown error occurred');
   } finally {
     if (jsonMode) process.removeListener('exit', emitJsonOnExit);
     restoreStdout();
@@ -2573,11 +2560,11 @@ async function promptForFindSkills(
 export function parseAddOptions(args: string[]): {
   source: string[];
   options: AddOptions;
-  errors: string[];
+  errors: Diagnostic[];
 } {
   const options: AddOptions = {};
   const source: string[] = [];
-  const errors: string[] = [];
+  const errors: Diagnostic[] = [];
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -2613,13 +2600,13 @@ export function parseAddOptions(args: string[]): {
     } else if (arg === '--metadata') {
       const metadata = args[++i];
       if (metadata === undefined) {
-        errors.push('--metadata requires a JSON value');
+        errors.push(diagnostics.SKILLS_C002({ option: '--metadata', value: 'a JSON value' }));
       } else {
         try {
           JSON.parse(metadata);
           options.metadata = metadata;
         } catch {
-          errors.push('--metadata must be valid JSON');
+          errors.push(diagnostics.SKILLS_C004({ option: '--metadata', expected: 'valid JSON' }));
         }
       }
     } else if (arg === '--full-depth') {

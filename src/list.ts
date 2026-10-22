@@ -1,6 +1,7 @@
 import { homedir } from 'os';
 import type { AgentType } from './types.ts';
 import { agents } from './agents.ts';
+import { diagnostics, formatError } from './diagnostics.ts';
 import { listInstalledSkills, sanitizeName, type InstalledSkill } from './installer.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { getAllLockedSkills } from './skill-lock.ts';
@@ -86,8 +87,9 @@ export async function runList(args: string[]): Promise<void> {
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 
     if (invalidAgents.length > 0) {
-      console.log(`${YELLOW}Invalid agents: ${invalidAgents.join(', ')}${RESET}`);
-      console.log(`${DIM}Valid agents: ${validAgents.join(', ')}${RESET}`);
+      console.log(
+        formatError(diagnostics.SKILLS_C001({ invalid: invalidAgents, valid: validAgents }))
+      );
       process.exit(1);
     }
 

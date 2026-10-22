@@ -76,8 +76,8 @@ describe('use command', () => {
         '--wat',
       ]);
 
-      expect(result.errors).toContain('Only one --skill value can be provided');
-      expect(result.errors).toContain('Unknown option: --wat');
+      expect(result.errors.map((e) => e.code)).toEqual(['SKILLS_C005', 'SKILLS_C003']);
+      expect(result.errors[1]?.message).toBe('Unknown option: --wat');
     });
 
     it('parses OpenClaw sources like other GitHub owners', () => {
@@ -103,12 +103,10 @@ describe('use command', () => {
       const invalid = parseUseOptions(['source', '--agent', 'not-an-agent']);
       const multiple = parseUseOptions(['source', '--agent', 'claude-code', 'codex']);
 
-      expect(wildcard.errors).toContain(
-        "skills use --agent does not support '*'; specify exactly one agent."
-      );
-      expect(missing.errors).toContain('--agent requires an agent name');
-      expect(invalid.errors.join('\n')).toContain('Invalid agents: not-an-agent');
-      expect(multiple.errors).toContain('skills use --agent accepts exactly one agent.');
+      expect(wildcard.errors.map((e) => e.code)).toEqual(['SKILLS_U003']);
+      expect(missing.errors.map((e) => e.message)).toEqual(['--agent requires an agent name']);
+      expect(invalid.errors.map((e) => e.message)).toEqual(['Invalid agents: not-an-agent']);
+      expect(multiple.errors.map((e) => e.code)).toEqual(['SKILLS_U004']);
     });
   });
 
@@ -360,7 +358,7 @@ describe('use command', () => {
       const fullDepth = runCli(['use', testDir, '--skill', 'target', '--full-depth'], testDir);
 
       expect(shallow.exitCode).toBe(1);
-      expect(shallow.stderr).toContain('No matching skill found');
+      expect(shallow.stderr).toContain('[SKILLS_S003] No matching skills found for: target');
       expect(fullDepth.exitCode).toBe(0);
       expect(fullDepth.stdout).toContain('Nested target.');
     });

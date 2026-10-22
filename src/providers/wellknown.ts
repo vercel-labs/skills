@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
 import { readZipArchive } from '../archive.ts';
+import { diagnostics, isDiagnostic } from '../diagnostics.ts';
 import { parseFrontmatter } from '../frontmatter.ts';
 import { sanitizeMetadata } from '../sanitize.ts';
 import { shouldInstallInternalSkills } from '../skills.ts';
@@ -48,29 +49,6 @@ export interface WellKnownSkillEntryV2 {
   description: string;
   url: string;
   digest: string;
-}
-
-/**
- * Thrown when a path-scoped URL (for example https://host/s/my-list) has no
- * usable skills under that path while the host does publish a root index.
- * Falling back to the root index in that situation used to install the
- * host's entire catalog, so the caller must surface the unresolved scope
- * instead of installing anything.
- */
-export class WellKnownScopeNotFoundError extends Error {
-  readonly scopePath: string;
-  readonly rootUrl: string;
-
-  constructor(scopePath: string, rootUrl: string) {
-    super(
-      `No skills found for the scoped path '${scopePath}' on ${rootUrl}. ` +
-        `Not falling back to the root skills index because that would install every skill the host publishes. ` +
-        `Check the URL, or run 'skills add ${rootUrl}' to install from the root index.`
-    );
-    this.name = 'WellKnownScopeNotFoundError';
-    this.scopePath = scopePath;
-    this.rootUrl = rootUrl;
-  }
 }
 
 export type WellKnownIndex = WellKnownIndexV1 | WellKnownIndexV2;
@@ -601,8 +579,8 @@ export class WellKnownProvider implements HostProvider {
    *
    * When the URL is scoped to a path, only path-relative indexes are used.
    * If the scope yields no skills but the host publishes a root index, this
-   * throws {@link WellKnownScopeNotFoundError} instead of silently widening
-   * to the root index and returning the host's entire catalog.
+   * throws SKILLS_S009 instead of silently widening to the root index and
+   * installing the host's entire catalog.
    */
   async fetchAllSkills(
     url: string,
@@ -626,12 +604,12 @@ export class WellKnownProvider implements HostProvider {
       }
 
       if (scope && scopedCandidates.length < candidates.length) {
-        throw new WellKnownScopeNotFoundError(scope.scopePath, scope.rootBaseUrl);
+        throw diagnostics.SKILLS_S009({ scopePath: scope.scopePath, rootUrl: scope.rootBaseUrl });
       }
 
       return [];
     } catch (error) {
-      if (error instanceof WellKnownScopeNotFoundError) throw error;
+      if (isDiagnostic(error, 'SKILLS_S009')) throw error;
       return [];
     }
   }
@@ -658,7 +636,7 @@ export class WellKnownProvider implements HostProvider {
       return this.extractTarGz(bytes);
     }
 
-    throw new Error('Unsupported archive format');
+    throw diagnostics.SKILLS_A009();
   }
 
   private isZipArchive(bytes: Uint8Array, artifactUrl: string, contentType: string): boolean {
@@ -700,14 +678,14 @@ export class WellKnownProvider implements HostProvider {
     runningTotal: { bytes: number }
   ) {
     const normalizedPath = this.normalizeArchivePath(path);
-    if (!normalizedPath) throw new Error(`Unsafe archive path: ${path}`);
+    if (!normalizedPath) throw diagnostics.SKILLS_A003({ path });
 
     runningTotal.bytes += content.byteLength;
     if (runningTotal.bytes > MAX_ARCHIVE_UNPACKED_BYTES) {
-      throw new Error('Archive exceeds maximum unpacked size');
+      throw diagnostics.SKILLS_A007({ maxBytes: MAX_ARCHIVE_UNPACKED_BYTES });
     }
     if (files.size >= MAX_ARCHIVE_FILES) {
-      throw new Error('Archive contains too many files');
+      throw diagnostics.SKILLS_A006({ count: files.size + 1, max: MAX_ARCHIVE_FILES });
     }
 
     files.set(normalizedPath, content);
@@ -730,12 +708,13 @@ export class WellKnownProvider implements HostProvider {
       const path = prefix ? `${prefix}/${name}` : name;
       const size = Number.parseInt(sizeText || '0', 8);
 
-      if (!Number.isFinite(size) || size < 0) throw new Error('Invalid tar entry size');
+      if (!Number.isFinite(size) || size < 0)
+        throw diagnostics.SKILLS_A001({ reason: 'Invalid tar entry size' });
       offset += 512;
 
       // Reject symlinks and hard links. Skip directories and metadata entries.
       if (typeFlag === 0x32 || typeFlag === 0x31) {
-        throw new Error('Archive links are not supported');
+        throw diagnostics.SKILLS_A005();
       }
 
       const isFile = typeFlag === 0 || typeFlag === 0x30;
@@ -747,7 +726,7 @@ export class WellKnownProvider implements HostProvider {
       offset += Math.ceil(size / 512) * 512;
     }
 
-    if (!files.has('SKILL.md')) throw new Error('Archive missing root SKILL.md');
+    if (!files.has('SKILL.md')) throw diagnostics.SKILLS_A010();
     return files;
   }
 

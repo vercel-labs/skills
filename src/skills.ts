@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from 'fs/promises';
 import { join, basename, dirname, resolve, normalize, sep, relative } from 'path';
 import { parseFrontmatter } from './frontmatter.ts';
+import { diagnostics, formatError } from './diagnostics.ts';
 import { sanitizeMetadata, stripTerminalEscapes } from './sanitize.ts';
 import type { Skill } from './types.ts';
 import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
@@ -74,7 +75,14 @@ export async function hasSkillMd(dir: string): Promise<boolean> {
 }
 
 function warnSkippedSkill(skillMdPath: string, reason: string): void {
-  console.warn(`⚠ Skipped ${sanitizeMetadata(skillMdPath)} — ${stripTerminalEscapes(reason)}`);
+  console.warn(
+    formatError(
+      diagnostics.SKILLS_S011({
+        path: sanitizeMetadata(skillMdPath),
+        reason: stripTerminalEscapes(reason),
+      })
+    )
+  );
 }
 
 export async function parseSkillMd(
@@ -190,9 +198,7 @@ export async function discoverSkills(
 
   // Validate subpath doesn't escape basePath (prevent path traversal)
   if (subpath && !isSubpathSafe(basePath, subpath)) {
-    throw new Error(
-      `Invalid subpath: "${subpath}" resolves outside the repository directory. Subpath must not contain ".." segments that escape the base path.`
-    );
+    throw diagnostics.SKILLS_S002({ subpath });
   }
 
   const searchPath = subpath ? join(basePath, subpath) : basePath;

@@ -31,6 +31,7 @@ src/
 ├── add-prompt.test.ts # Add prompt behavior tests
 ├── add.test.ts      # Add command tests
 ├── constants.ts      # Shared constants
+├── diagnostics.ts   # nostics catalog of every error/warning code (SKILLS_<CAT><NNN>)
 ├── find.ts           # Find/search command
 ├── list.ts          # List installed skills command
 ├── list.test.ts     # List command tests
@@ -100,6 +101,10 @@ If reading an older lock file version, it's wiped. Users must reinstall skills t
 | `skills experimental_sync` | `src/sync.ts` - crawl node_modules                            |
 | `skills check`             | `src/cli.ts` + `fetchSkillFolderHash` in `src/skill-lock.ts`  |
 | `skills update`            | `src/cli.ts` direct hash compare + reinstall via `skills add` |
+
+## Error Handling
+
+All user-facing errors and warnings come from the `nostics` catalog in `src/diagnostics.ts`. Throw `diagnostics.SKILLS_X({...})` instead of `new Error(...)`, check codes with `isDiagnostic(error, 'SKILLS_X')`, and print caught errors with `formatError(error)`. Codes are permanent: never rename or reuse one. Every new code needs a `#### SKILLS_X` entry in `docs/troubleshooting.md` (`tests/diagnostics-docs.test.ts` enforces this).
 
 ## Factory collaboration
 

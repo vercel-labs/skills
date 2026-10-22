@@ -12,6 +12,7 @@ import { join } from 'path';
 const BUNDLED_PACKAGES = [
   '@clack/prompts',
   '@clack/core',
+  'nostics',
   'picocolors',
   'yaml',
   'simple-git',

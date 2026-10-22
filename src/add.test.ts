@@ -71,13 +71,8 @@ describe('add command', () => {
       PATH: join(testDir, 'missing-bin'),
     });
 
-    expect(result.stdout).toContain('Notion CLI (ntn) is required');
-    const docsLine = result.stdout
-      .split('\n')
-      .find((line) => line.includes('https://developers.notion.com/cli/get-started/overview'));
-    expect(docsLine?.replace(/^\s*│?\s*/, '')).toBe(
-      'https://developers.notion.com/cli/get-started/overview'
-    );
+    expect(result.stdout).toContain('[SKILLS_N001] Notion CLI (ntn) is required');
+    expect(result.stdout).toContain('https://developers.notion.com/cli/get-started/overview');
     expect(result.stdout).toContain('ntn login');
     expect(result.stdout).not.toContain('Cloning repository');
     expect(result.exitCode).toBe(1);
@@ -1112,13 +1107,13 @@ describe('parseAddOptions', () => {
     const result = parseAddOptions(['source', '--metadata', '{not-json}']);
 
     expect(result.options.metadata).toBeUndefined();
-    expect(result.errors).toEqual(['--metadata must be valid JSON']);
+    expect(result.errors.map((e) => e.message)).toEqual(['--metadata must be valid JSON']);
   });
 
   it('should reject a missing metadata value', () => {
     const result = parseAddOptions(['source', '--metadata']);
 
-    expect(result.errors).toEqual(['--metadata requires a JSON value']);
+    expect(result.errors.map((e) => e.message)).toEqual(['--metadata requires a JSON value']);
   });
 
   it('should parse a single --subagent value', () => {

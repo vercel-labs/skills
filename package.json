@@ -134,6 +134,7 @@
     "@vercel/detect-agent": "^1.2.1",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
+    "nostics": "^1.3.0",
     "obuild": "^0.4.22",
     "picocolors": "^1.1.1",
     "prettier": "^3.8.1",

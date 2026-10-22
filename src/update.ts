@@ -28,6 +28,7 @@ import { removeCommand } from './remove.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
 import { agents, isUniversalAgent } from './agents.ts';
+import { formatError } from './diagnostics.ts';
 import type { AgentType } from './types.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -657,6 +658,7 @@ export async function updateGlobalSkills(
       }
     } catch (error) {
       console.log(`  ${DIM}✗ Failed to check skills from ${source}${RESET}`);
+      console.log(formatError(error));
     } finally {
       if (tempDir) await cleanupTempDir(tempDir);
     }
@@ -913,6 +915,7 @@ export async function updateProjectSkills(
       }
     } catch (error) {
       console.log(`${DIM}✗ Failed to check for deleted skills from ${source}${RESET}`);
+      console.log(formatError(error));
     } finally {
       if (tempDir) {
         await cleanupTempDir(tempDir);
