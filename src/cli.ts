@@ -7,6 +7,7 @@ import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
 import { runFind } from './find.ts';
 import { runInstallFromLock } from './install.ts';
 import { runList } from './list.ts';
+import { InvalidLocalLockError } from './local-lock.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { flushTelemetry } from './telemetry.ts';
@@ -438,4 +439,10 @@ async function main(): Promise<void> {
   }
 }
 
-main().finally(() => flushTelemetry().then(() => process.exit(process.exitCode ?? 0)));
+main()
+  .catch((error: unknown) => {
+    if (!(error instanceof InvalidLocalLockError)) throw error;
+    console.error(`Error: ${error.message}`);
+    process.exitCode = 1;
+  })
+  .finally(() => flushTelemetry().then(() => process.exit(process.exitCode ?? 0)));

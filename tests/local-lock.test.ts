@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
+  InvalidLocalLockError,
   readLocalLock,
   writeLocalLock,
   addSkillToLocalLock,
@@ -85,7 +86,7 @@ describe('local-lock', () => {
       }
     });
 
-    it('returns empty lock for corrupted JSON (merge conflict markers)', async () => {
+    it('rejects corrupted JSON (merge conflict markers)', async () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
         const conflicted = `{
@@ -100,19 +101,28 @@ describe('local-lock', () => {
 }`;
         await writeFile(join(dir, 'skills-lock.json'), conflicted, 'utf-8');
 
-        const lock = await readLocalLock(dir);
-        expect(lock).toEqual({ version: 1, skills: {} });
+        await expect(readLocalLock(dir)).rejects.toThrow(InvalidLocalLockError);
+        await expect(readLocalLock(dir)).rejects.toThrow(join(dir, 'skills-lock.json'));
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
     });
 
-    it('returns empty lock for invalid structure (missing skills key)', async () => {
+    it('rejects an invalid structure (missing skills key)', async () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
         await writeFile(join(dir, 'skills-lock.json'), '{"version": 1}', 'utf-8');
-        const lock = await readLocalLock(dir);
-        expect(lock).toEqual({ version: 1, skills: {} });
+        await expect(readLocalLock(dir)).rejects.toThrow(InvalidLocalLockError);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('rejects an unknown lock version', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await writeFile(join(dir, 'skills-lock.json'), '{"version": 2, "skills": {}}', 'utf-8');
+        await expect(readLocalLock(dir)).rejects.toThrow('unsupported lock version 2');
       } finally {
         await rm(dir, { recursive: true, force: true });
       }

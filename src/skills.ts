@@ -4,7 +4,7 @@ import { parseFrontmatter } from './frontmatter.ts';
 import { sanitizeMetadata, stripTerminalEscapes } from './sanitize.ts';
 import type { Skill } from './types.ts';
 import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
-import { readLocalLock } from './local-lock.ts';
+import { InvalidLocalLockError, readLocalLock } from './local-lock.ts';
 import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
 
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
@@ -177,6 +177,19 @@ export function isSubpathSafe(basePath: string, subpath: string): boolean {
   return normalizedTarget.startsWith(normalizedBase + sep) || normalizedTarget === normalizedBase;
 }
 
+/**
+ * The source repo's own lock, used only to skip skills it merely installed.
+ * It is never written here, so an unusable one just means nothing is skipped.
+ */
+async function sourceLockedSkillNames(basePath: string): Promise<string[]> {
+  try {
+    return Object.keys((await readLocalLock(basePath)).skills);
+  } catch (error) {
+    if (error instanceof InvalidLocalLockError) return [];
+    throw error;
+  }
+}
+
 export async function discoverSkills(
   basePath: string,
   subpath?: string,
@@ -185,8 +198,9 @@ export async function discoverSkills(
   const skills: Skill[] = [];
   const seenNames = new Set<string>();
   const parsedSkillPaths = new Set<string>();
-  const localLock = await readLocalLock(basePath);
-  const lockedSkillNames = new Set(Object.keys(localLock.skills).map(normalizeSkillName));
+  const lockedSkillNames = new Set(
+    (await sourceLockedSkillNames(basePath)).map(normalizeSkillName)
+  );
 
   // Validate subpath doesn't escape basePath (prevent path traversal)
   if (subpath && !isSubpathSafe(basePath, subpath)) {
