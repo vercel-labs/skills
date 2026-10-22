@@ -40,6 +40,7 @@ import {
   type WellKnownSkill,
 } from './providers/index.ts';
 import { downloadSource } from './download-source.ts';
+import { mapConcurrent } from './concurrency.ts';
 import {
   addSkillToLock,
   getGitHubToken,
@@ -1123,6 +1124,14 @@ async function handleWellKnownSkills(
 
 type Spinner = ReturnType<typeof p.spinner>;
 
+// Clack spinners poll the terminal and write frames/cursor sequences; use this
+// when stdout is reserved (--json) or another spinner already owns the line.
+const silentSpinner = {
+  start: () => {},
+  stop: () => {},
+  message: () => {},
+} as unknown as Spinner;
+
 interface ResolvedSkills {
   skills: Skill[];
   /** Clone or download root; the caller removes it with cleanup(). */
@@ -1223,6 +1232,35 @@ async function resolveSkills(
   return { skills, tempDir, blobResult };
 }
 
+/** A well-known skill shaped as a Skill so it flows through installToTargets and the lock. */
+interface WellKnownSourceSkill extends Skill {
+  wellKnown: WellKnownSkill;
+}
+
+function isWellKnownSourceSkill(skill: Skill): skill is WellKnownSourceSkill {
+  return 'wellKnown' in skill;
+}
+
+/** Skills published at `url`'s well-known endpoint; null when it publishes none. */
+async function resolveWellKnownSkills(
+  url: string,
+  includeInternal: boolean
+): Promise<ResolvedSkills | null> {
+  const skills = await wellKnownProvider.fetchAllSkills(url, { includeInternal });
+  if (skills.length === 0) return null;
+  return {
+    skills: skills.map((wellKnown): WellKnownSourceSkill => ({
+      name: wellKnown.installName,
+      description: wellKnown.description,
+      path: '',
+      rawContent: wellKnown.content,
+      wellKnown,
+    })),
+    tempDir: null,
+    blobResult: null,
+  };
+}
+
 type TargetInstallResult = Awaited<ReturnType<typeof installSkillForAgent>> & {
   skill: string;
   agent: string;
@@ -1251,7 +1289,9 @@ async function installToTargets(
         createMissingAgentRoot: options.createMissingAgentRoot(agent),
       };
       let result;
-      if (resolved.blobResult && 'files' in skill) {
+      if (isWellKnownSourceSkill(skill)) {
+        result = await installWellKnownSkillForAgent(skill.wellKnown, agent, installOptions);
+      } else if (resolved.blobResult && 'files' in skill) {
         // Blob-based install: write files from snapshot
         const blobSkill = skill as BlobSkill;
         result = await installBlobSkillForAgent(
@@ -1323,19 +1363,85 @@ function projectLockEntry(
   };
 }
 
+/** Well-known skills have no source folder, so hash the installed copy like runAdd does. */
+async function wellKnownLockEntry(
+  url: string,
+  skill: WellKnownSkill,
+  installedDir: string
+): Promise<LocalSkillLockEntry> {
+  return {
+    source: wellKnownProvider.getSourceIdentifier(url),
+    sourceUrl: url,
+    sourceType: 'well-known',
+    computedHash: await computeSkillFolderHash(installedDir),
+    wellKnownDigest: computeWellKnownSkillDigest(skill),
+  };
+}
+
+interface SourceRequest {
+  parsed: ParsedSource;
+  /** Skill names to keep; all when empty. */
+  skills: string[];
+}
+
+/** A source after its network phase; `resolved` owns a temp dir until installFromSource runs. */
+export interface FetchedSource {
+  parsed: ParsedSource;
+  resolved: ResolvedSkills | null;
+  error?: string;
+}
+
 interface SourceInstallResult {
   installed: string[];
   failed: string[];
   error?: string;
 }
 
+async function fetchSource({ parsed, skills }: SourceRequest): Promise<FetchedSource> {
+  const includeInternal = skills.length > 0;
+  try {
+    // Arbitrary URLs: prefer the well-known endpoint, else a direct download.
+    const resolved =
+      (parsed.type === 'well-known' &&
+        (await resolveWellKnownSkills(parsed.url, includeInternal))) ||
+      (await resolveSkills(parsed, { includeInternal }, silentSpinner));
+    return { parsed, resolved };
+  } catch (error) {
+    return {
+      parsed,
+      resolved: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 /**
- * Install skills from `parsed` at project scope without prompting or exiting:
+ * Download every request at once under a single spinner. Results keep input
+ * order; a failed source is reported in its `error` and never throws.
+ */
+export async function fetchSources(requests: SourceRequest[]): Promise<FetchedSource[]> {
+  if (requests.length === 0) return [];
+  const label = `source${requests.length === 1 ? '' : 's'}`;
+  const spinner = p.spinner();
+  let done = 0;
+  spinner.start(`Downloading ${requests.length} ${label}…`);
+  const fetched = await mapConcurrent(requests, async (request) => {
+    const result = await fetchSource(request);
+    spinner.message(`Downloaded ${++done} of ${requests.length} ${label}…`);
+    return result;
+  });
+  spinner.stop(`Downloaded ${requests.length} ${label}`);
+  return fetched;
+}
+
+/**
+ * Install a fetched source at project scope without prompting or exiting:
  * keep `skills` (all when empty), let `select` drop any, install into
  * `agents`, and record the project lock (with `via` when given).
+ * Releases the source's temp dir.
  */
 export async function installFromSource(
-  parsed: ParsedSource,
+  { parsed, resolved, error }: FetchedSource,
   options: {
     skills: string[];
     agents: AgentType[];
@@ -1343,17 +1449,13 @@ export async function installFromSource(
     select?: (skills: Skill[]) => Promise<Skill[]>;
   }
 ): Promise<SourceInstallResult> {
-  const spinner = p.spinner();
-  let resolved: ResolvedSkills | null = null;
+  if (!resolved) return { installed: [], failed: [], error };
   try {
-    resolved = await resolveSkills(parsed, { includeInternal: options.skills.length > 0 }, spinner);
     let selected =
       options.skills.length > 0 ? filterSkills(resolved.skills, options.skills) : resolved.skills;
     if (selected.length === 0) {
-      spinner.stop(pc.red('No matching skills found'));
       return { installed: [], failed: [], error: 'No matching skills found' };
     }
-    spinner.stop(`Found ${pc.green(selected.length)} skill${selected.length > 1 ? 's' : ''}`);
     if (options.select) selected = await options.select(selected);
 
     const results = await installToTargets(
@@ -1365,8 +1467,12 @@ export async function installFromSource(
     const installed = new Set(results.filter((r) => r.success).map((r) => r.skill));
     const repoPaths = getSkillRepoPaths(resolved, selected);
     for (const skill of selected) {
-      if (!installed.has(getSkillDisplayName(skill))) continue;
-      const entry = projectLockEntry(parsed, repoPaths[skill.name], await sourceSkillHash(skill));
+      const name = getSkillDisplayName(skill);
+      const target = results.find((r) => r.success && r.skill === name);
+      if (!target) continue;
+      const entry = isWellKnownSourceSkill(skill)
+        ? await wellKnownLockEntry(parsed.url, skill.wellKnown, target.canonicalPath || target.path)
+        : projectLockEntry(parsed, repoPaths[skill.name], await sourceSkillHash(skill));
       await addSkillToLocalLock(skill.name, { ...entry, ...(options.via && { via: options.via }) });
     }
     return {
@@ -1374,14 +1480,13 @@ export async function installFromSource(
       failed: results.filter((r) => !r.success).map((r) => `${r.skill} → ${r.agent}: ${r.error}`),
     };
   } catch (error) {
-    spinner.stop(pc.red('Installation failed'));
     return {
       installed: [],
       failed: [],
       error: error instanceof Error ? error.message : String(error),
     };
   } finally {
-    await cleanup(resolved?.tempDir ?? null);
+    await cleanup(resolved.tempDir);
   }
 }
 
@@ -1547,15 +1652,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       options.skill = ['*'];
     }
 
-    // In json mode, use an inert spinner: clack spinners poll the terminal and
-    // write frames/cursor sequences that must never reach stdout.
-    const spinner = jsonMode
-      ? ({
-          start: () => {},
-          stop: () => {},
-          message: () => {},
-        } as unknown as ReturnType<typeof p.spinner>)
-      : p.spinner();
+    const spinner = jsonMode ? silentSpinner : p.spinner();
 
     spinner.start('Parsing source…');
     const parsed = parseSource(effectiveSource);

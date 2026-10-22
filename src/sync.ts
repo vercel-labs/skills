@@ -35,7 +35,7 @@ import { track } from './telemetry.ts';
 import { detectAgent, getAgentType } from './detect-agent.ts';
 import { getLastSelectedAgents, saveSelectedAgents } from './skill-lock.ts';
 import { parseSkillsField, type RemoteSkillsRequest } from './skills-field.ts';
-import { getProjectLockSource, installFromSource } from './add.ts';
+import { fetchSources, getProjectLockSource, installFromSource } from './add.ts';
 
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
 
@@ -922,9 +922,10 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   const claimed = new Set(discoveredSkills.map((skill) => sanitizeName(skill.name)));
   const lockEntryFor = (name: string) =>
     Object.entries(localLock.skills).find(([key]) => sanitizeName(key) === name)?.[1];
-  for (const request of remoteRequests) {
+  const fetched = await fetchSources(remoteRequests);
+  for (const [index, request] of remoteRequests.entries()) {
     const label = getProjectLockSource(request.parsed);
-    const result = await installFromSource(request.parsed, {
+    const result = await installFromSource(fetched[index]!, {
       skills: request.skills,
       agents: targetAgents,
       via: request.via,

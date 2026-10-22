@@ -30,6 +30,7 @@ src/
 ├── add.ts           # Core add command logic
 ├── add-prompt.test.ts # Add prompt behavior tests
 ├── add.test.ts      # Add command tests
+├── concurrency.ts   # Bounded parallel map for source clones/downloads (SKILLS_CLONE_CONCURRENCY)
 ├── constants.ts      # Shared constants
 ├── find.ts           # Find/search command
 ├── list.ts          # List installed skills command

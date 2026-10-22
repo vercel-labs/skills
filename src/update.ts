@@ -16,7 +16,8 @@ import {
 } from './update-source.ts';
 import { cloneRepo, cleanupTempDir, getGitTreeHash } from './git.ts';
 import { discoverSkills } from './skills.ts';
-import { fetchRepoTree, getSkillFolderHashFromTree } from './blob.ts';
+import { fetchRepoTree, getSkillFolderHashFromTree, type RepoTree } from './blob.ts';
+import { mapConcurrent } from './concurrency.ts';
 import {
   resolveSkillLocations,
   type DiscoveredSkillLocation,
@@ -36,6 +37,11 @@ const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
 const DIM = '\x1b[38;5;102m';
 const TEXT = '\x1b[38;5;145m';
+
+function printFetching(sourceCount: number): void {
+  if (sourceCount === 0) return;
+  console.log(`${DIM}Fetching ${sourceCount} source${sourceCount === 1 ? '' : 's'}…${RESET}`);
+}
 
 // ============================================
 // Scope Detection and Prompt
@@ -420,10 +426,16 @@ export async function processWellKnownUpdates(
   let failCount = 0;
   let changed = false;
 
-  for (const [baseUrl, items] of groups) {
+  const entries = [...groups];
+  printFetching(entries.length);
+  const results = await mapConcurrent(entries, ([baseUrl, items]) =>
+    checkWellKnownForUpdates(baseUrl, items)
+  );
+
+  for (const [index, [baseUrl, items]] of entries.entries()) {
     process.stdout.write(`\r${DIM}Checking skills from source: ${baseUrl}${RESET}\x1b[K\n`);
 
-    const result = await checkWellKnownForUpdates(baseUrl, items);
+    const result = results[index]!;
 
     if (result.status === 'error') {
       console.log(`  ${DIM}✗ Failed to check skills from ${baseUrl}${RESET}`);
@@ -491,6 +503,36 @@ export async function processWellKnownUpdates(
   }
 
   return { successCount, failCount, changed };
+}
+
+/** The network half of a source check; `tempDir` is the caller's to clean up. */
+type SourceCheckout = { tree: RepoTree } | { tempDir: string; note?: string } | { error: true };
+
+/**
+ * GitHub sources are checked through the Trees API unless a locked skill path
+ * no longer exists there (a rename), in which case the repo is cloned to
+ * relocate it. Other sources are always cloned.
+ */
+async function fetchGlobalSource(
+  entry: SkillLockEntry,
+  lockedSkillPaths: Array<string | undefined>
+): Promise<SourceCheckout> {
+  let note: string | undefined;
+  try {
+    if (entry.sourceType === 'github') {
+      const tree = await fetchRepoTree(entry.source, entry.ref, getGitHubToken);
+      if (tree) {
+        const treePaths = new Set(tree.tree.filter((e) => e.type === 'blob').map((e) => e.path));
+        if (lockedSkillPaths.every((path) => !path || treePaths.has(path))) return { tree };
+        note = 'Skill paths changed; resolving via Git clone';
+      } else {
+        note = 'GitHub API unavailable; checking via Git clone';
+      }
+    }
+    return { tempDir: await cloneRepo(entry.sourceUrl || entry.source, entry.ref), note };
+  } catch {
+    return { error: true };
+  }
 }
 
 export async function updateGlobalSkills(
@@ -565,69 +607,60 @@ export async function updateGlobalSkills(
     bySource.set(key, existing);
   }
 
-  for (const [, itemsForSource] of bySource) {
+  const lockedNamesFor = (first: SkillLockEntry) =>
+    Object.entries(lock.skills)
+      .filter(([_, entry]) => entry.source === first.source && entry.ref === first.ref)
+      .map(([name, _]) => name);
+
+  const groups = [...bySource.values()];
+  printFetching(groups.length);
+  const fetched = await mapConcurrent(groups, (itemsForSource) => {
+    const firstEntry = itemsForSource[0]!.entry;
+    return fetchGlobalSource(
+      firstEntry,
+      lockedNamesFor(firstEntry).map((name) => lock.skills[name]?.skillPath)
+    );
+  });
+
+  for (const [index, itemsForSource] of groups.entries()) {
     const firstEntry = itemsForSource[0]!.entry;
     const source = firstEntry.source;
-    const sourceUrl = firstEntry.sourceUrl || firstEntry.source;
-    let tempDir: string | null = null;
+    const isGitHubSource = firstEntry.sourceType === 'github';
+    const checkout = fetched[index]!;
 
     process.stdout.write(`\r${DIM}Checking skills from source: ${source}${RESET}\x1b[K\n`);
 
-    try {
-      const isGitHubSource = firstEntry.sourceType === 'github';
+    if ('error' in checkout) {
+      console.log(`  ${DIM}✗ Failed to check skills from ${source}${RESET}`);
+      continue;
+    }
 
-      if (isGitHubSource) {
-        const tree = await fetchRepoTree(source, firstEntry.ref, getGitHubToken);
-
-        if (tree) {
-          const discoveredPaths = tree.tree
-            .filter((entry) => entry.type === 'blob')
-            .map((entry) => entry.path);
-
-          const allLockedForSource = Object.entries(lock.skills)
-            .filter(([_, entry]) => entry.source === source && entry.ref === firstEntry.ref)
-            .map(([name, _]) => name);
-
-          const hasMissingLockedPath = allLockedForSource.some(
-            (name) =>
-              lock.skills[name]?.skillPath &&
-              !discoveredPaths.includes(lock.skills[name]!.skillPath!)
-          );
-
-          if (!hasMissingLockedPath) {
-            for (const { name: skillName, entry } of itemsForSource) {
-              const latestHash = getSkillFolderHashFromTree(tree, entry.skillPath!);
-              if (latestHash && latestHash !== entry.skillFolderHash) {
-                updates.push({ name: skillName, source, entry });
-              }
-            }
-
-            continue;
-          }
-
-          console.log(`  ${DIM}Skill paths changed; resolving via Git clone${RESET}`);
-        } else {
-          console.log(`  ${DIM}GitHub API unavailable; checking via Git clone${RESET}`);
+    if ('tree' in checkout) {
+      for (const { name: skillName, entry } of itemsForSource) {
+        const latestHash = getSkillFolderHashFromTree(checkout.tree, entry.skillPath!);
+        if (latestHash && latestHash !== entry.skillFolderHash) {
+          updates.push({ name: skillName, source, entry });
         }
       }
+      continue;
+    }
 
-      tempDir = await cloneRepo(sourceUrl, firstEntry.ref);
+    const { tempDir, note } = checkout;
+    if (note) console.log(`  ${DIM}${note}${RESET}`);
+
+    try {
       const discovered = await discoverSkills(tempDir, undefined, {
         fullDepth: true,
         includeDuplicateNames: true,
       });
       const discoveredLocations = discovered.map((skill) => ({
         name: skill.name,
-        skillPath: join(relative(tempDir!, skill.path), 'SKILL.md').split(sep).join('/'),
+        skillPath: join(relative(tempDir, skill.path), 'SKILL.md').split(sep).join('/'),
       }));
-
-      const allLockedForSource = Object.entries(lock.skills)
-        .filter(([_, entry]) => entry.source === source && entry.ref === firstEntry.ref)
-        .map(([name, _]) => name);
 
       const resolution = await checkAndPromptForDeletions(
         source,
-        allLockedForSource,
+        lockedNamesFor(firstEntry),
         lock.skills,
         true,
         options,
@@ -658,7 +691,7 @@ export async function updateGlobalSkills(
     } catch (error) {
       console.log(`  ${DIM}✗ Failed to check skills from ${source}${RESET}`);
     } finally {
-      if (tempDir) await cleanupTempDir(tempDir);
+      await cleanupTempDir(tempDir);
     }
   }
 
@@ -854,17 +887,28 @@ export async function updateProjectSkills(
     };
   }
 
-  for (const [, skillsForSource] of bySource) {
+  const groups = [...bySource.values()].map((skillsForSource) => ({
+    skillsForSource,
+    cloneSource: buildLocalCloneSource(skillsForSource[0]!.entry),
+  }));
+  printFetching(groups.filter((group) => group.cloneSource !== null).length);
+  // Clone dir per group; null when the source is unresolvable or the clone failed.
+  const clones = await mapConcurrent(groups, ({ skillsForSource, cloneSource }) =>
+    cloneSource === null
+      ? Promise.resolve(null)
+      : cloneRepo(cloneSource, skillsForSource[0]!.entry.ref).catch(() => null)
+  );
+
+  for (const [index, { skillsForSource, cloneSource }] of groups.entries()) {
     const firstEntry = skillsForSource[0]!.entry;
     const source = firstEntry.sourceUrl || firstEntry.source;
-    const cloneSource = buildLocalCloneSource(firstEntry);
     const ref = firstEntry.ref;
 
     const allLockedForSource = Object.entries(localLock.skills)
       .filter(([_, entry]) => (entry.sourceUrl || entry.source) === source && entry.ref === ref)
       .map(([name, _]) => name);
 
-    let tempDir: string | null = null;
+    const tempDir = clones[index]!;
     let deletedSkills: string[] = [];
     let resolvedPaths: Map<string, string> | null = null;
     const latestHashes = new Map<string, string>();
@@ -877,8 +921,13 @@ export async function updateProjectSkills(
       continue;
     }
 
+    if (tempDir === null) {
+      failCount += skillsForSource.length;
+      console.log(`${DIM}✗ Failed to check for deleted skills from ${source}${RESET}`);
+      continue;
+    }
+
     try {
-      tempDir = await cloneRepo(cloneSource, ref);
       const discovered = await discoverSkills(tempDir, undefined, {
         fullDepth: true,
         includeDuplicateNames: true,
@@ -886,7 +935,7 @@ export async function updateProjectSkills(
 
       const discoveredLocations = discovered.map((skill) => ({
         name: skill.name,
-        skillPath: join(relative(tempDir!, skill.path), 'SKILL.md').split(sep).join('/'),
+        skillPath: join(relative(tempDir, skill.path), 'SKILL.md').split(sep).join('/'),
       }));
 
       const resolution = await checkAndPromptForDeletions(
@@ -911,12 +960,10 @@ export async function updateProjectSkills(
           // Unknown hash: fall through to reinstalling the skill.
         }
       }
-    } catch (error) {
+    } catch {
       console.log(`${DIM}✗ Failed to check for deleted skills from ${source}${RESET}`);
     } finally {
-      if (tempDir) {
-        await cleanupTempDir(tempDir);
-      }
+      await cleanupTempDir(tempDir);
     }
 
     if (resolvedPaths === null) {

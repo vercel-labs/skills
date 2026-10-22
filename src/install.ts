@@ -1,7 +1,7 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { readLocalLock } from './local-lock.ts';
-import { installFromSource, runAdd } from './add.ts';
+import { fetchSources, installFromSource } from './add.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { getUniversalAgents } from './agents.ts';
 import { buildLocalUpdateSource } from './update-source.ts';
@@ -35,7 +35,7 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
 
   // Separate node_modules skills from remote skills
   const nodeModuleSkills: string[] = [];
-  const bySource = new Map<string, { sourceType: string; skills: string[] }>();
+  const bySource = new Map<string, string[]>();
 
   for (const [skillName, entry] of skillEntries) {
     if (entry.sourceType === 'node_modules') {
@@ -50,15 +50,7 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
       );
       continue;
     }
-    const existing = bySource.get(installSource);
-    if (existing) {
-      existing.skills.push(skillName);
-    } else {
-      bySource.set(installSource, {
-        sourceType: entry.sourceType,
-        skills: [skillName],
-      });
-    }
+    bySource.set(installSource, [...(bySource.get(installSource) ?? []), skillName]);
   }
 
   const remoteCount = skillEntries.length - nodeModuleSkills.length;
@@ -68,14 +60,15 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
     );
   }
 
-  // Install remote skills grouped by source
-  for (const [source, { sourceType, skills }] of bySource) {
-    // well-known sources go through their provider flow, which installs on its own
-    if (sourceType === 'well-known') {
-      await runAdd([source], { skill: skills, agent: universalAgentNames, yes: true });
-      continue;
-    }
-    const result = await installFromSource(parseSource(source), {
+  // Download every source at once, then install them in order
+  const requests = [...bySource].map(([source, skills]) => ({
+    source,
+    parsed: parseSource(source),
+    skills,
+  }));
+  const fetched = await fetchSources(requests);
+  for (const [index, { source, skills }] of requests.entries()) {
+    const result = await installFromSource(fetched[index]!, {
       skills,
       agents: universalAgentNames,
     });
