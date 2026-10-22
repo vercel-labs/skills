@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from '../src/test-utils.ts';
+import { computeSkillFolderHash } from '../src/local-lock.ts';
 
 describe('experimental_install', () => {
   let testDir: string;
@@ -15,7 +16,7 @@ describe('experimental_install', () => {
     );
   }
 
-  function writeLock(skills: Record<string, string>): void {
+  function writeLock(skills: Record<string, string>, hashOf?: (source: string) => string): void {
     writeFileSync(
       join(testDir, 'skills-lock.json'),
       JSON.stringify({
@@ -23,11 +24,19 @@ describe('experimental_install', () => {
         skills: Object.fromEntries(
           Object.entries(skills).map(([name, source]) => [
             name,
-            { source, sourceType: 'local', computedHash: 'x' },
+            { source, sourceType: 'local', computedHash: hashOf?.(source) ?? 'x' },
           ])
         ),
       })
     );
+  }
+
+  /** Lock pointing at `./src-a/alpha` with its real content hash. */
+  async function writeMatchingLock(): Promise<string> {
+    writeSkill(join(testDir, 'src-a', 'alpha'), 'alpha');
+    const hash = await computeSkillFolderHash(join(testDir, 'src-a', 'alpha'));
+    writeLock({ alpha: './src-a' }, () => hash);
+    return readFileSync(join(testDir, 'skills-lock.json'), 'utf-8');
   }
 
   const installed = (name: string) =>
@@ -68,5 +77,56 @@ describe('experimental_install', () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('Failed to install from');
     expect(installed('beta')).toBe(true);
+  });
+
+  describe('--frozen-lockfile', () => {
+    const lockFile = () => readFileSync(join(testDir, 'skills-lock.json'), 'utf-8');
+
+    it('restores skills that match the lock without touching it', async () => {
+      const before = await writeMatchingLock();
+
+      const result = runCli(['experimental_install', '--frozen-lockfile'], testDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(installed('alpha')).toBe(true);
+      expect(lockFile()).toBe(before);
+    });
+
+    it('fails without installing when a skill differs from the lock', () => {
+      writeSkill(join(testDir, 'src-a', 'alpha'), 'alpha');
+      writeLock({ alpha: './src-a' });
+      const before = lockFile();
+
+      const result = runCli(['experimental_install', '--frozen-lockfile'], testDir);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('skills-lock.json is not up to date');
+      expect(result.stdout).toContain('alpha has changed');
+      expect(installed('alpha')).toBe(false);
+      expect(lockFile()).toBe(before);
+    });
+
+    it('fails when the lock is absent', () => {
+      const result = runCli(['experimental_install', '--frozen-lockfile'], testDir);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('skills-lock.json is absent');
+    });
+
+    it('is the default in CI and --no-frozen-lockfile turns it off', () => {
+      writeSkill(join(testDir, 'src-a', 'alpha'), 'alpha');
+      writeLock({ alpha: './src-a' });
+
+      const frozen = runCli(['experimental_install'], testDir, { CI: 'true' });
+      expect(frozen.exitCode).toBe(1);
+      expect(installed('alpha')).toBe(false);
+
+      const thawed = runCli(['experimental_install', '--no-frozen-lockfile'], testDir, {
+        CI: 'true',
+      });
+      expect(thawed.exitCode).toBe(0);
+      expect(installed('alpha')).toBe(true);
+      expect(JSON.parse(lockFile()).skills.alpha.computedHash).toMatch(/^[a-f0-9]{64}$/);
+    });
   });
 });

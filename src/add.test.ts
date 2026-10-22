@@ -75,7 +75,8 @@ describe('add command', () => {
     const docsLine = result.stdout
       .split('\n')
       .find((line) => line.includes('https://developers.notion.com/cli/get-started/overview'));
-    expect(docsLine?.replace(/^\s*│?\s*/, '')).toBe(
+    // clack draws an ASCII gutter on Windows when CI is unset, which runCli ensures
+    expect(docsLine?.replace(/^\s*[│|]?\s*/, '')).toBe(
       'https://developers.notion.com/cli/get-started/overview'
     );
     expect(result.stdout).toContain('ntn login');

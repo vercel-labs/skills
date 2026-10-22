@@ -328,10 +328,19 @@ provided, and preserves skills installed separately with `skills add`.
 | `--include <patterns...>` | Include skills by package or `package#skill` pattern          |
 | `--exclude <patterns...>` | Exclude skills by package or `package#skill` pattern          |
 | `-r, --recursive`         | Also read dependencies of workspace packages                  |
+| `--frozen-lockfile`       | Fail instead of changing `skills-lock.json` (default in CI)   |
+| `--no-frozen-lockfile`    | Allow `skills-lock.json` to change in CI                      |
 
 The include/exclude filters apply to both packaged and remote skills. For remote
 skills, the package pattern matches the package declaring the entry (`.` for the
 project's own field). Eve always receives copies because it rewrites skill frontmatter.
+
+With `--frozen-lockfile`, sync installs only what `skills-lock.json` already records.
+It exits with code 1 and changes nothing when a packaged skill is missing from the
+lock, its content or package version differs, a locked skill is no longer provided
+by any dependency, or a remote `skills` entry resolves to different content. This is
+the default when a CI environment variable such as `CI` or `GITHUB_ACTIONS` is set;
+pass `--no-frozen-lockfile` to update the lock from CI.
 
 ### Restore skills from the project lock file
 
@@ -343,3 +352,14 @@ Restore supported sources recorded in `skills-lock.json` into `.agents/skills/`.
 Entries from npm packages are synced from the dependencies already on disk, so
 install your npm dependencies before restoring. This command does not install
 npm packages or create agent-specific links for restored skills.
+
+| Option                 | Description                                                 |
+| ---------------------- | ----------------------------------------------------------- |
+| `--frozen-lockfile`    | Fail instead of changing `skills-lock.json` (default in CI) |
+| `--no-frozen-lockfile` | Allow `skills-lock.json` to change in CI                    |
+
+With `--frozen-lockfile`, every restored skill must match the content hash recorded
+in `skills-lock.json`. A source whose skills differ is skipped entirely, the lock is
+left untouched, and the command exits with code 1. A missing or empty lock is also
+an error. This is the default in CI; pass `--no-frozen-lockfile` to refresh the lock
+from CI instead.

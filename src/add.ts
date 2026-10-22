@@ -51,7 +51,11 @@ import {
 import {
   addSkillToLocalLock,
   computeSkillFolderHash,
+  frozenLockfileError,
+  lockChangeReason,
+  readLocalLock,
   type LocalSkillLockEntry,
+  type LocalSkillLockFile,
 } from './local-lock.ts';
 import type { Skill, AgentType, ParsedSource } from './types.ts';
 import {
@@ -582,6 +586,11 @@ export interface AddOptions {
   subagent?: string[];
   /** Output results as a JSON array (machine-readable, no ANSI codes). */
   json?: boolean;
+  /**
+   * Set by `experimental_install` for well-known sources: verify what was
+   * installed against skills-lock.json instead of writing it.
+   */
+  frozenLockfile?: boolean;
 }
 
 /** One entry per skill in `add --json` output. */
@@ -1024,6 +1033,9 @@ async function handleWellKnownSkills(
 
   // Add to local lock file for project-scoped installs
   if (successful.length > 0 && !installGlobally) {
+    // Well-known skills are hashed after install, so a frozen lock is verified here
+    const frozenLock = options.frozenLockfile ? await readLocalLock(cwd) : null;
+    const lockChanges: string[] = [];
     for (const skill of selectedSkills) {
       if (successfulSkillNames.has(skill.installName)) {
         try {
@@ -1031,6 +1043,11 @@ async function handleWellKnownSkills(
           const installDir = matchingResult?.canonicalPath || matchingResult?.path;
           if (installDir) {
             const computedHash = await computeSkillFolderHash(installDir);
+            if (frozenLock) {
+              const reason = lockChangeReason(frozenLock, skill.installName, { computedHash });
+              if (reason) lockChanges.push(reason);
+              continue;
+            }
             await addSkillToLocalLock(
               skill.installName,
               {
@@ -1047,6 +1064,10 @@ async function handleWellKnownSkills(
           // Don't fail installation if lock file update fails
         }
       }
+    }
+    if (lockChanges.length > 0) {
+      p.log.error(frozenLockfileError(lockChanges));
+      process.exitCode = 1;
     }
   }
 
@@ -1332,7 +1353,9 @@ interface SourceInstallResult {
 /**
  * Install skills from `parsed` at project scope without prompting or exiting:
  * keep `skills` (all when empty), let `select` drop any, install into
- * `agents`, and record the project lock (with `via` when given).
+ * `agents`, and record the project lock (with `via` when given). With
+ * `frozenLock`, every selected skill must match its lock entry and the lock
+ * is left untouched.
  */
 export async function installFromSource(
   parsed: ParsedSource,
@@ -1341,6 +1364,7 @@ export async function installFromSource(
     agents: AgentType[];
     via?: string;
     select?: (skills: Skill[]) => Promise<Skill[]>;
+    frozenLock?: LocalSkillLockFile;
   }
 ): Promise<SourceInstallResult> {
   const spinner = p.spinner();
@@ -1356,6 +1380,19 @@ export async function installFromSource(
     spinner.stop(`Found ${pc.green(selected.length)} skill${selected.length > 1 ? 's' : ''}`);
     if (options.select) selected = await options.select(selected);
 
+    if (options.frozenLock) {
+      const changes: string[] = [];
+      for (const skill of selected) {
+        const reason = lockChangeReason(options.frozenLock, skill.name, {
+          computedHash: await sourceSkillHash(skill),
+        });
+        if (reason) changes.push(reason);
+      }
+      if (changes.length > 0) {
+        return { installed: [], failed: [], error: frozenLockfileError(changes) };
+      }
+    }
+
     const results = await installToTargets(
       resolved,
       selected,
@@ -1365,7 +1402,7 @@ export async function installFromSource(
     const installed = new Set(results.filter((r) => r.success).map((r) => r.skill));
     const repoPaths = getSkillRepoPaths(resolved, selected);
     for (const skill of selected) {
-      if (!installed.has(getSkillDisplayName(skill))) continue;
+      if (options.frozenLock || !installed.has(getSkillDisplayName(skill))) continue;
       const entry = projectLockEntry(parsed, repoPaths[skill.name], await sourceSkillHash(skill));
       await addSkillToLocalLock(skill.name, { ...entry, ...(options.via && { via: options.via }) });
     }

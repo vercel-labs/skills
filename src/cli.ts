@@ -171,6 +171,10 @@ ${BOLD}Project:${RESET}
   init [name]          Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)
   experimental_sync    Sync skills from node_modules into agent directories (alias: sync)
 
+${BOLD}Experimental Install Options:${RESET}
+  --frozen-lockfile      Fail instead of changing skills-lock.json (default in CI)
+  --no-frozen-lockfile   Allow skills-lock.json to change in CI
+
 ${BOLD}Add Options:${RESET}
   -g, --global           Install skill globally (user-level) instead of project-level
   -a, --agent <agents>   Specify agents to install to (use '*' for all agents)
@@ -203,6 +207,8 @@ ${BOLD}Experimental Sync Options:${RESET}
   --dry-run              Show what would change without changing anything
   --no-cleanup           Keep skills whose package no longer ships them
   --no-remote            Skip git sources listed in package.json skills fields
+  --frozen-lockfile      Fail instead of changing skills-lock.json (default in CI)
+  --no-frozen-lockfile   Allow skills-lock.json to change in CI
   -r, --recursive        Also sync the dependencies of each workspace package
   --include <patterns>   Only sync matching packages (<pkg>) or skills (<pkg>#<skill>)
   --exclude <patterns>   Skip matching packages (<pkg>) or skills (<pkg>#<skill>)

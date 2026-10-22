@@ -12,6 +12,8 @@ vi.mock('../src/sync.ts', () => ({
 vi.mock('../src/agents.ts', () => ({
   getUniversalAgents: vi.fn().mockReturnValue(['cursor']),
 }));
+// The suite itself runs in CI, where --frozen-lockfile would otherwise default on
+vi.mock('../src/ci.ts', () => ({ isCI: () => false }));
 
 describe('runInstallFromLock', () => {
   beforeEach(() => {

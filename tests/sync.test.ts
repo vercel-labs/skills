@@ -234,6 +234,95 @@ describe('sync command', () => {
     });
   });
 
+  describe('--frozen-lockfile', () => {
+    const lockPath = () => join(testDir, 'skills-lock.json');
+    const sync = (...flags: string[]) =>
+      runCli(['sync', '-y', '-a', 'claude-code', ...flags], testDir);
+    const installed = (name: string) => existsSync(join(testDir, '.agents', 'skills', name));
+
+    /** A project with one packaged skill, synced once so the lock matches it. */
+    function syncedProject(): { skillDir: string; lock: string } {
+      declareDeps(['my-pkg']);
+      const skillDir = join(createPackage('my-pkg', '1.0.0'), 'skills', 'helper');
+      writeSkill(skillDir, 'helper');
+      sync();
+      rmSync(join(testDir, '.agents'), { recursive: true });
+      rmSync(join(testDir, '.claude'), { recursive: true });
+      return { skillDir, lock: readFileSync(lockPath(), 'utf-8') };
+    }
+
+    it('installs skills that match the lock without touching it', () => {
+      const { lock } = syncedProject();
+
+      const result = sync('--frozen-lockfile');
+
+      expect(result.exitCode).toBe(0);
+      expect(installed('helper')).toBe(true);
+      expect(readFileSync(lockPath(), 'utf-8')).toBe(lock);
+    });
+
+    it('fails when a packaged skill is not in the lock', () => {
+      declareDeps(['my-pkg']);
+      writeSkill(join(createPackage('my-pkg'), 'skills', 'helper'), 'helper');
+
+      const result = sync('--frozen-lockfile');
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('helper is not in skills-lock.json');
+      expect(installed('helper')).toBe(false);
+      expect(existsSync(lockPath())).toBe(false);
+    });
+
+    it('fails when a packaged skill changed since the lock was written', () => {
+      const { skillDir, lock } = syncedProject();
+      writeFileSync(join(skillDir, 'SKILL.md'), skillMd('helper', 'changed'));
+
+      const result = sync('--frozen-lockfile');
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('helper has changed');
+      expect(installed('helper')).toBe(false);
+      expect(readFileSync(lockPath(), 'utf-8')).toBe(lock);
+    });
+
+    it('fails when the package version changed', () => {
+      const { lock } = syncedProject();
+      createPackage('my-pkg', '1.1.0');
+
+      const result = sync('--frozen-lockfile');
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('version 1.1.0, skills-lock.json has 1.0.0');
+      expect(readFileSync(lockPath(), 'utf-8')).toBe(lock);
+    });
+
+    it('fails when the lock has a skill no dependency provides anymore', () => {
+      const { lock } = syncedProject();
+      rmSync(join(testDir, 'node_modules', 'my-pkg'), { recursive: true });
+
+      const result = sync('--frozen-lockfile');
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('helper is no longer provided by a dependency');
+      expect(readFileSync(lockPath(), 'utf-8')).toBe(lock);
+    });
+
+    it('is the default in CI and --no-frozen-lockfile turns it off', () => {
+      declareDeps(['my-pkg']);
+      writeSkill(join(createPackage('my-pkg'), 'skills', 'helper'), 'helper');
+
+      const frozen = runCli(['sync', '-y', '-a', 'claude-code'], testDir, { CI: 'true' });
+      expect(frozen.exitCode).toBe(1);
+      expect(existsSync(lockPath())).toBe(false);
+
+      const thawed = runCli(['sync', '-y', '-a', 'claude-code', '--no-frozen-lockfile'], testDir, {
+        CI: 'true',
+      });
+      expect(thawed.exitCode).toBe(0);
+      expect(existsSync(lockPath())).toBe(true);
+    });
+  });
+
   describe('linking', () => {
     it('returns a nonzero exit code when a packaged skill cannot be installed', () => {
       declareDeps(['my-lib']);

@@ -6,6 +6,7 @@ import { runSync, parseSyncOptions } from './sync.ts';
 import { getUniversalAgents } from './agents.ts';
 import { buildLocalUpdateSource } from './update-source.ts';
 import { parseSource } from './source-parser.ts';
+import { isCI } from './ci.ts';
 
 /**
  * Install all skills from the local skills-lock.json.
@@ -19,10 +20,19 @@ import { parseSource } from './source-parser.ts';
  */
 export async function runInstallFromLock(args: string[]): Promise<void> {
   const cwd = process.cwd();
+  const { options: syncOptions } = parseSyncOptions(args);
+  const frozen = syncOptions.frozenLockfile ?? isCI();
   const lock = await readLocalLock(cwd);
   const skillEntries = Object.entries(lock.skills);
 
   if (skillEntries.length === 0) {
+    if (frozen) {
+      p.log.error(
+        'Cannot install with --frozen-lockfile because skills-lock.json is absent or has no skills'
+      );
+      process.exitCode = 1;
+      return;
+    }
     p.log.warn('No project skills found in skills-lock.json');
     p.log.info(
       `Add project-level skills with ${pc.cyan('npx skills add <package>')} (without ${pc.cyan('-g')})`
@@ -72,12 +82,18 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
   for (const [source, { sourceType, skills }] of bySource) {
     // well-known sources go through their provider flow, which installs on its own
     if (sourceType === 'well-known') {
-      await runAdd([source], { skill: skills, agent: universalAgentNames, yes: true });
+      await runAdd([source], {
+        skill: skills,
+        agent: universalAgentNames,
+        yes: true,
+        frozenLockfile: frozen,
+      });
       continue;
     }
     const result = await installFromSource(parseSource(source), {
       skills,
       agents: universalAgentNames,
+      ...(frozen && { frozenLock: lock }),
     });
     if (result.error) {
       p.log.error(`Failed to install from ${pc.cyan(source)}: ${result.error}`);
@@ -95,8 +111,12 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
       `${pc.cyan(String(nodeModuleSkills.length))} skill${nodeModuleSkills.length !== 1 ? 's' : ''} from node_modules`
     );
     try {
-      const { options: syncOptions } = parseSyncOptions(args);
-      await runSync(args, { ...syncOptions, yes: true, agent: universalAgentNames });
+      await runSync(args, {
+        ...syncOptions,
+        frozenLockfile: frozen,
+        yes: true,
+        agent: universalAgentNames,
+      });
     } catch (error) {
       p.log.error(
         `Failed to sync node_modules skills: ${error instanceof Error ? error.message : 'Unknown error'}`

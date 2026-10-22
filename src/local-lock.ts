@@ -206,6 +206,34 @@ export async function addSkillToLocalLock(
 }
 
 /**
+ * Why recording `entry` for `skillName` would change the lock, or null when
+ * it matches what is locked. Drives `--frozen-lockfile`.
+ */
+export function lockChangeReason(
+  lock: LocalSkillLockFile,
+  skillName: string,
+  entry: Pick<LocalSkillLockEntry, 'computedHash' | 'version'>
+): string | null {
+  const locked = lock.skills[skillName];
+  if (!locked) return `${skillName} is not in skills-lock.json`;
+  if (locked.computedHash !== entry.computedHash) {
+    return `${skillName} has changed since skills-lock.json was written`;
+  }
+  if (locked.version !== entry.version) {
+    return `${skillName} comes from version ${entry.version ?? 'unknown'}, skills-lock.json has ${locked.version ?? 'unknown'}`;
+  }
+  return null;
+}
+
+export function frozenLockfileError(changes: string[]): string {
+  return [
+    'Cannot install with --frozen-lockfile because skills-lock.json is not up to date:',
+    ...changes.map((change) => `  ${change}`),
+    'Run again with --no-frozen-lockfile to update it.',
+  ].join('\n');
+}
+
+/**
  * Remove a skill from the local lock file.
  */
 export async function removeSkillFromLocalLock(skillName: string, cwd?: string): Promise<boolean> {
