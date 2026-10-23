@@ -100,7 +100,10 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'antigravity',
     displayName: 'Antigravity',
     skillsDir: '.agents/skills',
-    globalSkillsDir: join(home, '.gemini/antigravity/skills'),
+    // agy, the IDE and Antigravity 2.0 read global skills from ~/.gemini/config/skills,
+    // and none of them reads ~/.agents/skills outside a workspace.
+    globalSkillsDir: join(home, '.gemini/config/skills'),
+    globalReadsCanonical: false,
     showInUniversalPrompt: false,
     detectInstalled: async () => {
       return existsSync(join(home, '.gemini/antigravity'));
@@ -110,7 +113,10 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'antigravity-cli',
     displayName: 'Antigravity CLI',
     skillsDir: '.agents/skills',
-    globalSkillsDir: join(home, '.gemini/antigravity-cli/skills'),
+    // agy, the IDE and Antigravity 2.0 read global skills from ~/.gemini/config/skills,
+    // and none of them reads ~/.agents/skills outside a workspace.
+    globalSkillsDir: join(home, '.gemini/config/skills'),
+    globalReadsCanonical: false,
     showInUniversalPrompt: false,
     detectInstalled: async () => {
       return existsSync(join(home, '.gemini/antigravity-cli'));
@@ -913,4 +919,12 @@ export function getNonUniversalAgents(): AgentType[] {
  */
 export function isUniversalAgent(type: AgentType): boolean {
   return agents[type].skillsDir === '.agents/skills';
+}
+
+/**
+ * Check if an agent reads the canonical ~/.agents/skills directory for global
+ * installs, so a global install needs nothing in its own globalSkillsDir.
+ */
+export function readsCanonicalGlobally(type: AgentType): boolean {
+  return isUniversalAgent(type) && agents[type].globalReadsCanonical !== false;
 }
