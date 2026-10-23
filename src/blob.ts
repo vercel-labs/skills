@@ -10,13 +10,13 @@
  *   3. skills.sh/api/download → fetch full file contents from cached blob
  */
 
-import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { parseFrontmatter } from './frontmatter.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { getGitHubHost } from './github-host.ts';
 import type { Skill } from './types.ts';
 import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
+import { hashSkillFiles } from './local-lock.ts';
 
 // ─── Types ───
 
@@ -37,7 +37,7 @@ export interface SkillDownloadResponse {
 export interface BlobSkill extends Skill {
   /** Files from the blob snapshot */
   files: SkillSnapshotFile[];
-  /** skillsComputedHash from the blob snapshot */
+  /** Hash of `files`, computed like a skill folder on disk (hashSkillFiles) */
   snapshotHash: string;
   /** Path of the SKILL.md within the repo (e.g., "skills/react-best-practices/SKILL.md") */
   repoPath: string;
@@ -487,15 +487,6 @@ export interface BlobInstallResult {
   tree: RepoTree;
 }
 
-function computeSnapshotHash(files: SkillSnapshotFile[]): string {
-  const hash = createHash('sha256');
-  for (const file of [...files].sort((a, b) => a.path.localeCompare(b.path))) {
-    hash.update(file.path);
-    hash.update(file.contents);
-  }
-  return hash.digest('hex');
-}
-
 function getSkillFolderPath(skillMdPath: string): string {
   const pathLower = skillMdPath.toLowerCase();
   if (pathLower.endsWith('/skill.md')) return skillMdPath.slice(0, -9);
@@ -692,8 +683,13 @@ export async function tryBlobInstall(
       rawContent: skill.content,
       metadata: skill.metadata,
       files,
-      snapshotHash:
-        files.length === download!.files.length ? download!.hash : computeSnapshotHash(files),
+      // Not download.hash: skills.sh hashes the snapshot another way, and
+      // `skills update` compares against the folder hash of a fresh clone,
+      // so a recorded download hash never matched and the skill reinstalled
+      // on every update.
+      snapshotHash: hashSkillFiles(
+        files.map((file) => ({ relativePath: file.path, content: file.contents }))
+      ),
       repoPath: skill.mdPath,
     };
   });

@@ -154,12 +154,23 @@ function getPortableLocalSource(source: string, lockDir: string): string {
 export async function computeSkillFolderHash(skillDir: string): Promise<string> {
   const files: Array<{ relativePath: string; content: Buffer }> = [];
   await collectFiles(skillDir, skillDir, files);
+  return hashSkillFiles(files);
+}
 
+/**
+ * Hash a skill's files the way the project lock records `computedHash`.
+ * `skills update` recomputes it from a fresh clone, so a skill installed
+ * from a skills.sh snapshot must be hashed here too, not by the snapshot's
+ * own hash, or it never compares equal.
+ */
+export function hashSkillFiles(
+  files: ReadonlyArray<{ relativePath: string; content: string | Buffer }>
+): string {
   // Sort by relative path for deterministic hashing
-  files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+  const sorted = [...files].sort((a, b) => a.relativePath.localeCompare(b.relativePath));
 
   const hash = createHash('sha256');
-  for (const file of files) {
+  for (const file of sorted) {
     // Include the path in the hash so renames are detected
     hash.update(file.relativePath);
     hash.update(file.content);
