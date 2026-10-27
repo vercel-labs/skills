@@ -1,10 +1,11 @@
 import { homedir } from 'os';
 import type { AgentType } from './types.ts';
 import { agents } from './agents.ts';
+import { diagnostics, formatError, isDiagnostic } from './diagnostics.ts';
 import { listInstalledSkills, sanitizeName, type InstalledSkill } from './installer.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { getAllLockedSkills } from './skill-lock.ts';
-import { InvalidLocalLockError, readLocalLock } from './local-lock.ts';
+import { readLocalLock } from './local-lock.ts';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -78,8 +79,8 @@ async function readProjectLockOrWarn(cwd: string): Promise<Record<string, ListLo
   try {
     return (await readLocalLock(cwd)).skills;
   } catch (error) {
-    if (!(error instanceof InvalidLocalLockError)) throw error;
-    console.error(`${YELLOW}Warning: ${error.message}${RESET}`);
+    if (!isDiagnostic(error, 'SKILLS_I005')) throw error;
+    console.error(`${YELLOW}Warning: ${formatError(error)}${RESET}`);
     return {};
   }
 }
@@ -97,8 +98,9 @@ export async function runList(args: string[]): Promise<void> {
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 
     if (invalidAgents.length > 0) {
-      console.log(`${YELLOW}Invalid agents: ${invalidAgents.join(', ')}${RESET}`);
-      console.log(`${DIM}Valid agents: ${validAgents.join(', ')}${RESET}`);
+      console.log(
+        formatError(diagnostics.SKILLS_C001({ invalid: invalidAgents, valid: validAgents }))
+      );
       process.exit(1);
     }
 

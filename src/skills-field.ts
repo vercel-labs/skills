@@ -1,5 +1,7 @@
 import { parseSource } from './source-parser.ts';
 import type { ParsedSource } from './types.ts';
+import type { Diagnostic } from 'nostics';
+import { diagnostics } from './diagnostics.ts';
 
 /**
  * The `skills` field of package.json: skills a package wants installed
@@ -24,7 +26,7 @@ export interface RemoteSkillsRequest {
 interface ParsedSkillsField {
   npm: NpmSkillsRequest[];
   remote: RemoteSkillsRequest[];
-  errors: string[];
+  errors: Diagnostic[];
 }
 
 const NPM_PREFIX = 'npm:';
@@ -50,16 +52,16 @@ export function parseSkillsField(entries: unknown[], declarer: string): ParsedSk
 
   for (const raw of entries) {
     if (!isSkillsFieldEntry(raw)) {
-      parsed.errors.push(`${declarer}: invalid "skills" entry ${JSON.stringify(raw)}`);
+      parsed.errors.push(diagnostics.SKILLS_P002({ declarer, entry: JSON.stringify(raw) }));
       continue;
     }
     const { source, skills = [], ref } = typeof raw === 'string' ? { source: raw } : raw;
     if (!source.startsWith(NPM_PREFIX)) {
       const remote = parseSource(source);
       if (!REMOTE_SOURCE_TYPES.has(remote.type)) {
-        parsed.errors.push(`${declarer}: "${source}" is not a git source`);
+        parsed.errors.push(diagnostics.SKILLS_P003({ declarer, source }));
       } else if (ref !== undefined && remote.ref !== undefined) {
-        parsed.errors.push(`${declarer}: "${source}" already has a ref; remove "ref"`);
+        parsed.errors.push(diagnostics.SKILLS_P004({ declarer, source }));
       } else {
         parsed.remote.push({
           parsed: { ...remote, ref: ref ?? remote.ref },
@@ -67,7 +69,7 @@ export function parseSkillsField(entries: unknown[], declarer: string): ParsedSk
         });
       }
     } else if (ref !== undefined) {
-      parsed.errors.push(`${declarer}: "ref" cannot be used with "${source}"`);
+      parsed.errors.push(diagnostics.SKILLS_P005({ declarer, source }));
     } else {
       parsed.npm.push({ package: source.slice(NPM_PREFIX.length), skills });
     }

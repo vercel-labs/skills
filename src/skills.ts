@@ -1,10 +1,11 @@
 import { readdir, readFile, stat } from 'fs/promises';
 import { join, basename, dirname, resolve, normalize, sep, relative } from 'path';
 import { parseFrontmatter } from './frontmatter.ts';
+import { diagnostics, formatError, isDiagnostic } from './diagnostics.ts';
 import { sanitizeMetadata, stripTerminalEscapes } from './sanitize.ts';
 import type { Skill } from './types.ts';
 import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
-import { InvalidLocalLockError, readLocalLock } from './local-lock.ts';
+import { readLocalLock } from './local-lock.ts';
 import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
 
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
@@ -74,7 +75,14 @@ export async function hasSkillMd(dir: string): Promise<boolean> {
 }
 
 function warnSkippedSkill(skillMdPath: string, reason: string): void {
-  console.warn(`⚠ Skipped ${sanitizeMetadata(skillMdPath)} — ${stripTerminalEscapes(reason)}`);
+  console.warn(
+    formatError(
+      diagnostics.SKILLS_S011({
+        path: sanitizeMetadata(skillMdPath),
+        reason: stripTerminalEscapes(reason),
+      })
+    )
+  );
 }
 
 export async function parseSkillMd(
@@ -185,7 +193,7 @@ async function sourceLockedSkillNames(basePath: string): Promise<string[]> {
   try {
     return Object.keys((await readLocalLock(basePath)).skills);
   } catch (error) {
-    if (error instanceof InvalidLocalLockError) return [];
+    if (isDiagnostic(error, 'SKILLS_I005')) return [];
     throw error;
   }
 }
@@ -204,9 +212,7 @@ export async function discoverSkills(
 
   // Validate subpath doesn't escape basePath (prevent path traversal)
   if (subpath && !isSubpathSafe(basePath, subpath)) {
-    throw new Error(
-      `Invalid subpath: "${subpath}" resolves outside the repository directory. Subpath must not contain ".." segments that escape the base path.`
-    );
+    throw diagnostics.SKILLS_S002({ subpath });
   }
 
   const searchPath = subpath ? join(basePath, subpath) : basePath;

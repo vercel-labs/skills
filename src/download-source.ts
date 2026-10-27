@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join, normalize, resolve, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import * as tar from 'tar';
-import { ArchiveValidationError, readZipArchive } from './archive.ts';
+import type { Diagnostic } from 'nostics';
+import { readZipArchive } from './archive.ts';
+import { diagnostics, isDiagnostic } from './diagnostics.ts';
 import { parseFrontmatter } from './frontmatter.ts';
 
 const DEFAULT_DOWNLOAD_MAX_BYTES = 10 * 1024 * 1024;
@@ -77,19 +79,34 @@ function validateArchivePath(path: string): string | null {
   return normalized;
 }
 
+/** A readable archive whose contents are refused, as opposed to one that is not an archive at all. */
+function isRejectedArchive(error: unknown): error is Diagnostic {
+  return isDiagnostic(
+    error,
+    'SKILLS_A003',
+    'SKILLS_A004',
+    'SKILLS_A005',
+    'SKILLS_A006',
+    'SKILLS_A007'
+  );
+}
+
 function incrementEntry(state: ExtractState, size: number, limits: DownloadLimits): void {
   state.entries += 1;
   if (state.entries > limits.extractMaxFiles) {
-    throw new ArchiveValidationError(
-      `Archive contains too many files (${state.entries}). Maximum is ${limits.extractMaxFiles}. Set SKILLS_EXTRACT_MAX_FILES to override.`
-    );
+    throw diagnostics.SKILLS_A006({
+      count: state.entries,
+      max: limits.extractMaxFiles,
+      overrideEnv: 'SKILLS_EXTRACT_MAX_FILES',
+    });
   }
 
   state.bytes += size;
   if (state.bytes > limits.extractMaxBytes) {
-    throw new ArchiveValidationError(
-      `Archive extracts to more than ${limits.extractMaxBytes} bytes. Set SKILLS_EXTRACT_MAX_BYTES to override.`
-    );
+    throw diagnostics.SKILLS_A007({
+      maxBytes: limits.extractMaxBytes,
+      overrideEnv: 'SKILLS_EXTRACT_MAX_BYTES',
+    });
   }
 }
 
@@ -104,21 +121,19 @@ async function downloadToFile(
   });
 
   if (!response.ok) {
-    throw new Error(`Download failed with HTTP ${response.status}`);
+    throw diagnostics.SKILLS_D001({ status: response.status });
   }
 
   const contentLength = response.headers.get('content-length');
   if (contentLength) {
     const parsed = Number.parseInt(contentLength, 10);
     if (Number.isFinite(parsed) && parsed > limits.downloadMaxBytes) {
-      throw new Error(
-        `Download is larger than ${limits.downloadMaxBytes} bytes. Set SKILLS_DOWNLOAD_MAX_BYTES to override.`
-      );
+      throw diagnostics.SKILLS_D002({ maxBytes: limits.downloadMaxBytes });
     }
   }
 
   if (!response.body) {
-    throw new Error('Download response has no body');
+    throw diagnostics.SKILLS_D003();
   }
 
   let downloaded = 0;
@@ -126,9 +141,7 @@ async function downloadToFile(
     transform(chunk, controller) {
       downloaded += chunk.byteLength;
       if (downloaded > limits.downloadMaxBytes) {
-        throw new Error(
-          `Download is larger than ${limits.downloadMaxBytes} bytes. Set SKILLS_DOWNLOAD_MAX_BYTES to override.`
-        );
+        throw diagnostics.SKILLS_D002({ maxBytes: limits.downloadMaxBytes });
       }
       controller.enqueue(chunk);
     },
@@ -160,7 +173,7 @@ async function extractZip(
   for (const [path, contents] of files) {
     const targetPath = join(extractDir, path);
     if (!isPathSafe(extractDir, targetPath)) {
-      throw new ArchiveValidationError(`Archive contains unsafe path: ${path}`);
+      throw diagnostics.SKILLS_A003({ path });
     }
 
     await mkdir(dirname(targetPath), { recursive: true });
@@ -188,7 +201,7 @@ async function extractTar(
   limits: DownloadLimits
 ): Promise<void> {
   const state: ExtractState = { bytes: 0, entries: 0 };
-  let validationError: ArchiveValidationError | undefined;
+  let validationError: Diagnostic | undefined;
 
   await tar.x({
     strict: true,
@@ -198,12 +211,12 @@ async function extractTar(
       try {
         const safePath = validateArchivePath(entryPath);
         if (safePath === null) {
-          throw new ArchiveValidationError(`Archive contains unsafe path: ${entryPath}`);
+          throw diagnostics.SKILLS_A003({ path: entryPath });
         }
 
         const targetPath = join(extractDir, safePath);
         if (!isPathSafe(extractDir, targetPath)) {
-          throw new ArchiveValidationError(`Archive contains unsafe path: ${entryPath}`);
+          throw diagnostics.SKILLS_A003({ path: entryPath });
         }
 
         incrementEntry(state, entry.size, limits);
@@ -214,7 +227,7 @@ async function extractTar(
 
         return getTarEntryType(entry) === 'Directory';
       } catch (error) {
-        if (error instanceof ArchiveValidationError) {
+        if (isRejectedArchive(error)) {
           validationError = error;
           return false;
         }
@@ -257,7 +270,7 @@ async function tryExtractArchive(
   } catch (error) {
     await rm(extractDir, { recursive: true, force: true }).catch(() => {});
     await mkdir(extractDir, { recursive: true });
-    if (error instanceof ArchiveValidationError) {
+    if (isRejectedArchive(error)) {
       throw error;
     }
     return false;
@@ -286,7 +299,7 @@ export async function downloadSource(
 
     const downloadedStats = await stat(downloadedFile);
     if (downloadedStats.size === 0) {
-      throw new Error('Downloaded URL is empty');
+      throw diagnostics.SKILLS_D004();
     }
 
     if (await isValidSkillMarkdown(downloadedFile)) {
@@ -302,7 +315,7 @@ export async function downloadSource(
       return { rootDir, tempDir, kind: 'archive' };
     }
 
-    throw new Error('Downloaded URL is not a valid SKILL.md file or supported archive');
+    throw diagnostics.SKILLS_D005();
   } catch (error) {
     await rm(tempDir, { recursive: true, force: true }).catch(() => {});
     throw error;

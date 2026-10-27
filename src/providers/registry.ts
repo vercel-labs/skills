@@ -1,3 +1,4 @@
+import { diagnostics } from '../diagnostics.ts';
 import type { HostProvider, ProviderRegistry } from './types.ts';
 
 class ProviderRegistryImpl implements ProviderRegistry {
@@ -6,7 +7,7 @@ class ProviderRegistryImpl implements ProviderRegistry {
   register(provider: HostProvider): void {
     // Check for duplicate IDs
     if (this.providers.some((p) => p.id === provider.id)) {
-      throw new Error(`Provider with id "${provider.id}" already registered`);
+      throw diagnostics.SKILLS_E001({ id: provider.id });
     }
     this.providers.push(provider);
   }

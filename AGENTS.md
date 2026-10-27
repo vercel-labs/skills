@@ -32,6 +32,7 @@ src/
 ├── add.test.ts      # Add command tests
 ├── concurrency.ts   # Bounded parallel map for source clones/downloads (SKILLS_CLONE_CONCURRENCY)
 ├── constants.ts      # Shared constants
+├── diagnostics.ts   # nostics catalog of every error/warning code (SKILLS_<CAT><NNN>)
 ├── find.ts           # Find/search command
 ├── list.ts          # List installed skills command
 ├── list.test.ts     # List command tests
@@ -101,6 +102,10 @@ If reading an older lock file version, it's wiped. Users must reinstall skills t
 | `skills experimental_sync` | `src/sync.ts` - crawl node_modules                                   |
 | `skills check`             | `src/cli.ts` + `fetchSkillFolderHash` in `src/skill-lock.ts`         |
 | `skills update`            | `src/update.ts` hash compare + in-process reinstall via `src/add.ts` |
+
+## Error Handling
+
+All user-facing errors and warnings come from the `nostics` catalog in `src/diagnostics.ts`. Throw `diagnostics.SKILLS_X({...})` instead of `new Error(...)`, check codes with `isDiagnostic(error, 'SKILLS_X')`, and print caught errors with `formatError(error)`. Codes are permanent: never rename or reuse one.
 
 ## Factory collaboration
 

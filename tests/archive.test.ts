@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ArchiveValidationError, readZipArchive } from '../src/archive.ts';
+import { readZipArchive } from '../src/archive.ts';
 import { createZip } from './fixtures/zip.ts';
 
 function convertToZip64(archive: Buffer): Buffer {
@@ -140,7 +140,7 @@ describe('readZipArchive', () => {
         maxExtractedBytes: 1024,
         maxEntries: 1,
       })
-    ).toThrow(ArchiveValidationError);
+    ).toThrow(expect.objectContaining({ code: 'SKILLS_A006' }));
   });
 
   it('omits directory entries after normalizing dot segments', () => {

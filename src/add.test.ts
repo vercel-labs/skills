@@ -1175,13 +1175,13 @@ describe('parseAddOptions', () => {
     const result = parseAddOptions(['source', '--metadata', '{not-json}']);
 
     expect(result.options.metadata).toBeUndefined();
-    expect(result.errors).toEqual(['--metadata must be valid JSON']);
+    expect(result.errors.map((e) => e.message)).toEqual(['--metadata must be valid JSON']);
   });
 
   it('should reject a missing metadata value', () => {
     const result = parseAddOptions(['source', '--metadata']);
 
-    expect(result.errors).toEqual(['--metadata requires a JSON value']);
+    expect(result.errors.map((e) => e.message)).toEqual(['--metadata requires a JSON value']);
   });
 
   it('should parse a single --subagent value', () => {

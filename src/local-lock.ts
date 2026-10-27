@@ -1,6 +1,7 @@
 import { readFile, writeFile, readdir, stat } from 'fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'path';
 import { createHash } from 'crypto';
+import { diagnostics } from './diagnostics.ts';
 
 const LOCAL_LOCK_FILE = 'skills-lock.json';
 const CURRENT_VERSION = 1;
@@ -75,17 +76,10 @@ export function getLocalLockPath(cwd?: string): string {
  * markers, a missing `skills` map, or a schema version this CLI does not know.
  * Treating such a file as empty would let the next write drop every entry.
  */
-export class InvalidLocalLockError extends Error {
-  constructor(lockPath: string, reason: string) {
-    super(`Invalid ${lockPath}: ${reason}. Fix or delete the file, then retry.`);
-    this.name = 'InvalidLocalLockError';
-  }
-}
-
 /**
  * Read the local skill lock file.
  * Returns an empty lock when the file does not exist; throws
- * InvalidLocalLockError when it exists but cannot be used.
+ * SKILLS_I005 when it exists but cannot be used.
  */
 export async function readLocalLock(cwd?: string): Promise<LocalSkillLockFile> {
   const lockDir = cwd || process.cwd();
@@ -106,18 +100,21 @@ export async function readLocalLock(cwd?: string): Promise<LocalSkillLockFile> {
     parsed = JSON.parse(content);
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'not valid JSON';
-    throw new InvalidLocalLockError(lockPath, reason);
+    throw diagnostics.SKILLS_I005({ path: lockPath, reason, cause: error });
   }
 
   if (!isLocalLockShape(parsed)) {
-    throw new InvalidLocalLockError(lockPath, 'expected an object with "version" and "skills"');
+    throw diagnostics.SKILLS_I005({
+      path: lockPath,
+      reason: 'expected an object with "version" and "skills"',
+    });
   }
 
   if (parsed.version !== CURRENT_VERSION) {
-    throw new InvalidLocalLockError(
-      lockPath,
-      `unsupported lock version ${parsed.version} (expected ${CURRENT_VERSION})`
-    );
+    throw diagnostics.SKILLS_I005({
+      path: lockPath,
+      reason: `unsupported lock version ${parsed.version} (expected ${CURRENT_VERSION})`,
+    });
   }
 
   for (const entry of Object.values(parsed.skills)) {

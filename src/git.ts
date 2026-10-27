@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { diagnostics } from './diagnostics.ts';
 import { isGitHubHost } from './github-host.ts';
 
 const DEFAULT_CLONE_TIMEOUT_MS = 300_000; // 5 minutes
@@ -81,20 +82,6 @@ interface GitHubRepoInfo {
   repo: string;
   slug: string;
   sshUrl: string;
-}
-
-export class GitCloneError extends Error {
-  readonly url: string;
-  readonly isTimeout: boolean;
-  readonly isAuthError: boolean;
-
-  constructor(message: string, url: string, isTimeout = false, isAuthError = false) {
-    super(message);
-    this.name = 'GitCloneError';
-    this.url = url;
-    this.isTimeout = isTimeout;
-    this.isAuthError = isAuthError;
-  }
 }
 
 export function parseGitHubRepoUrl(url: string): GitHubRepoInfo | null {
@@ -263,38 +250,17 @@ async function tryGhClone(repo: GitHubRepoInfo, tempDir: string, ref?: string): 
   return true;
 }
 
-function buildGitHubAuthError(url: string, repo: GitHubRepoInfo | null, message: string): string {
+function authError(url: string, repo: GitHubRepoInfo | null, message: string, cause: unknown) {
   const host = repo?.sshUrl.match(/^git@([^:]+):/)?.[1] || 'github.com';
   if (repo && isGitHubSsoAuthError(message)) {
-    return (
-      `GitHub blocked HTTPS access to ${url} because the organization enforces SAML SSO.\n` +
-      `  skills tried your existing git credentials and available fallbacks, but none succeeded.\n` +
-      `  - Re-authorize your GitHub credentials/app for that org's SSO policy\n` +
-      `  - Or rerun with SSH: npx skills add ${repo.sshUrl}\n` +
-      `  - Verify access with: gh auth status -h ${host} or ssh -T git@${host}`
-    );
+    return diagnostics.SKILLS_G004({ url, sshUrl: repo.sshUrl, host, cause });
   }
-
-  if (repo) {
-    return (
-      `Authentication failed for ${url}.\n` +
-      `  - For private repos, ensure you have access\n` +
-      `  - Retry with SSH: npx skills add ${repo.sshUrl}\n` +
-      `  - Check access with: gh auth status -h ${host} or ssh -T git@${host}`
-    );
-  }
-
-  return (
-    `Authentication failed for ${url}.\n` +
-    `  - For private repos, ensure you have access\n` +
-    `  - For SSH: Check your keys with 'ssh -T git@github.com'\n` +
-    `  - For HTTPS: Run 'gh auth login' or configure git credentials`
-  );
+  return diagnostics.SKILLS_G003({ url, sshUrl: repo?.sshUrl, host, cause });
 }
 
 export async function cloneRepo(url: string, ref?: string): Promise<string> {
   if (/^ext::/i.test(url)) {
-    throw new GitCloneError('Unsupported Git transport: ext', url);
+    throw diagnostics.SKILLS_G001({ transport: 'ext' });
   }
 
   const tempDir = await mkdtemp(join(tmpdir(), 'skills-'));
@@ -327,18 +293,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
 
     if (isTimeout) {
       await rm(tempDir, { recursive: true, force: true }).catch(() => {});
-      const seconds = Math.round(CLONE_TIMEOUT_MS / 1000);
-      throw new GitCloneError(
-        `Clone timed out after ${seconds}s. Common causes:\n` +
-          `  - Large repository: raise the timeout with SKILLS_CLONE_TIMEOUT_MS=600000 (10m)\n` +
-          `  - Slow network: retry, or clone manually and pass the local path to 'skills add'\n` +
-          `  - Private repo without credentials: ensure auth is configured\n` +
-          `      - For SSH: ssh-add -l (to check loaded keys)\n` +
-          `      - For HTTPS: gh auth status (if using GitHub CLI)`,
-        url,
-        true,
-        false
-      );
+      throw diagnostics.SKILLS_G002({ seconds: Math.round(CLONE_TIMEOUT_MS / 1000), cause: error });
     }
 
     if (isAuthError && repo && isGitHubHttpsCloneUrl(url)) {
@@ -376,10 +331,10 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
     await rm(tempDir, { recursive: true, force: true }).catch(() => {});
 
     if (isAuthError) {
-      throw new GitCloneError(buildGitHubAuthError(url, repo, errorMessage), url, false, true);
+      throw authError(url, repo, errorMessage, error);
     }
 
-    throw new GitCloneError(`Failed to clone ${url}: ${errorMessage}`, url, false, false);
+    throw diagnostics.SKILLS_G005({ url, detail: errorMessage, cause: error });
   }
 }
 
@@ -423,7 +378,7 @@ export async function cleanupTempDir(dir: string): Promise<void> {
   const normalizedTmpDir = normalize(resolve(tmpdir()));
 
   if (!normalizedDir.startsWith(normalizedTmpDir + sep) && normalizedDir !== normalizedTmpDir) {
-    throw new Error('Attempted to clean up directory outside of temp directory');
+    throw diagnostics.SKILLS_I002();
   }
 
   await rm(dir, { recursive: true, force: true });
