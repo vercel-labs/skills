@@ -1,4 +1,4 @@
-import { readFile, writeFile, readdir, stat } from 'fs/promises';
+import { readFile, writeFile, readdir, stat, realpath } from 'fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'path';
 import { createHash } from 'crypto';
 
@@ -209,19 +209,33 @@ export async function computeSkillFolderHash(skillDir: string): Promise<string> 
 async function collectFiles(
   baseDir: string,
   currentDir: string,
-  results: Array<{ relativePath: string; content: Buffer }>
+  results: Array<{ relativePath: string; content: Buffer }>,
+  visited: Set<string> = new Set()
 ): Promise<void> {
+  if (visited.size === 0) visited.add(await realpath(currentDir));
   const entries = await readdir(currentDir, { withFileTypes: true });
 
   await Promise.all(
     entries.map(async (entry) => {
       const fullPath = join(currentDir, entry.name);
 
-      if (entry.isDirectory()) {
+      // Installation dereferences symlinks, so hash the content they point to.
+      let isDirectory = entry.isDirectory();
+      let isFile = entry.isFile();
+      if (entry.isSymbolicLink()) {
+        const target = await stat(fullPath).catch(() => null);
+        if (!target) return; // broken link
+        isDirectory = target.isDirectory();
+        isFile = target.isFile();
+      }
+
+      if (isDirectory) {
         // Skip .git and node_modules within skill dirs
         if (entry.name === '.git' || entry.name === 'node_modules') return;
-        await collectFiles(baseDir, fullPath, results);
-      } else if (entry.isFile()) {
+        const real = await realpath(fullPath);
+        if (visited.has(real)) return; // symlink cycle
+        await collectFiles(baseDir, fullPath, results, new Set(visited).add(real));
+      } else if (isFile) {
         const content = await readFile(fullPath);
         const relativePath = relative(baseDir, fullPath).split('\\').join('/');
         results.push({ relativePath, content });

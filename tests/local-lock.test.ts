@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtemp, mkdir, rm, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile, readFile, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -546,5 +546,26 @@ describe('local-lock', () => {
         await rm(dir, { recursive: true, force: true });
       }
     });
+  });
+
+  it('computeSkillFolderHash changes when a symlinked file target changes', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+    try {
+      const skillDir = join(dir, 'skills', 'demo');
+      const sharedDir = join(dir, 'shared');
+      await mkdir(skillDir, { recursive: true });
+      await mkdir(sharedDir, { recursive: true });
+      await writeFile(join(skillDir, 'SKILL.md'), '# demo');
+      await writeFile(join(sharedDir, 'helper.sh'), 'echo v1');
+      await symlink(join(sharedDir, 'helper.sh'), join(skillDir, 'helper.sh'));
+
+      const before = await computeSkillFolderHash(skillDir);
+      await writeFile(join(sharedDir, 'helper.sh'), 'echo v2');
+      const after = await computeSkillFolderHash(skillDir);
+
+      expect(after).not.toBe(before);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
