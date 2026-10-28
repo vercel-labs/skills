@@ -55,7 +55,8 @@ levels (`skills/<category>/<name>/SKILL.md` or
 `skills/<category>/<category>/<name>/SKILL.md`). A `SKILL.md` discovered at a
 shallower level shadows anything nested below it. Use `--full-depth` to also
 discover `SKILL.md` files outside these container directories (e.g. under
-`examples/` or `tests/`).
+`examples/` or `tests/`). Passing a `skills` directory directly (e.g.
+`npx skills add ./skills`) walks it as a container too.
 
 <!-- skill-discovery:start -->
 - Root directory (if it contains `SKILL.md`)

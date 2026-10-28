@@ -7,7 +7,11 @@ import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
 import { InvalidLocalLockError, readLocalLock } from './local-lock.ts';
 import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
 
-const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
+// Skipped when walking known skill containers. `build` and `dist` are not
+// included because they can be real categories there (`skills/build/<skill>`).
+const CONTAINER_SKIP_DIRS = ['node_modules', '.git', '__pycache__'];
+// The repo-wide recursive search also skips likely build output.
+const SKIP_DIRS = [...CONTAINER_SKIP_DIRS, 'dist', 'build'];
 
 const AGENT_PROJECT_SKILL_DIRS = [
   '.agents/skills',
@@ -279,7 +283,15 @@ export async function discoverSkills(
   // existing depth-1 behavior to avoid surfacing unrelated `SKILL.md`
   // files (e.g. `examples/foo/SKILL.md`), and plugin-manifest-declared
   // dirs (appended below) stay at depth-1 to honor the manifest spec.
-  const deepContainerDirs = new Set(prioritySearchDirs.slice(1));
+  // A search path that is itself a `skills` dir (e.g. `skills add ./skills`)
+  // is a container rather than a repo root, so it is walked like one, unless
+  // it has its own `skills/` subdir (e.g. a checkout of a repo named `skills`).
+  const searchPathIsContainer =
+    basename(searchPath) === 'skills' &&
+    !(await stat(join(searchPath, 'skills'))
+      .then((stats) => stats.isDirectory())
+      .catch(() => false));
+  const deepContainerDirs = new Set(prioritySearchDirs.slice(searchPathIsContainer ? 0 : 1));
 
   // Add skill paths declared in plugin manifests
   prioritySearchDirs.push(...(await getPluginSkillPaths(searchPath)));
@@ -307,7 +319,7 @@ export async function discoverSkills(
 
         // Preserve flat-layout semantics by stopping below a discovered
         // skill, and never descend through ignored directories.
-        if (foundAtChild || depth >= maxDepth || SKIP_DIRS.includes(entry.name)) continue;
+        if (foundAtChild || depth >= maxDepth || CONTAINER_SKIP_DIRS.includes(entry.name)) continue;
 
         await walkSkillDirs(childDir, maxDepth, depth + 1);
       }
