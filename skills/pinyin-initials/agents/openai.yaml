@@ -1,0 +1,3 @@
+interface:
+  display_name: "Pinyin Initials"
+  short_description: "获取中文句子的拼音首字母缩写"
