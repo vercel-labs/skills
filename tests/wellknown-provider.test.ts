@@ -214,6 +214,33 @@ describe('WellKnownProvider', () => {
       ]);
     });
 
+    it('hides skills whose metadata.internal is the string "true"', async () => {
+      vi.stubEnv('INSTALL_INTERNAL_SKILLS', '');
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+          return response({
+            skills: [
+              { name: 'public-skill', description: 'Public skill.', files: ['SKILL.md'] },
+              { name: 'internal-skill', description: 'Internal skill.', files: ['SKILL.md'] },
+            ],
+          });
+        }
+        if (href.endsWith('/public-skill/SKILL.md')) {
+          return response('---\nname: public-skill\ndescription: Public skill.\n---\n# Public');
+        }
+        if (href.endsWith('/internal-skill/SKILL.md')) {
+          return response(
+            '---\nname: internal-skill\ndescription: Internal skill.\nmetadata:\n  internal: "true"\n---\n# Internal'
+          );
+        }
+        return response('not found', { status: 404 });
+      });
+
+      const skills = await provider.fetchAllSkills('https://example.com');
+      expect(skills.map((skill) => skill.installName)).toEqual(['public-skill']);
+    });
+
     it('bounds well-known discovery with a shared timeout signal', async () => {
       const signal = AbortSignal.abort(new DOMException('timed out', 'TimeoutError'));
       const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(signal);
