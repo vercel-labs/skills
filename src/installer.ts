@@ -22,6 +22,7 @@ import {
   agents,
   detectInstalledAgents,
   isUniversalAgent,
+  readsCanonicalGlobally,
   getEveSubagents,
   EVE_SUBAGENTS_DIR,
 } from './agents.ts';
@@ -159,7 +160,7 @@ export function getAgentBaseDir(
   cwd?: string,
   eveSubagent?: string
 ): string {
-  if (isUniversalAgent(agentType)) {
+  if (global ? readsCanonicalGlobally(agentType) : isUniversalAgent(agentType)) {
     return getCanonicalSkillsDir(global, cwd);
   }
 
@@ -409,7 +410,7 @@ export async function installSkillForAgent(
     // For universal agents with global install, the skill is already in the canonical
     // ~/.agents/skills directory. Skip creating a symlink to the agent-specific global dir
     // (e.g. ~/.copilot/skills) to avoid duplicates.
-    if (isGlobal && isUniversalAgent(agentType)) {
+    if (isGlobal && readsCanonicalGlobally(agentType)) {
       return {
         success: true,
         path: canonicalDir,
@@ -799,7 +800,7 @@ export async function installRemoteSkillForAgent(
     );
 
     // For universal agents with global install, skip creating agent-specific symlink
-    if (isGlobal && isUniversalAgent(agentType)) {
+    if (isGlobal && readsCanonicalGlobally(agentType)) {
       return {
         success: true,
         path: canonicalDir,
@@ -954,7 +955,7 @@ export async function installWellKnownSkillForAgent(
     await writeSkillFiles(canonicalDir);
 
     // For universal agents with global install, skip creating agent-specific symlink
-    if (isGlobal && isUniversalAgent(agentType)) {
+    if (isGlobal && readsCanonicalGlobally(agentType)) {
       return {
         success: true,
         path: canonicalDir,
@@ -1105,7 +1106,7 @@ export async function installBlobSkillForAgent(
     await cleanAndCreateDirectory(canonicalDir);
     await writeSkillFiles(canonicalDir);
 
-    if (isGlobal && isUniversalAgent(agentType)) {
+    if (isGlobal && readsCanonicalGlobally(agentType)) {
       return {
         success: true,
         path: canonicalDir,
