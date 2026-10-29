@@ -435,6 +435,62 @@ This is a test skill.
     });
   });
 
+  describe('home directory without -g (#2469)', () => {
+    function writeLock(path: string, skills: Record<string, object>) {
+      mkdirSync(join(path, '..'), { recursive: true });
+      writeFileSync(path, JSON.stringify({ version: 3, skills }, null, 2));
+    }
+
+    const entry = {
+      source: 'mattpocock/skills',
+      sourceType: 'github',
+      sourceUrl: 'https://github.com/mattpocock/skills',
+      skillFolderHash: 'somehash',
+      installedAt: '2026-10-01T00:00:00.000Z',
+      updatedAt: '2026-10-01T00:00:00.000Z',
+    };
+
+    it('cleans the global lock when the global skill dir is the project dir', () => {
+      const testHome = join(testDir, 'home');
+      const skillDir = createTestSkill('grilling', 'A skill', join(testHome, '.agents', 'skills'));
+      const lockPath = join(testHome, '.local', 'state', 'skills', '.skill-lock.json');
+      writeLock(lockPath, { grilling: entry, other: entry });
+
+      const result = runCli(['remove', 'grilling', '-y'], testHome, { HOME: testHome });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Successfully removed');
+      expect(existsSync(skillDir)).toBe(false);
+      const lock = JSON.parse(readFileSync(lockPath, 'utf-8'));
+      expect(lock.skills.grilling).toBeUndefined();
+      expect(lock.skills.other).toBeDefined();
+      expect(existsSync(join(testHome, 'skills-lock.json'))).toBe(false);
+    });
+
+    it('also drops the entry from a project lock that lives in home', () => {
+      const testHome = join(testDir, 'home');
+      createTestSkill('grilling', 'A skill', join(testHome, '.agents', 'skills'));
+      const localLockPath = join(testHome, 'skills-lock.json');
+      writeFileSync(
+        localLockPath,
+        JSON.stringify(
+          {
+            version: 1,
+            skills: { grilling: { source: 'mattpocock/skills', sourceType: 'github' } },
+          },
+          null,
+          2
+        )
+      );
+
+      const result = runCli(['remove', 'grilling', '-y'], testHome, { HOME: testHome });
+
+      expect(result.exitCode).toBe(0);
+      const lock = JSON.parse(readFileSync(localLockPath, 'utf-8'));
+      expect(lock.skills.grilling).toBeUndefined();
+    });
+  });
+
   describe('non-skill directories', () => {
     it('should not offer an agent-internal dot-directory as an installed skill', () => {
       const testHome = join(testDir, 'home');
