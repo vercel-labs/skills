@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -205,5 +205,65 @@ describe('direct download add', () => {
         sourceType: 'well-known',
       })
     );
+  });
+
+  describe('a well-known skill whose lock cannot be written', () => {
+    const installUrl = 'https://registry.example.com/skills/locked-skill';
+    const artifactUrl = 'https://cdn.example.net/locked-skill.tar.gz';
+    let readOnlyLock: string;
+
+    beforeEach(() => {
+      const archive = createTarGz({
+        'SKILL.md': '---\nname: locked-skill\ndescription: Locked skill\n---\n',
+      });
+      const digest = `sha256:${createHash('sha256').update(archive).digest('hex')}`;
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === `${installUrl}/.well-known/agent-skills/index.json`) {
+          return Response.json({
+            $schema: DISCOVERY_SCHEMA_V2,
+            skills: [
+              { name: 'locked-skill', type: 'archive', description: 'x', url: artifactUrl, digest },
+            ],
+          });
+        }
+        if (href === artifactUrl) return new Response(archive, { status: 200 });
+        return new Response('not found', { status: 404 });
+      });
+      process.exitCode = undefined;
+    });
+
+    afterEach(() => {
+      chmodSync(readOnlyLock, 0o644);
+      process.exitCode = undefined;
+      vi.unstubAllEnvs();
+    });
+
+    function makeReadOnlyLock(path: string, version: number): void {
+      writeFileSync(path, JSON.stringify({ version, skills: {} }));
+      chmodSync(path, 0o444);
+      readOnlyLock = path;
+    }
+
+    it('exits 1 for a project install', async () => {
+      makeReadOnlyLock(join(project, 'skills-lock.json'), 1);
+
+      await runAdd([installUrl], { yes: true, agent: ['codex'], global: false, copy: true });
+
+      expect(existsSync(join(project, '.agents', 'skills', 'locked-skill', 'SKILL.md'))).toBe(true);
+      expect(process.exitCode).toBe(1);
+    });
+
+    it('exits 1 for a global install', async () => {
+      vi.stubEnv('HOME', project);
+      vi.stubEnv('USERPROFILE', project);
+      vi.stubEnv('XDG_STATE_HOME', join(project, 'state'));
+      mkdirSync(join(project, 'state', 'skills'), { recursive: true });
+      makeReadOnlyLock(join(project, 'state', 'skills', '.skill-lock.json'), 3);
+
+      await runAdd([installUrl], { yes: true, agent: ['codex'], global: true, copy: true });
+
+      expect(process.exitCode).toBe(1);
+    });
   });
 });
