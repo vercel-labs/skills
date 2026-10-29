@@ -7,7 +7,12 @@ import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './sour
 import { stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
-import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
+import {
+  discoverSkills,
+  discoverSkillsAtPaths,
+  getSkillDisplayName,
+  filterSkills,
+} from './skills.ts';
 import {
   installSkillForAgent,
   installBlobSkillForAgent,
@@ -703,7 +708,7 @@ async function handleWellKnownSkills(
   source: string,
   url: string,
   options: AddOptions,
-  spinner: ReturnType<typeof p.spinner>
+  spinner: InstallSpinner
 ): Promise<boolean> {
   spinner.start('Discovering skills from well-known endpoint...');
 
@@ -1008,29 +1013,14 @@ async function handleWellKnownSkills(
 
   spinner.start('Installing skills…');
 
-  const results: {
-    skill: string;
-    agent: string;
-    success: boolean;
-    path: string;
-    canonicalPath?: string;
-    mode: InstallMode;
-    symlinkFailed?: boolean;
-    error?: string;
-  }[] = [];
-
+  const results: TargetInstallResult[] = [];
   for (const skill of selectedSkills) {
-    for (const agent of targetAgents) {
-      const result = await installWellKnownSkillForAgent(skill, agent, {
+    results.push(
+      ...(await installWellKnownToAgents(skill, targetAgents, {
         global: installGlobally,
         mode: installMode,
-      });
-      results.push({
-        skill: skill.installName,
-        agent: agents[agent].displayName,
-        ...result,
-      });
-    }
+      }))
+    );
   }
 
   spinner.stop('Installation complete');
@@ -1174,15 +1164,15 @@ async function handleWellKnownSkills(
   return true;
 }
 
-type Spinner = ReturnType<typeof p.spinner>;
+/** Spinner surface the install helpers need; `silentSpinner` satisfies it for quiet runs. */
+export type InstallSpinner = Pick<ReturnType<typeof p.spinner>, 'start' | 'message' | 'stop'>;
 
-// Clack spinners poll the terminal and write frames/cursor sequences; use this
-// when stdout is reserved (--json) or another spinner already owns the line.
-const silentSpinner = {
+/** Spinner that writes nothing, for JSON output and concurrent batch installs. */
+export const silentSpinner: InstallSpinner = {
   start: () => {},
-  stop: () => {},
   message: () => {},
-} as unknown as Spinner;
+  stop: () => {},
+};
 
 export interface ResolvedSkills {
   skills: Skill[];
@@ -1192,13 +1182,47 @@ export interface ResolvedSkills {
 }
 
 /**
+ * Load a source's skills, preferring exact locked paths and falling back to a
+ * full walk only when one of those paths no longer exists (a moved skill).
+ */
+async function loadSkills(
+  rootDir: string,
+  subpath: string | undefined,
+  options: { includeInternal: boolean; fullDepth?: boolean; skillPaths?: string[] },
+  spinner: InstallSpinner
+): Promise<Skill[]> {
+  const { includeInternal, skillPaths } = options;
+
+  if (!skillPaths || skillPaths.length === 0) {
+    spinner.start('Discovering skills…');
+    return discoverSkills(rootDir, subpath, {
+      includeInternal,
+      fullDepth: options.fullDepth,
+    });
+  }
+
+  spinner.start('Reading locked skills…');
+  const exact = await discoverSkillsAtPaths(rootDir, skillPaths, { includeInternal });
+  if (exact.missingPaths.length === 0) return exact.skills;
+
+  // A locked path is gone. Walk the repository so a skill that moved can be
+  // found again; exact-path skills keep precedence over same-named discoveries.
+  const discovered = await discoverSkills(rootDir, subpath, {
+    includeInternal,
+    fullDepth: true,
+  });
+  const names = new Set(exact.skills.map((skill) => skill.name));
+  return [...exact.skills, ...discovered.filter((skill) => !names.has(skill.name))];
+}
+
+/**
  * Fetch `parsed` (blob snapshot, clone, or download) and discover its skills.
  * Throws instead of exiting; removes its own temp dir when it throws.
  */
 async function resolveSkills(
   parsed: ParsedSource,
-  options: { includeInternal: boolean; fullDepth?: boolean },
-  spinner: Spinner
+  options: { includeInternal: boolean; fullDepth?: boolean; skillPaths?: string[] },
+  spinner: InstallSpinner
 ): Promise<ResolvedSkills> {
   const { includeInternal } = options;
   let skills: Skill[];
@@ -1207,23 +1231,15 @@ async function resolveSkills(
 
   try {
     if (parsed.type === 'local') {
-      spinner.start('Discovering skills…');
-      skills = await discoverSkills(parsed.localPath!, parsed.subpath, {
-        includeInternal,
-        fullDepth: options.fullDepth,
-      });
+      skills = await loadSkills(parsed.localPath!, parsed.subpath, options, spinner);
     } else if (parsed.type === 'well-known' || parsed.type === 'download') {
       spinner.start('Downloading source...');
       const downloaded = await downloadSource(parsed.url);
       tempDir = downloaded.tempDir;
       spinner.stop(`Downloaded ${downloaded.kind === 'skill-md' ? 'SKILL.md file' : 'archive'}`);
 
-      spinner.start('Discovering skills...');
-      skills = await discoverSkills(downloaded.rootDir, parsed.subpath, {
-        includeInternal,
-        fullDepth: options.fullDepth,
-      });
-    } else if (parsed.type === 'github' && !options.fullDepth) {
+      skills = await loadSkills(downloaded.rootDir, parsed.subpath, options, spinner);
+    } else if (parsed.type === 'github' && !options.fullDepth && !options.skillPaths) {
       // Try the blob-based fast install for GitHub sources; skip for --full-depth.
       // Eligible per repo (a BLOB_ALLOWED_REPOS entry = self-hosted download URL) or
       // per owner (BLOB_ALLOWED_OWNERS = all their repos, skills.sh-hosted).
@@ -1258,11 +1274,7 @@ async function resolveSkills(
         tempDir = await cloneRepo(parsed.url, parsed.ref);
         spinner.stop('Repository cloned');
 
-        spinner.start('Discovering skills…');
-        skills = await discoverSkills(tempDir, parsed.subpath, {
-          includeInternal,
-          fullDepth: options.fullDepth,
-        });
+        skills = await loadSkills(tempDir, parsed.subpath, options, spinner);
       }
     } else {
       // GitLab, git URL, or --full-depth: always clone
@@ -1270,11 +1282,7 @@ async function resolveSkills(
       tempDir = await cloneRepo(parsed.url, parsed.ref);
       spinner.stop('Repository cloned');
 
-      spinner.start('Discovering skills…');
-      skills = await discoverSkills(tempDir, parsed.subpath, {
-        includeInternal,
-        fullDepth: options.fullDepth,
-      });
+      skills = await loadSkills(tempDir, parsed.subpath, options, spinner);
     }
   } catch (error) {
     await cleanup(tempDir);
@@ -1335,6 +1343,8 @@ export async function installToTargets(
 ): Promise<TargetInstallResult[]> {
   const results: TargetInstallResult[] = [];
   for (const skill of skills) {
+    // Canonical copies written for this skill so far; later agents only link to them.
+    const canonicalDirs = new Set<string>();
     for (const target of placement.targets) {
       const { agent, subagent } = target;
       const installOptions = {
@@ -1342,6 +1352,7 @@ export async function installToTargets(
         mode: placement.mode,
         eveSubagent: subagent,
         createMissingAgentRoot: placement.createMissingAgentRoot?.(agent) ?? false,
+        reuseCanonicalDirs: canonicalDirs,
       };
       let result;
       if (isWellKnownSourceSkill(skill)) {
@@ -1368,7 +1379,27 @@ export async function installToTargets(
         pluginName: skill.pluginName,
         ...result,
       });
+      if (result.success && result.canonicalPath) canonicalDirs.add(result.canonicalPath);
     }
+  }
+  return results;
+}
+
+/** Install one well-known skill into every agent, writing its canonical copy once. */
+export async function installWellKnownToAgents(
+  skill: WellKnownSkill,
+  agentTypes: AgentType[],
+  options: { global?: boolean; cwd?: string; mode?: InstallMode }
+): Promise<TargetInstallResult[]> {
+  const results: TargetInstallResult[] = [];
+  const canonicalDirs = new Set<string>();
+  for (const agent of agentTypes) {
+    const result = await installWellKnownSkillForAgent(skill, agent, {
+      ...options,
+      reuseCanonicalDirs: canonicalDirs,
+    });
+    if (result.success && result.canonicalPath) canonicalDirs.add(result.canonicalPath);
+    results.push({ skill: skill.installName, agent: agents[agent].displayName, ...result });
   }
   return results;
 }
@@ -1452,6 +1483,9 @@ interface SourceRequest {
   /** Skill names to keep; all when empty. */
   skills: string[];
   fullDepth?: boolean;
+  includeInternal?: boolean;
+  /** Locked SKILL.md paths to read instead of walking the repository. */
+  skillPaths?: string[];
 }
 
 /** A source after its network phase; `resolved` owns a temp dir until it is installed. */
@@ -1463,18 +1497,25 @@ export interface FetchedSource {
 
 interface SourceInstallResult {
   installed: string[];
+  installedSkills: InstalledSkill[];
   failed: string[];
   error?: string;
 }
 
-async function fetchSource({ parsed, skills, fullDepth }: SourceRequest): Promise<FetchedSource> {
-  const includeInternal = skills.length > 0;
+async function fetchSource({
+  parsed,
+  skills,
+  fullDepth,
+  includeInternal: includeInternalOption,
+  skillPaths,
+}: SourceRequest): Promise<FetchedSource> {
+  const includeInternal = includeInternalOption ?? skills.length > 0;
   try {
     // Arbitrary URLs: prefer the well-known endpoint, else a direct download.
     const resolved =
       (parsed.type === 'well-known' &&
         (await resolveWellKnownSkills(parsed.url, includeInternal))) ||
-      (await resolveSkills(parsed, { includeInternal, fullDepth }, silentSpinner));
+      (await resolveSkills(parsed, { includeInternal, fullDepth, skillPaths }, silentSpinner));
     return { parsed, resolved };
   } catch (error) {
     return {
@@ -1507,6 +1548,8 @@ export async function fetchSources(requests: SourceRequest[]): Promise<FetchedSo
 /** A skill at least one target accepted, hashed as the lock files record it. */
 export interface InstalledSkill {
   skill: Skill;
+  /** Repo-relative SKILL.md path; absent for local sources. */
+  repoPath?: string;
   hash: string;
 }
 
@@ -1533,7 +1576,8 @@ export async function installFetched(
   options: {
     skills: string[];
     placement: InstallPlacement;
-    select?: (skills: Skill[]) => Promise<Skill[]>;
+    /** Receives the matched skills and every discovered skill's repo-relative SKILL.md path. */
+    select?: (skills: Skill[], repoPaths: Record<string, string>) => Promise<Skill[]>;
   }
 ): Promise<FetchedInstallOutcome> {
   if (!resolved) return { installed: [], failed: [], error };
@@ -1543,14 +1587,19 @@ export async function installFetched(
     if (selected.length === 0) {
       return { installed: [], failed: [], error: 'No matching skills found' };
     }
-    if (options.select) selected = await options.select(selected);
+    const repoPaths = getSkillRepoPaths(resolved, resolved.skills);
+    if (options.select) selected = await options.select(selected, repoPaths);
 
     const results = await installToTargets(resolved, selected, options.placement);
     const installed: InstalledSkill[] = [];
     for (const skill of selected) {
       const target = results.find((r) => r.success && r.skill === getSkillDisplayName(skill));
       if (!target) continue;
-      installed.push({ skill, hash: await installedSkillHash(skill, target) });
+      installed.push({
+        skill,
+        repoPath: repoPaths[skill.name],
+        hash: await installedSkillHash(skill, target),
+      });
     }
     return {
       installed,
@@ -1586,16 +1635,18 @@ export async function installFromSource(
     skills: string[];
     agents: AgentType[];
     via?: string;
-    select?: (skills: Skill[]) => Promise<Skill[]>;
+    select?: (skills: Skill[], repoPaths: Record<string, string>) => Promise<Skill[]>;
     frozenLock?: LocalSkillLockFile;
+    /** Skip the built-in per-skill lock write when the caller batches its own update. */
+    recordLock?: boolean;
   }
 ): Promise<SourceInstallResult> {
   const { frozenLock } = options;
   const outcome = await installFetched(fetched, {
     skills: options.skills,
     placement: projectPlacement(options.agents),
-    select: async (skills) => {
-      const selected = options.select ? await options.select(skills) : skills;
+    select: async (skills, repoPaths) => {
+      const selected = options.select ? await options.select(skills, repoPaths) : skills;
       if (!frozenLock) return selected;
       // Refuse changed content before writing it; well-known skills can only be hashed once installed
       const changes: string[] = [];
@@ -1611,6 +1662,7 @@ export async function installFromSource(
   });
   const result: SourceInstallResult = {
     installed: outcome.installed.map(({ skill }) => getSkillDisplayName(skill)),
+    installedSkills: outcome.installed,
     failed: outcome.failed,
     ...(outcome.error && { error: outcome.error }),
   };
@@ -1620,7 +1672,7 @@ export async function installFromSource(
         ({ skill, hash }) => lockChangeReason(frozenLock, skill.name, { computedHash: hash }) ?? []
       );
       if (changes.length > 0) result.error = frozenLockfileError(changes);
-    } else {
+    } else if (options.recordLock !== false) {
       await recordProjectLock(fetched, outcome.installed, options.via);
     }
   } catch (error) {
@@ -1830,7 +1882,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       options.skill = ['*'];
     }
 
-    const spinner = jsonMode ? silentSpinner : p.spinner();
+    // In json mode, use an inert spinner: clack spinners poll the terminal and
+    // write frames/cursor sequences that must never reach stdout.
+    const spinner: InstallSpinner = jsonMode ? silentSpinner : p.spinner();
 
     spinner.start('Parsing source…');
     const parsed = parseSource(effectiveSource);

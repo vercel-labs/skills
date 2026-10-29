@@ -20,13 +20,14 @@ Ensure you have write access to the target directory.
 
 ## Environment Variables
 
-| Variable                  | Description                                                                |
-| ------------------------- | -------------------------------------------------------------------------- |
-| `INSTALL_INTERNAL_SKILLS` | Set to `1` or `true` to show and install skills marked as `internal: true` |
-| `DISABLE_TELEMETRY`       | Set to disable anonymous usage telemetry                                   |
-| `DO_NOT_TRACK`            | Alternative way to disable telemetry                                       |
-| `GITHUB_TOKEN`            | Optional explicit token for authenticated GitHub API requests              |
-| `GH_TOKEN`                | Fallback explicit token for authenticated GitHub API requests              |
+| Variable                     | Description                                                                |
+| ---------------------------- | -------------------------------------------------------------------------- |
+| `INSTALL_INTERNAL_SKILLS`    | Set to `1` or `true` to show and install skills marked as `internal: true` |
+| `DISABLE_TELEMETRY`          | Set to disable anonymous usage telemetry                                   |
+| `DO_NOT_TRACK`               | Alternative way to disable telemetry                                       |
+| `GITHUB_TOKEN`               | Optional explicit token for authenticated GitHub API requests              |
+| `GH_TOKEN`                   | Fallback explicit token for authenticated GitHub API requests              |
+| `SKILLS_INSTALL_CONCURRENCY` | How many sources `experimental_install` restores at once (default `4`)     |
 
 ```bash
 # Install internal skills

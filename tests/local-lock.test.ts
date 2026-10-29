@@ -7,6 +7,7 @@ import {
   readLocalLock,
   writeLocalLock,
   addSkillToLocalLock,
+  addSkillsToLocalLock,
   removeSkillFromLocalLock,
   computeSkillFolderHash,
   getLocalLockPath,
@@ -321,6 +322,59 @@ describe('local-lock', () => {
           sourceType: 'git',
           computedHash: 'hash123',
         });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('addSkillsToLocalLock', () => {
+    it('writes every entry with one write and reports the change', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        const changed = await addSkillsToLocalLock(
+          {
+            'skill-a': { source: 'org/a', sourceType: 'github', computedHash: 'aaa' },
+            'skill-b': { source: 'org/b', sourceType: 'github', computedHash: 'bbb' },
+          },
+          dir
+        );
+
+        expect(changed).toBe(true);
+        const lock = await readLocalLock(dir);
+        expect(Object.keys(lock.skills)).toEqual(['skill-a', 'skill-b']);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('leaves the file untouched when every entry already matches', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        const entries = {
+          'skill-a': { source: 'org/a', sourceType: 'github', computedHash: 'aaa' },
+        };
+        await addSkillsToLocalLock(entries, dir);
+        const before = await readFile(join(dir, 'skills-lock.json'), 'utf-8');
+
+        const changed = await addSkillsToLocalLock(entries, dir);
+
+        expect(changed).toBe(false);
+        expect(await readFile(join(dir, 'skills-lock.json'), 'utf-8')).toBe(before);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('preserves prototype-named keys', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        const entry = { source: 'org/a', sourceType: 'github' as const, computedHash: 'aaa' };
+        await addSkillsToLocalLock({ ['__proto__']: entry }, dir);
+
+        const lock = await readLocalLock(dir);
+        expect(Object.hasOwn(lock.skills, '__proto__')).toBe(true);
+        expect(lock.skills['__proto__']).toEqual(entry);
       } finally {
         await rm(dir, { recursive: true, force: true });
       }

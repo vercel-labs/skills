@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from '../src/test-utils.ts';
@@ -27,7 +27,7 @@ describe('commands with an invalid skills-lock.json', { timeout: 30000 }, () => 
   let lockPath: string;
 
   beforeEach(() => {
-    testDir = join(tmpdir(), `skills-invalid-lock-${Date.now()}-${process.pid}`);
+    testDir = join(realpathSync(tmpdir()), `skills-invalid-lock-${Date.now()}-${process.pid}`);
     sourceDir = join(testDir, 'source');
     projectDir = join(testDir, 'project');
     lockPath = join(projectDir, 'skills-lock.json');

@@ -17,7 +17,7 @@ function normalizeSkillName(name: string): string {
   return name.toLowerCase().replace(/[\s_]+/g, '-');
 }
 
-function normalizeSkillPath(path: string): string {
+export function normalizeSkillPath(path: string): string {
   return path.replace(/\\/g, '/').replace(/\/+/g, '/');
 }
 

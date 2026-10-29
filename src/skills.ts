@@ -216,14 +216,7 @@ export async function discoverSkills(
   // We search for plugin definitions from the base search path
   const pluginGroupings = await getPluginGroupings(searchPath);
 
-  // Helper to assign plugin name if available
-  const enhanceSkill = (skill: Skill) => {
-    const resolvedPath = resolve(skill.path);
-    if (pluginGroupings.has(resolvedPath)) {
-      skill.pluginName = pluginGroupings.get(resolvedPath);
-    }
-    return skill;
-  };
+  const enhanceSkill = (skill: Skill) => assignPluginName(skill, pluginGroupings);
 
   const isInstalledProjectSkill = (skill: Skill): boolean => {
     if (lockedSkillNames.size === 0) return false;
@@ -344,6 +337,41 @@ export async function discoverSkills(
   }
 
   return skills;
+}
+
+/** Attach the owning plugin's name when `skill.path` is listed in a plugin manifest. */
+function assignPluginName(skill: Skill, pluginGroupings: Map<string, string>): Skill {
+  const pluginName = pluginGroupings.get(resolve(skill.path));
+  if (pluginName !== undefined) skill.pluginName = pluginName;
+  return skill;
+}
+
+/**
+ * Parse only the SKILL.md files at `skillPaths` (relative to `basePath`).
+ * Unlike a full walk this never touches, or warns about, skills the caller did
+ * not ask for. Paths that escape `basePath` or no longer exist are reported so
+ * the caller can fall back to a walk for skills that moved.
+ */
+export async function discoverSkillsAtPaths(
+  basePath: string,
+  skillPaths: string[],
+  options?: { includeInternal?: boolean }
+): Promise<{ skills: Skill[]; missingPaths: string[] }> {
+  const pluginGroupings = await getPluginGroupings(basePath);
+  const skills: Skill[] = [];
+  const missingPaths: string[] = [];
+
+  for (const skillPath of skillPaths) {
+    const skillMdPath = join(basePath, skillPath);
+    if (!isSubpathSafe(basePath, skillPath) || !(await hasSkillMd(dirname(skillMdPath)))) {
+      missingPaths.push(skillPath);
+      continue;
+    }
+    const skill = await parseSkillMd(skillMdPath, options);
+    if (skill) skills.push(assignPluginName(skill, pluginGroupings));
+  }
+
+  return { skills, missingPaths };
 }
 
 export function getSkillDisplayName(skill: Skill): string {
