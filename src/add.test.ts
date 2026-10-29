@@ -61,6 +61,26 @@ describe('add command', () => {
     }
   });
 
+  it('finds an explicitly requested nested skill below a root skill', () => {
+    const sourceDir = join(testDir, 'source');
+    const nestedDir = join(sourceDir, 'discovery', 'nested-skill');
+    mkdirSync(nestedDir, { recursive: true });
+    writeFileSync(join(sourceDir, 'SKILL.md'), '---\nname: root-skill\ndescription: Root\n---\n');
+    const nestedContent = '---\nname: nested-skill\ndescription: Nested\n---\nNested content\n';
+    writeFileSync(join(nestedDir, 'SKILL.md'), nestedContent);
+
+    const result = runCli(
+      ['add', sourceDir, '--skill', 'nested-skill', '-a', 'universal', '-y'],
+      testDir
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(readFileSync(join(testDir, '.agents/skills/nested-skill/SKILL.md'), 'utf8')).toBe(
+      nestedContent
+    );
+    expect(existsSync(join(testDir, '.agents/skills/root-skill'))).toBe(false);
+  });
+
   it('should show error when no source provided', () => {
     const result = runCli(['add'], testDir);
     expect(result.stdout).toContain('ERROR');
