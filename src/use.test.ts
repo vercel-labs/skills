@@ -97,6 +97,20 @@ describe('use command', () => {
       expect(shortFlag.errors).toEqual([]);
     });
 
+    it('parses Pi with an explicit skill selector', () => {
+      const result = parseUseOptions([
+        'vercel-labs/agent-skills',
+        '--skill',
+        'web-design-guidelines',
+        '--agent',
+        'pi',
+      ]);
+
+      expect(result.source).toEqual(['vercel-labs/agent-skills']);
+      expect(result.options).toEqual({ skill: 'web-design-guidelines', agent: ['pi'] });
+      expect(result.errors).toEqual([]);
+    });
+
     it('rejects wildcard, missing, invalid, and multiple agents', () => {
       const wildcard = parseUseOptions(['source', '--agent', '*']);
       const missing = parseUseOptions(['source', '--agent', '--skill', 'web-design-guidelines']);
@@ -207,6 +221,36 @@ describe('use command', () => {
       });
     });
 
+    it('starts Pi with a single multiline prompt after the option separator', async () => {
+      const fake = createFakeSpawn({ closeCode: 0 });
+      const prompt = '- A bullet\n--not-a-flag\nQuotes: "hello" and $(not-a-command)\n';
+
+      await expect(launchAgentInteractively('pi', prompt, fake.spawn)).resolves.toBe(0);
+
+      expect(fake.calls).toEqual([
+        {
+          command: 'pi',
+          args: ['--', prompt],
+          options: { stdio: 'inherit' },
+        },
+      ]);
+    });
+
+    it('propagates Pi exit codes', async () => {
+      const fake = createFakeSpawn({ closeCode: 37 });
+
+      await expect(launchAgentInteractively('pi', 'prompt body', fake.spawn)).resolves.toBe(37);
+    });
+
+    it('reports a missing Pi executable', async () => {
+      const error = Object.assign(new Error('spawn pi ENOENT'), { code: 'ENOENT' });
+      const fake = createFakeSpawn({ error });
+
+      await expect(launchAgentInteractively('pi', 'prompt body', fake.spawn)).rejects.toThrow(
+        'Could not launch Pi: command not found: pi'
+      );
+    });
+
     it('returns nonzero agent exit codes', async () => {
       const fake = createFakeSpawn({ closeCode: 37 });
 
@@ -233,6 +277,19 @@ describe('use command', () => {
   });
 
   describe('CLI behavior', () => {
+    it('lists Pi as a supported interactive agent in command help', async () => {
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      try {
+        await runUse([], { help: true });
+
+        expect(log).toHaveBeenCalledWith(
+          expect.stringMatching(/Start one supported agent interactively \(.*\bpi\b.*\)/)
+        );
+      } finally {
+        log.mockRestore();
+      }
+    });
+
     it('uses a direct archive when well-known discovery misses', async () => {
       const archiveRoot = join(testDir, 'direct-archive');
       writeSkill(archiveRoot, 'direct-skill', 'Direct archive body.');
