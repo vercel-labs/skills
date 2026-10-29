@@ -4,6 +4,7 @@ import {
   buildLocalUpdateSource,
   buildUpdateInstallSource,
   formatSourceInput,
+  lockedSubpathForUpdate,
   shouldUseFullDepthForUpdate,
 } from './update-source.ts';
 
@@ -264,6 +265,39 @@ describe('update-source', () => {
           sourceType: 'git',
         })
       ).toBe(false);
+    });
+  });
+
+  describe('lockedSubpathForUpdate', () => {
+    it('returns the locked folder for generic Git sources', () => {
+      expect(
+        lockedSubpathForUpdate({
+          source: 'owner/repo',
+          sourceUrl: 'https://gitea.example.com/owner/repo.git',
+          sourceType: 'git',
+          skillPath: 'skills/skill-a/SKILL.md',
+        })
+      ).toBe('skills/skill-a');
+    });
+
+    it('returns undefined for a skill at the repository root', () => {
+      expect(
+        lockedSubpathForUpdate({
+          source: 'git@gitea.example.com:owner/repo.git',
+          sourceType: 'git',
+          skillPath: 'SKILL.md',
+        })
+      ).toBeUndefined();
+    });
+
+    it('returns undefined for GitHub sources, which carry the folder in the URL', () => {
+      expect(
+        lockedSubpathForUpdate({
+          source: 'owner/repo',
+          sourceType: 'github',
+          skillPath: 'skills/skill-a/SKILL.md',
+        })
+      ).toBeUndefined();
     });
   });
 });

@@ -475,7 +475,7 @@ describe('Update Cleanup Unit Tests', () => {
       );
     });
 
-    it('does not reinstall an ambiguous exact-path skill from a generic Git source', async () => {
+    it('updates a generic Git skill from its locked path when a same-name mirror exists', async () => {
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
         version: 1,
         skills: {
@@ -508,7 +508,12 @@ describe('Update Cleanup Unit Tests', () => {
 
       expect(p.confirm).not.toHaveBeenCalled();
       expect(remove.removeCommand).not.toHaveBeenCalled();
-      expect(add.installToTargets).not.toHaveBeenCalled();
+      expect(add.installToTargets).toHaveBeenCalledTimes(1);
+      expect(add.installToTargets).toHaveBeenCalledWith(
+        expect.anything(),
+        [expect.objectContaining({ path: '/tmp/repo/skills/skill-a' })],
+        expect.anything()
+      );
     });
 
     it('does not reinstall project skills when source discovery fails', async () => {
@@ -1130,12 +1135,55 @@ describe('Update Cleanup Unit Tests', () => {
       expect(localLock.computeSkillFolderHash).toHaveBeenCalledWith(
         join('/tmp/repo', 'plugins/example/skills/skill-a')
       );
-      // The whole repo is fetched and the skill picked out by name, since an
-      // SSH URL cannot carry a subpath.
+      // An SSH URL cannot carry a subpath, so the whole repo is fetched and
+      // the locked folder applied after cloning.
       expect(fetchedParsed()).toEqual([
         expect.objectContaining({ skills: ['skill-a'], fullDepth: true }),
       ]);
-      expect(fetchedParsed()[0]!.parsed.subpath).toBeUndefined();
+      expect(fetchedParsed()[0]!.parsed.subpath).toBe('plugins/example/skills/skill-a');
+    });
+
+    it('updates a global generic Git skill from its locked path when a same-name mirror exists', async () => {
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: 'https://git.example.com/owner/repo.git',
+            sourceUrl: 'https://git.example.com/owner/repo.git',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'git',
+            skillFolderHash: 'old-hash',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        {
+          name: 'skill-a',
+          path: '/tmp/repo/skills/skill-a',
+          description: 'Locked location',
+          rawContent: '',
+        },
+        {
+          name: 'skill-a',
+          path: '/tmp/repo/.claude/skills/skill-a',
+          description: 'Mirror',
+          rawContent: '',
+        },
+      ]);
+      vi.mocked(localLock.computeSkillFolderHash).mockResolvedValue('new-hash');
+
+      await updateGlobalSkills({ yes: true });
+
+      expect(localLock.computeSkillFolderHash).toHaveBeenCalledWith(
+        join('/tmp/repo', 'skills/skill-a')
+      );
+      expect(fetchedParsed()).toHaveLength(1);
+      expect(fetchedParsed()[0]!.parsed.subpath).toBe('skills/skill-a');
+      expect(add.installFetched).toHaveBeenCalledTimes(1);
     });
 
     it('uses sourceUrl when updating global non-GitHub sources with host-stripped source', async () => {

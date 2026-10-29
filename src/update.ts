@@ -21,6 +21,7 @@ import {
   buildLocalUpdateSource,
   buildLocalCloneSource,
   shouldUseFullDepthForUpdate,
+  lockedSubpathForUpdate,
 } from './update-source.ts';
 import { cloneRepo, cleanupTempDir, getGitTreeHash } from './git.ts';
 import { discoverSkills } from './skills.ts';
@@ -45,7 +46,6 @@ import {
   resolveSkillLocations,
   type DiscoveredSkillLocation,
   type SkillLocationResolution,
-  type SkillLocationResolutionOptions,
 } from './skill-relocation.ts';
 import { listInstalledSkills } from './installer.ts';
 import { wellKnownProvider, computeWellKnownSkillDigest } from './providers/index.ts';
@@ -383,15 +383,9 @@ export async function checkAndPromptForDeletions(
   lockSkills: Record<string, { skillPath?: string }>,
   isGlobal: boolean,
   options: UpdateCheckOptions,
-  discovered: DiscoveredSkillLocation[],
-  locationOptions: SkillLocationResolutionOptions = {}
+  discovered: DiscoveredSkillLocation[]
 ): Promise<SkillLocationResolution> {
-  const resolution = resolveSkillLocations(
-    allLockedForSource,
-    lockSkills,
-    discovered,
-    locationOptions
-  );
+  const resolution = resolveSkillLocations(allLockedForSource, lockSkills, discovered);
 
   if (resolution.ambiguousSkills.length > 0) {
     console.log();
@@ -734,11 +728,7 @@ export async function updateGlobalSkills(
         lock.skills,
         true,
         options,
-        discoveredLocations,
-        // Path-addressable sources reinstall only the locked directory, so a
-        // same-name mirror elsewhere in the repo is not ambiguous. Generic Git
-        // sources reinstall from the whole repo and remain fail-closed.
-        { exactPathDisambiguates: !shouldUseFullDepthForUpdate(firstEntry) }
+        discoveredLocations
       );
 
       const deletedSkillSet = new Set(resolution.deletedSkills);
@@ -825,11 +815,15 @@ export async function updateGlobalSkills(
     return [];
   });
   const fetched = await fetchSources(
-    installable.map(({ entry, name, installUrl }) => ({
-      parsed: parseUpdateSource(installUrl, entry.sourceType),
-      skills: [name],
-      fullDepth: shouldUseFullDepthForUpdate(entry),
-    }))
+    installable.map(({ entry, name, installUrl }) => {
+      const parsed = parseUpdateSource(installUrl, entry.sourceType);
+      const lockedSubpath = lockedSubpathForUpdate(entry);
+      return {
+        parsed: lockedSubpath ? { ...parsed, subpath: lockedSubpath } : parsed,
+        skills: [name],
+        fullDepth: shouldUseFullDepthForUpdate(entry),
+      };
+    })
   );
   const placementFor = placementResolver(true);
 
@@ -1006,8 +1000,7 @@ export async function updateProjectSkills(
         localLock.skills,
         false,
         options,
-        discoveredLocations,
-        { exactPathDisambiguates: !shouldUseFullDepthForUpdate(firstEntry) }
+        discoveredLocations
       );
       checked = true;
       const deleted = new Set(resolution.deletedSkills);
