@@ -12,6 +12,8 @@ const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude'
 const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
 const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
+// DeepSeek Harness: honors DSH_HOME, otherwise ~/.dsh
+const dshHome = process.env.DSH_HOME?.trim() || join(home, '.dsh');
 const grokHome = process.env.GROK_HOME?.trim() || join(home, '.grok');
 const sarvamHome = process.env.SARVAM_HOME?.trim() || join(home, '.sarvam');
 const zedAppDataHome = process.env.APPDATA?.trim();
@@ -283,6 +285,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     showInUniversalPrompt: false,
     detectInstalled: async () => {
       return existsSync(join(home, '.deepagents'));
+    },
+  },
+  'deepseek-harness': {
+    name: 'deepseek-harness',
+    displayName: 'DeepSeek Harness',
+    skillsDir: '.dsh/skills',
+    globalSkillsDir: join(dshHome, 'skills'),
+    detectInstalled: async () => {
+      return existsSync(dshHome);
     },
   },
   devin: {
