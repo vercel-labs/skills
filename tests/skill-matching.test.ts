@@ -82,6 +82,27 @@ describe('filterSkills', () => {
     });
   });
 
+  describe('slug matching', () => {
+    const namedSkills = [makeSkill('Web Design Guidelines'), makeSkill('pr_review')];
+
+    it('matches slug selectors for space- and underscore-separated names', () => {
+      expect(filterSkills(namedSkills, ['web-design-guidelines', 'pr-review'])).toEqual(
+        namedSkills
+      );
+    });
+
+    it('prefers exact names over slug matches for each selector', () => {
+      const exact = makeSkill('pr-review');
+      expect(filterSkills([...namedSkills, exact], ['pr-review', 'web-design-guidelines'])).toEqual(
+        [namedSkills[0], exact]
+      );
+    });
+
+    it('returns each skill once when both name and slug are selected', () => {
+      expect(filterSkills(namedSkills, ['pr_review', 'pr-review'])).toEqual([namedSkills[1]]);
+    });
+  });
+
   describe('no matches', () => {
     it('returns empty array when no matches', () => {
       const result = filterSkills(skills, ['nonexistent']);
