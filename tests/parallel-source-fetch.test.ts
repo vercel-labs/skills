@@ -144,6 +144,28 @@ describe('skills install fetches sources in parallel', () => {
     expect(lock.skills.gamma.computedHash).not.toBe('x');
   });
 
+  it('restores a named nested skill even when its repository has a root skill', async () => {
+    vi.mocked(cloneRepo).mockClear();
+    const fixtures = {
+      [SOURCES.alpha]: await writeFixtureRepo('alpha'),
+      [SOURCES.beta]: await writeFixtureRepo('beta'),
+    };
+    await writeFile(
+      join(fixtures[SOURCES.alpha]!, 'SKILL.md'),
+      '---\nname: root-skill\ndescription: Root\n---\n'
+    );
+    vi.mocked(cloneRepo).mockImplementation(async (url) => fixtures[url]!);
+
+    await runInstallFromLock([]);
+
+    await expect(
+      readFile(join(process.cwd(), '.agents', 'skills', 'alpha', 'SKILL.md'), 'utf-8')
+    ).resolves.toContain('name: alpha');
+    expect(vi.mocked(cloneRepo).mock.calls.filter(([url]) => url === SOURCES.alpha)).toHaveLength(
+      1
+    );
+  });
+
   it('installs the sources that succeeded when another clone fails', async () => {
     const beta = await writeFixtureRepo('beta');
     vi.mocked(cloneRepo).mockImplementation(async (url) => {

@@ -1190,7 +1190,7 @@ export interface ResolvedSkills {
  */
 async function resolveSkills(
   parsed: ParsedSource,
-  options: { includeInternal: boolean; fullDepth?: boolean },
+  options: { includeInternal: boolean; fullDepth?: boolean; requestedSkills?: string[] },
   spinner: Spinner
 ): Promise<ResolvedSkills> {
   const { includeInternal } = options;
@@ -1198,13 +1198,22 @@ async function resolveSkills(
   let blobResult: BlobInstallResult | null = null;
   let tempDir: string | null = null;
 
+  const missingRequestedSkill = (found: Skill[]): boolean =>
+    !!options.requestedSkills?.some(
+      (name) => name !== '*' && filterSkills(found, [name]).length === 0
+    );
+  const discover = async (rootDir: string): Promise<Skill[]> => {
+    const found = await discoverSkills(rootDir, parsed.subpath, options);
+    if (!options.fullDepth && missingRequestedSkill(found)) {
+      return discoverSkills(rootDir, parsed.subpath, { ...options, fullDepth: true });
+    }
+    return found;
+  };
+
   try {
     if (parsed.type === 'local') {
       spinner.start('Discovering skills…');
-      skills = await discoverSkills(parsed.localPath!, parsed.subpath, {
-        includeInternal,
-        fullDepth: options.fullDepth,
-      });
+      skills = await discover(parsed.localPath!);
     } else if (parsed.type === 'well-known' || parsed.type === 'download') {
       spinner.start('Downloading source...');
       const downloaded = await downloadSource(parsed.url);
@@ -1212,10 +1221,7 @@ async function resolveSkills(
       spinner.stop(`Downloaded ${downloaded.kind === 'skill-md' ? 'SKILL.md file' : 'archive'}`);
 
       spinner.start('Discovering skills...');
-      skills = await discoverSkills(downloaded.rootDir, parsed.subpath, {
-        includeInternal,
-        fullDepth: options.fullDepth,
-      });
+      skills = await discover(downloaded.rootDir);
     } else if (parsed.type === 'github' && !options.fullDepth) {
       // Try the blob-based fast install for GitHub sources; skip for --full-depth.
       // Eligible per repo (a BLOB_ALLOWED_REPOS entry = self-hosted download URL) or
@@ -1238,6 +1244,9 @@ async function resolveSkills(
         });
       }
 
+      if (blobResult && missingRequestedSkill(blobResult.skills)) {
+        blobResult = null;
+      }
       if (blobResult) {
         skills = blobResult.skills;
         spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
@@ -1252,10 +1261,7 @@ async function resolveSkills(
         spinner.stop('Repository cloned');
 
         spinner.start('Discovering skills…');
-        skills = await discoverSkills(tempDir, parsed.subpath, {
-          includeInternal,
-          fullDepth: options.fullDepth,
-        });
+        skills = await discover(tempDir);
       }
     } else {
       // GitLab, git URL, or --full-depth: always clone
@@ -1264,10 +1270,7 @@ async function resolveSkills(
       spinner.stop('Repository cloned');
 
       spinner.start('Discovering skills…');
-      skills = await discoverSkills(tempDir, parsed.subpath, {
-        includeInternal,
-        fullDepth: options.fullDepth,
-      });
+      skills = await discover(tempDir);
     }
   } catch (error) {
     await cleanup(tempDir);
@@ -1467,7 +1470,11 @@ async function fetchSource({ parsed, skills, fullDepth }: SourceRequest): Promis
     const resolved =
       (parsed.type === 'well-known' &&
         (await resolveWellKnownSkills(parsed.url, includeInternal))) ||
-      (await resolveSkills(parsed, { includeInternal, fullDepth }, silentSpinner));
+      (await resolveSkills(
+        parsed,
+        { includeInternal, fullDepth, requestedSkills: skills },
+        silentSpinner
+      ));
     return { parsed, resolved };
   } catch (error) {
     return {
@@ -1906,7 +1913,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     const resolved = await resolveSkills(
       parsed,
-      { includeInternal, fullDepth: options.fullDepth },
+      { includeInternal, fullDepth: options.fullDepth, requestedSkills: options.skill },
       spinner
     );
     const { skills, blobResult } = resolved;
