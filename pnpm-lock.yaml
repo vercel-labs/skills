@@ -10,7 +10,7 @@ importers:
     dependencies:
       tar:
         specifier: ^7.5.20
-        version: 7.5.20
+        version: 7.5.21
       yaml:
         specifier: ^2.8.3
         version: 2.9.0
@@ -691,8 +691,8 @@ packages:
     resolution: {integrity: sha512-yDPMNjp4WyfYBkHnjIRLfca1i6KMyGCtsVgoKe/z1+6vukgaENdgGBZt+ZmKPc4gavvEZ5OgHfHdrazhgNyG7w==}
     engines: {node: '>=12'}
 
-  tar@7.5.20:
-    resolution: {integrity: sha512-9FcyK4PA6+WbzlTM9WhQm6vB5W7cP7dUiPsv1g7YDwEQnQ1CGpK3MGlKk/ITVWMk05kHZuBhmVhiv8LZoy/PFQ==}
+  tar@7.5.21:
+    resolution: {integrity: sha512-XdhtCvlMywwxpCW8YEq3lOXBJpUPTR2OHHcwLPO3HwsJqOHa2Ok/oJ7ruGzp+JrKoRPVCzJwAdEjqLW/vNRPHA==}
     engines: {node: '>=18'}
 
   tinybench@2.9.0:
@@ -1393,7 +1393,7 @@ snapshots:
     dependencies:
       ansi-regex: 6.2.2
 
-  tar@7.5.20:
+  tar@7.5.21:
     dependencies:
       '@isaacs/fs-minipass': 4.0.1
       chownr: 3.0.0
