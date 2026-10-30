@@ -14,6 +14,7 @@ import { flushTelemetry } from './telemetry.ts';
 import { isRunningInAgent } from './detect-agent.ts';
 import { runUpdate } from './update.ts';
 import { runUse, parseUseOptions } from './use.ts';
+import { normalizeArgs } from './arg-normalize.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -342,7 +343,7 @@ async function main(): Promise<void> {
   }
 
   const command = args[0];
-  const restArgs = args.slice(1);
+  const restArgs = normalizeArgs(args.slice(1));
 
   // Subcommand --help / -h must short-circuit before dispatch so that running
   // e.g. `skills update --help` prints help instead of executing the update
