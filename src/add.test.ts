@@ -554,6 +554,28 @@ description: Test
     expect(result.exitCode).toBe(1);
   });
 
+  it('should reject an invalid agent name before reading the source', () => {
+    const missingSource = join(testDir, 'does-not-exist');
+
+    const result = runCli(['add', missingSource, '--agent', 'claude_code'], testDir);
+    expect(result.stdout).toContain('Invalid agents: claude_code');
+    expect(result.stdout).not.toContain('Source:');
+    expect(result.exitCode).toBe(1);
+  });
+
+  it('should report an invalid agent name in --json mode before reading the source', () => {
+    const missingSource = join(testDir, 'does-not-exist');
+
+    const result = runCli(
+      ['add', missingSource, '-y', '--json', '--agent', 'claude_code'],
+      testDir
+    );
+    expect(JSON.parse(result.stdout)).toEqual([
+      { status: 'failed', error: 'Invalid agents: claude_code' },
+    ]);
+    expect(result.exitCode).toBe(1);
+  });
+
   it('should support add command aliases (a, i, install)', () => {
     // Test that aliases work (just check they show missing source error)
     const resultA = runCli(['a'], testDir);

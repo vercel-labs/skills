@@ -818,14 +818,7 @@ async function handleWellKnownSkills(
     targetAgents = validAgents as AgentType[];
     p.log.info(`Installing to all ${targetAgents.length} agents`);
   } else if (options.agent && options.agent.length > 0) {
-    const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
-
-    if (invalidAgents.length > 0) {
-      p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
-      p.log.info(`Valid agents: ${validAgents.join(', ')}`);
-      process.exit(1);
-    }
-
+    // Already validated by runAdd, the only caller.
     targetAgents = options.agent as AgentType[];
   } else {
     spinner.start('Loading agents…');
@@ -1808,6 +1801,19 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     showInstallTip();
   }
 
+  // Validate --agent before fetching the source or prompting for skills, so a
+  // typo fails immediately instead of after the user has picked their skills.
+  if (options.agent && !options.agent.includes('*')) {
+    const validAgents = Object.keys(agents);
+    const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
+
+    if (invalidAgents.length > 0) {
+      p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
+      p.log.info(`Valid agents: ${validAgents.join(', ')}`);
+      emitJsonAndExit(1, `Invalid agents: ${invalidAgents.join(', ')}`);
+    }
+  }
+
   let tempDir: string | null = null;
 
   try {
@@ -2087,15 +2093,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       targetAgents = validAgents as AgentType[];
       p.log.info(`Installing to all ${targetAgents.length} agents`);
     } else if (options.agent && options.agent.length > 0) {
-      const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
-
-      if (invalidAgents.length > 0) {
-        p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
-        p.log.info(`Valid agents: ${validAgents.join(', ')}`);
-        await cleanup(tempDir);
-        emitJsonAndExit(1, `Invalid agents: ${invalidAgents.join(', ')}`);
-      }
-
+      // Already validated at the start of runAdd.
       targetAgents = options.agent as AgentType[];
     } else {
       spinner.start('Loading agents…');
