@@ -13,6 +13,7 @@ const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
 const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
 const grokHome = process.env.GROK_HOME?.trim() || join(home, '.grok');
+const minAgentHome = process.env.MIN_AGENT_CONFIG_DIR?.trim() || join(home, '.min-agent');
 const sarvamHome = process.env.SARVAM_HOME?.trim() || join(home, '.sarvam');
 const zedAppDataHome = process.env.APPDATA?.trim();
 const zedFlatpakConfigHome = process.env.FLATPAK_XDG_CONFIG_HOME?.trim();
@@ -512,6 +513,20 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.mcpjam/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.mcpjam'));
+    },
+  },
+  'min-agent': {
+    name: 'min-agent',
+    displayName: 'min-agent',
+    // min-agent natively reads the Agent Skills locations `.agents/skills/` in the
+    // working directory and `~/.agents/skills/` globally. Its own config home
+    // (~/.min-agent, overridable via MIN_AGENT_CONFIG_DIR) only stores settings and
+    // the enabled-skill state file, so it is used for install detection only —
+    // never as a skills root.
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents/skills'),
+    detectInstalled: async () => {
+      return existsSync(minAgentHome);
     },
   },
   'minimax-code': {

@@ -45,6 +45,7 @@ export type AgentType =
   | 'lingma'
   | 'loaf'
   | 'mcpjam'
+  | 'min-agent'
   | 'minimax-code'
   | 'mistral-vibe'
   | 'moxby'
