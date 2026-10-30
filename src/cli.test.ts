@@ -1,6 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'fs';
+import { describe, it, expect, afterEach } from 'vitest';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
 import { join } from 'path';
+import { parseFrontmatter } from './frontmatter.ts';
 import { runCli, runCliOutput, stripLogo, hasLogo } from './test-utils.ts';
 
 describe('skills CLI', () => {
@@ -56,6 +58,34 @@ describe('skills CLI', () => {
       expect(output).toContain('npx skills update');
       expect(output).toContain('npx skills init');
       expect(output).toContain('skills.sh');
+    });
+  });
+
+  describe('init', () => {
+    const initDir = mkdtempSync(join(tmpdir(), 'skills-init-test-'));
+
+    afterEach(() => {
+      rmSync(initDir, { recursive: true, force: true });
+      mkdirSync(initDir, { recursive: true });
+    });
+
+    const initSkill = (name: string): Record<string, unknown> => {
+      const result = runCli(['init', name], initDir);
+      expect(result.exitCode).toBe(0);
+      const raw = readFileSync(join(initDir, name, 'SKILL.md'), 'utf-8');
+      return parseFrontmatter(raw).data;
+    };
+
+    it('should keep a plain name unquoted', () => {
+      expect(initSkill('plain-skill').name).toBe('plain-skill');
+    });
+
+    it('should quote a name containing a YAML mapping separator', () => {
+      expect(initSkill('demo: x').name).toBe('demo: x');
+    });
+
+    it('should not truncate a name at a YAML comment marker', () => {
+      expect(initSkill('my skill # best').name).toBe('my skill # best');
     });
   });
 

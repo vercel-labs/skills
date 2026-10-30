@@ -3,6 +3,7 @@
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { basename, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { stringify } from 'yaml';
 import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
 import { runFind } from './find.ts';
 import { runInstallFromLock } from './install.ts';
@@ -281,8 +282,10 @@ function runInit(args: string[]): void {
     mkdirSync(skillDir, { recursive: true });
   }
 
+  const nameLine = stringify({ name: skillName }).trimEnd();
+
   const skillContent = `---
-name: ${skillName}
+${nameLine}
 description: A brief description of what this skill does
 ---
 
