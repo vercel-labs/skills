@@ -13,6 +13,7 @@ import {
   installBlobSkillForAgent,
   isSkillInstalled,
   getCanonicalPath,
+  getInstallPath,
   installWellKnownSkillForAgent,
   type InstallMode,
 } from './installer.ts';
@@ -357,6 +358,57 @@ function buildTargetSummaryLines(targets: InstallTarget[], installMode: InstallM
   }
 
   return lines;
+}
+
+/**
+ * Resolves the directory a skill is actually written to for one install target.
+ *
+ * Symlink/link mode always materializes the skill at the canonical
+ * `.agents/skills` path, so that is the only location worth reporting. Copy
+ * mode writes straight into each agent's own skills directory instead, which
+ * differs per agent (OpenClaw uses `skills`, Cline uses `.agents/skills`), so
+ * the canonical path would name a directory that never gets created.
+ */
+function resolveInstallDir(
+  skillName: string,
+  target: InstallTarget,
+  installMode: InstallMode,
+  installGlobally: boolean,
+  cwd: string
+): string {
+  if (installMode === 'symlink' || installMode === 'link') {
+    return getCanonicalPath(skillName, {
+      global: installGlobally,
+      agent: target.agent,
+      eveSubagent: target.subagent,
+    });
+  }
+
+  return getInstallPath(skillName, target.agent, {
+    global: installGlobally,
+    cwd,
+    eveSubagent: target.subagent,
+  });
+}
+
+/**
+ * Builds the path lines shown above the agent list in the installation summary.
+ * Agents that share a destination directory collapse to a single line.
+ */
+function buildSummaryPathLines(
+  skillName: string,
+  targets: InstallTarget[],
+  installMode: InstallMode,
+  installGlobally: boolean,
+  cwd: string
+): string[] {
+  const dirs: string[] = [];
+  for (const target of targets) {
+    const dir = resolveInstallDir(skillName, target, installMode, installGlobally, cwd);
+    if (!dirs.includes(dir)) dirs.push(dir);
+  }
+
+  return dirs.map((dir) => pc.cyan(shortenPath(dir, cwd)));
 }
 
 /**
@@ -973,9 +1025,15 @@ async function handleWellKnownSkills(
   for (const skill of selectedSkills) {
     if (summaryLines.length > 0) summaryLines.push('');
 
-    const canonicalPath = getCanonicalPath(skill.installName, { global: installGlobally });
-    const shortCanonical = shortenPath(canonicalPath, cwd);
-    summaryLines.push(`${pc.cyan(shortCanonical)}`);
+    summaryLines.push(
+      ...buildSummaryPathLines(
+        skill.installName,
+        targetAgents.map((agent) => ({ agent })),
+        installMode,
+        installGlobally,
+        cwd
+      )
+    );
     summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
     if (skill.files.size > 1) {
       summaryLines.push(`  ${pc.dim('files:')} ${skill.files.size}`);
@@ -2341,16 +2399,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       for (const skill of skills) {
         if (summaryLines.length > 0) summaryLines.push('');
 
-        const canonicalPath =
-          installTargets.length === 1
-            ? getCanonicalPath(skill.name, {
-                global: installGlobally,
-                agent: installTargets[0]!.agent,
-                eveSubagent: installTargets[0]!.subagent,
-              })
-            : getCanonicalPath(skill.name, { global: installGlobally });
-        const shortCanonical = shortenPath(canonicalPath, cwd);
-        summaryLines.push(`${pc.cyan(shortCanonical)}`);
+        summaryLines.push(
+          ...buildSummaryPathLines(skill.name, installTargets, installMode, installGlobally, cwd)
+        );
         summaryLines.push(...buildTargetSummaryLines(installTargets, installMode));
 
         const skillOverwrites = overwriteStatus.get(skill.name);

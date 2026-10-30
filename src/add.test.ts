@@ -423,6 +423,65 @@ description: Mixed copied destination regression test
     expect(countPathLinesForSkill(result.stdout, 'multi-target-skill')).toBe(2);
   });
 
+  it('reports the real copied destination in the summary box for non-canonical agents', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'summary-path-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: summary-path-skill
+description: Summary box path regression test
+---
+
+# Summary Path Skill
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    mkdirSync(projectDir, { recursive: true });
+
+    // OpenClaw installs into `skills/`, not the canonical `.agents/skills`.
+    const result = runCli(['add', sourceDir, '-y', '--copy', '--agent', 'openclaw'], projectDir);
+
+    expect(result.exitCode).toBe(0);
+    const summary = result.stdout.slice(0, result.stdout.indexOf('Installation complete'));
+    expect(summary).toContain('skills/summary-path-skill');
+    expect(summary).not.toContain('.agents/skills/summary-path-skill');
+    expect(existsSync(join(projectDir, 'skills', 'summary-path-skill', 'SKILL.md'))).toBe(true);
+    expect(existsSync(join(projectDir, '.agents', 'skills', 'summary-path-skill'))).toBe(false);
+  });
+
+  it('lists every copied destination in the summary box when agents use different dirs', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'skills', 'mixed-dir-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: mixed-dir-skill
+description: Mixed destination summary regression test
+---
+
+# Mixed Dir Skill
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    mkdirSync(projectDir, { recursive: true });
+
+    const result = runCli(
+      ['add', sourceDir, '-y', '--copy', '--agent', 'codex', 'cursor', 'openclaw'],
+      projectDir
+    );
+
+    expect(result.exitCode).toBe(0);
+    const summary = result.stdout.slice(0, result.stdout.indexOf('Installation complete'));
+    // Codex and Cursor are universal (`.agents/skills`); OpenClaw uses `skills/`.
+    expect(summary).toContain('.agents/skills/mixed-dir-skill');
+    expect(summary).toContain('skills/mixed-dir-skill');
+  });
+
   it('should describe Eve project installs as for the eve agent to use', () => {
     const sourceDir = join(testDir, 'source');
     const skillDir = join(sourceDir, 'eve-skill');
