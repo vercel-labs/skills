@@ -31,8 +31,12 @@ function createGitClientMock(clone: ReturnType<typeof vi.fn>) {
   const client = {
     clone,
     env: vi.fn(),
+    cwd: vi.fn(),
+    submoduleUpdate: vi.fn(),
   };
   client.env.mockReturnValue(client);
+  client.cwd.mockResolvedValue(client);
+  client.submoduleUpdate.mockResolvedValue(undefined);
   return client;
 }
 
@@ -134,7 +138,8 @@ describe('git clone fallbacks', () => {
     vi.stubEnv('PAGER', 'skills-test-pager');
     const clone = vi.fn().mockResolvedValue(undefined);
     const client = createGitClientMock(clone);
-    simpleGitMock.mockReturnValueOnce(client);
+    const submoduleClient = createGitClientMock(vi.fn());
+    simpleGitMock.mockReturnValueOnce(client).mockReturnValueOnce(submoduleClient);
 
     const tempDir = await cloneRepo('https://github.com/Giphy/giphy-codex-skills.git');
     createdDirs.push(tempDir);
@@ -180,6 +185,30 @@ describe('git clone fallbacks', () => {
         PAGER: 'skills-test-pager',
       })
     );
+    expect(submoduleClient.cwd).toHaveBeenCalledWith(tempDir);
+    expect(submoduleClient.submoduleUpdate).toHaveBeenCalledWith([
+      '--init',
+      '--recursive',
+      '--depth',
+      '1',
+    ]);
+  });
+
+  it('warns but completes the clone when submodule initialization fails', async () => {
+    const clone = vi.fn().mockResolvedValue(undefined);
+    const submoduleClient = createGitClientMock(vi.fn());
+    submoduleClient.submoduleUpdate.mockRejectedValue(new Error('submodule access denied'));
+    simpleGitMock
+      .mockReturnValueOnce(createGitClientMock(clone))
+      .mockReturnValueOnce(submoduleClient);
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const tempDir = await cloneRepo('https://gitlab.com/acme/skills.git');
+    createdDirs.push(tempDir);
+
+    expect(warning).toHaveBeenCalledWith(
+      'Warning: failed to initialize Git submodules; installed skills may be incomplete.'
+    );
   });
 
   it('falls back to gh repo clone for GitHub HTTPS auth failures', async () => {
@@ -192,7 +221,10 @@ describe('git clone fallbacks', () => {
         )
       );
 
-    simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+    const submoduleClient = createGitClientMock(vi.fn());
+    simpleGitMock
+      .mockReturnValueOnce(createGitClientMock(primaryClone))
+      .mockReturnValueOnce(submoduleClient);
     mockExecFileSuccess('Git operations protocol: https\n');
     mockExecFileSuccess();
 
@@ -206,6 +238,12 @@ describe('git clone fallbacks', () => {
       expect.any(Object),
       expect.any(Function)
     );
+    expect(submoduleClient.submoduleUpdate).toHaveBeenCalledWith([
+      '--init',
+      '--recursive',
+      '--depth',
+      '1',
+    ]);
     expect(execFileMock).toHaveBeenNthCalledWith(
       2,
       'gh',
@@ -219,7 +257,9 @@ describe('git clone fallbacks', () => {
     vi.stubEnv('GH_HOST', 'github.example.com');
     const primaryClone = vi.fn().mockRejectedValue(new Error('fatal: Authentication failed'));
 
-    simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
+    simpleGitMock
+      .mockReturnValueOnce(createGitClientMock(primaryClone))
+      .mockReturnValueOnce(createGitClientMock(vi.fn()));
     mockExecFileSuccess('Git operations protocol: https\n');
     mockExecFileSuccess();
 
@@ -247,8 +287,12 @@ describe('git clone fallbacks', () => {
     const sshClone = vi.fn().mockResolvedValue(undefined);
     const primaryClient = createGitClientMock(primaryClone);
     const sshClient = createGitClientMock(sshClone);
+    const submoduleClient = createGitClientMock(vi.fn());
 
-    simpleGitMock.mockReturnValueOnce(primaryClient).mockReturnValueOnce(sshClient);
+    simpleGitMock
+      .mockReturnValueOnce(primaryClient)
+      .mockReturnValueOnce(sshClient)
+      .mockReturnValueOnce(submoduleClient);
     mockExecFileSuccess('Git operations protocol: ssh\n');
     mockExecFileError('gh repo clone failed');
 
@@ -260,6 +304,11 @@ describe('git clone fallbacks', () => {
       '1',
     ]);
     expect(sshClient.env).toHaveBeenCalledWith(
+      expect.objectContaining({
+        GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes',
+      })
+    );
+    expect(submoduleClient.env).toHaveBeenCalledWith(
       expect.objectContaining({
         GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes',
       })
