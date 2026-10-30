@@ -16,6 +16,11 @@ const grokHome = process.env.GROK_HOME?.trim() || join(home, '.grok');
 const sarvamHome = process.env.SARVAM_HOME?.trim() || join(home, '.sarvam');
 const zedAppDataHome = process.env.APPDATA?.trim();
 const zedFlatpakConfigHome = process.env.FLATPAK_XDG_CONFIG_HOME?.trim();
+// Pi reads the universal Agent Skills locations by default. These optional
+// overrides let users point the `pi` target at Pi's native skill directories
+// (`.pi/skills` per project, `<agent dir>/skills` globally) instead.
+const piSkillsDir = process.env.PI_SKILLS_DIR?.trim() || '.agents/skills';
+const piGlobalSkillsDir = process.env.PI_GLOBAL_SKILLS_DIR?.trim() || join(home, '.agents/skills');
 
 function packageJsonHasDependency(packageJsonPath: string, dependencyName: string): boolean {
   try {
@@ -583,8 +588,13 @@ export const agents: Record<AgentType, AgentConfig> = {
     // Pi natively reads the Agent Skills locations: `.agents/skills/` from the working
     // directory up through its ancestors, and `~/.agents/skills/` globally.
     // See https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/skills.md
-    skillsDir: '.agents/skills',
-    globalSkillsDir: join(home, '.agents/skills'),
+    // Users who prefer Pi's native skill directories (`.pi/skills` per project,
+    // `~/.pi/agent/skills` globally) can override them with PI_SKILLS_DIR and
+    // PI_GLOBAL_SKILLS_DIR. Setting them makes `pi` a non-universal target, so
+    // installs symlink Pi's native directories to the canonical store instead of
+    // writing to it directly.
+    skillsDir: piSkillsDir,
+    globalSkillsDir: piGlobalSkillsDir,
     detectInstalled: async () => {
       return existsSync(join(home, '.pi/agent'));
     },
