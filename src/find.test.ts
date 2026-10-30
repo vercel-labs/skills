@@ -48,14 +48,42 @@ describe('searchSkillsAPI', () => {
     expect(url.pathname).toBe('/api/search');
     expect(url.searchParams.get('q')).toBe('react native');
     expect(url.searchParams.get('owner')).toBe('vercel');
-    expect(url.searchParams.get('limit')).toBe('20');
+    expect(url.searchParams.has('limit')).toBe(false);
   });
 
-  it('prints every result returned for a non-interactive query', async () => {
-    const skills = Array.from({ length: 11 }, (_, index) => ({
+  it('preserves API relevance order over install counts', async () => {
+    const skills = [
+      {
+        id: 'owner/repo/eval-harness',
+        name: 'eval-harness',
+        installs: 100,
+        source: 'owner/repo',
+      },
+      {
+        id: 'owner/repo/hyperframes-registry',
+        name: 'hyperframes-registry',
+        installs: 732200,
+        source: 'owner/repo',
+      },
+    ];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ skills }),
+      })
+    );
+
+    const results = await searchSkillsAPI('eval');
+
+    expect(results.map((skill) => skill.name)).toEqual(['eval-harness', 'hyperframes-registry']);
+  });
+
+  it('prints every result in API order for a non-interactive query', async () => {
+    const skills = Array.from({ length: 25 }, (_, index) => ({
       id: `owner/repo/skill-${index + 1}`,
       name: `skill-${index + 1}`,
-      installs: 11 - index,
+      installs: index + 1,
       source: 'owner/repo',
     }));
     vi.stubGlobal(
@@ -72,6 +100,9 @@ describe('searchSkillsAPI', () => {
 
     const output = log.mock.calls.map((args) => args.join(' ')).join('\n');
     expect(output).toContain('owner/repo@skill-1');
-    expect(output).toContain('owner/repo@skill-11');
+    expect(output).toContain('owner/repo@skill-25');
+    expect(output.indexOf('owner/repo@skill-1')).toBeLessThan(
+      output.indexOf('owner/repo@skill-25')
+    );
   });
 });

@@ -435,6 +435,55 @@ This is a test skill.
     });
   });
 
+  describe('home directory without -g (#2469)', () => {
+    it('refuses to remove a globally tracked skill and points to -g', () => {
+      const testHome = join(testDir, 'home');
+      const skillDir = createTestSkill('grilling', 'A skill', join(testHome, '.agents', 'skills'));
+      const lockPath = join(testHome, '.local', 'state', 'skills', '.skill-lock.json');
+      mkdirSync(join(lockPath, '..'), { recursive: true });
+      const lock = JSON.stringify({
+        version: 3,
+        skills: {
+          grilling: {
+            source: 'mattpocock/skills',
+            sourceType: 'github',
+            sourceUrl: 'https://github.com/mattpocock/skills',
+            skillFolderHash: 'somehash',
+            installedAt: '2026-10-01T00:00:00.000Z',
+            updatedAt: '2026-10-01T00:00:00.000Z',
+          },
+        },
+      });
+      writeFileSync(lockPath, lock);
+
+      const result = runCli(['remove', 'grilling', '-y'], testHome, { HOME: testHome });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('skills remove grilling -g');
+      expect(existsSync(skillDir)).toBe(true);
+      expect(readFileSync(lockPath, 'utf-8')).toBe(lock);
+    });
+
+    it('removes a skill tracked in a project lock that lives in home', () => {
+      const testHome = join(testDir, 'home');
+      const skillDir = createTestSkill('grilling', 'A skill', join(testHome, '.agents', 'skills'));
+      const localLockPath = join(testHome, 'skills-lock.json');
+      writeFileSync(
+        localLockPath,
+        JSON.stringify({
+          version: 1,
+          skills: { grilling: { source: 'mattpocock/skills', sourceType: 'github' } },
+        })
+      );
+
+      const result = runCli(['remove', 'grilling', '-y'], testHome, { HOME: testHome });
+
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(skillDir)).toBe(false);
+      expect(JSON.parse(readFileSync(localLockPath, 'utf-8')).skills.grilling).toBeUndefined();
+    });
+  });
+
   describe('non-skill directories', () => {
     it('should not offer an agent-internal dot-directory as an installed skill', () => {
       const testHome = join(testDir, 'home');
