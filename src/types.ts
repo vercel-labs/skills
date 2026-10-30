@@ -20,6 +20,7 @@ export type AgentType =
   | 'cortex'
   | 'crush'
   | 'cursor'
+  | 'december'
   | 'deepagents'
   | 'devin'
   | 'dexto'

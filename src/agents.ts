@@ -14,6 +14,7 @@ const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
 const grokHome = process.env.GROK_HOME?.trim() || join(home, '.grok');
 const sarvamHome = process.env.SARVAM_HOME?.trim() || join(home, '.sarvam');
+const decemberHome = process.env.DECEMBER_HOME?.trim() || join(home, '.december');
 const zedAppDataHome = process.env.APPDATA?.trim();
 const zedFlatpakConfigHome = process.env.FLATPAK_XDG_CONFIG_HOME?.trim();
 
@@ -75,6 +76,16 @@ export function isPositAssistantInstalled(
   // ~/.positai is the pre-rename config dir, still present on installs
   // that haven't launched a current version yet.
   return pathExists(join(homeDir, '.posit/assistant')) || pathExists(join(homeDir, '.positai'));
+}
+
+export function isDecemberInstalled(
+  homeDir = home,
+  cwd = process.cwd(),
+  pathExists: (path: string) => boolean = existsSync
+) {
+  const customHome = process.env.DECEMBER_HOME?.trim();
+  const baseDir = customHome || join(homeDir, '.december');
+  return pathExists(baseDir) || pathExists(join(cwd, '.december'));
 }
 
 export const agents: Record<AgentType, AgentConfig> = {
@@ -273,6 +284,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.cursor/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.cursor'));
+    },
+  },
+  december: {
+    name: 'december',
+    displayName: 'December',
+    skillsDir: '.december/skills',
+    globalSkillsDir: join(decemberHome, 'skills'),
+    detectInstalled: async () => {
+      return isDecemberInstalled();
     },
   },
   deepagents: {
