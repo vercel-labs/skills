@@ -24,6 +24,7 @@ export interface UseOptions {
   agent?: string[];
   fullDepth?: boolean;
   help?: boolean;
+  skillsDir?: string;
 }
 
 export interface ParseUseOptionsResult {
@@ -125,6 +126,14 @@ export function parseUseOptions(args: string[]): ParseUseOptionsResult {
         errors.push(`${arg} requires an agent name`);
       }
       i--;
+    } else if (arg === '--skills-dir') {
+      const value = args[i + 1];
+      if (!value || value.startsWith('-')) {
+        errors.push('--skills-dir requires a path');
+      } else {
+        options.skillsDir = value;
+        i++;
+      }
     } else if (arg.startsWith('-')) {
       errors.push(`Unknown option: ${arg}`);
     } else {
@@ -236,6 +245,7 @@ export async function runUse(
         const downloadedSkills = await discoverSkills(downloaded.rootDir, undefined, {
           includeInternal,
           fullDepth: options.fullDepth,
+          skillsDir: options.skillsDir,
         });
         const selected = selectSkill(downloadedSkills, selector, source);
         selectedSkill = {
@@ -256,6 +266,7 @@ export async function runUse(
         skills = await discoverSkills(downloaded.rootDir, undefined, {
           includeInternal,
           fullDepth: options.fullDepth,
+          skillsDir: options.skillsDir,
         });
       } else if (parsed.type === 'local') {
         if (!existsSync(parsed.localPath!)) {
@@ -264,6 +275,7 @@ export async function runUse(
         skills = await discoverSkills(parsed.localPath!, parsed.subpath, {
           includeInternal,
           fullDepth: options.fullDepth,
+          skillsDir: options.skillsDir,
         });
       } else if (parsed.type === 'github' && !options.fullDepth) {
         const ownerRepo = getOwnerRepo(parsed);
@@ -285,6 +297,7 @@ export async function runUse(
           skills = await discoverSkills(cloneTempDir, parsed.subpath, {
             includeInternal,
             fullDepth: options.fullDepth,
+            skillsDir: options.skillsDir,
           });
         }
       } else {
@@ -292,6 +305,7 @@ export async function runUse(
         skills = await discoverSkills(cloneTempDir, parsed.subpath, {
           includeInternal,
           fullDepth: options.fullDepth,
+          skillsDir: options.skillsDir,
         });
       }
 
@@ -396,6 +410,7 @@ Generate a prompt for using one skill without installing it.
 Options:
   -s, --skill <skill>   Select the skill to use
   -a, --agent <agent>   Start one supported agent interactively (${SUPPORTED_USE_AGENTS.join(', ')})
+  --skills-dir <path>   Override the default skill container directory name (default: "skills")
   --full-depth          Search nested directories like skills add --full-depth
   -h, --help            Show this help message
 
