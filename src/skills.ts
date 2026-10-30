@@ -115,6 +115,16 @@ export async function parseSkillMd(
     return null;
   }
 
+  const name = sanitizeMetadata(data.name);
+  const description = sanitizeMetadata(data.description);
+  if (!name || !description) {
+    const empty: string[] = [];
+    if (!name) empty.push('name');
+    if (!description) empty.push('description');
+    warnSkippedSkill(skillMdPath, `empty required frontmatter field(s): ${empty.join(', ')}`);
+    return null;
+  }
+
   // Skip internal skills unless:
   // 1. INSTALL_INTERNAL_SKILLS=1 is set, OR
   // 2. includeInternal option is true (e.g., when user explicitly requests a skill)
@@ -125,8 +135,8 @@ export async function parseSkillMd(
   }
 
   return {
-    name: sanitizeMetadata(data.name),
-    description: sanitizeMetadata(data.description),
+    name,
+    description,
     path: dirname(skillMdPath),
     rawContent: content,
     metadata,
