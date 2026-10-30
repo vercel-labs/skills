@@ -826,6 +826,23 @@ export const agents: Record<AgentType, AgentConfig> = {
   },
 };
 
+// Retain directories used before agents migrated to the universal skills directory.
+export const AGENT_PROJECT_SKILL_DIRS = [
+  ...new Set([
+    ...Object.values(agents).map((agent) => agent.skillsDir),
+    '.cline/skills',
+    '.codex/skills',
+    '.factory/skills',
+    '.github/skills',
+    '.kilo/skills',
+    '.kilocode/skills',
+    '.opencode/skills',
+    '.pi/skills',
+  ]),
+]
+  .filter((dir) => dir !== 'skills')
+  .sort();
+
 export async function detectInstalledAgents(): Promise<AgentType[]> {
   const results = await Promise.all(
     Object.entries(agents).map(async ([type, config]) => ({

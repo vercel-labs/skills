@@ -84,6 +84,24 @@ describe('discoverSkills — bounded depth-3 inside skill container dirs', () =>
     expect(skills.map((s) => s.name).sort()).toEqual(['real-skill']);
   });
 
+  it.each([
+    '.augment/skills',
+    'agent/skills',
+    'data/skills',
+    '.tabnine/agent/skills',
+    '.codex/skills',
+  ])('discovers %s alongside standard skills on disk and in a tree', async (agentDir) => {
+    writeSkill(join(testDir, 'skills', 'standard-skill'), 'standard-skill');
+    writeSkill(join(testDir, agentDir, 'agent-skill'), 'agent-skill');
+    const paths = ['skills/standard-skill/SKILL.md', `${agentDir}/agent-skill/SKILL.md`];
+
+    expect((await discoverSkills(testDir)).map((skill) => skill.name).sort()).toEqual([
+      'agent-skill',
+      'standard-skill',
+    ]);
+    expect(findSkillMdPaths(makeTree(paths)).sort()).toEqual(paths.sort());
+  });
+
   it('discovers nested skills under agent-specific container dirs', async () => {
     writeSkill(join(testDir, '.agents', 'skills', 'category', 'agent-skill'), 'agent-skill');
 
@@ -92,28 +110,31 @@ describe('discoverSkills — bounded depth-3 inside skill container dirs', () =>
     expect(skills.map((s) => s.name)).toEqual(['agent-skill']);
   });
 
-  it('ignores project-installed agent skills tracked by skills-lock.json', async () => {
-    writeSkill(join(testDir, '.agents', 'skills', 'installed-skill'), 'installed-skill');
-    writeSkill(join(testDir, 'skills', 'source-skill'), 'source-skill');
-    writeFileSync(
-      join(testDir, 'skills-lock.json'),
-      JSON.stringify({
-        version: 1,
-        skills: {
-          'installed-skill': {
-            source: 'owner/repo',
-            sourceType: 'github',
-            skillPath: 'skills/installed-skill/SKILL.md',
-            computedHash: 'hash',
+  it.each(['.agents/skills', '.augment/skills', 'agent/skills'])(
+    'ignores project-installed skills in %s tracked by skills-lock.json',
+    async (agentDir) => {
+      writeSkill(join(testDir, agentDir, 'installed-skill'), 'installed-skill');
+      writeSkill(join(testDir, 'skills', 'source-skill'), 'source-skill');
+      writeFileSync(
+        join(testDir, 'skills-lock.json'),
+        JSON.stringify({
+          version: 1,
+          skills: {
+            'installed-skill': {
+              source: 'owner/repo',
+              sourceType: 'github',
+              skillPath: 'skills/installed-skill/SKILL.md',
+              computedHash: 'hash',
+            },
           },
-        },
-      })
-    );
+        })
+      );
 
-    const skills = await discoverSkills(testDir);
+      const skills = await discoverSkills(testDir);
 
-    expect(skills.map((s) => s.name)).toEqual(['source-skill']);
-  });
+      expect(skills.map((s) => s.name)).toEqual(['source-skill']);
+    }
+  );
 
   it('does not ignore agent-dir skills without a skills-lock.json entry', async () => {
     writeSkill(join(testDir, '.agents', 'skills', 'agent-skill'), 'agent-skill');
