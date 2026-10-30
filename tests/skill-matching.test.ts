@@ -309,6 +309,51 @@ name: nameless
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('description'));
   });
 
+  it.each([
+    ['spaces in name', '   ', 'A valid description', 'name'],
+    ['tabs in name', ' \t ', 'A valid description', 'name'],
+    ['spaces in description', 'valid-skill', '   ', 'description'],
+    ['newlines in description', 'valid-skill', ' \n ', 'description'],
+    ['both fields blank', ' \t ', ' \n ', 'name, description'],
+  ])('rejects %s after normalization', async (_label, name, description, emptyFields) => {
+    const skillPath = join(testDir, 'SKILL.md');
+    writeFileSync(
+      skillPath,
+      `---\nname: ${JSON.stringify(name)}\ndescription: ${JSON.stringify(description)}\n---\n`
+    );
+
+    expect(await parseSkillMd(skillPath)).toBeNull();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(skillPath));
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(`empty required frontmatter field(s): ${emptyFields}`)
+    );
+  });
+
+  it('skips blank metadata during discovery while preserving padded valid metadata', async () => {
+    const blankDir = join(testDir, 'skills', 'blank-skill');
+    const validDir = join(testDir, 'skills', 'valid-skill');
+    mkdirSync(blankDir, { recursive: true });
+    mkdirSync(validDir, { recursive: true });
+    writeFileSync(
+      join(blankDir, 'SKILL.md'),
+      '---\nname: "   "\ndescription: A description\n---\n'
+    );
+    const validContent = '---\nname: " valid-skill "\ndescription: " A valid description "\n---\n';
+    writeFileSync(join(validDir, 'SKILL.md'), validContent);
+
+    const result = await discoverSkills(testDir);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      name: 'valid-skill',
+      description: 'A valid description',
+      rawContent: validContent,
+    });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(join(blankDir, 'SKILL.md')));
+  });
+
   it('warns when SKILL.md cannot be read', async () => {
     const skillPath = join(testDir, 'does-not-exist', 'SKILL.md');
     const result = await parseSkillMd(skillPath);
