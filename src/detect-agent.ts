@@ -39,6 +39,7 @@ function refineAgentResult(result: AgentResult): AgentResult {
  * Only includes agents that exist in both systems.
  */
 const agentNameToType: Record<string, AgentType> = {
+  nanobot: 'nanobot',
   cursor: 'cursor',
   'cursor-cli': 'cursor',
   claude: 'claude-code',
