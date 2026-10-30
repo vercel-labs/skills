@@ -4,6 +4,8 @@ import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
 import { isRepoPrivate } from './source-parser.ts';
 import { isRunningInAgent } from './detect-agent.ts';
+import { rankSkills, type SearchSkill, type SearchOutcome, type ApiSearchSkill } from './search-core.ts';
+import { describeFailure } from './search-coordinator.ts';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -16,6 +18,12 @@ const YELLOW = '\x1b[33m';
 // API endpoint for skills search
 const SEARCH_API_BASE = process.env.SKILLS_API_URL || 'https://skills.sh';
 const SEARCH_RESULT_LIMIT = '20';
+/**
+ * Search is an interactive action, so the bound is far tighter than the 30s
+ * used for source downloads. A user staring at an empty prompt for 30s has
+ * already concluded the tool is broken.
+ */
+const SEARCH_TIMEOUT_MS = Number.parseInt(process.env.SKILLS_SEARCH_TIMEOUT_MS || '', 10) || 8_000;
 
 function formatInstalls(count: number): string {
   if (!count || count <= 0) return '';
@@ -24,12 +32,11 @@ function formatInstalls(count: number): string {
   return `${count} install${count === 1 ? '' : 's'}`;
 }
 
-export interface SearchSkill {
-  name: string;
-  slug: string;
-  source: string;
-  installs: number;
-}
+/**
+ * Re-exported from `search-core.ts` so existing importers of `find.ts` keep
+ * working; the canonical definition (which adds `relevanceRank`) lives there.
+ */
+export type { SearchSkill } from './search-core.ts';
 
 export interface FindOptions {
   owner?: string;
@@ -84,35 +91,78 @@ export function parseFindOptions(args: string[]): ParseFindOptionsResult {
 }
 
 // Search via API
-export async function searchSkillsAPI(query: string, owner?: string): Promise<SearchSkill[]> {
+/**
+ * Hardened search entry point.
+ *
+ * Behaviour changes vs. the original implementation:
+ *  - Failures are returned as a typed outcome instead of a bare `[]`, so a
+ *    network/server failure can never be reported to the user as
+ *    "No skills found".
+ *  - The request is bounded by an AbortSignal (the download path already had a
+ *    30s bound; this path had none).
+ *
+ * Success path is unchanged: same endpoint, same parameters, same field names.
+ */
+export async function searchSkillsAPI(query: string, owner?: string): Promise<SearchOutcome> {
+  const params = new URLSearchParams({ q: query, limit: SEARCH_RESULT_LIMIT });
+  if (owner) params.set('owner', owner);
+  const url = `${SEARCH_API_BASE}/api/search?${params.toString()}`;
+
+  let res: Response;
   try {
-    const params = new URLSearchParams({ q: query, limit: SEARCH_RESULT_LIMIT });
-    if (owner) params.set('owner', owner);
-    const url = `${SEARCH_API_BASE}/api/search?${params.toString()}`;
-    const res = await fetch(url);
+    res = await fetch(url, {
+      signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
+      headers: { accept: 'application/json' },
+    });
+  } catch (error) {
+    const name = error instanceof Error ? error.name : '';
+    const message = error instanceof Error ? error.message : String(error);
+    if (name === 'TimeoutError' || name === 'AbortError') {
+      return { kind: 'timeout', ms: SEARCH_TIMEOUT_MS };
+    }
+    return { kind: 'network-error', cause: name ? `${name}: ${message}` : message };
+  }
 
-    if (!res.ok) return [];
+  if (!res.ok) {
+    return { kind: 'server-error', status: res.status };
+  }
 
-    const data = (await res.json()) as {
-      skills: Array<{
-        id: string;
-        name: string;
-        installs: number;
-        source: string;
-      }>;
+  let payload: { skills?: ApiSearchSkill[] };
+  try {
+    payload = (await res.json()) as { skills?: ApiSearchSkill[] };
+  } catch (error) {
+    return {
+      kind: 'network-error',
+      cause: `malformed response: ${error instanceof Error ? error.message : String(error)}`,
     };
+  }
 
-    return data.skills
-      .map((skill) => ({
+  const raw = payload.skills;
+  if (!Array.isArray(raw)) {
+    return { kind: 'network-error', cause: 'response is missing a "skills" array' };
+  }
+  if (raw.length === 0) {
+    return { kind: 'empty', query };
+  }
+
+  return {
+    kind: 'ok',
+    skills: rankSkills(
+      raw.map((skill, index) => ({
         name: sanitizeMetadata(skill.name),
         slug: sanitizeMetadata(skill.id),
         source: sanitizeMetadata(skill.source || ''),
-        installs: skill.installs,
+        installs: Number.isFinite(skill.installs) ? skill.installs : 0,
+        relevanceRank: index,
       }))
-      .sort((a, b) => (b.installs || 0) - (a.installs || 0));
-  } catch {
-    return [];
-  }
+    ),
+  };
+}
+
+/** Backwards-compatible helper: returns skills, or an empty array on any failure. */
+export async function searchSkillsOrEmpty(query: string, owner?: string): Promise<SearchSkill[]> {
+  const outcome = await searchSkillsAPI(query, owner);
+  return outcome.kind === 'ok' ? outcome.skills : [];
 }
 
 // ANSI escape codes for terminal control
@@ -130,6 +180,19 @@ async function runSearchPrompt(initialQuery = '', owner?: string): Promise<Searc
   let loading = false;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let lastRenderedLines = 0;
+  let failureMessage: string | null = null;
+
+  /**
+   * Monotonic request counter + TTL cache.
+   *
+   * debounce alone only throttles the *rate* of requests; it does not stop a
+   * slow response for an older query from landing after and overwriting a newer
+   * one. Every settled request carries its sequence number and stale results
+   * are discarded.
+   */
+  let requestSeq = 0;
+  const cache = new Map<string, { at: number; skills: SearchSkill[] }>();
+  const CACHE_TTL_MS = 60_000;
 
   // Enable raw mode for keypress events
   if (process.stdin.isTTY) {
@@ -162,7 +225,9 @@ async function runSearchPrompt(initialQuery = '', owner?: string): Promise<Searc
     lines.push('');
 
     // Results - keep showing existing results while loading new ones
-    if (!query || query.length < 2) {
+    if (failureMessage) {
+      lines.push(`${DIM}${failureMessage}${RESET}`);
+    } else if (!query || query.length < 2) {
       lines.push(`${DIM}Start typing to search (min 2 chars)${RESET}`);
     } else if (results.length === 0 && loading) {
       lines.push(`${DIM}Searching…${RESET}`);
@@ -210,12 +275,27 @@ async function runSearchPrompt(initialQuery = '', owner?: string): Promise<Searc
     if (!q || q.length < 2) {
       results = [];
       selectedIndex = 0;
+      failureMessage = null;
       render();
       return;
     }
 
-    // Use API search for all queries (debounced)
+    const cacheKey = `${owner ?? '*'}::${q.toLowerCase()}`;
+    const cached = cache.get(cacheKey);
+    if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
+      results = cached.skills;
+      selectedIndex = 0;
+      loading = false;
+      failureMessage = null;
+      render();
+      return;
+    }
+
+    // Claim a sequence number BEFORE awaiting so late arrivals can be dropped.
+    const seq = ++requestSeq;
+
     loading = true;
+    failureMessage = null;
     render();
 
     // Adaptive debounce: shorter queries = longer wait (user still typing)
@@ -223,16 +303,23 @@ async function runSearchPrompt(initialQuery = '', owner?: string): Promise<Searc
     const debounceMs = Math.max(150, 350 - q.length * 50);
 
     debounceTimer = setTimeout(async () => {
-      try {
-        results = await searchSkillsAPI(q, owner);
-        selectedIndex = 0;
-      } catch {
+      const outcome = await searchSkillsAPI(q, owner);
+      if (seq !== requestSeq) return; // stale response — discard
+      if (outcome.kind === 'ok') {
+        results = outcome.skills;
+        cache.set(cacheKey, { at: Date.now(), skills: outcome.skills });
+        failureMessage = null;
+      } else if (outcome.kind === 'empty') {
         results = [];
-      } finally {
-        loading = false;
-        debounceTimer = null;
-        render();
+        failureMessage = null;
+      } else {
+        results = [];
+        failureMessage = 'Search unavailable — check network. This does NOT mean no matches exist.';
       }
+      selectedIndex = 0;
+      loading = false;
+      debounceTimer = null;
+      render();
     }, debounceMs);
   }
 
@@ -339,20 +426,33 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
 
   // Non-interactive mode: just print results and exit
   if (query) {
-    const results = await searchSkillsAPI(query, owner);
+    const outcome = await searchSkillsAPI(query, owner);
 
     // Track telemetry for non-interactive search
     track({
       event: 'find',
       query,
-      resultCount: String(results.length),
+      resultCount: String(outcome.kind === 'ok' ? outcome.skills.length : 0),
     });
 
-    if (results.length === 0) {
-      const ownerSuffix = owner ? ` from owner "${owner}"` : '';
-      console.log(`${DIM}No skills found for "${query}"${ownerSuffix}${RESET}`);
+    // Distinguish "the service failed" from "nothing matched". Reporting a
+    // network outage as "No skills found" is a factual error, so failures go
+    // to stderr with a non-zero exit code and explicit wording.
+    const failure = describeFailure(outcome);
+    if (failure) {
+      console.error(failure);
+      process.exitCode = 1;
       return;
     }
+
+    if (outcome.kind === 'empty') {
+      const ownerSuffix = owner ? ` from owner "${owner}"` : '';
+      console.log(`${DIM}No skills found for "${outcome.query}"${ownerSuffix}${RESET}`);
+      return;
+    }
+
+    if (outcome.kind !== 'ok') return; // defensive: only 'ok' carries skills
+    const results = outcome.skills;
 
     console.log(`${DIM}Install with${RESET} npx skills add <owner/repo@skill>`);
     console.log();
