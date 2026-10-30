@@ -15,7 +15,7 @@ import { downloadSource } from './download-source.ts';
 import {
   wellKnownProvider,
   WellKnownScopeNotFoundError,
-  type WellKnownSkill,
+  type DiscoveredWellKnownSkill,
   type WellKnownFileContent,
 } from './providers/wellknown.ts';
 
@@ -221,15 +221,17 @@ export async function runUse(
 
     if (parsed.type === 'well-known') {
       const skills = await wellKnownProvider
-        .fetchAllSkills(parsed.url, {
+        .discoverSkills(parsed.url, {
           includeInternal,
         })
         .catch((error) => {
-          if (error instanceof WellKnownScopeNotFoundError) fail(error.message);
-          return [] as WellKnownSkill[];
+          if (error instanceof WellKnownScopeNotFoundError) {
+            fail(error.message);
+          }
+          return [] as DiscoveredWellKnownSkill[];
         });
       if (skills.length > 0) {
-        selectedSkill = selectWellKnownSkill(skills, selector, source);
+        selectedSkill = await selectWellKnownSkill(skills, selector, source);
       } else {
         const downloaded = await downloadSource(parsed.url);
         cloneTempDir = downloaded.tempDir;
@@ -441,18 +443,18 @@ function selectSkill(skills: Skill[], selector: string | undefined, source: stri
   return selected[0]!;
 }
 
-function selectWellKnownSkill(
-  skills: WellKnownSkill[],
+async function selectWellKnownSkill(
+  skills: DiscoveredWellKnownSkill[],
   selector: string | undefined,
   source: string
-): UseSkill {
+): Promise<UseSkill> {
   if (skills.length === 0) {
     throw new UseCommandError(
       'No skills found at this URL. Make sure the server has a /.well-known/agent-skills/index.json or /.well-known/skills/index.json file.'
     );
   }
 
-  let selected: WellKnownSkill[];
+  let selected: DiscoveredWellKnownSkill[];
   if (!selector) {
     if (skills.length !== 1) {
       throw new UseCommandError(
@@ -482,7 +484,7 @@ function selectWellKnownSkill(
     }
   }
 
-  const skill = selected[0]!;
+  const skill = await selected[0]!.load();
   return {
     kind: 'well-known',
     name: skill.name,
