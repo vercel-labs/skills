@@ -81,9 +81,9 @@ const EVE_AGENT_LABEL = 'eve agent';
 
 /**
  * Check if a source identifier (owner/repo format) represents a private GitHub repo.
- * Returns true if private, false if public, null if unable to determine or not a GitHub repo.
+ * Returns true if private or unable to determine, false if public or not a GitHub repo.
  */
-async function isSourcePrivate(source: string): Promise<boolean | null> {
+async function isSourcePrivate(source: string): Promise<boolean> {
   const ownerRepo = parseOwnerRepo(source);
   if (!ownerRepo) {
     // Not in owner/repo format, assume not private (could be other providers)
@@ -2452,8 +2452,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       const ownerRepo = parseOwnerRepo(normalizedSource);
       if (ownerRepo) {
         const isPrivate = await repoPrivacyPromise;
-        // Only send telemetry if repo is public (isPrivate === false)
-        // If we can't determine (null), err on the side of caution and skip telemetry
+        // Only send telemetry if repo is confirmed public. Non-GitHub sources
+        // resolve to null, so this must stay a strict comparison.
         if (isPrivate === false) {
           track({
             event: 'install',
