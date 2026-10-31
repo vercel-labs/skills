@@ -1,5 +1,56 @@
-import { describe, it, expect } from 'vitest';
-import { WellKnownProvider } from '../src/providers/wellknown.ts';
+import { createHash } from 'node:crypto';
+import { gzipSync } from 'node:zlib';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { WellKnownProvider, WellKnownScopeNotFoundError } from '../src/providers/wellknown.ts';
+import { createZip } from './fixtures/zip.ts';
+
+const SCHEMA_V2 = 'https://schemas.agentskills.io/discovery/0.2.0/schema.json';
+
+function digest(content: string | Uint8Array): string {
+  return `sha256:${createHash('sha256').update(content).digest('hex')}`;
+}
+
+function response(body: unknown, init?: ResponseInit): Response {
+  if (typeof body === 'string' || body instanceof Uint8Array) {
+    return new Response(body, init);
+  }
+  return Response.json(body, init);
+}
+
+function createTarGz(files: Record<string, string>): Uint8Array {
+  const chunks: Buffer[] = [];
+
+  for (const [name, contents] of Object.entries(files)) {
+    const body = Buffer.from(contents);
+    const header = Buffer.alloc(512);
+    header.write(name, 0, 100, 'utf8');
+    header.write('0000644\0', 100, 8, 'ascii');
+    header.write('0000000\0', 108, 8, 'ascii');
+    header.write('0000000\0', 116, 8, 'ascii');
+    header.write(body.length.toString(8).padStart(11, '0') + '\0', 124, 12, 'ascii');
+    header.write('00000000000\0', 136, 12, 'ascii');
+    header.fill(' ', 148, 156);
+    header[156] = '0'.charCodeAt(0);
+    header.write('ustar\0', 257, 6, 'ascii');
+    header.write('00', 263, 2, 'ascii');
+
+    let sum = 0;
+    for (const byte of header) sum += byte;
+    header.write(sum.toString(8).padStart(6, '0') + '\0 ', 148, 8, 'ascii');
+
+    chunks.push(header, body);
+    const padding = (512 - (body.length % 512)) % 512;
+    if (padding) chunks.push(Buffer.alloc(padding));
+  }
+
+  chunks.push(Buffer.alloc(1024));
+  return new Uint8Array(gzipSync(Buffer.concat(chunks)));
+}
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
 
 describe('WellKnownProvider', () => {
   const provider = new WellKnownProvider();
@@ -68,19 +119,34 @@ describe('WellKnownProvider', () => {
   });
 
   describe('toRawUrl', () => {
-    it('should return index.json URL for base URLs', () => {
+    it('should return index.json URL for base URLs using agent-skills path', () => {
       const result = provider.toRawUrl('https://example.com');
-      expect(result).toBe('https://example.com/.well-known/skills/index.json');
+      expect(result).toBe('https://example.com/.well-known/agent-skills/index.json');
     });
 
-    it('should return index.json URL with path', () => {
+    it('should return index.json URL with path using agent-skills path', () => {
       const result = provider.toRawUrl('https://example.com/docs');
-      expect(result).toBe('https://example.com/docs/.well-known/skills/index.json');
+      expect(result).toBe('https://example.com/docs/.well-known/agent-skills/index.json');
     });
 
     it('should return SKILL.md URL if already pointing to skill.md', () => {
       const url = 'https://example.com/.well-known/skills/my-skill/SKILL.md';
       expect(provider.toRawUrl(url)).toBe(url);
+    });
+
+    it('should return SKILL.md URL for agent-skills path', () => {
+      const url = 'https://example.com/.well-known/agent-skills/my-skill/SKILL.md';
+      expect(provider.toRawUrl(url)).toBe(url);
+    });
+
+    it('should convert legacy skills skill path to agent-skills SKILL.md URL', () => {
+      const result = provider.toRawUrl('https://example.com/.well-known/skills/my-skill');
+      expect(result).toBe('https://example.com/.well-known/agent-skills/my-skill/SKILL.md');
+    });
+
+    it('should convert agent-skills skill path to SKILL.md URL', () => {
+      const result = provider.toRawUrl('https://example.com/.well-known/agent-skills/my-skill');
+      expect(result).toBe('https://example.com/.well-known/agent-skills/my-skill/SKILL.md');
     });
   });
 
@@ -93,6 +159,361 @@ describe('WellKnownProvider', () => {
 
     it('provider should have display name "Well-Known Skills"', () => {
       expect(provider.displayName).toBe('Well-Known Skills');
+    });
+  });
+
+  describe('fetchAllSkills', () => {
+    it('hides internal skills unless explicitly enabled', async () => {
+      vi.stubEnv('INSTALL_INTERNAL_SKILLS', '');
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+          return response({
+            skills: [
+              {
+                name: 'public-skill',
+                description: 'Public skill.',
+                files: ['SKILL.md'],
+              },
+              {
+                name: 'internal-skill',
+                description: 'Internal skill.',
+                files: ['SKILL.md'],
+              },
+            ],
+          });
+        }
+        if (href.endsWith('/public-skill/SKILL.md')) {
+          return response('---\nname: public-skill\ndescription: Public skill.\n---\n# Public');
+        }
+        if (href.endsWith('/internal-skill/SKILL.md')) {
+          return response(
+            '---\nname: internal-skill\ndescription: Internal skill.\nmetadata:\n  internal: true\n---\n# Internal'
+          );
+        }
+        return response('not found', { status: 404 });
+      });
+
+      const defaultSkills = await provider.fetchAllSkills('https://example.com');
+      expect(defaultSkills.map((skill) => skill.installName)).toEqual(['public-skill']);
+
+      vi.stubEnv('INSTALL_INTERNAL_SKILLS', '1');
+      const envEnabledSkills = await provider.fetchAllSkills('https://example.com');
+      expect(envEnabledSkills.map((skill) => skill.installName)).toEqual([
+        'public-skill',
+        'internal-skill',
+      ]);
+
+      vi.stubEnv('INSTALL_INTERNAL_SKILLS', '');
+      const explicitlyIncludedSkills = await provider.fetchAllSkills('https://example.com', {
+        includeInternal: true,
+      });
+      expect(explicitlyIncludedSkills.map((skill) => skill.installName)).toEqual([
+        'public-skill',
+        'internal-skill',
+      ]);
+    });
+
+    it('bounds well-known discovery with a shared timeout signal', async () => {
+      const signal = AbortSignal.abort(new DOMException('timed out', 'TimeoutError'));
+      const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(signal);
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+        expect(init?.signal).toBe(signal);
+        throw signal.reason;
+      });
+
+      await expect(provider.fetchAllSkills('https://example.com/download')).resolves.toEqual([]);
+      expect(timeoutSpy).toHaveBeenCalledTimes(1);
+      expect(fetchSpy).toHaveBeenCalled();
+    });
+
+    it('keeps supporting legacy files[] indexes', async () => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+          return response({
+            skills: [
+              {
+                name: 'legacy-skill',
+                description: 'Legacy skill.',
+                files: ['SKILL.md', 'references/README.md'],
+              },
+            ],
+          });
+        }
+        if (href === 'https://example.com/.well-known/agent-skills/legacy-skill/SKILL.md') {
+          return response('---\nname: legacy-skill\ndescription: Legacy skill.\n---\n# Legacy');
+        }
+        if (
+          href === 'https://example.com/.well-known/agent-skills/legacy-skill/references/README.md'
+        ) {
+          return response('Reference');
+        }
+        return response('not found', { status: 404 });
+      });
+
+      const skills = await provider.fetchAllSkills('https://example.com');
+      expect(skills).toHaveLength(1);
+      expect(skills[0]!.installName).toBe('legacy-skill');
+      expect(skills[0]!.files.has('references/README.md')).toBe(true);
+    });
+
+    it('keeps supporting path-relative legacy indexes like code.claude.com/docs', async () => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://code.claude.com/docs/.well-known/agent-skills/index.json') {
+          return response('not found', { status: 404 });
+        }
+        if (href === 'https://code.claude.com/.well-known/agent-skills/index.json') {
+          return response('not found', { status: 404 });
+        }
+        if (href === 'https://code.claude.com/docs/.well-known/skills/index.json') {
+          return response({
+            skills: [{ name: 'claude', description: 'Claude Code.', files: ['SKILL.md'] }],
+          });
+        }
+        if (href === 'https://code.claude.com/docs/.well-known/skills/claude/SKILL.md') {
+          return response('---\nname: claude\ndescription: Claude Code.\n---\n# Claude');
+        }
+        return response('not found', { status: 404 });
+      });
+
+      const skills = await provider.fetchAllSkills('https://code.claude.com/docs');
+      expect(skills).toHaveLength(1);
+      expect(skills[0]!.installName).toBe('claude');
+      expect(skills[0]!.sourceUrl).toBe(
+        'https://code.claude.com/docs/.well-known/skills/claude/SKILL.md'
+      );
+    });
+
+    it('fails instead of falling back to the root index when a scoped path has no index', async () => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+          return response({
+            skills: [
+              { name: 'alpha', description: 'Alpha skill.', files: ['SKILL.md'] },
+              { name: 'beta', description: 'Beta skill.', files: ['SKILL.md'] },
+            ],
+          });
+        }
+        return response('not found', { status: 404 });
+      });
+
+      await expect(provider.fetchAllSkills('https://example.com/s/alpha')).rejects.toThrow(
+        WellKnownScopeNotFoundError
+      );
+      await expect(provider.fetchAllSkills('https://example.com/s/alpha')).rejects.toThrow(
+        /\/s\/alpha/
+      );
+    });
+
+    it('fails when the scoped index exists but lists no skills', async () => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://example.com/s/alpha/.well-known/agent-skills/index.json') {
+          return response({ skills: [] });
+        }
+        if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+          return response({
+            skills: [
+              { name: 'alpha', description: 'Alpha skill.', files: ['SKILL.md'] },
+              { name: 'beta', description: 'Beta skill.', files: ['SKILL.md'] },
+            ],
+          });
+        }
+        return response('not found', { status: 404 });
+      });
+
+      await expect(provider.fetchAllSkills('https://example.com/s/alpha')).rejects.toThrow(
+        WellKnownScopeNotFoundError
+      );
+    });
+
+    it('uses the scoped index without consulting the root index when the scope resolves', async () => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://example.com/s/alpha/.well-known/agent-skills/index.json') {
+          return response({
+            skills: [{ name: 'alpha', description: 'Alpha skill.', files: ['SKILL.md'] }],
+          });
+        }
+        if (href === 'https://example.com/s/alpha/.well-known/agent-skills/alpha/SKILL.md') {
+          return response('---\nname: alpha\ndescription: Alpha skill.\n---\n# Alpha');
+        }
+        if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+          return response({
+            skills: [
+              { name: 'alpha', description: 'Alpha skill.', files: ['SKILL.md'] },
+              { name: 'beta', description: 'Beta skill.', files: ['SKILL.md'] },
+            ],
+          });
+        }
+        return response('not found', { status: 404 });
+      });
+
+      const skills = await provider.fetchAllSkills('https://example.com/s/alpha');
+      expect(skills).toHaveLength(1);
+      expect(skills[0]!.installName).toBe('alpha');
+    });
+
+    it('returns no skills for a scoped path when the host has no index at all', async () => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+        response('not found', { status: 404 })
+      );
+
+      await expect(provider.fetchAllSkills('https://example.com/s/alpha')).resolves.toEqual([]);
+    });
+
+    it('supports v0.2.0 skill-md entries with relative URL resolution and digest checks', async () => {
+      const skillMd = '---\nname: code-review\ndescription: Review code.\n---\n# Code Review';
+
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+          return response({
+            $schema: SCHEMA_V2,
+            skills: [
+              {
+                name: 'code-review',
+                type: 'skill-md',
+                description: 'Review code.',
+                url: 'code-review/SKILL.md',
+                digest: digest(skillMd),
+              },
+            ],
+          });
+        }
+        if (href === 'https://example.com/.well-known/agent-skills/code-review/SKILL.md') {
+          return response(skillMd, { headers: { 'content-type': 'text/markdown' } });
+        }
+        return response('not found', { status: 404 });
+      });
+
+      const skills = await provider.fetchAllSkills('https://example.com');
+      expect(skills).toHaveLength(1);
+      expect(skills[0]!.installName).toBe('code-review');
+      expect(skills[0]!.sourceUrl).toBe(
+        'https://example.com/.well-known/agent-skills/code-review/SKILL.md'
+      );
+      expect(skills[0]!.files.get('SKILL.md')).toBe(skillMd);
+    });
+
+    it('rejects v0.2.0 skill-md entries with digest mismatches', async () => {
+      const skillMd = '---\nname: code-review\ndescription: Review code.\n---\n# Code Review';
+
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+          return response({
+            $schema: SCHEMA_V2,
+            skills: [
+              {
+                name: 'code-review',
+                type: 'skill-md',
+                description: 'Review code.',
+                url: '/skills/code-review/SKILL.md',
+                digest: `sha256:${'0'.repeat(64)}`,
+              },
+            ],
+          });
+        }
+        if (href === 'https://example.com/skills/code-review/SKILL.md') {
+          return response(skillMd);
+        }
+        return response('not found', { status: 404 });
+      });
+
+      const skills = await provider.fetchAllSkills('https://example.com');
+      expect(skills).toHaveLength(0);
+    });
+
+    it('supports v0.2.0 archive entries after digest verification', async () => {
+      const archive = createTarGz({
+        'SKILL.md': '---\nname: archive-skill\ndescription: Archive skill.\n---\n# Archive',
+        'references/README.md': 'Reference',
+      });
+
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+          return response({
+            $schema: SCHEMA_V2,
+            skills: [
+              {
+                name: 'archive-skill',
+                type: 'archive',
+                description: 'Archive skill.',
+                url: '/downloads/archive-skill.tar.gz',
+                digest: digest(archive),
+              },
+            ],
+          });
+        }
+        if (href === 'https://example.com/downloads/archive-skill.tar.gz') {
+          return response(archive, { headers: { 'content-type': 'application/gzip' } });
+        }
+        return response('not found', { status: 404 });
+      });
+
+      const skills = await provider.fetchAllSkills('https://example.com');
+      expect(skills).toHaveLength(1);
+      expect(skills[0]!.installName).toBe('archive-skill');
+      expect(skills[0]!.files.has('SKILL.md')).toBe(true);
+      expect(skills[0]!.files.has('references/README.md')).toBe(true);
+    });
+
+    it('supports v0.2.0 zip archive entries through the shared archive reader', async () => {
+      const archive = createZip([
+        {
+          path: 'SKILL.md',
+          contents: '---\nname: zip-skill\ndescription: Zip skill.\n---\n# Zip',
+        },
+        {
+          path: 'references/README.md',
+          contents: 'Reference',
+        },
+      ]);
+
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+          return response({
+            $schema: SCHEMA_V2,
+            skills: [
+              {
+                name: 'zip-skill',
+                type: 'archive',
+                description: 'Zip skill.',
+                url: '/downloads/zip-skill.zip',
+                digest: digest(archive),
+              },
+            ],
+          });
+        }
+        if (href === 'https://example.com/downloads/zip-skill.zip') {
+          return response(archive, { headers: { 'content-type': 'application/zip' } });
+        }
+        return response('not found', { status: 404 });
+      });
+
+      const skills = await provider.fetchAllSkills('https://example.com');
+      expect(skills).toHaveLength(1);
+      expect(skills[0]!.installName).toBe('zip-skill');
+      expect(skills[0]!.files.has('SKILL.md')).toBe(true);
+      expect(skills[0]!.files.has('references/README.md')).toBe(true);
+    });
+
+    it('does not process unknown schemas', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        response({
+          $schema: 'https://schemas.agentskills.io/discovery/9.9.9/schema.json',
+          skills: [],
+        })
+      );
+
+      const skills = await provider.fetchAllSkills('https://example.com');
+      expect(skills).toHaveLength(0);
     });
   });
 });

@@ -1,12 +1,27 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdir, writeFile, rm } from 'fs/promises';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from 'vitest';
+import { mkdir, mkdtemp, writeFile, rm, symlink } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { listInstalledSkills } from '../src/installer.ts';
-import * as agentsModule from '../src/agents.ts';
+import { createTestHomeEnvironment } from '../src/test-utils.ts';
+
+let listInstalledSkills: typeof import('../src/installer.ts').listInstalledSkills;
+let agentsModule: typeof import('../src/agents.ts');
 
 describe('listInstalledSkills', () => {
   let testDir: string;
+  let testHome: string;
+
+  beforeAll(async () => {
+    testHome = await mkdtemp(join(tmpdir(), 'skills-list-installed-home-'));
+
+    for (const [name, value] of Object.entries(createTestHomeEnvironment(testHome))) {
+      vi.stubEnv(name, value);
+    }
+
+    vi.resetModules();
+    agentsModule = await import('../src/agents.ts');
+    ({ listInstalledSkills } = await import('../src/installer.ts'));
+  });
 
   beforeEach(async () => {
     testDir = join(tmpdir(), `add-skill-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -14,7 +29,13 @@ describe('listInstalledSkills', () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await rm(testDir, { recursive: true, force: true });
+  });
+
+  afterAll(async () => {
+    vi.unstubAllEnvs();
+    await rm(testHome, { recursive: true, force: true });
   });
 
   // Helper to create a skill directory with SKILL.md
@@ -116,13 +137,44 @@ ${skillData.description}
   });
 
   it('should handle global scope option', async () => {
-    // Test with global: true - verifies the function doesn't crash
-    // Note: This checks ~/.agents/skills, results depend on system state
+    vi.spyOn(agentsModule, 'detectInstalledAgents').mockResolvedValue([]);
+
     const skills = await listInstalledSkills({
       global: true,
       cwd: testDir,
     });
-    expect(Array.isArray(skills)).toBe(true);
+
+    expect(skills).toEqual([]);
+  });
+
+  it('attributes global canonical skills to universal agents with native global dirs', async () => {
+    vi.spyOn(agentsModule, 'detectInstalledAgents').mockResolvedValue(['opencode']);
+
+    const skillDir = join(testHome, '.agents', 'skills', 'opencode-global-attribution-test');
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: opencode-global-attribution-test
+description: Test OpenCode global attribution
+---
+
+# opencode-global-attribution-test
+`
+    );
+
+    try {
+      const skills = await listInstalledSkills({
+        global: true,
+        agentFilter: ['opencode'],
+      });
+
+      const skill = skills.find((s) => s.name === 'opencode-global-attribution-test');
+      expect(skill).toBeDefined();
+      expect(skill!.agents).toContain('opencode');
+    } finally {
+      await rm(skillDir, { recursive: true, force: true });
+    }
   });
 
   it('should apply agent filter', async () => {
@@ -154,11 +206,54 @@ ${skillData.description}
     const skills = await listInstalledSkills({ global: false, cwd: testDir });
 
     expect(skills).toHaveLength(1);
-    // Should only show amp, not kimi-cli
+    // Should only show amp, not kimi-code-cli
     expect(skills[0]!.agents).toContain('amp');
-    expect(skills[0]!.agents).not.toContain('kimi-cli');
+    expect(skills[0]!.agents).not.toContain('kimi-code-cli');
+  });
 
-    vi.restoreAllMocks();
+  // Directory symlinks pointing at a real skill dir should be discovered.
+  it('should find skill when the skill directory is a symlink', async () => {
+    const realSkillDir = join(testDir, 'shared', 'linked-skill');
+    await mkdir(realSkillDir, { recursive: true });
+    await writeFile(
+      join(realSkillDir, 'SKILL.md'),
+      `---
+name: linked-skill
+description: Skill reached through a directory symlink
+---
+
+# linked-skill
+`
+    );
+
+    const agentSkillsDir = join(testDir, '.agents', 'skills');
+    await mkdir(agentSkillsDir, { recursive: true });
+    await symlink(realSkillDir, join(agentSkillsDir, 'linked-skill'), 'dir');
+
+    const skills = await listInstalledSkills({ global: false, cwd: testDir });
+    expect(skills).toHaveLength(1);
+    expect(skills[0]!.name).toBe('linked-skill');
+  });
+
+  it('should ignore dangling symlinks without a reachable SKILL.md', async () => {
+    const agentSkillsDir = join(testDir, '.agents', 'skills');
+    await mkdir(agentSkillsDir, { recursive: true });
+    await symlink(join(testDir, 'does-not-exist'), join(agentSkillsDir, 'broken'), 'dir');
+
+    const skills = await listInstalledSkills({ global: false, cwd: testDir });
+    expect(skills).toEqual([]);
+  });
+
+  it('should ignore symlinks that point to a regular file', async () => {
+    const filePath = join(testDir, 'not-a-skill.md');
+    await writeFile(filePath, '# not a skill');
+
+    const agentSkillsDir = join(testDir, '.agents', 'skills');
+    await mkdir(agentSkillsDir, { recursive: true });
+    await symlink(filePath, join(agentSkillsDir, 'file-link'));
+
+    const skills = await listInstalledSkills({ global: false, cwd: testDir });
+    expect(skills).toEqual([]);
   });
 
   // Issue #225 part 2: Skills in agent-specific directories should be found
@@ -184,7 +279,5 @@ description: A skill in cursor directory
     expect(skills).toHaveLength(1);
     expect(skills[0]!.name).toBe('cursor-skill');
     expect(skills[0]!.agents).toContain('cursor');
-
-    vi.restoreAllMocks();
   });
 });

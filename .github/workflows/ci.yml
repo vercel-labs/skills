@@ -3,41 +3,65 @@ name: CI
 on:
   pull_request:
     paths-ignore:
-      - "**/*.md"
+      - '**/*.md'
   push:
     branches: [main]
     paths-ignore:
-      - "**/*.md"
+      - '**/*.md'
 
 jobs:
   checks:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
+        node-version: ['22.20.0', '24', '26']
     runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v6
 
-      - name: Enable Corepack
-        run: corepack enable
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
 
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: lts/*
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Prettier
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == '24'
+        run: pnpm format:check
+
+      - name: Tests
+        run: pnpm test
+
+  typecheck:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Type check
-        run: pnpm build
-
-      - name: Prettier
-        if: matrix.os == 'ubuntu-latest'
-        run: pnpm format:check
-
-      - name: Tests
-        run: pnpm test
+        run: pnpm type-check

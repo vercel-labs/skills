@@ -28,6 +28,20 @@ describe('parseSource', () => {
       expect(result.url).toBe('https://github.com/owner/repo.git');
     });
 
+    it('GitHub URL - with .git suffix and #branch', () => {
+      const result = parseSource('https://github.com/owner/repo.git#feature/install');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+      expect(result.ref).toBe('feature/install');
+    });
+
+    it('GitHub blob URL anchor is not treated as a ref', () => {
+      const result = parseSource('https://github.com/owner/repo/blob/main/README.md#L10');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+      expect(result.ref).toBeUndefined();
+    });
+
     it('GitHub URL - tree with branch only', () => {
       const result = parseSource('https://github.com/owner/repo/tree/feature-branch');
       expect(result.type).toBe('github');
@@ -131,6 +145,105 @@ describe('parseSource', () => {
     });
   });
 
+  describe('Azure Repos URL tests', () => {
+    it('Azure DevOps Services clone URL is git, not well-known', () => {
+      const result = parseSource('https://dev.azure.com/fabrikam/FabrikamFiber/_git/skills');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://dev.azure.com/fabrikam/FabrikamFiber/_git/skills');
+      expect(result.ref).toBeUndefined();
+      expect(result.subpath).toBeUndefined();
+    });
+
+    it('Azure DevOps Services URL with .git suffix', () => {
+      const result = parseSource('https://dev.azure.com/fabrikam/FabrikamFiber/_git/skills.git');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://dev.azure.com/fabrikam/FabrikamFiber/_git/skills');
+    });
+
+    it('Azure DevOps Services web URL with path and branch query', () => {
+      const result = parseSource(
+        'https://dev.azure.com/fabrikam/FabrikamFiber/_git/skills?path=/skills/web-design&version=GBmain'
+      );
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://dev.azure.com/fabrikam/FabrikamFiber/_git/skills');
+      expect(result.ref).toBe('main');
+      expect(result.subpath).toBe('skills/web-design');
+    });
+
+    it('visualstudio.com clone URL', () => {
+      const result = parseSource('https://fabrikam.visualstudio.com/FabrikamFiber/_git/skills');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://fabrikam.visualstudio.com/FabrikamFiber/_git/skills');
+    });
+
+    it('Azure DevOps Server collection/project/_git/repo', () => {
+      const result = parseSource('https://ado.example.com/DefaultCollection/MyProject/_git/skills');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://ado.example.com/DefaultCollection/MyProject/_git/skills');
+    });
+
+    it('Azure DevOps Server /tfs/ virtual directory', () => {
+      const result = parseSource(
+        'https://ado.example.com/tfs/DefaultCollection/MyProject/_git/skills'
+      );
+      expect(result.type).toBe('git');
+      expect(result.url).toBe(
+        'https://ado.example.com/tfs/DefaultCollection/MyProject/_git/skills'
+      );
+    });
+
+    it('encoded spaces in organization and project', () => {
+      const result = parseSource('https://dev.azure.com/My%20Org/My%20Project/_git/agent-skills');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://dev.azure.com/My%20Org/My%20Project/_git/agent-skills');
+    });
+
+    it('version=GT is a tag ref; version=GC is not a cloneable ref', () => {
+      expect(
+        parseSource('https://dev.azure.com/fabrikam/Fiber/_git/skills?version=GTv1.2.0').ref
+      ).toBe('v1.2.0');
+      expect(
+        parseSource(
+          'https://dev.azure.com/fabrikam/Fiber/_git/skills?version=GC2c732a035bae9fb21e7823d37b2b9553e272f0c6'
+        ).ref
+      ).toBeUndefined();
+    });
+
+    it('#fragment is a git ref on Azure Repos URLs', () => {
+      const result = parseSource(
+        'https://dev.azure.com/fabrikam/FabrikamFiber/_git/skills#release-2026'
+      );
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://dev.azure.com/fabrikam/FabrikamFiber/_git/skills');
+      expect(result.ref).toBe('release-2026');
+    });
+
+    it('trailing slash after repo name', () => {
+      const result = parseSource('https://dev.azure.com/fabrikam/Fiber/_git/skills/');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://dev.azure.com/fabrikam/Fiber/_git/skills');
+    });
+  });
+
+  describe('Generic URL tests', () => {
+    it('generic HTTP URL is parsed as well-known with direct download fallback', () => {
+      const result = parseSource('https://internal.example.com/download?id=123');
+      expect(result.type).toBe('well-known');
+      expect(result.url).toBe('https://internal.example.com/download?id=123');
+    });
+
+    it.each([
+      'https://raw.githubusercontent.com/acme/skills/main/SKILL.md',
+      'https://github.com/acme/skills/releases/download/v1/skills.tgz',
+      'https://github.com/acme/skills/archive/refs/heads/main.zip',
+      'https://gitlab.com/acme/skills/-/archive/main/skills-main.tar.gz',
+    ])('parses hosted artifact URL as a direct download: %s', (url) => {
+      const result = parseSource(url);
+      expect(result.type).toBe('download');
+      expect(result.url).toBe(url);
+    });
+  });
+
   describe('GitHub shorthand tests', () => {
     it('GitHub shorthand - owner/repo', () => {
       const result = parseSource('owner/repo');
@@ -147,6 +260,13 @@ describe('parseSource', () => {
       expect(result.subpath).toBe('skills/my-skill');
     });
 
+    it('GitHub shorthand - owner/repo/ trailing slash', () => {
+      const result = parseSource('owner/repo/');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+      expect(result.subpath).toBeUndefined();
+    });
+
     it('GitHub shorthand - owner/repo@skill (skill filter syntax)', () => {
       const result = parseSource('owner/repo@my-skill');
       expect(result.type).toBe('github');
@@ -160,6 +280,30 @@ describe('parseSource', () => {
       expect(result.type).toBe('github');
       expect(result.url).toBe('https://github.com/vercel-labs/agent-skills.git');
       expect(result.skillFilter).toBe('find-skills');
+    });
+
+    it('GitHub shorthand - owner/repo#branch', () => {
+      const result = parseSource('owner/repo#my-branch');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+      expect(result.ref).toBe('my-branch');
+      expect(result.subpath).toBeUndefined();
+    });
+
+    it('GitHub shorthand - owner/repo/path#branch', () => {
+      const result = parseSource('owner/repo/skills/my-skill#feature/skills');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+      expect(result.ref).toBe('feature/skills');
+      expect(result.subpath).toBe('skills/my-skill');
+    });
+
+    it('GitHub shorthand - owner/repo#branch@skill', () => {
+      const result = parseSource('owner/repo#my-branch@my-skill');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+      expect(result.ref).toBe('my-branch');
+      expect(result.skillFilter).toBe('my-skill');
     });
   });
 
@@ -198,10 +342,31 @@ describe('parseSource', () => {
       expect(result.url).toBe('git@github.com:owner/repo.git');
     });
 
+    it('Git URL - SSH format with #branch', () => {
+      const result = parseSource('git@github.com:owner/repo.git#feature/install');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@github.com:owner/repo.git');
+      expect(result.ref).toBe('feature/install');
+    });
+
     it('Git URL - custom host', () => {
       const result = parseSource('https://git.example.com/owner/repo.git');
       expect(result.type).toBe('git');
       expect(result.url).toBe('https://git.example.com/owner/repo.git');
+    });
+
+    it('Git URL - https format with #branch', () => {
+      const result = parseSource('https://git.example.com/owner/repo.git#release-2026');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://git.example.com/owner/repo.git');
+      expect(result.ref).toBe('release-2026');
+    });
+
+    it('Git URL - ssh scheme with #branch', () => {
+      const result = parseSource('ssh://git@git.example.com:7999/owner/repo.git#release-2026');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('ssh://git@git.example.com:7999/owner/repo.git');
+      expect(result.ref).toBe('release-2026');
     });
   });
 });
@@ -343,6 +508,14 @@ describe('getOwnerRepo', () => {
     expect(getOwnerRepo(parsed)).toBe('org/team/repo');
   });
 
+  it('getOwnerRepo - SSH URL with scheme and port', () => {
+    const parsed = {
+      type: 'git',
+      url: 'ssh://git@git.company.com:7999/org/team/repo.git',
+    } as const;
+    expect(getOwnerRepo(parsed)).toBe('org/team/repo');
+  });
+
   it('getOwnerRepo - SSH URL without path (returns null)', () => {
     const parsed = { type: 'git', url: 'git@github.com:repo.git' } as const;
     expect(getOwnerRepo(parsed)).toBeNull();
@@ -354,6 +527,12 @@ describe('Source aliases', () => {
     const result = parseSource('coinbase/agentWallet');
     expect(result.type).toBe('github');
     expect(result.url).toBe('https://github.com/coinbase/agentic-wallet-skills.git');
+  });
+
+  it('resolves vercel-labs/vercel-skills to vercel-labs/agent-skills', () => {
+    const result = parseSource('vercel-labs/vercel-skills');
+    expect(result.type).toBe('github');
+    expect(result.url).toBe('https://github.com/vercel-labs/agent-skills.git');
   });
 });
 
@@ -384,6 +563,13 @@ describe('Prefix shorthand tests', () => {
       const result = parseSource('github:googleworkspace/cli');
       expect(result.type).toBe('github');
       expect(result.url).toBe('https://github.com/googleworkspace/cli.git');
+    });
+
+    it('github:owner/repo#branch', () => {
+      const result = parseSource('github:owner/repo#feature/install');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/owner/repo.git');
+      expect(result.ref).toBe('feature/install');
     });
   });
 
