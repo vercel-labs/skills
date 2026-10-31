@@ -31,6 +31,10 @@ describe.each(['git', 'well-known'] as const)('%s source', (sourceType) => {
     const scopeFlags = scope === 'global' ? ['-g'] : ['--project'];
     const agentPath = (agent: string, skill = 'alpha') => join(base, agent, 'skills', skill);
     const canonicalPath = () => agentPath('.agents');
+    const lockPath = () =>
+      scope === 'global'
+        ? join(env.XDG_STATE_HOME!, 'skills', '.skill-lock.json')
+        : join(project, 'skills-lock.json');
     const content = (path: string) => readFileSync(join(path, 'SKILL.md'), 'utf8');
     const git = (...args: string[]) =>
       execFileSync(
@@ -71,6 +75,7 @@ describe.each(['git', 'well-known'] as const)('%s source', (sourceType) => {
     const update = () => {
       const result = cli(['update', 'alpha', '-y', ...scopeFlags]);
       expect(result.stdout).toContain('Updated alpha');
+      return result;
     };
 
     beforeEach(async () => {
@@ -166,8 +171,9 @@ describe.each(['git', 'well-known'] as const)('%s source', (sourceType) => {
       expect(existsSync(hermes)).toBe(false);
 
       publish('alpha v2');
-      update();
+      const result = update();
 
+      expect(result.stdout + result.stderr).not.toContain('Warning:');
       expect(readlinkSync(claude)).toBe(claudeLink);
       expect(content(claude)).toContain('alpha v2');
       expect(() => lstatSync(hermes)).toThrow(/ENOENT/);
@@ -177,8 +183,9 @@ describe.each(['git', 'well-known'] as const)('%s source', (sourceType) => {
 
       unlinkSync(claude);
       publish('alpha v3');
-      update();
+      const removedLinkResult = update();
 
+      expect(removedLinkResult.stdout + removedLinkResult.stderr).not.toContain('Warning:');
       expect(() => lstatSync(claude)).toThrow(/ENOENT/);
       expect(() => lstatSync(hermes)).toThrow(/ENOENT/);
       expect(content(canonicalPath())).toContain('alpha v3');
@@ -198,8 +205,9 @@ describe.each(['git', 'well-known'] as const)('%s source', (sourceType) => {
       rmSync(canonicalPath(), { recursive: true });
       publish('alpha v2');
 
-      update();
+      const result = update();
 
+      expect(result.stdout + result.stderr).not.toContain('Warning:');
       expect(content(canonicalPath())).toContain('alpha v2');
       expect(() => lstatSync(agentPath('.claude'))).toThrow(/ENOENT/);
       expect(() => lstatSync(agentPath('.hermes'))).toThrow(/ENOENT/);
@@ -228,9 +236,69 @@ describe.each(['git', 'well-known'] as const)('%s source', (sourceType) => {
       expect(() => lstatSync(agentPath('.hermes'))).toThrow(/ENOENT/);
     });
 
-    it.each(['relative', 'absolute'] as const)(
-      'preserves %s links through a symlinked parent',
-      (kind) => {
+    it.each(['directory', 'missing', 'broken'] as const)(
+      'updates an implicit copy and warns about a foreign link to a %s target',
+      (targetKind) => {
+        cli([
+          'add',
+          source,
+          '--skill',
+          'alpha',
+          '-a',
+          'claude-code',
+          '-y',
+          ...(scope === 'global' ? ['-g'] : []),
+        ]);
+        const claude = agentPath('.claude');
+        const hermes = agentPath('.hermes');
+        const foreign = join(root, 'foreign-alpha');
+        if (targetKind === 'directory') {
+          mkdirSync(foreign);
+          writeFileSync(join(foreign, 'SKILL.md'), 'foreign content');
+        } else if (targetKind === 'broken') {
+          symlinkSync(
+            join(root, 'missing-alpha'),
+            foreign,
+            process.platform === 'win32' ? 'junction' : 'dir'
+          );
+        }
+        symlinkSync(foreign, hermes, process.platform === 'win32' ? 'junction' : 'dir');
+        const link = readlinkSync(hermes);
+        expect(lstatSync(claude).isSymbolicLink()).toBe(false);
+        expect(existsSync(canonicalPath())).toBe(false);
+        publish('alpha v2');
+
+        const result = update();
+
+        expect(lstatSync(claude).isSymbolicLink()).toBe(false);
+        expect(content(claude)).toContain('alpha v2');
+        expect(existsSync(canonicalPath())).toBe(false);
+        expect(readlinkSync(hermes)).toBe(link);
+        if (targetKind === 'directory') expect(content(foreign)).toBe('foreign content');
+        else {
+          expect(existsSync(hermes)).toBe(false);
+          if (targetKind === 'broken')
+            expect(readlinkSync(foreign)).toBe(join(root, 'missing-alpha'));
+          else expect(() => lstatSync(foreign)).toThrow(/ENOENT/);
+        }
+        const output = result.stdout + result.stderr;
+        expect(output).toContain('Warning:');
+        expect(output).toContain(hermes);
+        expect(output).toContain(foreign);
+        expect(output).toContain('left unchanged');
+      }
+    );
+
+    it.each([
+      ['relative', 'missing'],
+      ['absolute', 'missing'],
+      ['relative', 'present'],
+      ['absolute', 'present'],
+      ['alias', 'missing'],
+      ['alias', 'present'],
+    ] as const)(
+      'preserves %s links through a symlinked parent with %s canonical content',
+      (kind, canonicalState) => {
         add();
         const skillsDir = join(base, '.claude', 'skills');
         const storage = join(root, 'claude-skills');
@@ -238,18 +306,33 @@ describe.each(['git', 'well-known'] as const)('%s source', (sourceType) => {
         symlinkSync(storage, skillsDir, process.platform === 'win32' ? 'junction' : 'dir');
         const claude = agentPath('.claude');
         unlinkSync(claude);
-        const target =
+        let target =
           kind === 'absolute' || process.platform === 'win32'
             ? canonicalPath()
             : relative(storage, canonicalPath());
+        if (kind === 'alias') {
+          const shared = join(root, 'shared-skills');
+          const canonicalParent = join(base, '.agents', 'skills');
+          renameSync(canonicalParent, shared);
+          symlinkSync(shared, canonicalParent, process.platform === 'win32' ? 'junction' : 'dir');
+          const alias = join(root, 'skills-alias');
+          symlinkSync(shared, alias, process.platform === 'win32' ? 'junction' : 'dir');
+          target =
+            process.platform === 'win32'
+              ? join(alias, 'alpha')
+              : relative(storage, join(alias, 'alpha'));
+        }
         symlinkSync(target, claude, process.platform === 'win32' ? 'junction' : 'dir');
         const link = readlinkSync(claude);
-        rmSync(canonicalPath(), { recursive: true });
-        expect(existsSync(claude)).toBe(false);
+        if (canonicalState === 'missing') {
+          rmSync(canonicalPath(), { recursive: true });
+          expect(existsSync(claude)).toBe(false);
+        }
 
         publish('alpha v2');
-        update();
+        const result = update();
 
+        expect(result.stdout + result.stderr).not.toContain('Warning:');
         expect(readlinkSync(claude)).toBe(link);
         expect(content(claude)).toContain('alpha v2');
         expect(() => lstatSync(agentPath('.hermes'))).toThrow(/ENOENT/);
@@ -262,11 +345,7 @@ describe.each(['git', 'well-known'] as const)('%s source', (sourceType) => {
       renameSync(canonicalPath(), storage);
       symlinkSync(storage, canonicalPath(), process.platform === 'win32' ? 'junction' : 'dir');
       const link = readlinkSync(canonicalPath());
-      const lockPath =
-        scope === 'global'
-          ? join(env.XDG_STATE_HOME!, 'skills', '.skill-lock.json')
-          : join(project, 'skills-lock.json');
-      const before = JSON.parse(readFileSync(lockPath, 'utf8')).skills.alpha;
+      const before = JSON.parse(readFileSync(lockPath(), 'utf8')).skills.alpha;
       publish('alpha v2');
 
       const result = runCli(['update', 'alpha', '-y', ...scopeFlags], project, env);
@@ -275,26 +354,83 @@ describe.each(['git', 'well-known'] as const)('%s source', (sourceType) => {
       expect(result.stdout).toContain('canonical skill directory is a symbolic link');
       expect(readlinkSync(canonicalPath())).toBe(link);
       expect(content(storage)).toContain('alpha v1');
-      expect(JSON.parse(readFileSync(lockPath, 'utf8')).skills.alpha).toEqual(before);
+      expect(JSON.parse(readFileSync(lockPath(), 'utf8')).skills.alpha).toEqual(before);
       expect(() => lstatSync(agentPath('.hermes'))).toThrow(/ENOENT/);
     });
 
-    if (scope === 'project' && sourceType === 'git') {
-      it('reports a failed update when an agent parent cannot be inspected', () => {
-        add();
-        const skillsDir = join(project, '.aider-desk', 'skills');
-        mkdirSync(join(project, '.aider-desk'));
+    if (sourceType === 'git') {
+      it('updates explicit copies when the canonical entry is a foreign symlink', () => {
+        mkdirSync(join(env.HOME!, '.claude'), { recursive: true });
+        cli([
+          'add',
+          source,
+          '--skill',
+          'alpha',
+          '-a',
+          'claude-code',
+          'universal',
+          '--copy',
+          '-y',
+          ...(scope === 'global' ? ['-g'] : []),
+        ]);
+        const claude = agentPath('.claude');
+        const foreign = join(root, 'foreign-alpha');
+        mkdirSync(foreign);
+        writeFileSync(join(foreign, 'SKILL.md'), 'foreign content');
         rmSync(canonicalPath(), { recursive: true });
-        symlinkSync(skillsDir, skillsDir, process.platform === 'win32' ? 'junction' : 'dir');
+        symlinkSync(foreign, canonicalPath(), process.platform === 'win32' ? 'junction' : 'dir');
+        expect(JSON.parse(readFileSync(lockPath(), 'utf8')).skills.alpha.installMode).toBe('copy');
         publish('alpha v2');
 
-        const result = runCli(['update', 'alpha', '--project', '-y'], project, env);
+        update();
 
-        expect(result.exitCode).toBe(1);
-        expect(result.stdout).toContain('Failed to update alpha');
-        expect(existsSync(canonicalPath())).toBe(false);
+        expect(lstatSync(claude).isSymbolicLink()).toBe(false);
+        expect(content(claude)).toContain('alpha v2');
+        expect(content(foreign)).toBe('foreign content');
       });
+    }
 
+    it('reports a failed update when an agent parent cannot be inspected and continues the batch', () => {
+      add();
+      mkdirSync(join(env.HOME!, '.claude'), { recursive: true });
+      cli([
+        'add',
+        source,
+        '--skill',
+        'beta',
+        '-a',
+        'claude-code',
+        'universal',
+        '--copy',
+        '-y',
+        ...(scope === 'global' ? ['-g'] : []),
+      ]);
+      if (sourceType === 'well-known') {
+        const lockWithRecordedBetaCopy = JSON.parse(readFileSync(lockPath(), 'utf8'));
+        lockWithRecordedBetaCopy.skills.beta.installMode = 'copy';
+        writeFileSync(lockPath(), JSON.stringify(lockWithRecordedBetaCopy, null, 2));
+      }
+      expect(JSON.parse(readFileSync(lockPath(), 'utf8')).skills.beta.installMode).toBe('copy');
+      const before = JSON.parse(readFileSync(lockPath(), 'utf8')).skills.alpha;
+      const skillsDir = join(base, '.aider-desk', 'skills');
+      mkdirSync(join(base, '.aider-desk'));
+      rmSync(canonicalPath(), { recursive: true });
+      symlinkSync(skillsDir, skillsDir, process.platform === 'win32' ? 'junction' : 'dir');
+      publish('alpha v2');
+      publish('beta v2', 'beta');
+
+      const result = runCli(['update', 'alpha', 'beta', '-y', ...scopeFlags], project, env);
+
+      expect(result.exitCode, result.stdout + result.stderr).toBe(1);
+      expect(result.stdout).toContain('Failed to update alpha');
+      expect(existsSync(canonicalPath())).toBe(false);
+      expect(JSON.parse(readFileSync(lockPath(), 'utf8')).skills.alpha).toEqual(before);
+      expect(result.stdout).toContain('Updated beta');
+      expect(content(agentPath('.claude', 'beta'))).toContain('beta v2');
+      expect(lstatSync(agentPath('.claude', 'beta')).isSymbolicLink()).toBe(false);
+    });
+
+    if (scope === 'project' && sourceType === 'git') {
       it('updates existing Eve stores and preserves Eve symlinks', () => {
         cli([
           'add',
@@ -344,13 +480,18 @@ describe.each(['git', 'well-known'] as const)('%s source', (sourceType) => {
       const link = readlinkSync(claude);
 
       publish('alpha v2');
-      update();
+      const result = update();
 
       expect(content(canonicalPath())).toContain('alpha v2');
       expect(readlinkSync(claude)).toBe(link);
       expect(content(claude)).toBe('foreign content');
       expect(lstatSync(hermes).isSymbolicLink()).toBe(false);
       expect(content(hermes)).toBe('independent copy');
+      const output = result.stdout + result.stderr;
+      expect(output).toContain('Warning:');
+      expect(output).toContain(claude);
+      expect(output).toContain(foreign);
+      expect(output).toContain('left unchanged');
     });
   });
 });
