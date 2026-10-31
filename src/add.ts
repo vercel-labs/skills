@@ -1,12 +1,14 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { existsSync } from 'fs';
+import { readFile, realpath, writeFile } from 'fs/promises';
 import { homedir } from 'os';
 import { sep, join, dirname } from 'path';
 import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
 import { stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
-import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
+import { cloneRepo, cleanupTempDir, getHeadCommit, GitCloneError } from './git.ts';
+import { hashSkillText, repoWebUrl, setLineage } from './lineage.ts';
 import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
 import {
   installSkillForAgent,
@@ -627,6 +629,8 @@ export interface AddOptions {
   all?: boolean;
   fullDepth?: boolean;
   copy?: boolean;
+  /** Write `metadata.derived-from` and `metadata.derived-from-hash` into each installed SKILL.md. */
+  recordLineage?: boolean;
   /**
    * Eve subagent targets. Each value is a subagent name; `root` (or `.`)
    * selects the root agent. Implies installing for Eve.
@@ -1197,7 +1201,7 @@ export interface ResolvedSkills {
  */
 async function resolveSkills(
   parsed: ParsedSource,
-  options: { includeInternal: boolean; fullDepth?: boolean },
+  options: { includeInternal: boolean; fullDepth?: boolean; recordLineage?: boolean },
   spinner: Spinner
 ): Promise<ResolvedSkills> {
   const { includeInternal } = options;
@@ -1223,8 +1227,9 @@ async function resolveSkills(
         includeInternal,
         fullDepth: options.fullDepth,
       });
-    } else if (parsed.type === 'github' && !options.fullDepth) {
-      // Try the blob-based fast install for GitHub sources; skip for --full-depth.
+    } else if (parsed.type === 'github' && !options.fullDepth && !options.recordLineage) {
+      // Try the blob-based fast install for GitHub sources; skip for --full-depth,
+      // and for --record-lineage, which needs a clone to resolve the commit.
       // Eligible per repo (a BLOB_ALLOWED_REPOS entry = self-hosted download URL) or
       // per owner (BLOB_ALLOWED_OWNERS = all their repos, skills.sh-hosted).
       let attemptedBlobInstall = false;
@@ -1395,6 +1400,53 @@ function getSkillRepoPaths(resolved: ResolvedSkills, skills: Skill[]): Record<st
     }
   }
   return skillFiles;
+}
+
+/**
+ * Stamp copy lineage into each installed SKILL.md (`--record-lineage`). Skips
+ * with a warning, never failing the install, when the commit cannot be resolved
+ * or a SKILL.md has no frontmatter to edit.
+ */
+async function recordLineage(
+  repoUrl: string,
+  tempDir: string | null,
+  skills: Skill[],
+  skillFiles: Record<string, string>,
+  results: TargetInstallResult[]
+): Promise<void> {
+  const commit = tempDir ? await getHeadCommit(tempDir) : null;
+  const webUrl = repoWebUrl(repoUrl);
+  if (!commit || !webUrl) {
+    p.log.warn(pc.yellow('Lineage not recorded: the source is not a Git repository'));
+    return;
+  }
+  for (const skill of skills) {
+    const name = getSkillDisplayName(skill);
+    const skillFile = skillFiles[skill.name];
+    if (!skillFile) continue;
+    const skillDir = dirname(skillFile);
+    const derivedFrom = `${webUrl}/tree/${commit}${skillDir === '.' ? '' : `/${skillDir}`}`;
+    try {
+      const hash = hashSkillText(await readFile(join(skill.path, 'SKILL.md'), 'utf-8'));
+
+      // Agents symlinked to one canonical copy share a single file.
+      const installed = new Set<string>();
+      for (const result of results) {
+        if (result.skill === name) installed.add(await realpath(join(result.path, 'SKILL.md')));
+      }
+      for (const path of installed) {
+        const stamped = setLineage(await readFile(path, 'utf-8'), derivedFrom, hash);
+        if (stamped === null) {
+          p.log.warn(pc.yellow(`Lineage not recorded for ${name}: SKILL.md has no frontmatter`));
+          break;
+        }
+        await writeFile(path, stamped, 'utf-8');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      p.log.warn(pc.yellow(`Lineage not recorded for ${name}: ${message}`));
+    }
+  }
 }
 
 /** The `source` a project lock entry records for `parsed`. */
@@ -1900,7 +1952,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     const resolved = await resolveSkills(
       parsed,
-      { includeInternal, fullDepth: options.fullDepth },
+      { includeInternal, fullDepth: options.fullDepth, recordLineage: options.recordLineage },
       spinner
     );
     const { skills, blobResult } = resolved;
@@ -2440,6 +2492,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Build skillFiles map: { skillName: relative path to SKILL.md from repo root }
     const skillFiles = getSkillRepoPaths(resolved, selectedSkills);
 
+    if (options.recordLineage && successful.length > 0) {
+      await recordLineage(parsed.url, tempDir, selectedSkills, skillFiles, successful);
+    }
+
     // Normalize source to owner/repo format for telemetry
     const normalizedSource = directDownload ? null : getOwnerRepo(parsed);
 
@@ -2904,6 +2960,8 @@ export function parseAddOptions(args: string[]): {
       options.json = true;
     } else if (arg === '--copy') {
       options.copy = true;
+    } else if (arg === '--record-lineage') {
+      options.recordLineage = true;
     } else if (arg === '--subagent') {
       options.subagent = options.subagent || [];
       i++;

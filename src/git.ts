@@ -1,5 +1,6 @@
 import simpleGit from 'simple-git';
 import { join, normalize, resolve, sep } from 'path';
+import { existsSync } from 'fs';
 import { mkdtemp, mkdir, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { execFile } from 'child_process';
@@ -412,6 +413,30 @@ export async function getGitTreeHash(repoDir: string, skillPath: string): Promis
     });
     const hash = stdout.trim();
     return /^[0-9a-f]{40}$/i.test(hash) ? hash.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Full commit SHA checked out in a cloned repository, or null when `repoDir`
+ * is not the root of a Git checkout (e.g. an extracted archive).
+ */
+export async function getHeadCommit(repoDir: string): Promise<string | null> {
+  // Without this, `git -C` would walk up and report an enclosing repository.
+  if (!existsSync(join(repoDir, '.git'))) return null;
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['-C', repoDir, 'rev-parse', '--verify', '--end-of-options', 'HEAD^{commit}'],
+      {
+        encoding: 'utf8',
+        timeout: CLONE_TIMEOUT_MS,
+        env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' },
+      }
+    );
+    const sha = stdout.trim();
+    return /^[0-9a-f]{40}$/i.test(sha) ? sha.toLowerCase() : null;
   } catch {
     return null;
   }
