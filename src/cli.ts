@@ -189,6 +189,7 @@ ${BOLD}Add Options:${RESET}
   --subagent <names>     Install to Eve subagents (use 'root' for the root agent)
   --all                  Shorthand for --skill '*' --agent '*' -y
   --full-depth           Search all subdirectories even when a root SKILL.md exists
+  --record-lineage       Record the source commit and hash in installed SKILL.md metadata
   --json                 Output results as JSON (machine-readable, no ANSI codes)
 
 ${BOLD}Use Options:${RESET}
