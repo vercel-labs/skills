@@ -36,15 +36,18 @@ describe('update restores locked skills missing from disk', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  // A single non-universal agent gets a copy, so no .agents/skills canonical dir exists.
   const skillDir = () => join(project, '.claude', 'skills', 'alpha');
   const add = () =>
-    runCli(['add', repoUrl, '--skill', 'alpha', '-a', 'claude-code', '-y'], project);
+    runCli(
+      ['add', repoUrl, '--skill', 'alpha', '-a', 'claude-code', 'universal', '--copy', '-y'],
+      project
+    );
   const update = () => runCli(['update', '-y'], project);
 
   it('reinstalls a project skill whose folder was deleted', () => {
     expect(add().exitCode).toBe(0);
     rmSync(skillDir(), { recursive: true });
+    rmSync(join(project, '.agents', 'skills', 'alpha'), { recursive: true });
 
     const result = update();
 

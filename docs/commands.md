@@ -175,6 +175,30 @@ It exits with code 1 when any skill has an update, so it can gate CI.
 
 ## `skills update`
 
+For shared symlink installations, updates refresh `.agents/skills` without creating
+or restoring agent-specific links. Existing links expose the updated content.
+To add a link, rerun
+`skills add <package> --skill <skill> --agent <name> universal` with the original
+source and the same scope. Agents that read `.agents/skills` directly continue to
+see shared skills. Independent copies alongside shared content remain unchanged,
+except that existing Eve installations also receive updates. When an update
+reinstalls a skill with no remaining destinations or copy-mode metadata, it writes
+only shared content without creating agent links.
+
+Without recorded copy-mode metadata, a reinstall that preserves an agent link to
+another location prints a nonfatal warning with the destination, observed target,
+and expected canonical path.
+The link remains unchanged. The warning includes an explicit `skills add` command
+using the recorded source, skill, and agent, with `-g` for global installations.
+The command names its shell, PowerShell on Windows or POSIX sh elsewhere, and
+quotes arguments for that shell. For an Eve flat `.md` link, the warning asks you
+to review and remove or relink it before reinstalling. A Git or well-known
+reinstall can create a directory while leaving the flat link unchanged.
+Missing destinations and aliases that resolve to canonical storage produce no
+warning. Neither `skills check` nor unchanged skills produce these warnings.
+If the canonical directory already exists, an inaccessible non-Eve destination also
+produces a warning and remains unchanged while shared content updates.
+
 ```bash
 # Update all skills (interactive scope prompt)
 npx skills update

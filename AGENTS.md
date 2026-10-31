@@ -85,7 +85,7 @@ tests/
 3. For each skill, call `fetchSkillFolderHash(source, skillPath, token)`. Tree requests start anonymously, then use an explicit `GITHUB_TOKEN`/`GH_TOKEN`, then `gh api` without exporting the GitHub CLI credential.
 4. `fetchSkillFolderHash` calls the GitHub Trees API (`/git/trees/<branch>?recursive=1` for `main`, then `master` fallback); update checks fall back to an authenticated Git clone when API access is unavailable.
 5. Compare latest folder tree SHA with lock file `skillFolderHash`; mismatch means update available
-6. `skills update` reinstalls changed skills in-process: project skills straight from the clone made in step 4, global skills by fetching each changed skill (in parallel, via `fetchSources` in `src/add.ts`) and writing it with `installFetched`. Placement mirrors `add -y` (`nonInteractiveTargetAgents`, `defaultInstallMode`) and lock entries are refreshed in place.
+6. `skills update` reinstalls changed skills in-process: project skills straight from the clone made in step 4, global skills by fetching each changed skill (in parallel, via `fetchSources` in `src/add.ts`) and writing it with `installFetched`. Shared symlink installations refresh the canonical content through the universal target without rebuilding agent links. Copy installations retain copy mode, and lock entries are refreshed in place.
 
 ### Lock File Compatibility
 
