@@ -175,6 +175,16 @@ It exits with code 1 when any skill has an update, so it can gate CI.
 
 ## `skills update`
 
+For shared symlink installations, updates refresh `.agents/skills` without creating
+or restoring agent-specific links. Existing links expose the updated content.
+To add a link, rerun
+`skills add <package> --skill <skill> --agent <name> universal` with the original
+source and the same scope. Agents that read `.agents/skills` directly continue to
+see shared skills. Independent copies alongside shared content remain unchanged,
+except that existing Eve installations also receive updates. When an update
+reinstalls a skill with no remaining destinations or copy-mode metadata, it writes
+only shared content without creating agent links.
+
 ```bash
 # Update all skills (interactive scope prompt)
 npx skills update
