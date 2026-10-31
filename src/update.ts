@@ -1,5 +1,5 @@
-import { existsSync, lstatSync, readdirSync } from 'fs';
-import { join, dirname, relative, sep } from 'path';
+import { existsSync, lstatSync, readdirSync, readlinkSync, realpathSync } from 'fs';
+import { join, dirname, relative, sep, basename, isAbsolute } from 'path';
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 
@@ -70,11 +70,32 @@ function printFetching(sourceCount: number): void {
   console.log(`${DIM}Fetching ${sourceCount} source${sourceCount === 1 ? '' : 's'}…${RESET}`);
 }
 
+function physicalPath(path: string): string {
+  try {
+    return realpathSync.native(path);
+  } catch (error) {
+    if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
+    const parent = dirname(path);
+    if (parent === path) throw error;
+    const physicalParent = physicalPath(parent);
+    let target: string;
+    try {
+      target = readlinkSync(path);
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+        return join(physicalParent, basename(path));
+      }
+      throw error;
+    }
+    return physicalPath(isAbsolute(target) ? target : `${physicalParent}${sep}${target}`);
+  }
+}
+
 function placementResolver(
   global: boolean
 ): (
   name: string,
-  hints?: { subagents?: string[]; installMode?: 'copy' }
+  hints: { subagents?: string[]; installMode?: 'copy'; reinstallSource: string }
 ) => Promise<InstallPlacement> {
   let agentsPromise: Promise<AgentType[]> | undefined;
   const entryAt = (path: string) => {
@@ -91,25 +112,23 @@ function placementResolver(
       throw error;
     }
   };
-  return async (name, { subagents, installMode } = {}) => {
-    const canonical = entryAt(getCanonicalPath(name, { global }));
-    if (canonical?.isSymbolicLink()) {
-      console.log(
-        `  ${DIM}✗ Cannot update ${sanitizeMetadata(name)}: canonical skill directory is a symbolic link${RESET}`
-      );
-      return { global, targets: [], mode: 'symlink' };
-    }
-
+  return async (name, { subagents, installMode, reinstallSource }) => {
+    const canonicalPath = getCanonicalPath(name, { global });
+    const canonical = installMode === 'copy' ? null : entryAt(canonicalPath);
     const skillName = sanitizeName(name);
     const copies: InstallTarget[] = [];
     const eveTargets: InstallTarget[] = [];
     const linkedEveSubagents = new Set<string | undefined>();
+    const foreignLinks = new Map<
+      string,
+      { target: InstallTarget; path: string; observedTarget: string }
+    >();
     let shared = canonical?.isDirectory() ?? false;
     for (const agent of Object.keys(agents) as AgentType[]) {
       if (
         isUniversalAgent(agent) ||
         (global && agents[agent].globalSkillsDir === undefined) ||
-        ((shared || installMode === 'copy') && agent !== 'eve')
+        (installMode === 'copy' && agent !== 'eve')
       ) {
         continue;
       }
@@ -117,21 +136,49 @@ function placementResolver(
         agent === 'eve' ? [undefined, ...(subagents ?? []).filter((s) => s !== '')] : [undefined];
       for (const subagent of targets) {
         const base = getAgentBaseDir(agent, global, undefined, subagent);
-        const directory = entryAt(join(base, skillName));
-        const flatFile = agent === 'eve' ? entryAt(join(base, `${skillName}.md`)) : null;
-        if (directory?.isSymbolicLink() || flatFile?.isSymbolicLink()) {
-          shared = true;
-          if (agent === 'eve') linkedEveSubagents.add(subagent);
-          continue;
-        }
-        if (directory?.isDirectory() || flatFile?.isFile()) {
-          const target = { agent, subagent };
-          copies.push(target);
-          if (agent === 'eve') eveTargets.push(target);
+        const destination = join(base, skillName);
+        try {
+          const directory = entryAt(destination);
+          const flatFile = agent === 'eve' ? entryAt(join(base, `${skillName}.md`)) : null;
+          if (directory?.isSymbolicLink() || flatFile?.isSymbolicLink()) {
+            if (agent === 'eve') linkedEveSubagents.add(subagent);
+            if (installMode === 'copy') continue;
+            for (const path of [
+              ...(directory?.isSymbolicLink() ? [destination] : []),
+              ...(flatFile?.isSymbolicLink() ? [join(base, `${skillName}.md`)] : []),
+            ]) {
+              const observedTarget = readlinkSync(path);
+              const parent = physicalPath(dirname(path));
+              const target = isAbsolute(observedTarget)
+                ? observedTarget
+                : `${parent}${sep}${observedTarget}`;
+              if (physicalPath(target) === physicalPath(canonicalPath)) {
+                shared = true;
+              } else {
+                const entry = join(parent, basename(path));
+                if (!foreignLinks.has(entry)) {
+                  foreignLinks.set(entry, { target: { agent, subagent }, path, observedTarget });
+                }
+              }
+            }
+            continue;
+          }
+          if (directory?.isDirectory() || flatFile?.isFile()) {
+            const target = { agent, subagent };
+            copies.push(target);
+            if (agent === 'eve') eveTargets.push(target);
+          }
+        } catch (error) {
+          if (!canonical?.isDirectory() || agent === 'eve') throw error;
+          const reason = sanitizeMetadata(error instanceof Error ? error.message : String(error));
+          console.log(
+            `  ${DIM}Warning:${RESET} Could not inspect ${sanitizeMetadata(destination)}: ${reason}. This destination was left unchanged.`
+          );
         }
       }
     }
 
+    let placement: InstallPlacement;
     if (installMode === 'copy') {
       agentsPromise ??= nonInteractiveTargetAgents();
       let targetAgents = await agentsPromise;
@@ -146,31 +193,57 @@ function placementResolver(
           (!linkedEveSubagents.has(target.subagent) &&
             (hasSubagents || eveTargets.some((existing) => existing.subagent === target.subagent)))
       );
-      return {
+      placement = {
         global,
         targets,
         mode: 'copy',
         createMissingAgentRoot: (agent) => hasSubagents && agent === 'eve',
       };
-    }
-    if (shared) {
-      return { global, targets: [{ agent: 'universal' }, ...eveTargets], mode: 'symlink' };
-    }
-    if (!global && subagents?.length) {
-      for (const subagent of subagents.map((s) => (s === '' ? undefined : s))) {
-        if (!eveTargets.some((target) => target.subagent === subagent)) {
-          copies.push({ agent: 'eve', subagent });
+    } else if (shared) {
+      placement = { global, targets: [{ agent: 'universal' }, ...eveTargets], mode: 'symlink' };
+    } else {
+      if (!global && subagents?.length) {
+        for (const subagent of subagents.map((s) => (s === '' ? undefined : s))) {
+          if (
+            !linkedEveSubagents.has(subagent) &&
+            !eveTargets.some((target) => target.subagent === subagent)
+          ) {
+            copies.push({ agent: 'eve', subagent });
+          }
         }
       }
+      placement =
+        copies.length > 0
+          ? {
+              global,
+              targets: copies,
+              mode: 'copy',
+              createMissingAgentRoot: (agent) => agent === 'eve',
+            }
+          : { global, targets: [{ agent: 'universal' }], mode: 'symlink' };
     }
-    return copies.length > 0
-      ? {
-          global,
-          targets: copies,
-          mode: 'copy',
-          createMissingAgentRoot: (agent) => agent === 'eve',
-        }
-      : { global, targets: [{ agent: 'universal' }], mode: 'symlink' };
+    if (placement.mode === 'symlink' && canonical?.isSymbolicLink()) {
+      throw new Error('canonical skill directory is a symbolic link');
+    }
+
+    const shell = process.platform === 'win32' ? 'PowerShell' : 'POSIX sh';
+    const quote = (value: string) =>
+      `'${sanitizeMetadata(value).replace(/'/g, shell === 'PowerShell' ? "''" : "'\\''")}'`;
+    for (const link of foreignLinks.values()) {
+      console.log(
+        `  ${DIM}Warning:${RESET} ${sanitizeMetadata(link.path)} -> ${sanitizeMetadata(link.observedTarget)}; expected ${sanitizeMetadata(canonicalPath)}. This destination was left unchanged.`
+      );
+      const subagent =
+        link.target.agent === 'eve' ? ` --subagent ${quote(link.target.subagent ?? 'root')}` : '';
+      const recovery =
+        link.target.agent === 'eve' && basename(link.path) === `${skillName}.md`
+          ? 'Review and remove or relink the flat Eve entry before reinstalling. Then run'
+          : 'To replace it explicitly, run';
+      console.log(
+        `    ${DIM}${recovery} in ${shell}: ${TEXT}npx skills add ${quote(reinstallSource)} --skill ${quote(name)} --agent ${quote(link.target.agent)} universal${subagent}${global ? ' -g' : ''} -y${RESET}`
+      );
+    }
+    return placement;
   };
 }
 
@@ -637,9 +710,29 @@ export async function processWellKnownUpdates(
     try {
       for (const name of changedSkills) {
         console.log(`${TEXT}Updating ${sanitizeMetadata(name)}…${RESET}`);
+        if (!source.resolved) {
+          reportInstall(name, { ok: false, failed: [], error: source.error });
+          failCount++;
+          continue;
+        }
+        let placement: InstallPlacement;
+        try {
+          placement = await placementFor(name, {
+            ...itemByName.get(name),
+            reinstallSource: baseUrl,
+          });
+        } catch (error) {
+          reportInstall(name, {
+            ok: false,
+            failed: [],
+            error: error instanceof Error ? error.message : String(error),
+          });
+          failCount++;
+          continue;
+        }
         const outcome = await installFetched(source, {
           skills: [name],
-          placement: await placementFor(name, itemByName.get(name)),
+          placement,
         });
         if (isGlobal) await recordGlobalWellKnownLock(baseUrl, outcome.installed);
         else await recordProjectLock(source, outcome.installed);
@@ -922,14 +1015,31 @@ export async function updateGlobalSkills(
   );
   const placementFor = placementResolver(true);
 
-  for (const [index, { name, entry, skillFolderHash }] of installable.entries()) {
+  for (const [index, { name, entry, skillFolderHash, installUrl }] of installable.entries()) {
     console.log(`${TEXT}Updating ${sanitizeMetadata(name)}…${RESET}`);
     const source = fetched[index]!;
     let outcome;
     try {
+      if (!source.resolved) {
+        reportInstall(name, { ok: false, failed: [], error: source.error });
+        failCount++;
+        continue;
+      }
+      let placement: InstallPlacement;
+      try {
+        placement = await placementFor(name, { ...entry, reinstallSource: installUrl });
+      } catch (error) {
+        reportInstall(name, {
+          ok: false,
+          failed: [],
+          error: error instanceof Error ? error.message : String(error),
+        });
+        failCount++;
+        continue;
+      }
       outcome = await installFetched(source, {
         skills: [name],
-        placement: await placementFor(name, entry),
+        placement,
       });
     } finally {
       await releaseSource(source);
@@ -1108,7 +1218,11 @@ export async function updateProjectSkills(
         console.log(`${TEXT}Updating ${sanitizeMetadata(skill.name)}…${RESET}`);
         let placement: InstallPlacement;
         try {
-          placement = await placementFor(skill.name, skill.entry);
+          placement = await placementFor(skill.name, {
+            ...skill.entry,
+            reinstallSource:
+              buildLocalUpdateSource(skill.entry) ?? formatSourceInput(cloneSource, ref),
+          });
         } catch (error) {
           reportInstall(skill.name, {
             ok: false,
