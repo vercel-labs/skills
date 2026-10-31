@@ -628,7 +628,6 @@ describe('Update Cleanup Unit Tests', () => {
         expect.objectContaining({
           global: false,
           targets: [
-            { agent: 'cursor' },
             { agent: 'eve', subagent: undefined },
             { agent: 'eve', subagent: 'research' },
           ],

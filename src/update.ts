@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from 'fs';
+import { existsSync, lstatSync, readdirSync } from 'fs';
 import { join, dirname, relative, sep } from 'path';
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
@@ -29,7 +29,6 @@ import { mapConcurrent } from './concurrency.ts';
 import { parseSource } from './source-parser.ts';
 import {
   buildInstallTargets,
-  defaultInstallMode,
   fetchSources,
   installFetched,
   installToTargets,
@@ -38,6 +37,7 @@ import {
   recordProjectLock,
   releaseSource,
   type InstallPlacement,
+  type InstallTarget,
   type ResolvedSkills,
   type TargetInstallResult,
 } from './add.ts';
@@ -47,7 +47,12 @@ import {
   type SkillLocationResolution,
   type SkillLocationResolutionOptions,
 } from './skill-relocation.ts';
-import { listInstalledSkills } from './installer.ts';
+import {
+  getAgentBaseDir,
+  getCanonicalPath,
+  listInstalledSkills,
+  sanitizeName,
+} from './installer.ts';
 import { wellKnownProvider, computeWellKnownSkillDigest } from './providers/index.ts';
 import { removeCommand } from './remove.ts';
 import { sanitizeMetadata } from './sanitize.ts';
@@ -65,30 +70,107 @@ function printFetching(sourceCount: number): void {
   console.log(`${DIM}Fetching ${sourceCount} source${sourceCount === 1 ? '' : 's'}…${RESET}`);
 }
 
-/**
- * Where a reinstalled skill goes: what `add -y` would pick, with Eve fanned
- * out over the subagents recorded at install time (`''` is the root agent)
- * and the install mode the user chose. Agent detection runs once per resolver.
- */
 function placementResolver(
   global: boolean
-): (subagents?: string[], installMode?: 'copy') => Promise<InstallPlacement> {
+): (
+  name: string,
+  hints?: { subagents?: string[]; installMode?: 'copy' }
+) => Promise<InstallPlacement> {
   let agentsPromise: Promise<AgentType[]> | undefined;
-  return async (subagents, installMode) => {
-    agentsPromise ??= nonInteractiveTargetAgents();
-    let targetAgents = await agentsPromise;
-    const hasSubagents = !!subagents?.length;
-    if (hasSubagents && !targetAgents.includes('eve')) targetAgents = [...targetAgents, 'eve'];
-    const targets = buildInstallTargets(
-      targetAgents,
-      hasSubagents ? subagents.map((s) => (s === '' ? undefined : s)) : [undefined]
-    );
-    return {
-      global,
-      targets,
-      mode: installMode ?? defaultInstallMode(targets),
-      createMissingAgentRoot: (agent) => hasSubagents && agent === 'eve',
-    };
+  const entryAt = (path: string) => {
+    try {
+      return lstatSync(path);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        'code' in error &&
+        (error.code === 'ENOENT' || error.code === 'ENOTDIR')
+      ) {
+        return null;
+      }
+      throw error;
+    }
+  };
+  return async (name, { subagents, installMode } = {}) => {
+    const canonical = entryAt(getCanonicalPath(name, { global }));
+    if (canonical?.isSymbolicLink()) {
+      console.log(
+        `  ${DIM}✗ Cannot update ${sanitizeMetadata(name)}: canonical skill directory is a symbolic link${RESET}`
+      );
+      return { global, targets: [], mode: 'symlink' };
+    }
+
+    const skillName = sanitizeName(name);
+    const copies: InstallTarget[] = [];
+    const eveTargets: InstallTarget[] = [];
+    const linkedEveSubagents = new Set<string | undefined>();
+    let shared = canonical?.isDirectory() ?? false;
+    for (const agent of Object.keys(agents) as AgentType[]) {
+      if (
+        isUniversalAgent(agent) ||
+        (global && agents[agent].globalSkillsDir === undefined) ||
+        ((shared || installMode === 'copy') && agent !== 'eve')
+      ) {
+        continue;
+      }
+      const targets =
+        agent === 'eve' ? [undefined, ...(subagents ?? []).filter((s) => s !== '')] : [undefined];
+      for (const subagent of targets) {
+        const base = getAgentBaseDir(agent, global, undefined, subagent);
+        const directory = entryAt(join(base, skillName));
+        const flatFile = agent === 'eve' ? entryAt(join(base, `${skillName}.md`)) : null;
+        if (directory?.isSymbolicLink() || flatFile?.isSymbolicLink()) {
+          shared = true;
+          if (agent === 'eve') linkedEveSubagents.add(subagent);
+          continue;
+        }
+        if (directory?.isDirectory() || flatFile?.isFile()) {
+          const target = { agent, subagent };
+          copies.push(target);
+          if (agent === 'eve') eveTargets.push(target);
+        }
+      }
+    }
+
+    if (installMode === 'copy') {
+      agentsPromise ??= nonInteractiveTargetAgents();
+      let targetAgents = await agentsPromise;
+      const hasSubagents = !!subagents?.length;
+      if (hasSubagents && !targetAgents.includes('eve')) targetAgents = [...targetAgents, 'eve'];
+      const targets = buildInstallTargets(
+        targetAgents,
+        hasSubagents ? subagents.map((s) => (s === '' ? undefined : s)) : [undefined]
+      ).filter(
+        (target) =>
+          target.agent !== 'eve' ||
+          (!linkedEveSubagents.has(target.subagent) &&
+            (hasSubagents || eveTargets.some((existing) => existing.subagent === target.subagent)))
+      );
+      return {
+        global,
+        targets,
+        mode: 'copy',
+        createMissingAgentRoot: (agent) => hasSubagents && agent === 'eve',
+      };
+    }
+    if (shared) {
+      return { global, targets: [{ agent: 'universal' }, ...eveTargets], mode: 'symlink' };
+    }
+    if (!global && subagents?.length) {
+      for (const subagent of subagents.map((s) => (s === '' ? undefined : s))) {
+        if (!eveTargets.some((target) => target.subagent === subagent)) {
+          copies.push({ agent: 'eve', subagent });
+        }
+      }
+    }
+    return copies.length > 0
+      ? {
+          global,
+          targets: copies,
+          mode: 'copy',
+          createMissingAgentRoot: (agent) => agent === 'eve',
+        }
+      : { global, targets: [{ agent: 'universal' }], mode: 'symlink' };
   };
 }
 
@@ -411,6 +493,7 @@ export interface WellKnownUpdateItem {
   name: string;
   digest: string;
   subagents?: string[];
+  installMode?: 'copy';
 }
 
 export type WellKnownCheckResult =
@@ -551,19 +634,21 @@ export async function processWellKnownUpdates(
   for (const [index, { baseUrl, items, changedSkills }] of pending.entries()) {
     const source = fetched[index]!;
     const itemByName = new Map(items.map((item) => [item.name, item]));
-    // One install per skill: each may record different Eve subagents.
-    for (const name of changedSkills) {
-      console.log(`${TEXT}Updating ${sanitizeMetadata(name)}…${RESET}`);
-      const outcome = await installFetched(source, {
-        skills: [name],
-        placement: await placementFor(isGlobal ? undefined : itemByName.get(name)?.subagents),
-      });
-      if (isGlobal) await recordGlobalWellKnownLock(baseUrl, outcome.installed);
-      else await recordProjectLock(source, outcome.installed);
-      if (reportInstall(name, { ok: outcome.installed.length > 0, ...outcome })) successCount++;
-      else failCount++;
+    try {
+      for (const name of changedSkills) {
+        console.log(`${TEXT}Updating ${sanitizeMetadata(name)}…${RESET}`);
+        const outcome = await installFetched(source, {
+          skills: [name],
+          placement: await placementFor(name, itemByName.get(name)),
+        });
+        if (isGlobal) await recordGlobalWellKnownLock(baseUrl, outcome.installed);
+        else await recordProjectLock(source, outcome.installed);
+        if (reportInstall(name, { ok: outcome.installed.length > 0, ...outcome })) successCount++;
+        else failCount++;
+      }
+    } finally {
+      await releaseSource(source);
     }
-    await releaseSource(source);
   }
 
   return { successCount, failCount, changed };
@@ -633,7 +718,11 @@ export async function updateGlobalSkills(
 
     if (entry.sourceType === 'well-known' && entry.sourceBaseUrl && entry.wellKnownDigest) {
       const group = wellKnownGroups.get(entry.sourceBaseUrl) || [];
-      group.push({ name: skillName, digest: entry.wellKnownDigest });
+      group.push({
+        name: skillName,
+        digest: entry.wellKnownDigest,
+        installMode: entry.installMode,
+      });
       wellKnownGroups.set(entry.sourceBaseUrl, group);
       continue;
     }
@@ -836,11 +925,15 @@ export async function updateGlobalSkills(
   for (const [index, { name, entry, skillFolderHash }] of installable.entries()) {
     console.log(`${TEXT}Updating ${sanitizeMetadata(name)}…${RESET}`);
     const source = fetched[index]!;
-    const outcome = await installFetched(source, {
-      skills: [name],
-      placement: await placementFor(undefined, entry.installMode),
-    });
-    await releaseSource(source);
+    let outcome;
+    try {
+      outcome = await installFetched(source, {
+        skills: [name],
+        placement: await placementFor(name, entry),
+      });
+    } finally {
+      await releaseSource(source);
+    }
     if (outcome.installed.length > 0) {
       await addSkillToLock(name, { ...entry, skillFolderHash });
     }
@@ -879,6 +972,7 @@ export async function updateProjectSkills(
         name: skill.name,
         digest: entry.wellKnownDigest,
         subagents: entry.subagents,
+        installMode: entry.installMode,
       });
       wellKnownGroups.set(entry.sourceUrl, group);
     } else {
@@ -897,31 +991,6 @@ export async function updateProjectSkills(
     console.log(`${DIM}No project skills can be updated in place.${RESET}`);
     printLegacyProjectSkills(legacy);
     return { successCount, failCount, foundCount: projectSkills.length };
-  }
-
-  const cwd = process.cwd();
-  const targetAgentNames: string[] = [];
-  let hasUniversal = false;
-
-  for (const [type, config] of Object.entries(agents)) {
-    if (isUniversalAgent(type as AgentType)) {
-      if (!hasUniversal && existsSync(join(cwd, '.agents'))) {
-        hasUniversal = true;
-      }
-    } else {
-      const agentRoot = config.skillsDir.split('/')[0]!;
-      if (existsSync(join(cwd, agentRoot))) {
-        targetAgentNames.push(config.displayName);
-      }
-    }
-  }
-
-  const targetParts: string[] = [];
-  if (hasUniversal) targetParts.push('Universal');
-  targetParts.push(...targetAgentNames);
-
-  if (targetParts.length > 0) {
-    console.log(`${TEXT}Updating for: ${targetParts.join(', ')}${RESET}`);
   }
 
   console.log(`${TEXT}Checking ${updatable.length + wellKnownCount} skill(s)…${RESET}`);
@@ -1037,11 +1106,19 @@ export async function updateProjectSkills(
         }
 
         console.log(`${TEXT}Updating ${sanitizeMetadata(skill.name)}…${RESET}`);
-        const results = await installToTargets(
-          resolved,
-          [current],
-          await placementFor(skill.entry.subagents, skill.entry.installMode)
-        );
+        let placement: InstallPlacement;
+        try {
+          placement = await placementFor(skill.name, skill.entry);
+        } catch (error) {
+          reportInstall(skill.name, {
+            ok: false,
+            failed: [],
+            error: error instanceof Error ? error.message : String(error),
+          });
+          failCount++;
+          continue;
+        }
+        const results = await installToTargets(resolved, [current], placement);
         const outcome = targetOutcome(results);
         if (outcome.ok && computedHash) {
           await addSkillToLocalLock(skill.name, { ...skill.entry, skillPath, computedHash });
