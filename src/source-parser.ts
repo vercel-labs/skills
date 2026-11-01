@@ -432,6 +432,20 @@ export function parseSource(input: string, options: { githubHost?: string } = {}
     }
   }
 
+  // GitHub SSH URL with branch: git@github.com:owner/repo/tree/branch[/path/to/skill]
+  const githubSshTreeMatch = input.match(
+    /^git@([^:]+):([^/]+)\/([^/]+?)(?:\.git)?\/tree\/([^/]+)(?:\/(.+))?$/
+  );
+  if (githubSshTreeMatch && isGitHubHost(githubSshTreeMatch[1]!)) {
+    const [, host, owner, repo, ref, subpath] = githubSshTreeMatch;
+    return {
+      type: 'git',
+      url: `git@${host}:${owner}/${repo}.git`,
+      ref,
+      ...(subpath ? { subpath: sanitizeSubpath(subpath) } : {}),
+    };
+  }
+
   // GitHub URL with path: https://github.com/owner/repo/tree/branch/path/to/skill
   const githubTreeWithPathMatch = input.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/);
   if (githubTreeWithPathMatch) {
