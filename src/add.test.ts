@@ -588,6 +588,27 @@ description: Eve global regression
       expect(existsSync(join(projectDir, '.agents', 'skills'))).toBe(false);
     });
 
+    it('does not write to an inherited Grok home during a global install', () => {
+      const externalGrok = join(testDir, 'external-grok');
+      const externalSkill = join(externalGrok, 'skills', 'scope-one');
+      mkdirSync(externalSkill, { recursive: true });
+      writeFileSync(join(externalSkill, 'SKILL.md'), 'external sentinel\n');
+      vi.stubEnv('GROK_HOME', externalGrok);
+      try {
+        const result = runCli(
+          ['add', sourceDir, '-g', '-y', '-s', 'scope-one', '--agent', '*'],
+          projectDir,
+          isolatedAgentEnv(homeDir)
+        );
+
+        expect(result.exitCode).toBe(0);
+        expect(lstatSync(externalSkill).isSymbolicLink()).toBe(false);
+        expect(readFileSync(join(externalSkill, 'SKILL.md'), 'utf-8')).toBe('external sentinel\n');
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
     it.each([
       { targets: ['promptscript'], installsCodex: false },
       { targets: ['codex', 'promptscript'], installsCodex: true },
