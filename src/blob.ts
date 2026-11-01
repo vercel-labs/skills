@@ -17,6 +17,7 @@ import { sanitizeMetadata } from './sanitize.ts';
 import { getGitHubHost } from './github-host.ts';
 import type { Skill } from './types.ts';
 import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
+import { SKILLS_SH_CONFIG_FILE, parseSkillsShPaths } from './skills-sh-config.ts';
 
 // ─── Types ───
 
@@ -345,8 +346,14 @@ const PRIORITY_PREFIXES = [
  * Find all SKILL.md file paths in a repo tree.
  * Applies the same priority directory logic as discoverSkills().
  * If subpath is set, only searches within that subtree.
+ * `extraContainers` are additional container dirs relative to the search root
+ * (e.g. from skills.sh.json `paths`), searched like `skills/`.
  */
-export function findSkillMdPaths(tree: RepoTree, subpath?: string): string[] {
+export function findSkillMdPaths(
+  tree: RepoTree,
+  subpath?: string,
+  extraContainers: string[] = []
+): string[] {
   // Find all blob entries that are SKILL.md files (case-insensitive)
   const allSkillMds = tree.tree
     .filter((e) => e.type === 'blob' && e.path.toLowerCase().endsWith('skill.md'))
@@ -370,9 +377,18 @@ export function findSkillMdPaths(tree: RepoTree, subpath?: string): string[] {
   const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '__pycache__']);
   const lowerSkillMdSet = new Set(filtered.map((p) => p.toLowerCase()));
 
-  for (const priorityPrefix of PRIORITY_PREFIXES) {
+  const extraPrefixes = extraContainers.reduce((prefixes, dir) => {
+    const prefix = `${dir}/`;
+    if (!PRIORITY_PREFIXES.includes(prefix)) prefixes.add(prefix);
+    return prefixes;
+  }, new Set<string>());
+  const priorityPrefixes = [...PRIORITY_PREFIXES, ...extraPrefixes];
+
+  for (const priorityPrefix of priorityPrefixes) {
     const fullPrefix = prefix + priorityPrefix;
     const isContainer = priorityPrefix !== '';
+    // Declared containers only search their children, like the disk walk.
+    const isExtraContainer = extraPrefixes.has(priorityPrefix);
 
     for (const skillMd of filtered) {
       // Check if this SKILL.md is directly inside the priority dir (one level deep)
@@ -381,6 +397,7 @@ export function findSkillMdPaths(tree: RepoTree, subpath?: string): string[] {
 
       // Direct SKILL.md in the priority dir (e.g., "skills/SKILL.md")
       if (rest.toLowerCase() === 'skill.md') {
+        if (isExtraContainer) continue;
         if (!seen.has(skillMd)) {
           priorityResults.push(skillMd);
           seen.add(skillMd);
@@ -436,16 +453,16 @@ export function findSkillMdPaths(tree: RepoTree, subpath?: string): string[] {
 // ─── Fetching skill content ───
 
 /**
- * Fetch a single SKILL.md from raw.githubusercontent.com to get frontmatter.
- * Returns the raw content string, or null on failure.
+ * Fetch a single file (e.g. a SKILL.md for its frontmatter) from
+ * raw.githubusercontent.com. Returns the raw content string, or null on failure.
  */
-async function fetchSkillMdContent(
+async function fetchRawContent(
   ownerRepo: string,
   branch: string,
-  skillMdPath: string
+  filePath: string
 ): Promise<string | null> {
   try {
-    const url = `https://raw.githubusercontent.com/${ownerRepo}/${branch}/${skillMdPath}`;
+    const url = `https://raw.githubusercontent.com/${ownerRepo}/${branch}/${filePath}`;
     const response = await fetch(url, {
       signal: AbortSignal.timeout(FETCH_TIMEOUT),
     });
@@ -454,6 +471,23 @@ async function fetchSkillMdContent(
   } catch {
     return null;
   }
+}
+
+/**
+ * Read the `paths` declared in skills.sh.json at the search root, mirroring
+ * discoverSkills(). Only fetches when the tree contains the file.
+ */
+async function fetchSkillsShPaths(
+  ownerRepo: string,
+  tree: RepoTree,
+  subpath?: string
+): Promise<string[]> {
+  const root = subpath ? subpath.replace(/\/+$/, '') + '/' : '';
+  const configPath = root + SKILLS_SH_CONFIG_FILE;
+  if (!tree.tree.some((e) => e.type === 'blob' && e.path === configPath)) return [];
+
+  const content = await fetchRawContent(ownerRepo, tree.branch, configPath);
+  return content ? parseSkillsShPaths(content) : [];
 }
 
 /**
@@ -570,8 +604,11 @@ export async function tryBlobInstall(
   const tree = await fetchRepoTree(ownerRepo, options.ref, options.getToken);
   if (!tree) return null;
 
-  // 2. Discover SKILL.md paths in the tree
-  let skillMdPaths = findSkillMdPaths(tree, options.subpath);
+  // 2. Discover SKILL.md paths in the tree, including container dirs declared
+  // in skills.sh.json. The tree tells us whether the file exists, so repos
+  // without one cost no extra request.
+  const extraContainers = await fetchSkillsShPaths(ownerRepo, tree, options.subpath);
+  let skillMdPaths = findSkillMdPaths(tree, options.subpath, extraContainers);
   if (skillMdPaths.length === 0) return null;
 
   // 3. If a skill filter is set (owner/repo@skill-name), try to narrow down
@@ -593,7 +630,7 @@ export async function tryBlobInstall(
   // 4. Fetch SKILL.md content from raw.githubusercontent.com in parallel
   const mdFetches = await Promise.all(
     skillMdPaths.map(async (mdPath) => {
-      const content = await fetchSkillMdContent(ownerRepo, tree.branch, mdPath);
+      const content = await fetchRawContent(ownerRepo, tree.branch, mdPath);
       return { mdPath, content };
     })
   );

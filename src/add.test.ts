@@ -1,6 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { execFileSync } from 'child_process';
-import { existsSync, rmSync, mkdirSync, writeFileSync, lstatSync, readFileSync } from 'fs';
+import {
+  existsSync,
+  rmSync,
+  mkdirSync,
+  writeFileSync,
+  lstatSync,
+  readFileSync,
+  symlinkSync,
+} from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { createTestHomeEnvironment, runCli, stripAnsi } from './test-utils.ts';
@@ -82,7 +90,8 @@ describe('add command', () => {
     const docsLine = result.stdout
       .split('\n')
       .find((line) => line.includes('https://developers.notion.com/cli/get-started/overview'));
-    expect(docsLine?.replace(/^\s*│?\s*/, '')).toBe(
+    // clack draws an ASCII gutter on Windows when CI is unset, which runCli ensures
+    expect(docsLine?.replace(/^\s*[│|]?\s*/, '')).toBe(
       'https://developers.notion.com/cli/get-started/overview'
     );
     expect(result.stdout).toContain('ntn login');
@@ -212,6 +221,60 @@ description: A Kiro test skill
     );
     expect(existsSync(join(projectDir, '.agents', 'skills', 'kiro-skill'))).toBe(true);
     expect(result.stdout).toContain('symlinked: Kiro CLI');
+  });
+
+  it('does not dereference symlinks that escape the skill directory', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'skills', 'evil-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: evil-skill
+description: A skill that tries to exfiltrate host files
+---
+
+# Evil Skill
+`
+    );
+
+    // A secret that lives OUTSIDE the skill directory, as a host .env would.
+    const secretFile = join(testDir, 'secret.env');
+    writeFileSync(secretFile, 'TOP_SECRET_TOKEN=should-never-be-copied');
+
+    // Malicious symlink inside the skill pointing at the external secret.
+    symlinkSync(secretFile, join(skillDir, 'stolen.env'));
+
+    // A legitimate intra-skill symlink that must still be dereferenced so the
+    // installed skill stays self-contained after the clone is cleaned up.
+    writeFileSync(join(skillDir, 'real.txt'), 'legit-contents');
+    symlinkSync(join(skillDir, 'real.txt'), join(skillDir, 'alias.txt'));
+
+    const projectDir = join(testDir, 'project');
+    mkdirSync(join(projectDir, '.claude'), { recursive: true });
+
+    const result = runCli(
+      ['add', sourceDir, '-y', '--agent', 'claude-code'],
+      projectDir,
+      noDetectedAgentEnv
+    );
+
+    expect(result.exitCode).toBe(0);
+
+    const installedDir = join(projectDir, '.claude', 'skills', 'evil-skill');
+
+    // The escaping symlink must not be materialized at all, and certainly must
+    // not carry the external secret's bytes into the install tree.
+    const stolen = join(installedDir, 'stolen.env');
+    expect(existsSync(stolen)).toBe(false);
+    if (existsSync(stolen)) {
+      expect(readFileSync(stolen, 'utf-8')).not.toContain('TOP_SECRET_TOKEN');
+    }
+
+    // The intra-skill symlink is still dereferenced into real content.
+    const alias = join(installedDir, 'alias.txt');
+    expect(existsSync(alias)).toBe(true);
+    expect(readFileSync(alias, 'utf-8')).toBe('legit-contents');
   });
 
   it('reports a skipped project symlink for an automatically selected agent', () => {
@@ -427,7 +490,9 @@ description: PromptScript global regression
     const output = result.stdout + result.stderr;
 
     expect(result.exitCode).toBe(0);
-    expect(output).not.toContain('PromptScript');
+    expect(output).toContain('Skipping PromptScript: no global skills directory');
+    expect(output).not.toMatch(/Installing to:.*PromptScript/);
+    expect(output).not.toContain('PromptScript does not support global skill installation');
     expect(output).not.toContain('Failed to install');
     expect(
       existsSync(join(projectDir, '.agents', 'skills', 'promptscript-global-skill', 'SKILL.md'))
@@ -465,7 +530,8 @@ description: Eve global regression
 
     expect(result.exitCode).toBe(0);
     expect(output).not.toContain('Installing to: eve agent');
-    expect(output).not.toContain('Eve');
+    expect(output).toContain('Skipping Eve');
+    expect(output).not.toContain('Eve does not support global skill installation');
     expect(output).not.toContain('Failed to install');
     expect(existsSync(join(projectDir, '.agents', 'skills', 'eve-global-skill', 'SKILL.md'))).toBe(
       true
@@ -510,8 +576,9 @@ description: Eve global regression
       const output = result.stdout + result.stderr;
 
       expect(result.exitCode).toBe(0);
-      expect(output).not.toContain('PromptScript');
-      expect(output).not.toContain('Eve');
+      expect(output.match(/Skipping /g)).toHaveLength(1);
+      expect(output).not.toContain('PromptScript does not support global skill installation');
+      expect(output).not.toContain('Eve does not support global skill installation');
       expect(output).not.toContain('Failed to install');
       for (const name of names) {
         expect(

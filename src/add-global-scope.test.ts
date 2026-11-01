@@ -51,7 +51,7 @@ vi.mock('./telemetry.ts', () => ({
 vi.mock('./prompts/search-multiselect.ts', () => ({ searchMultiselect: vi.fn() }));
 
 import { runAdd } from './add.ts';
-import { detectInstalledAgents } from './agents.ts';
+import { agents, detectInstalledAgents } from './agents.ts';
 import { detectAgent } from './detect-agent.ts';
 import { installSkillForAgent, installWellKnownSkillForAgent } from './installer.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
@@ -70,6 +70,7 @@ describe.each(['local', 'well-known'] as const)('%s global scope selection', (so
     vi
       .mocked(p.log.info)
       .mock.calls.map(([message]) => stripAnsi(message))
+      .filter((message) => message.startsWith('Installing to'))
       .join('\n');
 
   beforeEach(async () => {
@@ -138,6 +139,26 @@ describe.each(['local', 'well-known'] as const)('%s global scope selection', (so
     await runAdd([source], { global: true, copy: true });
 
     expect(targets()).toEqual(['codex', 'promptscript']);
+  });
+
+  it('distinguishes selectable agents from locked universal agents', async () => {
+    const promptscriptVisible = agents.promptscript.showInUniversalPrompt;
+    const claudeGlobal = agents['claude-code'].globalSkillsDir;
+    agents.promptscript.showInUniversalPrompt = true;
+    agents['claude-code'].globalSkillsDir = undefined;
+    try {
+      vi.mocked(detectInstalledAgents).mockResolvedValue(['codex', 'claude-code']);
+      vi.mocked(searchMultiselect).mockResolvedValue(['codex', 'promptscript', 'claude-code']);
+
+      await runAdd([source], { copy: true });
+
+      expect(targets()).toContain('claude-code');
+      expect(targets()).not.toContain('promptscript');
+      expect(p.log.info).toHaveBeenCalledWith('Skipping PromptScript: no global skills directory');
+    } finally {
+      agents.promptscript.showInUniversalPrompt = promptscriptVisible;
+      agents['claude-code'].globalSkillsDir = claudeGlobal;
+    }
   });
 
   it.each<AgentType[]>([['promptscript'], ['codex', 'promptscript'], ['eve']])(

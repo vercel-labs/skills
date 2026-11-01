@@ -1,6 +1,6 @@
 {
   "name": "skills",
-  "version": "1.7.2",
+  "version": "1.7.4",
   "description": "The open agent skills ecosystem",
   "type": "module",
   "bin": {
@@ -10,6 +10,7 @@
   "files": [
     "dist",
     "bin",
+    "docs",
     "README.md",
     "ThirdPartyNoticeText.txt"
   ],

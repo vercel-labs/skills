@@ -62,7 +62,7 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git diff --quiet README.md package.json || (git add README.md package.json && git commit -m "chore: update README and package.json with latest agents")
+          git diff --quiet README.md docs/agents.md docs/commands.md docs/creating-skills.md package.json || (git add README.md docs/agents.md docs/commands.md docs/creating-skills.md package.json && git commit -m "chore: sync agent documentation and package keywords")
 
       - name: Push changes
         run: git push

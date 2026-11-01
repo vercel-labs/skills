@@ -57,7 +57,8 @@ for the current patch. A current-head failure caused by the proposed change is a
 Pending, approval-gated, absent, unrelated, or unexplained failed checks are limitations, never
 passing checks. CI status alone does not establish validity.
 
-This workflow cannot execute tests, inspect arbitrary repository files, read PR discussion,
+Use the declared reads to assess the patch; do not edit code, publish a PR or run implementation work.
+Do not claim to have executed tests, inspected arbitrary repository files, read PR discussion,
 verify commit signatures, or establish merge readiness. Do not claim reproduction, independent
 verification, signed commits, complete review, or passing checks beyond the evidence returned
 by the declared tools. A clear patch with a sound regression test may qualify while CI is
@@ -65,10 +66,10 @@ pending; record that status only in internal output.
 
 ## Find unlinked matching issues
 
-After the fix qualifies, use `search_repository_issues` with up to three short, specific
-queries based on the actual symptom or error. This tool searches only open issues in this
-repository. If a search is incomplete, narrow the query within that limit; if it still fails,
-record the limitation internally and continue without issue suggestions.
+After the fix qualifies, search open issues with `search_repository_issues` in this repository,
+using short symptom queries and related board findings. Read the search completeness result;
+a truncated search does not rule out existing work. Do not use the support-only `search_issues`
+tool. Continue without suggestions when no confident candidate is found.
 
 Read promising candidates with `read_issue` (at most five issues). Suggest an issue only when
 its reported failure, affected behavior, and expected result match the defect this patch
@@ -100,7 +101,7 @@ code-fence or blockquote markers in the published comment:
 - **Fix:** <corrected behavior in plain language>.
 ```
 
-When the issue search found confident unlinked matches, append one bullet:
+When the issue reads confirmed unlinked matches, append one bullet:
 `- **Issues:** Possible matches: #123, #456.` Otherwise publish only Bug and Fix.
 
 The entire comment must be at most 500 characters and 75 words, including Markdown. Check
