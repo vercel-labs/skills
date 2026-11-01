@@ -11,6 +11,7 @@ vi.mock('@clack/prompts', () => ({
   cancel: vi.fn(),
   confirm: vi.fn(),
   select: vi.fn(),
+  multiselect: vi.fn(),
   isCancel: (value: unknown) => typeof value === 'symbol',
   spinner: () => ({ start: vi.fn(), stop: vi.fn() }),
   log: {
@@ -140,6 +141,43 @@ describe.each(['local', 'well-known'] as const)('%s global scope selection', (so
 
     expect(targets()).toEqual(['codex', 'promptscript']);
   });
+
+  if (sourceType === 'local') {
+    it.each([
+      { choice: '', subagent: undefined, label: 'root' },
+      { choice: 'research', subagent: 'research', label: 'named subagent' },
+    ])(
+      'preserves a manually selected Eve $label when choosing Global',
+      async ({ choice, subagent }) => {
+        await mkdir(join(process.cwd(), 'agent', 'subagents', 'research'), { recursive: true });
+        vi.mocked(p.multiselect).mockResolvedValue([choice]);
+        vi.mocked(installer).mockImplementation(async (_skill, agent) =>
+          agent === 'eve'
+            ? {
+                success: false,
+                path: '',
+                mode: 'copy',
+                error: 'Eve does not support global skill installation',
+              }
+            : { success: true, path: join(testDir, 'installed'), mode: 'copy' }
+        );
+
+        await runAdd([source], { agent: ['*'], copy: true });
+
+        expect(p.multiselect).toHaveBeenCalledWith(
+          expect.objectContaining({ message: 'Where should Eve skills be installed?' })
+        );
+        const eveCalls = vi.mocked(installer).mock.calls.filter(([, agent]) => agent === 'eve');
+        expect(eveCalls).toHaveLength(1);
+        expect(eveCalls[0]![2]).toEqual(
+          expect.objectContaining({ global: true, eveSubagent: subagent })
+        );
+        expect(p.log.message).toHaveBeenCalledWith(
+          expect.stringContaining('Eve does not support global skill installation')
+        );
+      }
+    );
+  }
 
   it('distinguishes selectable agents from locked universal agents', async () => {
     const promptscriptVisible = agents.promptscript.showInUniversalPrompt;

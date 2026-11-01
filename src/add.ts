@@ -2153,10 +2153,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
         if (useEve) {
           targetAgents = ['eve'];
-          if (!options.yes) {
-            explicitlySelectedAgents.add('eve');
-            explicitlySelectedForGlobal.add('eve');
-          }
+          if (!options.yes) explicitlySelectedAgents.add('eve');
           p.log.info(`Installing to: ${pc.cyan(EVE_AGENT_LABEL)}`);
         } else {
           const selected = await selectAgentsInteractive(
@@ -2263,6 +2260,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         }
 
         eveSubagentTargets = (selectedSubagents as string[]).map((s) => (s === '' ? undefined : s));
+        explicitlySelectedForGlobal.add('eve');
       }
     }
 
