@@ -90,6 +90,8 @@ export function createTestHomeEnvironment(home: string): Record<string, string> 
     VIBE_HOME: join(home, '.vibe'),
     HERMES_HOME: join(home, '.hermes'),
     AUTOHAND_HOME: join(home, '.autohand'),
+    GROK_HOME: join(home, '.grok'),
+    SARVAM_HOME: join(home, '.sarvam'),
     FLATPAK_XDG_CONFIG_HOME: join(home, '.var', 'app'),
     DISABLE_TELEMETRY: '1',
   };

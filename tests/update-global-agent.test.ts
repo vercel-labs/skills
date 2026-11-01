@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -20,6 +20,7 @@ describe('global update agent selection', () => {
   let server: Server;
   let sourceUrl: string;
   let version: string;
+  let externalGrokSkill: string;
 
   beforeEach(async () => {
     root = mkdtempSync(join(tmpdir(), 'skills-update-global-'));
@@ -27,6 +28,11 @@ describe('global update agent selection', () => {
     project = join(root, 'project');
     mkdirSync(join(home, '.codex'), { recursive: true });
     mkdirSync(project);
+    const externalGrokHome = join(root, 'external-grok');
+    externalGrokSkill = join(externalGrokHome, 'skills', 'scope-skill');
+    mkdirSync(externalGrokSkill, { recursive: true });
+    writeFileSync(join(externalGrokSkill, 'SKILL.md'), 'external sentinel\n');
+    vi.stubEnv('GROK_HOME', externalGrokHome);
     version = 'v1';
     server = createServer((request, response) => {
       if (request.url === '/.well-known/agent-skills/index.json') {
@@ -52,6 +58,7 @@ describe('global update agent selection', () => {
   });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     rmSync(root, { recursive: true, force: true });
   });
@@ -89,6 +96,10 @@ describe('global update agent selection', () => {
       expect(output).not.toContain('does not support global skill installation');
       expect(output.match(/Skipping /g)).toHaveLength(1);
       expect(readFileSync(installed, 'utf-8')).toContain('# v2');
+      expect(lstatSync(externalGrokSkill).isSymbolicLink()).toBe(false);
+      expect(readFileSync(join(externalGrokSkill, 'SKILL.md'), 'utf-8')).toBe(
+        'external sentinel\n'
+      );
       expect(
         JSON.parse(readFileSync(lock, 'utf-8')).skills['scope-skill'].wellKnownDigest
       ).not.toBe(originalDigest);
