@@ -42,14 +42,59 @@ export interface DismissedPrompts {
   findSkillsPrompt?: boolean;
 }
 
+/** Skill lock key format: `scope:namespace:name` or `legacy:name` for backward compat */
+export type SkillLockKey = `${string}:${string}`;
+
+/** Parse a lock key into [scope, namespace, name] or null if invalid */
+export function parseLockKey(key: string): [string?, string?, string?] | null {
+  if (!key || key === '') return null;
+  // Handle legacy format: just "name" -> [undefined, undefined, name]
+  if (!key.includes(':')) return [undefined, undefined, key];
+  // Handle scope:namespace:name format - split into max 3 parts
+  const parts = key.split(':');
+  if (parts.length === 2) return [parts[0], undefined, parts[1]];
+  if (parts.length === 3) return [parts[0], parts[1], parts[2]];
+  return null;
+}
+
+/** Build a lock key from scope, namespace, and name */
+export function makeLockKey(
+  scope: string | undefined,
+  namespace: string | undefined,
+  name: string
+): SkillLockKey {
+  const ns = namespace ?? 'legacy';
+  if (scope) return `${scope}:${ns}:${name}`;
+  return `${ns}:${name}`;
+}
+
+/**
+ * Find all lock entries matching a given skill name, regardless of scope/namespace.
+ * Returns array of [lockKey, entry] pairs.
+ * Used by merge-with-namespace to find entries by name when keys are scope:namespace:name format.
+ */
+export function findSkillEntriesByName(
+  skills: Record<SkillLockKey, SkillLockEntry>,
+  name: string
+): Array<[SkillLockKey, SkillLockEntry]> {
+  const matches: Array<[SkillLockKey, SkillLockEntry]> = [];
+  for (const [key, entry] of Object.entries(skills)) {
+    const parsedKey = parseLockKey(key);
+    if (parsedKey && parsedKey[2] === name) {
+      matches.push([key as SkillLockKey, entry]);
+    }
+  }
+  return matches;
+}
+
 /**
  * The structure of the skill lock file.
  */
 export interface SkillLockFile {
   /** Schema version for future migrations */
   version: number;
-  /** Map of skill name to its lock entry */
-  skills: Record<string, SkillLockEntry>;
+  /** Map of lock key (scope:namespace:name) to its lock entry */
+  skills: Record<SkillLockKey, SkillLockEntry>;
   /** Tracks dismissed prompts */
   dismissed?: DismissedPrompts;
   /** Last selected agents for installation */
@@ -85,6 +130,33 @@ export async function readSkillLock(): Promise<SkillLockFile> {
     // v3 adds skillFolderHash - we want fresh installs to populate it
     if (parsed.version < CURRENT_VERSION) {
       return createEmptyLockFile();
+    }
+
+    // Auto-migrate old format keys (plain name -> legacy:name)
+    // This handles the transition from flat lock entries to namespace-aware keys
+    const migratedSkills: Record<SkillLockKey, SkillLockEntry> = {};
+    let needsMigration = false;
+
+    for (const [key, entry] of Object.entries(parsed.skills)) {
+      const parsedKey = parseLockKey(key);
+      if (parsedKey && parsedKey[0] === undefined && parsedKey[1] === undefined) {
+        // Old format: just "name" -> migrate to "legacy:name"
+        const newKey = makeLockKey(undefined, 'legacy', parsedKey[2]!);
+        migratedSkills[newKey] = entry as SkillLockEntry;
+        needsMigration = true;
+      } else {
+        migratedSkills[key as SkillLockKey] = entry as SkillLockEntry;
+      }
+    }
+
+    if (needsMigration) {
+      parsed.skills = migratedSkills;
+      // Persist migration back to disk
+      try {
+        await writeSkillLock(parsed);
+      } catch {
+        // Best-effort migration; don't fail reads if write fails
+      }
     }
 
     return parsed;
@@ -225,17 +297,21 @@ export async function fetchSkillFolderHash(
 
 /**
  * Add or update a skill entry in the lock file.
+ * Uses scope:namespace:name as the lock key to prevent collisions.
+ * Default scope is 'project'; pass 'global' for global installation.
  */
 export async function addSkillToLock(
   skillName: string,
-  entry: Omit<SkillLockEntry, 'installedAt' | 'updatedAt'>
+  entry: Omit<SkillLockEntry, 'installedAt' | 'updatedAt'>,
+  scope: string = 'project'
 ): Promise<void> {
   const lock = await readSkillLock();
   const now = new Date().toISOString();
 
-  const existingEntry = lock.skills[skillName];
+  const lockKey = makeLockKey(scope, entry.namespace, skillName);
+  const existingEntry = lock.skills[lockKey];
 
-  lock.skills[skillName] = {
+  lock.skills[lockKey] = {
     ...entry,
     installedAt: existingEntry?.installedAt ?? now,
     updatedAt: now,
@@ -246,25 +322,54 @@ export async function addSkillToLock(
 
 /**
  * Remove a skill from the lock file.
+ * Accepts either the full lock key (`scope:namespace:name`) or just the skill name.
+ * When just a name is provided, it will look for any namespace match and remove the first one found.
  */
 export async function removeSkillFromLock(skillName: string): Promise<boolean> {
   const lock = await readSkillLock();
 
-  if (!(skillName in lock.skills)) {
-    return false;
+  // Try exact match first
+  if (skillName in lock.skills) {
+    delete lock.skills[skillName as SkillLockKey];
+    await writeSkillLock(lock);
+    return true;
   }
 
-  delete lock.skills[skillName];
-  await writeSkillLock(lock);
-  return true;
+  // Try to find a matching key by namespace:name pattern
+  for (const key of Object.keys(lock.skills)) {
+    const parsedKey = parseLockKey(key);
+    if (parsedKey && parsedKey[2] === skillName) {
+      delete lock.skills[key as SkillLockKey];
+      await writeSkillLock(lock);
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /**
  * Get a skill entry from the lock file.
+ * Accepts either the full lock key (`scope:namespace:name`) or just the skill name.
+ * When just a name is provided, returns the first matching entry found across all namespaces.
  */
 export async function getSkillFromLock(skillName: string): Promise<SkillLockEntry | null> {
   const lock = await readSkillLock();
-  return lock.skills[skillName] ?? null;
+
+  // Try exact match first
+  if (skillName in lock.skills) {
+    return lock.skills[skillName as SkillLockKey] ?? null;
+  }
+
+  // Try to find a matching key by namespace:name pattern
+  for (const [key, entry] of Object.entries(lock.skills)) {
+    const parsedKey = parseLockKey(key);
+    if (parsedKey && parsedKey[2] === skillName) {
+      return entry ?? null;
+    }
+  }
+
+  return null;
 }
 
 /**

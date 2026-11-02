@@ -4,7 +4,14 @@ import { homedir } from 'os';
 import { TEXT, RESET, DIM } from './cli.ts';
 import { SKILLS_SUBDIR } from './constants.ts';
 import { parseSource, inferNamespace } from './source-parser.ts';
-import { readSkillLock, writeSkillLock } from './skill-lock.ts';
+import {
+  readSkillLock,
+  writeSkillLock,
+  parseLockKey,
+  makeLockKey,
+  findSkillEntriesByName,
+  type SkillLockKey,
+} from './skill-lock.ts';
 import { getCanonicalSkillsDir } from './installer.ts';
 
 /**
@@ -37,7 +44,9 @@ async function determineNamespace(
   skillMdPath: string,
   lock: Awaited<ReturnType<typeof readSkillLock>>
 ): Promise<string> {
-  const lockEntry = lock.skills[skillName];
+  // Find lock entries matching this skill name (handles both legacy 'name' and 'scope:namespace:name' keys)
+  const entries = findSkillEntriesByName(lock.skills, skillName);
+  const lockEntry = entries[0]?.[1]; // Use first match (or most recent)
 
   // Priority 1: Use namespace from lock file
   if (lockEntry?.namespace) {
@@ -125,7 +134,7 @@ async function migrateSkill(
   namespace: string,
   scopePath: string,
   dryRun: boolean,
-  lockEntry?: Awaited<ReturnType<typeof readSkillLock>>['skills'][string]
+  lockEntry?: Awaited<ReturnType<typeof readSkillLock>>['skills'][SkillLockKey]
 ): Promise<{
   skillName: string;
   oldPath: string;
@@ -308,6 +317,10 @@ async function processScope(
         continue;
       }
 
+      // Find the existing lock entry by skill name (handles both legacy 'name' and 'scope:namespace:name' keys)
+      const entries = findSkillEntriesByName(lock.skills, skillName);
+      const lockEntry = entries[0]?.[1];
+
       // Determine namespace
       const namespace = await determineNamespace(skillName, skillMdPath, lock);
 
@@ -318,7 +331,7 @@ async function processScope(
         namespace,
         scope.path,
         dryRun,
-        lock.skills[skillName]
+        lockEntry ?? undefined
       );
 
       results.push(result);

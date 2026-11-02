@@ -636,13 +636,17 @@ async function handleRemoteSkill(
         if (hash) skillFolderHash = hash;
       }
 
-      await addSkillToLock(remoteSkill.installName, {
-        source: remoteSkill.sourceIdentifier,
-        sourceType: remoteSkill.providerId,
-        sourceUrl: url,
-        skillFolderHash,
-        namespace: namespace || 'legacy', // Use inferred namespace or fallback to 'legacy'
-      });
+      await addSkillToLock(
+        remoteSkill.installName,
+        {
+          source: remoteSkill.sourceIdentifier,
+          sourceType: remoteSkill.providerId,
+          sourceUrl: url,
+          skillFolderHash,
+          namespace: namespace || 'legacy', // Use inferred namespace or fallback to 'legacy'
+        },
+        'global'
+      );
     } catch {
       // Don't fail installation if lock file update fails
     }
@@ -1096,13 +1100,17 @@ async function handleWellKnownSkills(
     for (const skill of selectedSkills) {
       if (successfulSkillNames.has(skill.installName)) {
         try {
-          await addSkillToLock(skill.installName, {
-            source: sourceIdentifier,
-            sourceType: 'well-known',
-            sourceUrl: skill.sourceUrl,
-            skillFolderHash: '', // Well-known skills don't have a folder hash
-            namespace: namespace || 'legacy', // Use inferred namespace or fallback to 'legacy'
-          });
+          await addSkillToLock(
+            skill.installName,
+            {
+              source: sourceIdentifier,
+              sourceType: 'well-known',
+              sourceUrl: skill.sourceUrl,
+              skillFolderHash: '', // Well-known skills don't have a folder hash
+              namespace: namespace || 'legacy', // Use inferred namespace or fallback to 'legacy'
+            },
+            'global'
+          );
         } catch {
           // Don't fail installation if lock file update fails
         }
@@ -1439,13 +1447,17 @@ async function handleDirectUrlSkillLegacy(
     try {
       // skillFolderHash will be populated by telemetry server
       // Mintlify skills are single-file, so folder hash = content hash on server
-      await addSkillToLock(remoteSkill.installName, {
-        source: `mintlify/${remoteSkill.installName}`,
-        sourceType: 'mintlify',
-        sourceUrl: url,
-        skillFolderHash: '', // Populated by server
-        namespace: namespace || 'legacy', // Use inferred namespace or fallback to 'legacy'
-      });
+      await addSkillToLock(
+        remoteSkill.installName,
+        {
+          source: `mintlify/${remoteSkill.installName}`,
+          sourceType: 'mintlify',
+          sourceUrl: url,
+          skillFolderHash: '', // Populated by server
+          namespace: namespace || 'legacy', // Use inferred namespace or fallback to 'legacy'
+        },
+        'global'
+      );
     } catch {
       // Don't fail installation if lock file update fails
     }
@@ -2000,14 +2012,18 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               if (hash) skillFolderHash = hash;
             }
 
-            await addSkillToLock(skill.name, {
-              source: normalizedSource,
-              sourceType: parsed.type,
-              sourceUrl: parsed.url,
-              skillPath: skillPathValue,
-              namespace: parsed.namespace || 'legacy', // Use parsed namespace or fallback to 'legacy'
-              skillFolderHash,
-            });
+            await addSkillToLock(
+              skill.name,
+              {
+                source: normalizedSource,
+                sourceType: parsed.type,
+                sourceUrl: parsed.url,
+                skillPath: skillPathValue,
+                namespace: parsed.namespace || 'legacy', // Use parsed namespace or fallback to 'legacy'
+                skillFolderHash,
+              },
+              installGlobally ? 'global' : 'project'
+            );
           } catch {
             // Don't fail installation if lock file update fails
           }

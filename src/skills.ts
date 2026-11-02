@@ -108,12 +108,23 @@ export interface DiscoverSkillsOptions {
   fullDepth?: boolean;
 }
 
+/** Build a dedup key of "namespace:name" so same-name skills from different
+ * namespaces are not silently collapsed. Fallback to "legacy:name" when namespace
+ * is undefined (backward compatibility with flat lock entries). */
+function lockKeyFor(skill: { name: string; namespace?: string | undefined }): string {
+  const ns = skill.namespace || 'legacy';
+  return ns + ':' + skill.name;
+}
+
 export async function discoverSkills(
   basePath: string,
   subpath?: string,
   options?: DiscoverSkillsOptions
 ): Promise<Skill[]> {
   const skills: Skill[] = [];
+  // Use skill name as dedup key so same-name skills are not duplicated
+  // regardless of their namespace (e.g., root vs nested skills with same name).
+  // Namespace distinction is handled at the lock file / installation level.
   const seenNames = new Set<string>();
   const searchPath = subpath ? join(basePath, subpath) : basePath;
 
