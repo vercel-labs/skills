@@ -67,7 +67,7 @@ import {
   type BlobSkill,
   type BlobInstallResult,
 } from './blob.ts';
-import { computeSkillsShContentHash } from './skills-sh-hash.ts';
+import { collectSkillsShFiles, computeSkillsShTreeHash } from './skills-sh-hash.ts';
 import packageJson from '../package.json' with { type: 'json' };
 import {
   isNotionSource,
@@ -694,25 +694,25 @@ function isSkillsShPackUrl(url: string): boolean {
 export interface PackSkillPointer {
   repo: string;
   skill: string;
-  /** skills.sh content hash the pack pinned the skill to. */
-  hash: string;
+  /** skills.sh tree hash (skills-sh-tree-v2) the pack pinned the skill to. */
+  treeHash: string;
 }
 
 /**
  * skills.sh packs list public registry skills with `source: { repo, skill,
- * hash }` alongside the pack's own (pinned) copy. Older CLIs ignore the field.
+ * treeHash }` alongside the pack's own (pinned) copy. Older CLIs ignore it.
  */
 export function getPackSkillPointer(skill: WellKnownSkill): PackSkillPointer | null {
   const source = (skill.indexEntry as { source?: unknown }).source;
   if (!source || typeof source !== 'object') return null;
-  const { repo, skill: skillId, hash } = source as Record<string, unknown>;
+  const { repo, skill: skillId, treeHash } = source as Record<string, unknown>;
   if (typeof repo !== 'string' || typeof skillId !== 'string') return null;
-  if (typeof hash !== 'string' || !/^[0-9a-f]{64}$/.test(hash)) return null;
+  if (typeof treeHash !== 'string' || !/^[0-9a-f]{64}$/.test(treeHash)) return null;
   if (!/^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._-]+$/.test(repo) || repo.includes('..')) {
     return null;
   }
   if (!/^[a-z0-9][a-z0-9._-]*$/i.test(skillId) || skillId.includes('..')) return null;
-  return { repo, skill: skillId, hash };
+  return { repo, skill: skillId, treeHash };
 }
 
 function normalizePointerSkillName(name: string): string {
@@ -722,11 +722,11 @@ function normalizePointerSkillName(name: string): string {
     .replace(/^-|-$/g, '');
 }
 
-/** skills.sh content hash of a fetched skill: the snapshot's, or computed from disk. */
-function fetchedSkillContentHash(skill: Skill): Promise<string> {
-  return 'snapshotHash' in skill
-    ? Promise.resolve((skill as BlobSkill).snapshotHash)
-    : computeSkillsShContentHash(skill.path);
+/** skills.sh tree hash of a fetched skill: its snapshot files, or the folder on disk. */
+async function fetchedSkillTreeHash(skill: Skill): Promise<string> {
+  const files =
+    'snapshotHash' in skill ? (skill as BlobSkill).files : await collectSkillsShFiles(skill.path);
+  return computeSkillsShTreeHash(files);
 }
 
 /**
@@ -758,7 +758,7 @@ async function installPackPointerSkills(
     const group: PointerGroup = byRepo.get(key) ?? { entries: [], ids: [], pins: new Map() };
     group.entries.push(skill);
     group.ids.push(pointer.skill);
-    group.pins.set(normalizePointerSkillName(pointer.skill), pointer.hash);
+    group.pins.set(normalizePointerSkillName(pointer.skill), pointer.treeHash);
     byRepo.set(key, group);
   }
   const done = new Set<WellKnownSkill>();
@@ -786,7 +786,7 @@ async function installPackPointerSkills(
           const matching: Skill[] = [];
           for (const candidate of candidates) {
             const pin = group.pins.get(normalizePointerSkillName(candidate.name));
-            const hash = await fetchedSkillContentHash(candidate).catch(() => null);
+            const hash = await fetchedSkillTreeHash(candidate).catch(() => null);
             if (pin && hash === pin) {
               matching.push(candidate);
             } else {

@@ -1,9 +1,8 @@
-import { createHash } from 'crypto';
 import { mkdir, mkdtemp, symlink, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { describe, expect, it } from 'vitest';
-import { computeSkillsShContentHash } from '../src/skills-sh-hash.ts';
+import { collectSkillsShFiles, computeSkillsShTreeHash } from '../src/skills-sh-hash.ts';
 import { getPackSkillPointer } from '../src/add.ts';
 import type { WellKnownSkill } from '../src/providers/index.ts';
 
@@ -31,8 +30,10 @@ const HASH = 'a'.repeat(64);
 describe('getPackSkillPointer', () => {
   it('reads the original repo for public pack skills', () => {
     expect(
-      getPackSkillPointer(packSkill({ repo: 'benjitaylor/skills', skill: 'stageshow', hash: HASH }))
-    ).toEqual({ repo: 'benjitaylor/skills', skill: 'stageshow', hash: HASH });
+      getPackSkillPointer(
+        packSkill({ repo: 'benjitaylor/skills', skill: 'stageshow', treeHash: HASH })
+      )
+    ).toEqual({ repo: 'benjitaylor/skills', skill: 'stageshow', treeHash: HASH });
   });
 
   it('treats entries without a pointer as copies', () => {
@@ -45,7 +46,7 @@ describe('getPackSkillPointer', () => {
     ).toBeNull();
     expect(
       getPackSkillPointer(
-        packSkill({ repo: 'benjitaylor/skills', skill: 'stageshow', hash: 'abc' })
+        packSkill({ repo: 'benjitaylor/skills', skill: 'stageshow', treeHash: 'abc' })
       )
     ).toBeNull();
   });
@@ -60,13 +61,13 @@ describe('getPackSkillPointer', () => {
       { repo: 'owner/repo', skill: 'a/b' },
       { repo: '-flag/repo', skill: 'x' },
     ]) {
-      expect(getPackSkillPointer(packSkill({ ...source, hash: HASH }))).toBeNull();
+      expect(getPackSkillPointer(packSkill({ ...source, treeHash: HASH }))).toBeNull();
     }
   });
 });
 
-describe('computeSkillsShContentHash', () => {
-  it('matches the skills.sh snapshot hash: text files only, no symlinks or excluded dirs', async () => {
+describe('skills.sh tree hash', () => {
+  it('reads text files only, skipping symlinks and excluded dirs', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'skills-sh-hash-'));
     await writeFile(join(dir, 'SKILL.md'), '---\nname: demo\n---\n');
     await mkdir(join(dir, 'kit'));
@@ -75,12 +76,27 @@ describe('computeSkillsShContentHash', () => {
     await mkdir(join(dir, 'node_modules'));
     await writeFile(join(dir, 'node_modules', 'x.js'), 'ignored');
     await symlink(join(dir, 'kit', 'a.tsx'), join(dir, 'link.tsx'));
+    const files = await collectSkillsShFiles(dir);
+    expect(files.map((f) => f.path).sort()).toEqual(['SKILL.md', 'kit/a.tsx']);
+  });
 
-    // skills.sh: sort by path with localeCompare ("kit/…" before "SKILL.md"),
-    // hash "path\0contents\0" for each file.
-    const expected = createHash('sha256')
-      .update('kit/a.tsx\0export const a = 1;\0SKILL.md\0---\nname: demo\n---\n\0')
-      .digest('hex');
-    expect(await computeSkillsShContentHash(dir)).toBe(expected);
+  it('matches the leaderboard implementation (lib/pack-tree-hash.ts)', () => {
+    // Vector produced by the leaderboard's computeTreeHash for the same files.
+    expect(
+      computeSkillsShTreeHash([
+        { path: 'SKILL.md', contents: '---\nname: demo\n---\n' },
+        { path: 'kit/a.tsx', contents: 'export const a = 1;' },
+        { path: 'é.md', contents: 'ünï\0code' },
+      ])
+    ).toBe('bdba12bbdf840b14d7670ebaa0585309bf922a4b0a070f220038cffbd90569cc');
+  });
+
+  it('distinguishes trees that a NUL-joined hash cannot', () => {
+    expect(computeSkillsShTreeHash([{ path: 'a.md', contents: 'x\0b.md\0y' }])).not.toBe(
+      computeSkillsShTreeHash([
+        { path: 'a.md', contents: 'x' },
+        { path: 'b.md', contents: 'y' },
+      ])
+    );
   });
 });
