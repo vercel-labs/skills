@@ -729,8 +729,10 @@ export async function tryBlobInstall(
       rawContent: skill.content,
       metadata: skill.metadata,
       files,
-      snapshotHash:
-        files.length === download!.files.length ? download!.hash : computeSnapshotHash(files),
+      // Hash locally rather than trusting download.hash. The server's hashSkillFiles
+      // (add-skill-telemetry) joins path and contents with \0 separators, so it never
+      // matches computeSkillFolderHash and `check` would flag every fresh add as outdated.
+      snapshotHash: computeSnapshotHash(files),
       repoPath: skill.mdPath,
     };
   });
