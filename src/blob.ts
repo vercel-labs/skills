@@ -356,7 +356,7 @@ export function findSkillMdPaths(
 ): string[] {
   // Find all blob entries that are SKILL.md files (case-insensitive)
   const allSkillMds = tree.tree
-    .filter((e) => e.type === 'blob' && e.path.toLowerCase().endsWith('skill.md'))
+    .filter((e) => e.type === 'blob' && e.path.split('/').at(-1)!.toLowerCase() === 'skill.md')
     .map((e) => e.path);
 
   // Apply subpath filter
@@ -729,8 +729,10 @@ export async function tryBlobInstall(
       rawContent: skill.content,
       metadata: skill.metadata,
       files,
-      snapshotHash:
-        files.length === download!.files.length ? download!.hash : computeSnapshotHash(files),
+      // Hash locally rather than trusting download.hash. The server's hashSkillFiles
+      // (add-skill-telemetry) joins path and contents with \0 separators, so it never
+      // matches computeSkillFolderHash and `check` would flag every fresh add as outdated.
+      snapshotHash: computeSnapshotHash(files),
       repoPath: skill.mdPath,
     };
   });

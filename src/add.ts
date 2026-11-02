@@ -822,14 +822,7 @@ async function handleWellKnownSkills(
     targetAgents = validAgents as AgentType[];
     p.log.info(`Installing to all ${targetAgents.length} agents`);
   } else if (options.agent && options.agent.length > 0) {
-    const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
-
-    if (invalidAgents.length > 0) {
-      p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
-      p.log.info(`Valid agents: ${validAgents.join(', ')}`);
-      process.exit(1);
-    }
-
+    // Already validated by runAdd, the only caller.
     targetAgents = options.agent as AgentType[];
   } else {
     spinner.start('Loading agents…');
@@ -1201,7 +1194,7 @@ export interface ResolvedSkills {
  */
 async function resolveSkills(
   parsed: ParsedSource,
-  options: { includeInternal: boolean; fullDepth?: boolean; recordLineage?: boolean },
+  options: { includeInternal: boolean; fullDepth?: boolean; recordLineage?: boolean; requestedSkills?: string[] },
   spinner: Spinner
 ): Promise<ResolvedSkills> {
   const { includeInternal } = options;
@@ -1209,13 +1202,22 @@ async function resolveSkills(
   let blobResult: BlobInstallResult | null = null;
   let tempDir: string | null = null;
 
+  const missingRequestedSkill = (found: Skill[]): boolean =>
+    !!options.requestedSkills?.some(
+      (name) => name !== '*' && filterSkills(found, [name]).length === 0
+    );
+  const discover = async (rootDir: string): Promise<Skill[]> => {
+    const found = await discoverSkills(rootDir, parsed.subpath, options);
+    if (!options.fullDepth && missingRequestedSkill(found)) {
+      return discoverSkills(rootDir, parsed.subpath, { ...options, fullDepth: true });
+    }
+    return found;
+  };
+
   try {
     if (parsed.type === 'local') {
       spinner.start('Discovering skills…');
-      skills = await discoverSkills(parsed.localPath!, parsed.subpath, {
-        includeInternal,
-        fullDepth: options.fullDepth,
-      });
+      skills = await discover(parsed.localPath!);
     } else if (parsed.type === 'well-known' || parsed.type === 'download') {
       spinner.start('Downloading source...');
       const downloaded = await downloadSource(parsed.url);
@@ -1223,10 +1225,7 @@ async function resolveSkills(
       spinner.stop(`Downloaded ${downloaded.kind === 'skill-md' ? 'SKILL.md file' : 'archive'}`);
 
       spinner.start('Discovering skills...');
-      skills = await discoverSkills(downloaded.rootDir, parsed.subpath, {
-        includeInternal,
-        fullDepth: options.fullDepth,
-      });
+      skills = await discover(downloaded.rootDir);
     } else if (parsed.type === 'github' && !options.fullDepth && !options.recordLineage) {
       // Try the blob-based fast install for GitHub sources; skip for --full-depth,
       // and for --record-lineage, which needs a clone to resolve the commit.
@@ -1250,6 +1249,9 @@ async function resolveSkills(
         });
       }
 
+      if (blobResult && missingRequestedSkill(blobResult.skills)) {
+        blobResult = null;
+      }
       if (blobResult) {
         skills = blobResult.skills;
         spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
@@ -1264,10 +1266,7 @@ async function resolveSkills(
         spinner.stop('Repository cloned');
 
         spinner.start('Discovering skills…');
-        skills = await discoverSkills(tempDir, parsed.subpath, {
-          includeInternal,
-          fullDepth: options.fullDepth,
-        });
+        skills = await discover(tempDir);
       }
     } else {
       // GitLab, git URL, or --full-depth: always clone
@@ -1276,10 +1275,7 @@ async function resolveSkills(
       spinner.stop('Repository cloned');
 
       spinner.start('Discovering skills…');
-      skills = await discoverSkills(tempDir, parsed.subpath, {
-        includeInternal,
-        fullDepth: options.fullDepth,
-      });
+      skills = await discover(tempDir);
     }
   } catch (error) {
     await cleanup(tempDir);
@@ -1526,7 +1522,11 @@ async function fetchSource({ parsed, skills, fullDepth }: SourceRequest): Promis
     const resolved =
       (parsed.type === 'well-known' &&
         (await resolveWellKnownSkills(parsed.url, includeInternal))) ||
-      (await resolveSkills(parsed, { includeInternal, fullDepth }, silentSpinner));
+      (await resolveSkills(
+        parsed,
+        { includeInternal, fullDepth, requestedSkills: skills },
+        silentSpinner
+      ));
     return { parsed, resolved };
   } catch (error) {
     return {
@@ -1860,6 +1860,19 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     showInstallTip();
   }
 
+  // Validate --agent before fetching the source or prompting for skills, so a
+  // typo fails immediately instead of after the user has picked their skills.
+  if (options.agent && !options.agent.includes('*')) {
+    const validAgents = Object.keys(agents);
+    const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
+
+    if (invalidAgents.length > 0) {
+      p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
+      p.log.info(`Valid agents: ${validAgents.join(', ')}`);
+      emitJsonAndExit(1, `Invalid agents: ${invalidAgents.join(', ')}`);
+    }
+  }
+
   let tempDir: string | null = null;
 
   try {
@@ -1952,7 +1965,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     const resolved = await resolveSkills(
       parsed,
-      { includeInternal, fullDepth: options.fullDepth, recordLineage: options.recordLineage },
+      { includeInternal, fullDepth: options.fullDepth, recordLineage: options.recordLineage, requestedSkills: options.skill },
       spinner
     );
     const { skills, blobResult } = resolved;
@@ -2139,15 +2152,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       targetAgents = validAgents as AgentType[];
       p.log.info(`Installing to all ${targetAgents.length} agents`);
     } else if (options.agent && options.agent.length > 0) {
-      const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
-
-      if (invalidAgents.length > 0) {
-        p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
-        p.log.info(`Valid agents: ${validAgents.join(', ')}`);
-        await cleanup(tempDir);
-        emitJsonAndExit(1, `Invalid agents: ${invalidAgents.join(', ')}`);
-      }
-
+      // Already validated at the start of runAdd.
       targetAgents = options.agent as AgentType[];
     } else {
       spinner.start('Loading agents…');
