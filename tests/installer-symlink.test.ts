@@ -16,7 +16,12 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { installSkillForAgent, installBlobSkillForAgent } from '../src/installer.ts';
+import {
+  installSkillForAgent,
+  installBlobSkillForAgent,
+  installWellKnownSkillForAgent,
+} from '../src/installer.ts';
+import type { WellKnownSkill } from '../src/providers/wellknown.ts';
 
 async function makeSkillSource(root: string, name: string): Promise<string> {
   const dir = join(root, 'source-skill');
@@ -289,6 +294,34 @@ describe('installer symlink regression', () => {
       expect((await lstat(join(projectDir, '.kiro/skills', skillName))).isSymbolicLink()).toBe(
         true
       );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('skips a well-known symlink when the agent project directory does not exist', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'add-skill-'));
+    const projectDir = join(root, 'project');
+    await mkdir(projectDir, { recursive: true });
+
+    const skillName = 'missing-kiro-well-known-skill';
+
+    try {
+      const skill = {
+        installName: skillName,
+        files: new Map([['SKILL.md', `---\nname: ${skillName}\ndescription: test\n---\n`]]),
+      } as unknown as WellKnownSkill;
+      const result = await installWellKnownSkillForAgent(skill, 'kiro-cli', {
+        cwd: projectDir,
+        mode: 'symlink',
+        global: false,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.skipped).toBe(true);
+      expect(result.skipReason).toBe('missing-agent-project-directory');
+      expect((await lstat(join(projectDir, '.agents/skills', skillName))).isDirectory()).toBe(true);
+      expect(await readdir(projectDir)).toEqual(['.agents']);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

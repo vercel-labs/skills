@@ -965,7 +965,8 @@ async function handleWellKnownSkills(
   source: string,
   url: string,
   options: AddOptions,
-  spinner: ReturnType<typeof p.spinner>
+  spinner: ReturnType<typeof p.spinner>,
+  explicitlySelectedAgents: Set<AgentType>
 ): Promise<boolean> {
   spinner.start('Discovering skills from well-known endpoint...');
 
@@ -1152,6 +1153,7 @@ async function handleWellKnownSkills(
         }
 
         targetAgents = selected as AgentType[];
+        for (const agent of targetAgents) explicitlySelectedAgents.add(agent);
       }
     } else if (installedAgents.length === 1 || options.yes) {
       // Auto-select detected agents + ensure universal agents are included
@@ -1172,6 +1174,7 @@ async function handleWellKnownSkills(
       }
 
       targetAgents = selected as AgentType[];
+      for (const agent of targetAgents) explicitlySelectedAgents.add(agent);
     }
   }
 
@@ -1348,6 +1351,8 @@ async function handleWellKnownSkills(
     canonicalPath?: string;
     mode: InstallMode;
     symlinkFailed?: boolean;
+    skipped?: boolean;
+    skipReason?: string;
     error?: string;
   }[] = [];
 
@@ -1357,6 +1362,7 @@ async function handleWellKnownSkills(
       const result = await installWellKnownSkillForAgent(skill, agent, {
         global: installGlobally,
         mode: installMode,
+        createMissingAgentRoot: explicitlySelectedAgents.has(agent),
       });
       if (renamedFrom !== undefined && result.success) {
         for (const path of new Set([result.canonicalPath, result.path])) {
@@ -2633,7 +2639,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         // feed the JSON accumulator yet.
         emitJsonAndExit(1, '--json is not yet supported for well-known skill sources.');
       }
-      const handled = await handleWellKnownSkills(source, parsed.url, options, spinner);
+      const handled = await handleWellKnownSkills(
+        source,
+        parsed.url,
+        options,
+        spinner,
+        explicitlySelectedAgents
+      );
       if (handled) return;
       directDownload = true;
     }
