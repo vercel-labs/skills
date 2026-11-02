@@ -7,6 +7,7 @@ import {
   readSkillLock,
   getGitHubToken,
   addSkillToLock,
+  parseLockKey,
   type SkillLockEntry,
 } from './skill-lock.ts';
 import {
@@ -267,6 +268,10 @@ export interface SkippedSkill {
   ref?: string;
 }
 
+function getSkillNameFromLockKey(lockKey: string): string {
+  const parsed = parseLockKey(lockKey);
+  return parsed ? parsed[2] || lockKey : lockKey;
+}
 export function getSkipReason(entry: SkillLockEntry): string {
   if (entry.sourceType === 'local') {
     return 'Local path';
@@ -625,10 +630,11 @@ export async function updateGlobalSkills(
   const checkable: Array<{ name: string; entry: SkillLockEntry }> = [];
   const wellKnownGroups = new Map<string, WellKnownUpdateItem[]>();
 
-  for (const skillName of skillNames) {
+  for (const lockKey of skillNames) {
+    const skillName = getSkillNameFromLockKey(lockKey);
     if (!matchesSkillFilter(skillName, options.skills)) continue;
 
-    const entry = lock.skills[skillName];
+    const entry = lock.skills[getSkillNameFromLockKey(lockKey)];
     if (!entry) continue;
 
     if (entry.sourceType === 'well-known' && entry.sourceBaseUrl && entry.wellKnownDigest) {
