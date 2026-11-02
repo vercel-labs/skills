@@ -1,5 +1,6 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
+import { realpathSync } from 'fs';
 import { readdir, rm, lstat } from 'fs/promises';
 import { join } from 'path';
 import { agents, detectInstalledAgents, getEveSubagents } from './agents.ts';
@@ -65,6 +66,14 @@ export function resolveSkillsToRemove(
     }
   }
   return Array.from(matched);
+}
+
+function isSameDir(a: string, b: string): boolean {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return false;
+  }
 }
 
 export async function removeCommand(skillNames: string[], options: RemoveOptions) {
@@ -214,6 +223,20 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     }
 
     selectedSkills = resolveSkillsToRemove(selected as string[], installedSkills, lockSkillsKeys);
+  }
+
+  // When the project skills dir is the global one (cwd is home), a project-scoped
+  // remove would delete a globally tracked skill and leave its global lock entry (#2469).
+  if (!isGlobal && isSameDir(getCanonicalSkillsDir(false, cwd), getCanonicalSkillsDir(true))) {
+    const globalNames = new Set(Object.keys((await readSkillLock()).skills).map(sanitizeName));
+    const globallyTracked = selectedSkills.filter(
+      (s) => !lockEntries[s] && globalNames.has(sanitizeName(s))
+    );
+    if (globallyTracked.length > 0) {
+      p.log.error(`Tracked in the global lock: ${globallyTracked.join(', ')}`);
+      p.log.info(`Remove globally with: skills remove ${globallyTracked.join(' ')} -g`);
+      process.exit(1);
+    }
   }
 
   let targetAgents: AgentType[];

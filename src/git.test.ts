@@ -372,6 +372,26 @@ describe('git clone fallbacks', () => {
     expect(shaClient.checkout).toHaveBeenCalledWith('FETCH_HEAD');
   });
 
+  it('overrides a translated user locale with LC_ALL=C for every git client', async () => {
+    vi.stubEnv('LC_ALL', 'ko_KR.UTF-8');
+    const primaryClient = createGitClientMock(
+      vi
+        .fn()
+        .mockRejectedValue(
+          new Error(`fatal: Remote branch ${FULL_SHA} not found in upstream origin`)
+        )
+    );
+    const shaClient = createShaClientMock();
+
+    simpleGitMock.mockReturnValueOnce(primaryClient).mockReturnValueOnce(shaClient);
+
+    const tempDir = await cloneRepo('https://gitlab.com/group/repo.git', FULL_SHA);
+    createdDirs.push(tempDir);
+
+    expect(primaryClient.env).toHaveBeenCalledWith(expect.objectContaining({ LC_ALL: 'C' }));
+    expect(shaClient.env).toHaveBeenCalledWith(expect.objectContaining({ LC_ALL: 'C' }));
+  });
+
   it('does not attempt the SHA fetch for a non-SHA ref', async () => {
     const primaryClone = vi
       .fn()

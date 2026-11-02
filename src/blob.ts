@@ -356,7 +356,7 @@ export function findSkillMdPaths(
 ): string[] {
   // Find all blob entries that are SKILL.md files (case-insensitive)
   const allSkillMds = tree.tree
-    .filter((e) => e.type === 'blob' && e.path.toLowerCase().endsWith('skill.md'))
+    .filter((e) => e.type === 'blob' && e.path.split('/').at(-1)!.toLowerCase() === 'skill.md')
     .map((e) => e.path);
 
   // Apply subpath filter

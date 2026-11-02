@@ -223,6 +223,11 @@ function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
     // When git-lfs IS installed, tell it not to download LFS content
     // during checkout. See #952 for context and empirical impact.
     GIT_LFS_SKIP_SMUDGE: '1',
+    // isMissingRefError and isAuthFailure match git's English messages. A
+    // translated git (e.g. LANG=de_DE.UTF-8) would skip the commit-SHA and
+    // auth fallbacks, so force untranslated output. LC_ALL=C also overrides
+    // LANGUAGE and LC_MESSAGES. See #2505.
+    LC_ALL: 'C',
     ...extraEnv,
   });
 

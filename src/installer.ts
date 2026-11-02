@@ -1259,6 +1259,7 @@ export async function listInstalledSkills(
     // exist on disk to avoid unnecessary readdir errors.
     const allAgentTypes = Object.keys(agents) as AgentType[];
     for (const agentType of allAgentTypes) {
+      if (agentFilter && !agentFilter.includes(agentType)) continue;
       if (agentsToCheck.includes(agentType)) continue;
       const agent = agents[agentType];
       if (isGlobal && agent.globalSkillsDir === undefined) continue;

@@ -314,10 +314,10 @@ function parseFragmentRef(input: string): FragmentRefResult {
 }
 
 function appendFragmentRef(input: string, ref?: string, skillFilter?: string): string {
-  if (!ref) {
+  if (!ref && !skillFilter) {
     return input;
   }
-  return `${input}#${ref}${skillFilter ? `@${skillFilter}` : ''}`;
+  return `${input}#${ref ? encodeURIComponent(ref) : ''}${skillFilter ? `@${encodeURIComponent(skillFilter)}` : ''}`;
 }
 
 function isHostedArtifactUrl(input: string): boolean {
