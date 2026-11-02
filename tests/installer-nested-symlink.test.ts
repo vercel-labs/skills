@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { lstat, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { installSkillForAgent } from '../src/installer.ts';
 import { materializeUseSkill } from '../src/use.ts';
@@ -48,7 +48,7 @@ async function listTree(dir: string, base = dir): Promise<string[]> {
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) out.push(...(await listTree(full, base)));
-    else out.push(relative(base, full));
+    else out.push(relative(base, full).split(sep).join('/'));
   }
   return out.sort();
 }
@@ -109,7 +109,7 @@ describe('nested symlink confinement', () => {
   function expectWarnings(): void {
     const messages = warn.mock.calls.map((c) => String(c[0]));
     expect(messages).toContainEqual(
-      expect.stringMatching(/outside the skill directory: .*alias\/leak$/)
+      expect.stringMatching(/outside the skill directory: .*alias[\\/]leak$/)
     );
     expect(messages).toContainEqual(expect.stringMatching(/directory cycle/));
   }
