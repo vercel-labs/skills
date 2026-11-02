@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { resetRepoTreeAuthState, tryBlobInstall } from '../src/blob.ts';
+import { computeSkillFolderHash } from '../src/local-lock.ts';
 
 const ROOT_SKILL_MD = `---
 name: eve
@@ -112,7 +116,16 @@ description: Nested skill.
 
     expect(result).not.toBeNull();
     expect(result!.skills[0]!.files.map((file) => file.path)).toEqual(['SKILL.md', 'reference.md']);
-    expect(result!.skills[0]!.snapshotHash).toBe('nested-snapshot-hash');
+    // Recorded as computedHash, so it must match what check/update compute on disk,
+    // not the server's hash.
+    const dir = mkdtempSync(join(tmpdir(), 'blob-hash-'));
+    try {
+      for (const file of result!.skills[0]!.files) writeFileSync(join(dir, file.path), file.contents);
+      expect(result!.skills[0]!.snapshotHash).not.toBe('nested-snapshot-hash');
+      expect(result!.skills[0]!.snapshotHash).toBe(await computeSkillFolderHash(dir));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('falls back when a nested snapshot omits an installable repository file', async () => {
