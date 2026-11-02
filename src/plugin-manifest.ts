@@ -1,4 +1,4 @@
-import { readFile } from 'fs/promises';
+import { readFile, stat } from 'fs/promises';
 import { join, dirname, resolve, normalize, sep } from 'path';
 
 /**
@@ -37,6 +37,59 @@ interface MarketplaceManifest {
 interface PluginManifest {
   skills?: string[];
   name?: string;
+}
+
+export interface SkillsDirPlugin {
+  /** Absolute path of the plugin folder. */
+  root: string;
+  /** Plugin name from the manifest, used as the install directory name. */
+  name: string;
+}
+
+async function hasSkillMd(dir: string): Promise<boolean> {
+  try {
+    return (await stat(join(dir, 'SKILL.md'))).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Find the skills-dir plugin that owns a discovered skill.
+ *
+ * A skills-dir plugin is a folder with `.claude-plugin/plugin.json` and no
+ * `SKILL.md` of its own; Claude Code loads it as `<name>@skills-dir` and every
+ * `skills/<skill>/SKILL.md` inside it belongs to that plugin. A folder with a
+ * root `SKILL.md` keeps the existing one-skill behavior.
+ *
+ * Only folders at or below `basePath` are considered, so discovery never
+ * reaches outside the cloned source.
+ */
+export async function findSkillsDirPlugin(
+  skillDir: string,
+  basePath: string
+): Promise<SkillsDirPlugin | null> {
+  const limit = resolve(basePath);
+  let dir = resolve(skillDir);
+  if (!isContainedIn(dir, limit)) return null;
+
+  while (dir !== limit) {
+    dir = dirname(dir);
+    if (!isContainedIn(dir, limit)) return null;
+    if (await hasSkillMd(dir)) return null;
+
+    try {
+      const content = await readFile(join(dir, '.claude-plugin/plugin.json'), 'utf-8');
+      const manifest: PluginManifest = JSON.parse(content);
+      if (typeof manifest.name === 'string' && manifest.name.trim()) {
+        return { root: dir, name: manifest.name };
+      }
+    } catch {
+      // No usable manifest at this level; keep walking up.
+    }
+  }
+
+  return null;
 }
 
 /**
