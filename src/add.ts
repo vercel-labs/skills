@@ -689,6 +689,146 @@ function isSkillsShPackUrl(url: string): boolean {
   }
 }
 
+/** A skills.sh pack entry that points at a public skill in its original repo. */
+export interface PackSkillPointer {
+  repo: string;
+  skill: string;
+}
+
+/**
+ * skills.sh packs list public registry skills with `source: { repo, skill }`
+ * alongside the pack's own copy of the files. Older CLIs ignore the field.
+ */
+export function getPackSkillPointer(skill: WellKnownSkill): PackSkillPointer | null {
+  const source = (skill.indexEntry as { source?: unknown }).source;
+  if (!source || typeof source !== 'object') return null;
+  const { repo, skill: skillId } = source as Record<string, unknown>;
+  if (typeof repo !== 'string' || typeof skillId !== 'string') return null;
+  if (!/^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._-]+$/.test(repo) || repo.includes('..')) {
+    return null;
+  }
+  if (!/^[a-z0-9][a-z0-9._-]*$/i.test(skillId) || skillId.includes('..')) return null;
+  return { repo, skill: skillId };
+}
+
+function normalizePointerSkillName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+/**
+ * Install pack entries that point at public repos from those repos (snapshot
+ * download, else clone), recording the original repo in the lock files and
+ * telemetry. Returns the pack entries installed; the caller installs the rest,
+ * including any pointer that failed here, from the pack's own copy.
+ */
+async function installPackPointerSkills(
+  skills: WellKnownSkill[],
+  options: {
+    targetAgents: AgentType[];
+    global: boolean;
+    mode: InstallMode;
+    metadata?: string;
+  }
+): Promise<Set<WellKnownSkill>> {
+  const byRepo = new Map<string, { entries: WellKnownSkill[]; ids: string[] }>();
+  for (const skill of skills) {
+    const pointer = getPackSkillPointer(skill);
+    if (!pointer) continue;
+    const key = pointer.repo.toLowerCase();
+    const group = byRepo.get(key) ?? { entries: [], ids: [] };
+    group.entries.push(skill);
+    group.ids.push(pointer.skill);
+    byRepo.set(key, group);
+  }
+  const done = new Set<WellKnownSkill>();
+  if (byRepo.size === 0) return done;
+
+  const repos = [...byRepo.keys()];
+  const fetched = await fetchSources(
+    repos.map((repo) => ({ parsed: parseSource(repo), skills: byRepo.get(repo)!.ids }))
+  );
+
+  const resultLines: string[] = [];
+  for (const [index, source] of fetched.entries()) {
+    const repo = repos[index]!;
+    const group = byRepo.get(repo)!;
+    try {
+      const outcome = await installFetched(source, {
+        skills: group.ids,
+        placement: {
+          global: options.global,
+          targets: options.targetAgents.map((agent) => ({ agent })),
+          mode: options.mode,
+        },
+      });
+      if (outcome.installed.length === 0) continue;
+
+      const installedIds = new Set(
+        outcome.installed.map(({ skill }) => normalizePointerSkillName(skill.name))
+      );
+      group.entries.forEach((entry, i) => {
+        if (installedIds.has(normalizePointerSkillName(group.ids[i]!))) done.add(entry);
+      });
+      for (const { skill } of outcome.installed) {
+        resultLines.push(
+          `${pc.green('✓')} ${getSkillDisplayName(skill)} ${pc.dim(`from ${repo}`)}`
+        );
+      }
+
+      const resolved = source.resolved!;
+      const installedSkills = outcome.installed.map(({ skill }) => skill);
+      const skillFiles = getSkillRepoPaths(resolved, installedSkills);
+      if ((await isSourcePrivate(repo).catch(() => null)) === false) {
+        track({
+          event: 'install',
+          source: repo,
+          skills: installedSkills.map((skill) => skill.name).join(','),
+          agents: options.targetAgents.join(','),
+          ...(options.global && { global: '1' }),
+          skillFiles: JSON.stringify(skillFiles),
+          metadata: options.metadata,
+        });
+      }
+
+      try {
+        if (options.global) {
+          const tree =
+            resolved.blobResult?.tree ??
+            (await fetchRepoTree(repo, source.parsed.ref, getGitHubToken));
+          for (const skill of installedSkills) {
+            const skillPath = skillFiles[skill.name];
+            await addSkillToLock(skill.name, {
+              source: getLockSource(source.parsed.url, repo) || repo,
+              sourceType: source.parsed.type,
+              sourceUrl: source.parsed.url,
+              ref: source.parsed.ref,
+              skillPath,
+              skillFolderHash:
+                (tree && skillPath && getSkillFolderHashFromTree(tree, skillPath)) || '',
+              pluginName: skill.pluginName,
+            });
+          }
+        } else {
+          await recordProjectLock(source, outcome.installed);
+        }
+      } catch {
+        // Don't fail installation if lock file update fails
+      }
+    } finally {
+      await releaseSource(source);
+    }
+  }
+
+  if (resultLines.length > 0) {
+    console.log();
+    p.note(resultLines.join('\n'), pc.green('Installed from source'));
+  }
+  return done;
+}
+
 function logAutoSelectedSkills(entries: Array<{ label: string; description?: string }>): void {
   const only = entries.length === 1 ? entries[0]! : null;
   if (!only) {
@@ -970,6 +1110,8 @@ async function handleWellKnownSkills(
     const shortCanonical = shortenPath(canonicalPath, cwd);
     summaryLines.push(`${pc.cyan(shortCanonical)}`);
     summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
+    const pointer = isSkillsShPackUrl(url) ? getPackSkillPointer(skill) : null;
+    if (pointer) summaryLines.push(`  ${pc.dim('source:')} ${pointer.repo}`);
     if (skill.files.size > 1) {
       summaryLines.push(`  ${pc.dim('files:')} ${skill.files.size}`);
     }
@@ -992,6 +1134,28 @@ async function handleWellKnownSkills(
 
     if (p.isCancel(confirmed) || !confirmed) {
       exitInstallationCancelled();
+    }
+  }
+
+  // Public skills in skills.sh packs install from their original repo, so
+  // updates, lock entries, and install counts follow the real skill. Anything
+  // that fails there still installs from the pack's own copy below.
+  if (isSkillsShPackUrl(url)) {
+    const fromSource = await installPackPointerSkills(selectedSkills, {
+      targetAgents,
+      global: installGlobally,
+      mode: installMode,
+      metadata: options.metadata,
+    });
+    selectedSkills = selectedSkills.filter((skill) => !fromSource.has(skill));
+    if (selectedSkills.length === 0) {
+      console.log();
+      p.outro(
+        pc.green('Done!') +
+          pc.dim('  Review skills before use; they run with full agent permissions.')
+      );
+      await promptForFindSkills(options, targetAgents);
+      return true;
     }
   }
 
