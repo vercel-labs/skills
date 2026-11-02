@@ -67,6 +67,7 @@ import {
   type BlobSkill,
   type BlobInstallResult,
 } from './blob.ts';
+import { computeSkillsShContentHash } from './skills-sh-hash.ts';
 import packageJson from '../package.json' with { type: 'json' };
 import {
   isNotionSource,
@@ -693,22 +694,25 @@ function isSkillsShPackUrl(url: string): boolean {
 export interface PackSkillPointer {
   repo: string;
   skill: string;
+  /** skills.sh content hash the pack pinned the skill to. */
+  hash: string;
 }
 
 /**
- * skills.sh packs list public registry skills with `source: { repo, skill }`
- * alongside the pack's own copy of the files. Older CLIs ignore the field.
+ * skills.sh packs list public registry skills with `source: { repo, skill,
+ * hash }` alongside the pack's own (pinned) copy. Older CLIs ignore the field.
  */
 export function getPackSkillPointer(skill: WellKnownSkill): PackSkillPointer | null {
   const source = (skill.indexEntry as { source?: unknown }).source;
   if (!source || typeof source !== 'object') return null;
-  const { repo, skill: skillId } = source as Record<string, unknown>;
+  const { repo, skill: skillId, hash } = source as Record<string, unknown>;
   if (typeof repo !== 'string' || typeof skillId !== 'string') return null;
+  if (typeof hash !== 'string' || !/^[0-9a-f]{64}$/.test(hash)) return null;
   if (!/^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._-]+$/.test(repo) || repo.includes('..')) {
     return null;
   }
   if (!/^[a-z0-9][a-z0-9._-]*$/i.test(skillId) || skillId.includes('..')) return null;
-  return { repo, skill: skillId };
+  return { repo, skill: skillId, hash };
 }
 
 function normalizePointerSkillName(name: string): string {
@@ -718,11 +722,19 @@ function normalizePointerSkillName(name: string): string {
     .replace(/^-|-$/g, '');
 }
 
+/** skills.sh content hash of a fetched skill: the snapshot's, or computed from disk. */
+function fetchedSkillContentHash(skill: Skill): Promise<string> {
+  return 'snapshotHash' in skill
+    ? Promise.resolve((skill as BlobSkill).snapshotHash)
+    : computeSkillsShContentHash(skill.path);
+}
+
 /**
  * Install pack entries that point at public repos from those repos (snapshot
  * download, else clone), recording the original repo in the lock files and
- * telemetry. Returns the pack entries installed; the caller installs the rest,
- * including any pointer that failed here, from the pack's own copy.
+ * telemetry. Only content matching the pack's pinned hash is installed this
+ * way. Returns the pack entries installed; the caller installs the rest
+ * (changed upstream, or failed) from the pack's own pinned copy.
  */
 async function installPackPointerSkills(
   skills: WellKnownSkill[],
@@ -733,14 +745,20 @@ async function installPackPointerSkills(
     metadata?: string;
   }
 ): Promise<Set<WellKnownSkill>> {
-  const byRepo = new Map<string, { entries: WellKnownSkill[]; ids: string[] }>();
+  interface PointerGroup {
+    entries: WellKnownSkill[];
+    ids: string[];
+    pins: Map<string, string>;
+  }
+  const byRepo = new Map<string, PointerGroup>();
   for (const skill of skills) {
     const pointer = getPackSkillPointer(skill);
     if (!pointer) continue;
     const key = pointer.repo.toLowerCase();
-    const group = byRepo.get(key) ?? { entries: [], ids: [] };
+    const group: PointerGroup = byRepo.get(key) ?? { entries: [], ids: [], pins: new Map() };
     group.entries.push(skill);
     group.ids.push(pointer.skill);
+    group.pins.set(normalizePointerSkillName(pointer.skill), pointer.hash);
     byRepo.set(key, group);
   }
   const done = new Set<WellKnownSkill>();
@@ -762,6 +780,24 @@ async function installPackPointerSkills(
           global: options.global,
           targets: options.targetAgents.map((agent) => ({ agent })),
           mode: options.mode,
+        },
+        // Install from the repo only what still matches the pack's pin.
+        select: async (candidates) => {
+          const matching: Skill[] = [];
+          for (const candidate of candidates) {
+            const pin = group.pins.get(normalizePointerSkillName(candidate.name));
+            const hash = await fetchedSkillContentHash(candidate).catch(() => null);
+            if (pin && hash === pin) {
+              matching.push(candidate);
+            } else {
+              p.log.message(
+                pc.dim(
+                  `  ${getSkillDisplayName(candidate)} changed in ${repo} since this pack pinned it; using the pack's copy`
+                )
+              );
+            }
+          }
+          return matching;
         },
       });
       if (outcome.installed.length === 0) continue;
