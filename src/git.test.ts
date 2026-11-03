@@ -19,6 +19,7 @@ vi.mock('child_process', async () => {
 import {
   GitCloneError,
   cloneRepo,
+  isCommitSha,
   isGitHubHttpsCloneUrl,
   isGitHubSsoAuthError,
   parseGitHubRepoUrl,
@@ -193,5 +194,45 @@ describe('git clone fallbacks', () => {
       GitCloneError
     );
     expect(execFileMock).not.toHaveBeenCalled();
+  });
+
+  it('tells commit SHAs apart from branch and tag names', () => {
+    expect(isCommitSha('153fc1b')).toBe(true);
+    expect(isCommitSha('153fc1b2c3d4e5f60718293a4b5c6d7e8f901234')).toBe(true);
+    expect(isCommitSha('v1.2.3')).toBe(false);
+    expect(isCommitSha('main')).toBe(false);
+    expect(isCommitSha('abc')).toBe(false);
+  });
+
+  it('clones a tag ref shallowly with --branch', async () => {
+    const clone = vi.fn().mockResolvedValue(undefined);
+    simpleGitMock.mockReturnValueOnce(createGitClientMock(clone));
+
+    const tempDir = await cloneRepo('https://github.com/mattpocock/skills.git', 'v1.2.3');
+    createdDirs.push(tempDir);
+
+    expect(clone).toHaveBeenCalledWith('https://github.com/mattpocock/skills.git', tempDir, [
+      '--depth',
+      '1',
+      '--branch',
+      'v1.2.3',
+    ]);
+  });
+
+  it('clones a commit ref without --branch, then checks the commit out', async () => {
+    const clone = vi.fn().mockResolvedValue(undefined);
+    const checkout = vi.fn().mockResolvedValue(undefined);
+    const cwd = vi.fn().mockReturnValue({ checkout });
+    simpleGitMock.mockReturnValueOnce(createGitClientMock(clone)).mockReturnValueOnce({ cwd });
+
+    const tempDir = await cloneRepo('https://github.com/mattpocock/skills.git', '153fc1b');
+    createdDirs.push(tempDir);
+
+    expect(clone).toHaveBeenCalledWith('https://github.com/mattpocock/skills.git', tempDir, [
+      '--filter=blob:none',
+      '--no-checkout',
+    ]);
+    expect(cwd).toHaveBeenCalledWith(tempDir);
+    expect(checkout).toHaveBeenCalledWith('153fc1b');
   });
 });

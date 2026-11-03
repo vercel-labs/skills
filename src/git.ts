@@ -131,6 +131,29 @@ function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
   });
 }
 
+const COMMIT_SHA_RE = /^[0-9a-f]{7,40}$/i;
+
+/** True when a ref is a commit SHA (full or abbreviated) rather than a branch or tag name. */
+export function isCommitSha(ref: string): boolean {
+  return COMMIT_SHA_RE.test(ref);
+}
+
+/**
+ * `git clone --branch` accepts only a branch or tag, so a commit ref gets a blob-less
+ * clone of the history without a checkout, followed by a checkout of that commit.
+ */
+function cloneFlags(ref: string | undefined, shallow: string[]): string[] {
+  if (!ref) return shallow;
+  if (isCommitSha(ref)) return ['--filter=blob:none', '--no-checkout'];
+  return [...shallow, '--branch', ref];
+}
+
+async function checkoutCommitIfNeeded(dir: string, ref?: string): Promise<void> {
+  if (ref && isCommitSha(ref)) {
+    await createGitClient().cwd(dir).checkout(ref);
+  }
+}
+
 async function resetTempDir(dir: string): Promise<void> {
   await rm(dir, { recursive: true, force: true }).catch(() => {});
   await mkdir(dir, { recursive: true });
@@ -152,11 +175,14 @@ async function tryGhClone(repo: GitHubRepoInfo, tempDir: string, ref?: string): 
     return false;
   }
 
-  const gitFlags = ref ? ['--depth=1', '--branch', ref] : ['--depth=1'];
-  await execFileAsync('gh', ['repo', 'clone', cloneTarget, tempDir, '--', ...gitFlags], {
-    timeout: CLONE_TIMEOUT_MS,
-    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
-  });
+  await execFileAsync(
+    'gh',
+    ['repo', 'clone', cloneTarget, tempDir, '--', ...cloneFlags(ref, ['--depth=1'])],
+    {
+      timeout: CLONE_TIMEOUT_MS,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    }
+  );
   return true;
 }
 
@@ -190,11 +216,12 @@ function buildGitHubAuthError(url: string, repo: GitHubRepoInfo | null, message:
 
 export async function cloneRepo(url: string, ref?: string): Promise<string> {
   const tempDir = await mkdtemp(join(tmpdir(), 'skills-'));
-  const cloneOptions = ref ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
+  const cloneOptions = cloneFlags(ref, ['--depth', '1']);
   const repo = parseGitHubRepoUrl(url);
 
   try {
     await createGitClient().clone(url, tempDir, cloneOptions);
+    await checkoutCommitIfNeeded(tempDir, ref);
     return tempDir;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -221,6 +248,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
       try {
         await resetTempDir(tempDir);
         if (await tryGhClone(repo, tempDir, ref)) {
+          await checkoutCommitIfNeeded(tempDir, ref);
           return tempDir;
         }
       } catch {
@@ -232,6 +260,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
         await createGitClient({
           GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes',
         }).clone(repo.sshUrl, tempDir, cloneOptions);
+        await checkoutCommitIfNeeded(tempDir, ref);
         return tempDir;
       } catch {
         // Fall through to the targeted auth error below.
