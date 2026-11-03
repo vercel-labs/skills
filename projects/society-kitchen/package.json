@@ -1,0 +1,12 @@
+{
+  "name": "society-kitchen",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server/server.mjs",
+    "start:dev": "AUTH_MODE=dev node server/server.mjs",
+    "setup": "scripts/setup.sh",
+    "test": "node --test tests/booking.test.mjs tests/extract.test.mjs tests/auth.test.mjs",
+    "test:e2e": "node --test --test-concurrency=1 tests/e2e.test.mjs tests/e2e-auth.test.mjs"
+  }
+}
