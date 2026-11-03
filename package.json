@@ -133,6 +133,7 @@
     "@types/node": "^22.10.0",
     "@vercel/detect-agent": "^1.2.1",
     "husky": "^9.1.7",
+    "license-checker": "25.0.1",
     "lint-staged": "^16.2.7",
     "obuild": "^0.4.22",
     "picocolors": "^1.1.1",
