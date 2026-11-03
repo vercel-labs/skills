@@ -177,11 +177,21 @@ function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
     // (skills are plain text — HTML/MD/JSON — never LFS-tracked).
     //
     // Reported downstream: heygen-com/hyperframes#407.
+    //
+    // Windows checks a path against MAX_PATH (260 chars) unless long paths are
+    // enabled. Git opts in per-invocation with core.longpaths, and the option
+    // has to reach every command that writes the working tree: CLONE checks
+    // out in-process, while the commit-SHA fallback checks out FETCH_HEAD in a
+    // separate invocation. Setting it here covers both because simple-git
+    // prefixes every command with the instance config.
+    //
+    // Reported downstream: vercel-labs/skills#2613.
     config: [
       'filter.lfs.required=false',
       'filter.lfs.smudge=',
       'filter.lfs.clean=',
       'filter.lfs.process=',
+      'core.longpaths=true',
     ],
     // simple-git v3.36+ rejects all `filter.*` configuration by default.
     // These values are hard-coded above and only disable the LFS filter for
