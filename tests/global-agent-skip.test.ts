@@ -4,7 +4,7 @@ const { info } = vi.hoisted(() => ({ info: vi.fn() }));
 vi.mock('@clack/prompts', () => ({ log: { info } }));
 
 import { agents } from '../src/agents.ts';
-import { skipAgentsWithoutGlobalDir } from '../src/add.ts';
+import { namesAgentsExplicitly, skipAgentsWithoutGlobalDir } from '../src/add.ts';
 import { withGlobalSkillsDir } from '../src/update.ts';
 import type { AgentType } from '../src/types.ts';
 
@@ -48,6 +48,17 @@ describe('skipAgentsWithoutGlobalDir', () => {
       ['promptscript']
     );
     expect(info).not.toHaveBeenCalled();
+  });
+});
+
+describe('namesAgentsExplicitly', () => {
+  it('treats named agents as explicit', () => {
+    expect(namesAgentsExplicitly(['claude-code'])).toBe(true);
+  });
+
+  it("treats --agent '*' and no --agent as blanket selections", () => {
+    expect(namesAgentsExplicitly(['*'])).toBe(false);
+    expect(namesAgentsExplicitly(undefined)).toBe(false);
   });
 });
 
