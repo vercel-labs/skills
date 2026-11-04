@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from 'fs/promises';
+import { readdir, readFile, realpath, stat } from 'fs/promises';
 import { join, basename, dirname, resolve, normalize, sep, relative } from 'path';
 import { parseFrontmatter } from './frontmatter.ts';
 import { sanitizeMetadata, stripTerminalEscapes } from './sanitize.ts';
@@ -201,6 +201,23 @@ async function sourceLockedSkillNames(basePath: string): Promise<string[]> {
   }
 }
 
+/**
+ * Canonical key for a SKILL.md path.
+ *
+ * A repo can expose one skill tree at several paths (for example
+ * `.agents/skills` with `.claude` symlinked to `.agents`). Those are the same
+ * skill, so they must collapse to one discovery entry: reporting both makes the
+ * relocated/ambiguous check in `resolveSkillLocations` skip the skill, which
+ * silently blocks updates and deletions for it.
+ */
+async function canonicalSkillMdPath(skillMdPath: string): Promise<string> {
+  try {
+    return await realpath(skillMdPath);
+  } catch {
+    return skillMdPath;
+  }
+}
+
 export async function discoverSkills(
   basePath: string,
   subpath?: string,
@@ -251,8 +268,9 @@ export async function discoverSkills(
 
   const parseSkillAt = async (skillDir: string): Promise<Skill | null> => {
     const skillMdPath = resolve(skillDir, 'SKILL.md');
-    if (parsedSkillPaths.has(skillMdPath)) return null;
-    parsedSkillPaths.add(skillMdPath);
+    const dedupeKey = await canonicalSkillMdPath(skillMdPath);
+    if (parsedSkillPaths.has(dedupeKey)) return null;
+    parsedSkillPaths.add(dedupeKey);
     return parseSkillMd(skillMdPath, options);
   };
 
