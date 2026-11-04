@@ -72,6 +72,7 @@ For GitHub tree lookups, `skills` first tries the API anonymously, then an expli
 | `--copy`                  | Copy files instead of symlinking to agent directories                                                                                                       |
 | `-y, --yes`               | Skip all confirmation prompts                                                                                                                               |
 | `--all`                   | Install all skills to all agents without prompts                                                                                                            |
+| `--record-lineage`        | Record where each installed skill was copied from (see [Recording lineage](#recording-lineage))                                                             |
 
 ### Examples
 
@@ -105,6 +106,10 @@ npx skills add https://example.com/download/my-skill
 ```
 
 Direct download URLs are tried after well-known discovery. They may point to a single valid `SKILL.md` file or a `.zip`, `.tar`, `.tar.gz`, or `.tgz` archive; the URL does not need to include a file extension. Downloads are limited to 10 MiB, extracted content to 25 MiB, and archives to 1000 files by default. Override with `SKILLS_DOWNLOAD_MAX_BYTES`, `SKILLS_EXTRACT_MAX_BYTES`, and `SKILLS_EXTRACT_MAX_FILES` when you trust the source.
+
+### Recording lineage
+
+With `--record-lineage`, `skills add` writes two keys into each installed `SKILL.md` under `metadata`: `derived-from` (the source repository URL pinned to the resolved commit SHA and skill path) and `derived-from-hash` (`sha256:` of the source `SKILL.md`, normalised as in the [reference implementation](https://github.com/sangaraju1988/skill-derivation-graph)). Other frontmatter and the body are left unchanged. Tools can then tell whether a copy is verbatim or modified, and find it when its source is fixed. Requires a Git source; other sources install normally with a warning. See the [Agent Skills discussion](https://github.com/agentskills/agentskills/discussions/620).
 
 ### Installation Scope
 
