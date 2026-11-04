@@ -65,7 +65,7 @@ vi.mock('../src/blob.ts', async (importActual) => {
   };
 });
 
-import { runAdd, prepareSourceInstall, cleanupPreparedSource } from '../src/add.ts';
+import { runAdd, fetchSources, prepareFetched, releaseSource } from '../src/add.ts';
 import { cloneRepo } from '../src/git.ts';
 import { tryBlobInstall } from '../src/blob.ts';
 
@@ -110,12 +110,13 @@ describe('blob clone fallback output', () => {
     expect(spinnerMessage).toHaveBeenCalledWith('Cloning repository…');
     expect(spinnerStop).toHaveBeenCalledWith('Repository cloned');
   });
-  it('stops the spinner when initial source resolution fails', async () => {
+  it('reports a failed initial source resolution without throwing', async () => {
     vi.mocked(cloneRepo).mockRejectedValueOnce(new Error('clone failed'));
-    await expect(
-      prepareSourceInstall({ type: 'git', url: 'file:///missing.git' }, [])
-    ).rejects.toThrow('clone failed');
-    expect(spinnerStop).toHaveBeenCalledWith('Resolution failed');
+    const [fetched] = await fetchSources([
+      { parsed: { type: 'git', url: 'file:///missing.git' }, skills: [] },
+    ]);
+    expect(fetched?.error).toBe('clone failed');
+    await expect(prepareFetched(fetched!, [])).rejects.toThrow('clone failed');
   });
 
   it.each([false, true])(
@@ -143,15 +144,18 @@ describe('blob clone fallback output', () => {
         ],
         tree: { sha: 'snapshot', branch: 'main', tree: [] },
       });
-      const prepared = await prepareSourceInstall(
+      const [fetched] = await fetchSources([
         {
-          type: 'github',
-          url: 'https://github.com/vercel/fixture.git',
-          subpath: 'skill',
-          ref: 'v1',
+          parsed: {
+            type: 'github',
+            url: 'https://github.com/vercel/fixture.git',
+            subpath: 'skill',
+            ref: 'v1',
+          },
+          skills: ['fallback-skill'],
         },
-        ['fallback-skill']
-      );
+      ]);
+      const prepared = await prepareFetched(fetched!, ['fallback-skill']);
       try {
         if (required) {
           expect(cloneRepo).toHaveBeenCalledExactlyOnceWith(
@@ -160,13 +164,13 @@ describe('blob clone fallback output', () => {
           );
           expect(prepared.selected.map((s) => s.name)).toEqual(['dependency', 'fallback-skill']);
           expect(prepared.selected[1]?.rawContent).toBe(content);
-          expect(prepared.resolved.blobResult).toBeNull();
+          expect(fetched!.resolved!.blobResult).toBeNull();
         } else {
           expect(cloneRepo).not.toHaveBeenCalled();
-          expect(prepared.resolved.blobResult).not.toBeNull();
+          expect(fetched!.resolved!.blobResult).not.toBeNull();
         }
       } finally {
-        await cleanupPreparedSource(prepared);
+        await releaseSource(fetched!);
       }
     }
   );

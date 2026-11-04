@@ -1,5 +1,9 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { checkWellKnownForUpdates, type WellKnownUpdateItem } from '../src/update.ts';
+import {
+  checkWellKnownForUpdates,
+  processWellKnownUpdates,
+  type WellKnownUpdateItem,
+} from '../src/update.ts';
 import {
   computeWellKnownSkillDigest,
   wellKnownProvider,
@@ -254,5 +258,23 @@ describe('checkWellKnownForUpdates', () => {
       .map((call) => String(call[0]))
       .filter((url) => url.endsWith('/SKILL.md'));
     expect(fileCalls).toEqual([`${BASE_URL}/.well-known/skills/alpha-skill/SKILL.md`]);
+  });
+});
+
+describe('processWellKnownUpdates in check mode', () => {
+  it('reports changed skills without downloading them', async () => {
+    const mock = stubWellKnownServer(v2Index([{ name: 'alpha-skill', digest: DIGEST_A }]), {});
+    const reported: string[] = [];
+
+    await processWellKnownUpdates(
+      new Map([[BASE_URL, [{ name: 'alpha-skill', digest: DIGEST_STALE }]]]),
+      false,
+      { reportOutdated: (name) => reported.push(name) }
+    );
+
+    expect(reported).toEqual(['alpha-skill']);
+    expect(
+      mock.mock.calls.map((call) => String(call[0])).filter((url) => url.endsWith('/SKILL.md'))
+    ).toEqual([]);
   });
 });

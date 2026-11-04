@@ -3,6 +3,7 @@ import { existsSync, rmSync, readFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCliOutput, stripLogo } from './test-utils.ts';
+import { parseFrontmatter } from './frontmatter.ts';
 
 describe('init command', () => {
   let testDir: string;
@@ -64,6 +65,24 @@ describe('init command', () => {
       3. Additional steps as needed
       "
     `);
+  });
+
+  it.for(['demo: x', 'my skill # best', 'true', '123', '[demo]', 'say "hello"'])(
+    'preserves %j as a string in frontmatter',
+    (name, { skip }) => {
+      if (process.platform === 'win32' && /[:"]/.test(name)) skip();
+      runCliOutput(['init', name], testDir);
+      const content = readFileSync(join(testDir, name, 'SKILL.md'), 'utf-8');
+      expect(parseFrontmatter(content).data.name).toBe(name);
+    }
+  );
+
+  it('escapes the directory name when initializing in cwd', () => {
+    const cwd = join(testDir, 'my skill # best');
+    mkdirSync(cwd);
+    runCliOutput(['init'], cwd);
+    const content = readFileSync(join(cwd, 'SKILL.md'), 'utf-8');
+    expect(parseFrontmatter(content).data.name).toBe('my skill # best');
   });
 
   it('should allow multiple skills in same directory', () => {

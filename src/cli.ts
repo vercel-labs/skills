@@ -3,10 +3,12 @@
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { basename, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { stringify as stringifyYaml } from 'yaml';
 import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
 import { runFind } from './find.ts';
 import { runInstallFromLock } from './install.ts';
 import { runList } from './list.ts';
+import { InvalidLocalLockError } from './local-lock.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { flushTelemetry } from './telemetry.ts';
@@ -171,6 +173,12 @@ ${BOLD}Project:${RESET}
   init [name]          Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)
   experimental_sync    Sync skills from node_modules into agent directories (alias: sync)
 
+${BOLD}Experimental Install Options:${RESET}
+  --dry-run              Show what would be restored without installing anything
+  --frozen-lockfile      Fail instead of changing skills-lock.json (default in CI)
+  --no-frozen-lockfile   Allow skills-lock.json to change in CI
+  --force                Reinstall skills that are already installed
+
 ${BOLD}Add Options:${RESET}
   -g, --global           Install skill globally (user-level) instead of project-level
   -a, --agent <agents>   Specify agents to install to (use '*' for all agents)
@@ -203,6 +211,8 @@ ${BOLD}Experimental Sync Options:${RESET}
   --dry-run              Show what would change without changing anything
   --no-cleanup           Keep skills whose package no longer ships them
   --no-remote            Skip git sources listed in package.json skills fields
+  --frozen-lockfile      Fail instead of changing skills-lock.json (default in CI)
+  --no-frozen-lockfile   Allow skills-lock.json to change in CI
   -r, --recursive        Also sync the dependencies of each workspace package
   --include <patterns>   Only sync matching packages (<pkg>) or skills (<pkg>#<skill>)
   --exclude <patterns>   Skip matching packages (<pkg>) or skills (<pkg>#<skill>)
@@ -273,7 +283,7 @@ function runInit(args: string[]): void {
   }
 
   const skillContent = `---
-name: ${skillName}
+name: ${stringifyYaml(skillName).trimEnd()}
 description: A brief description of what this skill does
 ---
 
@@ -418,6 +428,8 @@ async function main(): Promise<void> {
       await runList(restArgs);
       break;
     case 'check':
+      await runUpdate(restArgs, 'check');
+      break;
     case 'update':
     case 'upgrade':
       await runUpdate(restArgs);
@@ -438,4 +450,10 @@ async function main(): Promise<void> {
   }
 }
 
-main().finally(() => flushTelemetry().then(() => process.exit(process.exitCode ?? 0)));
+main()
+  .catch((error: unknown) => {
+    if (!(error instanceof InvalidLocalLockError)) throw error;
+    console.error(`Error: ${error.message}`);
+    process.exitCode = 1;
+  })
+  .finally(() => flushTelemetry().then(() => process.exit(process.exitCode ?? 0)));

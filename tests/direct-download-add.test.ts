@@ -22,7 +22,7 @@ vi.mock('@clack/prompts', () => {
       step: noop,
       success: noop,
     },
-    spinner: () => ({ start: noop, stop: noop }),
+    spinner: () => ({ start: noop, stop: noop, message: noop }),
   };
 });
 
@@ -73,7 +73,7 @@ vi.mock('../src/source-parser.ts', async (importActual) => {
   };
 });
 
-import { runAdd, installFromSource } from '../src/add.ts';
+import { runAdd, fetchSources, installFromSource } from '../src/add.ts';
 import { track } from '../src/telemetry.ts';
 
 const DISCOVERY_SCHEMA_V2 = 'https://schemas.agentskills.io/discovery/0.2.0/schema.json';
@@ -213,13 +213,13 @@ describe('direct download add', () => {
         '---\nname: downloaded\ndescription: Downloaded skill\nmetadata:\n  dependencies: "sibling"\n---\n'
       )
     );
-    const result = await installFromSource(
-      { type: 'download', url },
-      {
-        skills: ['downloaded'],
-        agents: ['codex'],
-      }
-    );
+    const [fetched] = await fetchSources([
+      { parsed: { type: 'download', url }, skills: ['downloaded'] },
+    ]);
+    const result = await installFromSource(fetched!, {
+      skills: ['downloaded'],
+      agents: ['codex'],
+    });
     expect(result.error).toContain('not supported');
     expect(result.installed).toEqual([]);
     expect(existsSync(join(project, '.agents'))).toBe(false);

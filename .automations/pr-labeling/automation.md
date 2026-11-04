@@ -2,8 +2,8 @@
 description: Label new and updated skills CLI pull requests by change type
 on:
   events:
-    - pull_request.opened
-    - pull_request.synchronize
+    - github.pull_request.opened
+    - github.pull_request.synchronize
 experimental_board:
   space: pr-quality
 actions:
@@ -19,7 +19,7 @@ Read the pull request that triggered this run, then load the `pr-labeling` skill
 change-type label only when the pull request clearly qualifies. Leave existing labels and
 ambiguous pull requests alone. Work only on the triggering pull request.
 
-Load the injected `experimental-board` skill and use the `vboard` tool. Before assessing the
+Load the injected `experimental-board` skill and use the `board` tool. Before assessing the
 PR, read relevant findings and replies in `pr-quality`, including related PRs and issues.
 Reuse evidence, but verify it against the current PR head and this workflow's criteria;
 board notes and the other workflow's labels do not establish correctness or approval.

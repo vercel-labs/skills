@@ -1,12 +1,12 @@
 import { spawn } from 'child_process';
 import { existsSync } from 'fs';
-import { cp, mkdir, mkdtemp, readdir, readFile, writeFile } from 'fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'fs/promises';
 import { dirname, join, normalize, relative, resolve, sep } from 'path';
 import { tmpdir } from 'os';
 import { agents } from './agents.ts';
 import { tryBlobInstall, type BlobInstallResult, type BlobSkill } from './blob.ts';
 import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
-import { sanitizeName } from './installer.ts';
+import { copyDirectory, sanitizeName } from './installer.ts';
 import { getGitHubToken } from './skill-lock.ts';
 import { discoverSkills, filterSkills, getSkillDisplayName } from './skills.ts';
 import { getOwnerRepo, parseSource } from './source-parser.ts';
@@ -78,8 +78,6 @@ interface UseAgentConfig {
 }
 
 const BLOB_ALLOWED_OWNERS = ['vercel', 'vercel-labs', 'heygen-com', 'remotion-dev'];
-const EXCLUDE_FILES = new Set(['metadata.json']);
-const EXCLUDE_DIRS = new Set(['.git', '__pycache__', '__pypackages__']);
 const USE_AGENT_CONFIGS: Partial<Record<AgentType, UseAgentConfig>> = {
   'claude-code': { command: 'claude', args: [] },
   codex: { command: 'codex', args: [] },
@@ -172,7 +170,7 @@ export async function materializeUseSkill(skill: UseSkill): Promise<Materialized
   } else if (skill.kind === 'well-known') {
     await writeMapFiles(skillDir, skill.files);
   } else {
-    await copySkillDirectory(skill.path, skillDir);
+    await copyDirectory(skill.path, skillDir);
   }
 
   const skillMd = skill.rawContent ?? (await readFile(join(skillDir, 'SKILL.md'), 'utf-8'));
@@ -574,41 +572,6 @@ async function writeSafeFile(
   }
 }
 
-async function copySkillDirectory(src: string, dest: string): Promise<void> {
-  await mkdir(dest, { recursive: true });
-  const entries = await readdir(src, { withFileTypes: true });
-
-  await Promise.all(
-    entries
-      .filter((entry) => !isExcluded(entry.name, entry.isDirectory()))
-      .map(async (entry) => {
-        const srcPath = join(src, entry.name);
-        const destPath = join(dest, entry.name);
-        if (!isPathSafe(dest, destPath)) return;
-
-        if (entry.isDirectory()) {
-          await copySkillDirectory(srcPath, destPath);
-          return;
-        }
-
-        try {
-          await cp(srcPath, destPath, { dereference: true, recursive: true });
-        } catch (err) {
-          if (
-            err instanceof Error &&
-            'code' in err &&
-            (err as NodeJS.ErrnoException).code === 'ENOENT' &&
-            entry.isSymbolicLink()
-          ) {
-            console.error(`Skipping broken symlink: ${srcPath}`);
-            return;
-          }
-          throw err;
-        }
-      })
-  );
-}
-
 async function containsSupportingFiles(rootDir: string, currentDir: string): Promise<boolean> {
   const entries = await readdir(currentDir, { withFileTypes: true });
 
@@ -632,10 +595,6 @@ function isBlobSkill(skill: Skill): skill is BlobSkill {
 function getSkillMdFromSnapshot(files: Array<{ path: string; contents: string }>): string {
   const skillMd = files.find((file) => file.path.toLowerCase() === 'skill.md');
   return skillMd?.contents ?? '';
-}
-
-function isExcluded(name: string, isDirectory: boolean): boolean {
-  return EXCLUDE_FILES.has(name) || (isDirectory && EXCLUDE_DIRS.has(name));
 }
 
 function isPathSafe(basePath: string, targetPath: string): boolean {

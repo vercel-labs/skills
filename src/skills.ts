@@ -4,7 +4,8 @@ import { parseFrontmatter } from './frontmatter.ts';
 import { sanitizeMetadata, stripTerminalEscapes } from './sanitize.ts';
 import type { Skill } from './types.ts';
 import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
-import { readLocalLock } from './local-lock.ts';
+import { getSkillsShSearchDirs } from './skills-sh-config.ts';
+import { InvalidLocalLockError, readLocalLock } from './local-lock.ts';
 import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
 
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
@@ -114,6 +115,16 @@ export async function parseSkillMd(
     return null;
   }
 
+  const name = sanitizeMetadata(data.name);
+  const description = sanitizeMetadata(data.description);
+  if (!name || !description) {
+    const empty: string[] = [];
+    if (!name) empty.push('name');
+    if (!description) empty.push('description');
+    warnSkippedSkill(skillMdPath, `empty required frontmatter field(s): ${empty.join(', ')}`);
+    return null;
+  }
+
   // Skip internal skills unless:
   // 1. INSTALL_INTERNAL_SKILLS=1 is set, OR
   // 2. includeInternal option is true (e.g., when user explicitly requests a skill)
@@ -124,8 +135,8 @@ export async function parseSkillMd(
   }
 
   return {
-    name: sanitizeMetadata(data.name),
-    description: sanitizeMetadata(data.description),
+    name,
+    description,
     path: dirname(skillMdPath),
     rawContent: content,
     metadata,
@@ -177,6 +188,19 @@ export function isSubpathSafe(basePath: string, subpath: string): boolean {
   return normalizedTarget.startsWith(normalizedBase + sep) || normalizedTarget === normalizedBase;
 }
 
+/**
+ * The source repo's own lock, used only to skip skills it merely installed.
+ * It is never written here, so an unusable one just means nothing is skipped.
+ */
+async function sourceLockedSkillNames(basePath: string): Promise<string[]> {
+  try {
+    return Object.keys((await readLocalLock(basePath)).skills);
+  } catch (error) {
+    if (error instanceof InvalidLocalLockError) return [];
+    throw error;
+  }
+}
+
 export async function discoverSkills(
   basePath: string,
   subpath?: string,
@@ -185,8 +209,9 @@ export async function discoverSkills(
   const skills: Skill[] = [];
   const seenNames = new Set<string>();
   const parsedSkillPaths = new Set<string>();
-  const localLock = await readLocalLock(basePath);
-  const lockedSkillNames = new Set(Object.keys(localLock.skills).map(normalizeSkillName));
+  const lockedSkillNames = new Set(
+    (await sourceLockedSkillNames(basePath)).map(normalizeSkillName)
+  );
 
   // Validate subpath doesn't escape basePath (prevent path traversal)
   if (subpath && !isSubpathSafe(basePath, subpath)) {
@@ -258,6 +283,9 @@ export async function discoverSkills(
     join(searchPath, 'skills/.system'),
     ...AGENT_PROJECT_SKILL_DIRS.map((dir) => join(searchPath, dir)),
   ];
+
+  // Add skill container dirs the repo declares in skills.sh.json `paths`
+  prioritySearchDirs.push(...(await getSkillsShSearchDirs(searchPath)));
 
   // Known skill container dirs are walked up to three levels deep so layouts
   // like `skills/<category>/<category>/<skill>/SKILL.md` are discovered without
@@ -333,16 +361,20 @@ export function getSkillDisplayName(skill: Skill): string {
 }
 
 /**
- * Filter skills based on user input (case-insensitive direct matching).
- * Multi-word skill names must be quoted on the command line.
+ * Filter skills by name, falling back to slug matching when no exact name matches.
  */
 export function filterSkills(skills: Skill[], inputNames: string[]): Skill[] {
-  const normalizedInputs = inputNames.map((n) => n.toLowerCase());
-
-  return skills.filter((skill) => {
-    const name = skill.name.toLowerCase();
-    const displayName = getSkillDisplayName(skill).toLowerCase();
-
-    return normalizedInputs.some((input) => input === name || input === displayName);
-  });
+  const selected = new Set<Skill>();
+  for (const input of inputNames) {
+    const exact = skills.filter(
+      (skill) => getSkillDisplayName(skill).toLowerCase() === input.toLowerCase()
+    );
+    const matches = exact.length
+      ? exact
+      : skills.filter(
+          (skill) => normalizeSkillName(getSkillDisplayName(skill)) === normalizeSkillName(input)
+        );
+    for (const skill of matches) selected.add(skill);
+  }
+  return skills.filter((skill) => selected.has(skill));
 }

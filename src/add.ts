@@ -46,6 +46,7 @@ import {
   type WellKnownSkill,
 } from './providers/index.ts';
 import { downloadSource } from './download-source.ts';
+import { mapConcurrent } from './concurrency.ts';
 import {
   addSkillToLock,
   getGitHubToken,
@@ -56,8 +57,12 @@ import {
 } from './skill-lock.ts';
 import {
   addSkillToLocalLock,
+  readLocalLock,
   computeSkillFolderHash,
+  frozenLockfileError,
+  lockChangeReason,
   type LocalSkillLockEntry,
+  type LocalSkillLockFile,
 } from './local-lock.ts';
 import type { Skill, AgentType, ParsedSource } from './types.ts';
 import {
@@ -68,6 +73,7 @@ import {
   type BlobSkill,
   type BlobInstallResult,
 } from './blob.ts';
+import { collectSkillsShFiles, computeSkillsShTreeHash } from './skills-sh-hash.ts';
 import packageJson from '../package.json' with { type: 'json' };
 import {
   isNotionSource,
@@ -296,7 +302,7 @@ function buildAgentSummaryLines(targetAgents: AgentType[], installMode: InstallM
  * the skill installs to the root agent (`agent/skills`). Other agents never set
  * `subagent`.
  */
-interface InstallTarget {
+export interface InstallTarget {
   agent: AgentType;
   subagent?: string;
 }
@@ -316,7 +322,7 @@ function targetKey(target: InstallTarget): string {
  * Expand the selected agents into concrete install targets, fanning Eve out
  * across the chosen subagents (root and/or named subagents).
  */
-function buildInstallTargets(
+export function buildInstallTargets(
   targetAgents: AgentType[],
   eveSubagentTargets: Array<string | undefined>
 ): InstallTarget[] {
@@ -375,6 +381,34 @@ function ensureUniversalAgents(targetAgents: AgentType[]): AgentType[] {
   }
 
   return result;
+}
+
+/**
+ * The agents `add -y` installs to when none are named: the agent we run
+ * inside (plus universal), else Eve alone when present, else every agent when
+ * none is detected, else the detected ones plus universal.
+ */
+export async function nonInteractiveTargetAgents(): Promise<AgentType[]> {
+  const detected = await detectAgent();
+  const hostAgent = detected.isAgent ? getAgentType(detected.agent.name) : null;
+  if (hostAgent) return ensureUniversalAgents([hostAgent]);
+  const installed = await detectInstalledAgents();
+  if (installed.includes('eve')) return ['eve'];
+  if (installed.length === 0) return Object.keys(agents) as AgentType[];
+  return ensureUniversalAgents(installed);
+}
+
+/**
+ * Symlink from a canonical copy only when targets span several skills
+ * directories; a single directory, or Eve (which owns each (sub)agent dir),
+ * gets a plain copy.
+ */
+export function defaultInstallMode(targets: InstallTarget[]): InstallMode {
+  const allEve = targets.every((t) => t.agent === 'eve');
+  const uniqueDirs = new Set(
+    targets.map((t) => (t.subagent ? `eve:subagent:${t.subagent}` : agents[t.agent].skillsDir))
+  );
+  return uniqueDirs.size <= 1 || allEve ? 'copy' : 'symlink';
 }
 
 /**
@@ -499,6 +533,25 @@ export async function promptForAgents(
   }
 
   return selected as AgentType[] | symbol;
+}
+
+/**
+ * Agents picked automatically (detected, or every agent with --yes) that have no
+ * global skills directory are skipped with one notice on a global install,
+ * instead of failing once per skill. Agents named with --agent keep that error,
+ * and so does a selection where no agent supports global installs.
+ */
+export function skipAgentsWithoutGlobalDir(
+  targetAgents: AgentType[],
+  options: { global: boolean; explicit: boolean }
+): AgentType[] {
+  if (!options.global || options.explicit) return targetAgents;
+  const skipped = targetAgents.filter((a) => agents[a].globalSkillsDir === undefined);
+  if (skipped.length === 0 || skipped.length === targetAgents.length) return targetAgents;
+  p.log.info(
+    `Skipping ${skipped.map((a) => agents[a].displayName).join(', ')}: no global skills directory`
+  );
+  return targetAgents.filter((a) => agents[a].globalSkillsDir !== undefined);
 }
 
 /**
@@ -643,6 +696,181 @@ function isSkillsShPackUrl(url: string): boolean {
   }
 }
 
+/** A skills.sh pack entry that points at a public skill in its original repo. */
+export interface PackSkillPointer {
+  repo: string;
+  skill: string;
+  /** skills.sh tree hash (skills-sh-tree-v2) the pack pinned the skill to. */
+  treeHash: string;
+}
+
+/**
+ * skills.sh packs list public registry skills with `source: { repo, skill,
+ * treeHash }` alongside the pack's own (pinned) copy. Older CLIs ignore it.
+ */
+export function getPackSkillPointer(skill: WellKnownSkill): PackSkillPointer | null {
+  const source = (skill.indexEntry as { source?: unknown }).source;
+  if (!source || typeof source !== 'object') return null;
+  const { repo, skill: skillId, treeHash } = source as Record<string, unknown>;
+  if (typeof repo !== 'string' || typeof skillId !== 'string') return null;
+  if (typeof treeHash !== 'string' || !/^[0-9a-f]{64}$/.test(treeHash)) return null;
+  if (!/^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._-]+$/.test(repo) || repo.includes('..')) {
+    return null;
+  }
+  if (!/^[a-z0-9][a-z0-9._-]*$/i.test(skillId) || skillId.includes('..')) return null;
+  return { repo, skill: skillId, treeHash };
+}
+
+function normalizePointerSkillName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+/** skills.sh tree hash of a fetched skill: its snapshot files, or the folder on disk. */
+async function fetchedSkillTreeHash(skill: Skill): Promise<string> {
+  const files =
+    'snapshotHash' in skill ? (skill as BlobSkill).files : await collectSkillsShFiles(skill.path);
+  return computeSkillsShTreeHash(files);
+}
+
+/**
+ * Install pack entries that point at public repos from those repos (snapshot
+ * download, else clone), recording the original repo in the lock files and
+ * telemetry. Only content matching the pack's pinned hash is installed this
+ * way. Returns the pack entries installed; the caller installs the rest
+ * (changed upstream, or failed) from the pack's own pinned copy.
+ */
+async function installPackPointerSkills(
+  skills: WellKnownSkill[],
+  options: {
+    targetAgents: AgentType[];
+    global: boolean;
+    mode: InstallMode;
+    metadata?: string;
+  }
+): Promise<Set<WellKnownSkill>> {
+  interface PointerGroup {
+    entries: WellKnownSkill[];
+    ids: string[];
+    pins: Map<string, string>;
+  }
+  const byRepo = new Map<string, PointerGroup>();
+  for (const skill of skills) {
+    const pointer = getPackSkillPointer(skill);
+    if (!pointer) continue;
+    const key = pointer.repo.toLowerCase();
+    const group: PointerGroup = byRepo.get(key) ?? { entries: [], ids: [], pins: new Map() };
+    group.entries.push(skill);
+    group.ids.push(pointer.skill);
+    group.pins.set(normalizePointerSkillName(pointer.skill), pointer.treeHash);
+    byRepo.set(key, group);
+  }
+  const done = new Set<WellKnownSkill>();
+  if (byRepo.size === 0) return done;
+
+  const repos = [...byRepo.keys()];
+  const fetched = await fetchSources(
+    repos.map((repo) => ({ parsed: parseSource(repo), skills: byRepo.get(repo)!.ids }))
+  );
+
+  const resultLines: string[] = [];
+  for (const [index, source] of fetched.entries()) {
+    const repo = repos[index]!;
+    const group = byRepo.get(repo)!;
+    try {
+      const outcome = await installFetched(source, {
+        skills: group.ids,
+        placement: {
+          global: options.global,
+          targets: options.targetAgents.map((agent) => ({ agent })),
+          mode: options.mode,
+        },
+        // Install from the repo only what still matches the pack's pin.
+        select: async (candidates) => {
+          const matching: Skill[] = [];
+          for (const candidate of candidates) {
+            const pin = group.pins.get(normalizePointerSkillName(candidate.name));
+            const hash = await fetchedSkillTreeHash(candidate).catch(() => null);
+            if (pin && hash === pin) {
+              matching.push(candidate);
+            } else {
+              p.log.message(
+                pc.dim(
+                  `  ${getSkillDisplayName(candidate)} changed in ${repo} since this pack pinned it; using the pack's copy`
+                )
+              );
+            }
+          }
+          return matching;
+        },
+      });
+      if (outcome.installed.length === 0) continue;
+
+      const installedIds = new Set(
+        outcome.installed.map(({ skill }) => normalizePointerSkillName(skill.name))
+      );
+      group.entries.forEach((entry, i) => {
+        if (installedIds.has(normalizePointerSkillName(group.ids[i]!))) done.add(entry);
+      });
+      for (const { skill } of outcome.installed) {
+        resultLines.push(
+          `${pc.green('✓')} ${getSkillDisplayName(skill)} ${pc.dim(`from ${repo}`)}`
+        );
+      }
+
+      const resolved = source.resolved!;
+      const installedSkills = outcome.installed.map(({ skill }) => skill);
+      const skillFiles = getSkillRepoPaths(resolved, installedSkills);
+      if ((await isSourcePrivate(repo).catch(() => null)) === false) {
+        track({
+          event: 'install',
+          source: repo,
+          skills: installedSkills.map((skill) => skill.name).join(','),
+          agents: options.targetAgents.join(','),
+          ...(options.global && { global: '1' }),
+          skillFiles: JSON.stringify(skillFiles),
+          metadata: options.metadata,
+        });
+      }
+
+      try {
+        if (options.global) {
+          const tree =
+            resolved.blobResult?.tree ??
+            (await fetchRepoTree(repo, source.parsed.ref, getGitHubToken));
+          for (const skill of installedSkills) {
+            const skillPath = skillFiles[skill.name];
+            await addSkillToLock(skill.name, {
+              source: getLockSource(source.parsed.url, repo) || repo,
+              sourceType: source.parsed.type,
+              sourceUrl: source.parsed.url,
+              ref: source.parsed.ref,
+              skillPath,
+              skillFolderHash:
+                (tree && skillPath && getSkillFolderHashFromTree(tree, skillPath)) || '',
+              pluginName: skill.pluginName,
+            });
+          }
+        } else {
+          await recordProjectLock(source, outcome.installed);
+        }
+      } catch {
+        // Don't fail installation if lock file update fails
+      }
+    } finally {
+      await releaseSource(source);
+    }
+  }
+
+  if (resultLines.length > 0) {
+    console.log();
+    p.note(resultLines.join('\n'), pc.green('Installed from source'));
+  }
+  return done;
+}
+
 function logAutoSelectedSkills(entries: Array<{ label: string; description?: string }>): void {
   const only = entries.length === 1 ? entries[0]! : null;
   if (!only) {
@@ -774,14 +1002,7 @@ async function handleWellKnownSkills(
     targetAgents = validAgents as AgentType[];
     p.log.info(`Installing to all ${targetAgents.length} agents`);
   } else if (options.agent && options.agent.length > 0) {
-    const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
-
-    if (invalidAgents.length > 0) {
-      p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
-      p.log.info(`Valid agents: ${validAgents.join(', ')}`);
-      process.exit(1);
-    }
-
+    // Already validated by runAdd, the only caller.
     targetAgents = options.agent as AgentType[];
   } else {
     spinner.start('Loading agents…');
@@ -864,6 +1085,14 @@ async function handleWellKnownSkills(
     installGlobally = scope as boolean;
   }
 
+  targetAgents = skipAgentsWithoutGlobalDir(targetAgents, {
+    global: installGlobally,
+    explicit: options.agent !== undefined,
+  });
+
+  // Surface an unusable lock before touching disk rather than after installing.
+  if (!installGlobally) await readLocalLock();
+
   // Determine install mode (symlink vs copy)
   let installMode: InstallMode = options.copy ? 'copy' : 'symlink';
 
@@ -925,6 +1154,8 @@ async function handleWellKnownSkills(
     const shortCanonical = shortenPath(canonicalPath, cwd);
     summaryLines.push(`${pc.cyan(shortCanonical)}`);
     summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
+    const pointer = isSkillsShPackUrl(url) ? getPackSkillPointer(skill) : null;
+    if (pointer) summaryLines.push(`  ${pc.dim('source:')} ${pointer.repo}`);
     if (skill.files.size > 1) {
       summaryLines.push(`  ${pc.dim('files:')} ${skill.files.size}`);
     }
@@ -947,6 +1178,28 @@ async function handleWellKnownSkills(
 
     if (p.isCancel(confirmed) || !confirmed) {
       exitInstallationCancelled();
+    }
+  }
+
+  // Public skills in skills.sh packs install from their original repo, so
+  // updates, lock entries, and install counts follow the real skill. Anything
+  // that fails there still installs from the pack's own copy below.
+  if (isSkillsShPackUrl(url)) {
+    const fromSource = await installPackPointerSkills(selectedSkills, {
+      targetAgents,
+      global: installGlobally,
+      mode: installMode,
+      metadata: options.metadata,
+    });
+    selectedSkills = selectedSkills.filter((skill) => !fromSource.has(skill));
+    if (selectedSkills.length === 0) {
+      console.log();
+      p.outro(
+        pc.green('Done!') +
+          pc.dim('  Review skills before use; they run with full agent permissions.')
+      );
+      await promptForFindSkills(options, targetAgents);
+      return true;
     }
   }
 
@@ -1015,14 +1268,7 @@ async function handleWellKnownSkills(
     for (const skill of selectedSkills) {
       if (successfulSkillNames.has(skill.installName)) {
         try {
-          await addSkillToLock(skill.installName, {
-            source: sourceIdentifier,
-            sourceType: 'well-known',
-            sourceUrl: skill.sourceUrl,
-            skillFolderHash: '',
-            sourceBaseUrl: url,
-            wellKnownDigest: computeWellKnownSkillDigest(skill),
-          });
+          await addSkillToLock(skill.installName, globalWellKnownLockEntry(url, skill));
         } catch {
           // Don't fail installation if lock file update fails
         }
@@ -1131,7 +1377,15 @@ async function handleWellKnownSkills(
 
 type Spinner = ReturnType<typeof p.spinner>;
 
-interface ResolvedSkills {
+// Clack spinners poll the terminal and write frames/cursor sequences; use this
+// when stdout is reserved (--json) or another spinner already owns the line.
+const silentSpinner = {
+  start: () => {},
+  stop: () => {},
+  message: () => {},
+} as unknown as Spinner;
+
+export interface ResolvedSkills {
   skills: Skill[];
   /** Clone or download root; the caller removes it with cleanup(). */
   tempDir: string | null;
@@ -1144,7 +1398,7 @@ interface ResolvedSkills {
  */
 async function resolveSkills(
   parsed: ParsedSource,
-  options: { includeInternal: boolean; fullDepth?: boolean },
+  options: { includeInternal: boolean; fullDepth?: boolean; requestedSkills?: string[] },
   spinner: Spinner
 ): Promise<ResolvedSkills> {
   const { includeInternal } = options;
@@ -1152,13 +1406,22 @@ async function resolveSkills(
   let blobResult: BlobInstallResult | null = null;
   let tempDir: string | null = null;
 
+  const missingRequestedSkill = (found: Skill[]): boolean =>
+    !!options.requestedSkills?.some(
+      (name) => name !== '*' && filterSkills(found, [name]).length === 0
+    );
+  const discover = async (rootDir: string): Promise<Skill[]> => {
+    const found = await discoverSkills(rootDir, parsed.subpath, options);
+    if (!options.fullDepth && missingRequestedSkill(found)) {
+      return discoverSkills(rootDir, parsed.subpath, { ...options, fullDepth: true });
+    }
+    return found;
+  };
+
   try {
     if (parsed.type === 'local') {
       spinner.start('Discovering skills…');
-      skills = await discoverSkills(parsed.localPath!, parsed.subpath, {
-        includeInternal,
-        fullDepth: options.fullDepth,
-      });
+      skills = await discover(parsed.localPath!);
     } else if (parsed.type === 'well-known' || parsed.type === 'download') {
       spinner.start('Downloading source...');
       const downloaded = await downloadSource(parsed.url);
@@ -1166,10 +1429,7 @@ async function resolveSkills(
       spinner.stop(`Downloaded ${downloaded.kind === 'skill-md' ? 'SKILL.md file' : 'archive'}`);
 
       spinner.start('Discovering skills...');
-      skills = await discoverSkills(downloaded.rootDir, parsed.subpath, {
-        includeInternal,
-        fullDepth: options.fullDepth,
-      });
+      skills = await discover(downloaded.rootDir);
     } else if (parsed.type === 'github' && !options.fullDepth) {
       // Try the blob-based fast install for GitHub sources; skip for --full-depth.
       // Eligible per repo (a BLOB_ALLOWED_REPOS entry = self-hosted download URL) or
@@ -1192,6 +1452,9 @@ async function resolveSkills(
         });
       }
 
+      if (blobResult && missingRequestedSkill(blobResult.skills)) {
+        blobResult = null;
+      }
       if (blobResult) {
         skills = blobResult.skills;
         spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
@@ -1206,10 +1469,7 @@ async function resolveSkills(
         spinner.stop('Repository cloned');
 
         spinner.start('Discovering skills…');
-        skills = await discoverSkills(tempDir, parsed.subpath, {
-          includeInternal,
-          fullDepth: options.fullDepth,
-        });
+        skills = await discover(tempDir);
       }
     } else {
       // GitLab, git URL, or --full-depth: always clone
@@ -1218,10 +1478,7 @@ async function resolveSkills(
       spinner.stop('Repository cloned');
 
       spinner.start('Discovering skills…');
-      skills = await discoverSkills(tempDir, parsed.subpath, {
-        includeInternal,
-        fullDepth: options.fullDepth,
-      });
+      skills = await discover(tempDir);
     }
   } catch (error) {
     await cleanup(tempDir);
@@ -1274,35 +1531,69 @@ async function resolveSelectedDependencies(
   return expanded;
 }
 
-type TargetInstallResult = Awaited<ReturnType<typeof installSkillForAgent>> & {
+/** A well-known skill shaped as a Skill so it flows through installToTargets and the lock. */
+interface WellKnownSourceSkill extends Skill {
+  wellKnown: WellKnownSkill;
+}
+
+function isWellKnownSourceSkill(skill: Skill): skill is WellKnownSourceSkill {
+  return 'wellKnown' in skill;
+}
+
+/** Skills published at `url`'s well-known endpoint; null when it publishes none. */
+async function resolveWellKnownSkills(
+  url: string,
+  includeInternal: boolean
+): Promise<ResolvedSkills | null> {
+  const skills = await wellKnownProvider.fetchAllSkills(url, { includeInternal });
+  if (skills.length === 0) return null;
+  return {
+    skills: skills.map((wellKnown): WellKnownSourceSkill => ({
+      name: wellKnown.installName,
+      description: wellKnown.description,
+      path: '',
+      rawContent: wellKnown.content,
+      wellKnown,
+    })),
+    tempDir: null,
+    blobResult: null,
+  };
+}
+
+export type TargetInstallResult = Awaited<ReturnType<typeof installSkillForAgent>> & {
   skill: string;
   agent: string;
   pluginName?: string;
 };
 
+/** Where and how skills land on disk. */
+export interface InstallPlacement {
+  global: boolean;
+  targets: InstallTarget[];
+  mode: InstallMode;
+  createMissingAgentRoot?: (agent: AgentType) => boolean;
+}
+
 /** Install every skill into every target. Failures are returned per skill × target. */
-async function installToTargets(
+export async function installToTargets(
   resolved: ResolvedSkills,
   skills: Skill[],
-  targets: InstallTarget[],
-  options: {
-    global: boolean;
-    mode: InstallMode;
-    createMissingAgentRoot: (agent: AgentType) => boolean;
-  }
+  placement: InstallPlacement
 ): Promise<TargetInstallResult[]> {
   const results: TargetInstallResult[] = [];
   for (const skill of skills) {
-    for (const target of targets) {
+    for (const target of placement.targets) {
       const { agent, subagent } = target;
       const installOptions = {
-        global: options.global,
-        mode: options.mode,
+        global: placement.global,
+        mode: placement.mode,
         eveSubagent: subagent,
-        createMissingAgentRoot: options.createMissingAgentRoot(agent),
+        createMissingAgentRoot: placement.createMissingAgentRoot?.(agent) ?? false,
       };
       let result;
-      if (resolved.blobResult && 'files' in skill) {
+      if (isWellKnownSourceSkill(skill)) {
+        result = await installWellKnownSkillForAgent(skill.wellKnown, agent, installOptions);
+      } else if (resolved.blobResult && 'files' in skill) {
         // Blob-based install: write files from snapshot
         const blobSkill = skill as BlobSkill;
         result = await installBlobSkillForAgent(
@@ -1374,90 +1665,178 @@ function projectLockEntry(
   };
 }
 
+/** Well-known skills have no source folder, so hash the installed copy like runAdd does. */
+function globalWellKnownLockEntry(
+  baseUrl: string,
+  skill: WellKnownSkill
+): Parameters<typeof addSkillToLock>[1] {
+  return {
+    source: wellKnownProvider.getSourceIdentifier(baseUrl),
+    sourceType: 'well-known',
+    sourceUrl: skill.sourceUrl,
+    skillFolderHash: '',
+    sourceBaseUrl: baseUrl,
+    wellKnownDigest: computeWellKnownSkillDigest(skill),
+  };
+}
+
+function wellKnownLockEntry(
+  url: string,
+  skill: WellKnownSkill,
+  computedHash: string
+): LocalSkillLockEntry {
+  return {
+    source: wellKnownProvider.getSourceIdentifier(url),
+    sourceUrl: url,
+    sourceType: 'well-known',
+    computedHash,
+    wellKnownDigest: computeWellKnownSkillDigest(skill),
+  };
+}
+
+interface SourceRequest {
+  parsed: ParsedSource;
+  /** Skill names to keep; all when empty. */
+  skills: string[];
+  fullDepth?: boolean;
+}
+
+/** A source after its network phase; `resolved` owns a temp dir until it is installed. */
+export interface FetchedSource {
+  parsed: ParsedSource;
+  resolved: ResolvedSkills | null;
+  error?: string;
+}
+
 interface SourceInstallResult {
   installed: string[];
   failed: string[];
   error?: string;
 }
 
-export interface PreparedSourceInstall {
-  resolved: ResolvedSkills;
+export interface PreparedSource {
   roots: Skill[];
   selected: Skill[];
 }
 
-/** Prepare once before confirmation; the caller must clean up the returned source. */
-export async function prepareSourceInstall(
-  parsed: ParsedSource,
+/** Select the requested skills of a fetched source and close them over same-source dependencies. */
+export async function prepareFetched(
+  fetched: FetchedSource,
   skills: string[]
-): Promise<PreparedSourceInstall> {
-  const spinner = p.spinner();
-  let resolved: ResolvedSkills | undefined;
-  try {
-    resolved = await resolveSkills(parsed, { includeInternal: skills.length > 0 }, spinner);
-    let selected = skills.length ? filterSkills(resolved.skills, skills) : resolved.skills;
-    if (!selected.length) throw new Error('No matching skills found');
-    const rootNames = new Set(selected.map((skill) => skill.name));
-    selected = await resolveSelectedDependencies(parsed, resolved, selected, spinner);
-    const roots = selected.filter((skill) => rootNames.has(skill.name));
-    spinner.stop(`Found ${selected.length} skills`);
-    return { resolved, roots, selected };
-  } catch (error) {
-    spinner.stop('Resolution failed');
-    await cleanup(resolved?.tempDir ?? null);
-    throw error;
-  }
+): Promise<PreparedSource> {
+  const { parsed, resolved } = fetched;
+  if (!resolved) throw new Error(fetched.error ?? 'Source could not be resolved');
+  const roots = skills.length ? filterSkills(resolved.skills, skills) : resolved.skills;
+  if (!roots.length) throw new Error('No matching skills found');
+  const rootNames = new Set(roots.map((skill) => skill.name));
+  const selected = await resolveSelectedDependencies(parsed, resolved, roots, silentSpinner);
+  return { roots: selected.filter((skill) => rootNames.has(skill.name)), selected };
 }
 
-export async function cleanupPreparedSource(prepared: PreparedSourceInstall): Promise<void> {
-  await cleanup(prepared.resolved.tempDir);
+async function fetchSource({ parsed, skills, fullDepth }: SourceRequest): Promise<FetchedSource> {
+  const includeInternal = skills.length > 0;
+  try {
+    // Arbitrary URLs: prefer the well-known endpoint, else a direct download.
+    const resolved =
+      (parsed.type === 'well-known' &&
+        (await resolveWellKnownSkills(parsed.url, includeInternal))) ||
+      (await resolveSkills(
+        parsed,
+        { includeInternal, fullDepth, requestedSkills: skills },
+        silentSpinner
+      ));
+    return { parsed, resolved };
+  } catch (error) {
+    return {
+      parsed,
+      resolved: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 /**
- * Install skills from `parsed` at project scope without prompting or exiting:
- * keep `skills` (all when empty), let `select` drop any, install into
- * `agents`, and record the project lock (with `via` when given).
+ * Download every request at once under a single spinner. Results keep input
+ * order; a failed source is reported in its `error` and never throws.
  */
-export async function installFromSource(
-  parsed: ParsedSource,
+export async function fetchSources(requests: SourceRequest[]): Promise<FetchedSource[]> {
+  if (requests.length === 0) return [];
+  const label = `source${requests.length === 1 ? '' : 's'}`;
+  const spinner = p.spinner();
+  let done = 0;
+  spinner.start(`Downloading ${requests.length} ${label}…`);
+  const fetched = await mapConcurrent(requests, async (request) => {
+    const result = await fetchSource(request);
+    spinner.message(`Downloaded ${++done} of ${requests.length} ${label}…`);
+    return result;
+  });
+  spinner.stop(`Downloaded ${requests.length} ${label}`);
+  return fetched;
+}
+
+/** A skill at least one target accepted, hashed as the lock files record it. */
+export interface InstalledSkill {
+  skill: Skill;
+  hash: string;
+}
+
+export interface FetchedInstallOutcome {
+  installed: InstalledSkill[];
+  /** One line per failed skill × target. */
+  failed: string[];
+  error?: string;
+}
+
+/** Remove a fetched source's clone or download, if it has one. */
+export function releaseSource({ resolved }: FetchedSource): Promise<void> {
+  return cleanup(resolved?.tempDir ?? null);
+}
+
+/**
+ * Install a fetched source without prompting or exiting: keep `skills` (all
+ * when empty), let `select` drop any, and write into `placement`. Writes no
+ * lock file and keeps the temp dir, so one fetch can serve several installs;
+ * call releaseSource when done.
+ */
+export async function installFetched(
+  { resolved, error }: FetchedSource,
   options: {
     skills: string[];
-    agents: AgentType[];
-    via?: string;
-    copy?: boolean;
-    prepared?: PreparedSourceInstall;
+    placement: InstallPlacement;
+    /** Skills already resolved with their dependencies; replaces the default selection. */
+    prepared?: PreparedSource;
     select?: (skills: Skill[]) => Promise<Skill[]>;
   }
-): Promise<SourceInstallResult> {
-  let prepared = options.prepared;
+): Promise<FetchedInstallOutcome> {
+  if (!resolved) return { installed: [], failed: [], error };
   try {
-    prepared ??= await prepareSourceInstall(parsed, options.skills);
-    const { resolved } = prepared;
-    let selected = prepared.selected;
+    const { prepared } = options;
+    let selected =
+      prepared?.selected ??
+      (options.skills.length > 0 ? filterSkills(resolved.skills, options.skills) : resolved.skills);
+    if (selected.length === 0) {
+      return { installed: [], failed: [], error: 'No matching skills found' };
+    }
     if (options.select) {
       selected = await options.select(selected);
       // A retained root must not regain a dependency removed by the filter.
-      selected = resolveDependencyGraph(
-        prepared.roots.filter((root) => selected.includes(root)),
-        selected
-      );
+      if (prepared) {
+        selected = resolveDependencyGraph(
+          prepared.roots.filter((root) => selected.includes(root)),
+          selected
+        );
+      }
     }
 
-    const results = await installToTargets(
-      resolved,
-      selected,
-      options.agents.map((agent) => ({ agent })),
-      { global: false, mode: options.copy ? 'copy' : 'symlink', createMissingAgentRoot: () => true }
-    );
-    const installed = new Set(results.filter((r) => r.success).map((r) => r.skill));
-    const repoPaths = getSkillRepoPaths(resolved, selected);
+    const results = await installToTargets(resolved, selected, options.placement);
+    const installed: InstalledSkill[] = [];
     for (const skill of selected) {
-      if (!installed.has(getSkillDisplayName(skill))) continue;
-      const entry = projectLockEntry(parsed, repoPaths[skill.name], await sourceSkillHash(skill));
-      await addSkillToLocalLock(skill.name, { ...entry, ...(options.via && { via: options.via }) });
+      const target = results.find((r) => r.success && r.skill === getSkillDisplayName(skill));
+      if (!target) continue;
+      installed.push({ skill, hash: await installedSkillHash(skill, target) });
     }
     return {
-      installed: [...installed],
+      installed,
       failed: results.filter((r) => !r.success).map((r) => `${r.skill} → ${r.agent}: ${r.error}`),
     };
   } catch (error) {
@@ -1466,8 +1845,118 @@ export async function installFromSource(
       failed: [],
       error: error instanceof Error ? error.message : String(error),
     };
+  }
+}
+
+/** Project placement for restores and syncs: symlinked into `agents`, creating their roots. */
+export function projectPlacement(agents: AgentType[]): InstallPlacement {
+  return {
+    global: false,
+    targets: agents.map((agent) => ({ agent })),
+    mode: 'symlink',
+    createMissingAgentRoot: () => true,
+  };
+}
+
+/**
+ * Install a fetched source at project scope into `agents` and record the
+ * project lock (with `via` when given). With `frozenLock`, every skill must
+ * match its lock entry instead and the lock is left untouched.
+ */
+export async function installFromSource(
+  fetched: FetchedSource,
+  options: {
+    skills: string[];
+    agents: AgentType[];
+    via?: string;
+    copy?: boolean;
+    prepared?: PreparedSource;
+    select?: (skills: Skill[]) => Promise<Skill[]>;
+    frozenLock?: LocalSkillLockFile;
+  }
+): Promise<SourceInstallResult> {
+  const { frozenLock } = options;
+  let prepared = options.prepared;
+  if (!prepared && fetched.resolved) {
+    try {
+      prepared = await prepareFetched(fetched, options.skills);
+    } catch (error) {
+      await releaseSource(fetched);
+      return {
+        installed: [],
+        failed: [],
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+  const outcome = await installFetched(fetched, {
+    skills: options.skills,
+    prepared,
+    placement: { ...projectPlacement(options.agents), mode: options.copy ? 'copy' : 'symlink' },
+    select: async (skills) => {
+      const selected = options.select ? await options.select(skills) : skills;
+      if (!frozenLock) return selected;
+      // Refuse changed content before writing it; well-known skills can only be hashed once installed
+      const changes: string[] = [];
+      for (const skill of selected) {
+        if (isWellKnownSourceSkill(skill)) continue;
+        const hash = await sourceSkillHash(skill);
+        const reason = lockChangeReason(frozenLock, skill.name, { computedHash: hash });
+        if (reason) changes.push(reason);
+      }
+      if (changes.length > 0) throw new Error(frozenLockfileError(changes));
+      return selected;
+    },
+  });
+  const result: SourceInstallResult = {
+    installed: outcome.installed.map(({ skill }) => getSkillDisplayName(skill)),
+    failed: outcome.failed,
+    ...(outcome.error && { error: outcome.error }),
+  };
+  try {
+    if (frozenLock) {
+      const changes = outcome.installed.flatMap(
+        ({ skill, hash }) => lockChangeReason(frozenLock, skill.name, { computedHash: hash }) ?? []
+      );
+      if (changes.length > 0) result.error = frozenLockfileError(changes);
+    } else {
+      await recordProjectLock(fetched, outcome.installed, options.via);
+    }
+  } catch (error) {
+    result.error = error instanceof Error ? error.message : String(error);
   } finally {
-    if (prepared && !options.prepared) await cleanupPreparedSource(prepared);
+    await releaseSource(fetched);
+  }
+  return result;
+}
+
+/** Record `installed` in skills-lock.json as skills of `fetched` (with `via` when given). */
+export async function recordProjectLock(
+  { parsed, resolved }: FetchedSource,
+  installed: InstalledSkill[],
+  via?: string
+): Promise<void> {
+  if (!resolved) return;
+  const repoPaths = getSkillRepoPaths(
+    resolved,
+    installed.map(({ skill }) => skill)
+  );
+  for (const { skill, hash } of installed) {
+    const entry = isWellKnownSourceSkill(skill)
+      ? wellKnownLockEntry(parsed.url, skill.wellKnown, hash)
+      : projectLockEntry(parsed, repoPaths[skill.name], hash);
+    await addSkillToLocalLock(skill.name, { ...entry, ...(via && { via }) });
+  }
+}
+
+/** Record `installed` well-known skills of `baseUrl` in the global lock. */
+export async function recordGlobalWellKnownLock(
+  baseUrl: string,
+  installed: InstalledSkill[]
+): Promise<void> {
+  for (const { skill } of installed) {
+    if (!isWellKnownSourceSkill(skill)) continue;
+    await addSkillToLock(skill.name, globalWellKnownLockEntry(baseUrl, skill.wellKnown));
   }
 }
 
@@ -1477,6 +1966,13 @@ function sourceSkillHash(skill: Skill): Promise<string> {
   return 'snapshotHash' in skill
     ? Promise.resolve((skill as BlobSkill).snapshotHash)
     : computeSkillFolderHash(skill.path);
+}
+
+/** Well-known skills have no source folder, so hash the installed copy like runAdd does. */
+function installedSkillHash(skill: Skill, target: TargetInstallResult): Promise<string> {
+  return isWellKnownSourceSkill(skill)
+    ? computeSkillFolderHash(target.canonicalPath || target.path)
+    : sourceSkillHash(skill);
 }
 
 export async function runAdd(args: string[], options: AddOptions = {}): Promise<void> {
@@ -1611,6 +2107,19 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     showInstallTip();
   }
 
+  // Validate --agent before fetching the source or prompting for skills, so a
+  // typo fails immediately instead of after the user has picked their skills.
+  if (options.agent && !options.agent.includes('*')) {
+    const validAgents = Object.keys(agents);
+    const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
+
+    if (invalidAgents.length > 0) {
+      p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
+      p.log.info(`Valid agents: ${validAgents.join(', ')}`);
+      emitJsonAndExit(1, `Invalid agents: ${invalidAgents.join(', ')}`);
+    }
+  }
+
   let tempDir: string | null = null;
 
   try {
@@ -1633,15 +2142,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       options.skill = ['*'];
     }
 
-    // In json mode, use an inert spinner: clack spinners poll the terminal and
-    // write frames/cursor sequences that must never reach stdout.
-    const spinner = jsonMode
-      ? ({
-          start: () => {},
-          stop: () => {},
-          message: () => {},
-        } as unknown as ReturnType<typeof p.spinner>)
-      : p.spinner();
+    const spinner = jsonMode ? silentSpinner : p.spinner();
 
     spinner.start('Parsing source…');
     const parsed = parseSource(effectiveSource);
@@ -1711,7 +2212,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     const resolved = await resolveSkills(
       parsed,
-      { includeInternal, fullDepth: options.fullDepth },
+      { includeInternal, fullDepth: options.fullDepth, requestedSkills: options.skill },
       spinner
     );
     const { skills } = resolved;
@@ -1907,15 +2408,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       targetAgents = validAgents as AgentType[];
       p.log.info(`Installing to all ${targetAgents.length} agents`);
     } else if (options.agent && options.agent.length > 0) {
-      const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
-
-      if (invalidAgents.length > 0) {
-        p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
-        p.log.info(`Valid agents: ${validAgents.join(', ')}`);
-        await cleanup(tempDir);
-        emitJsonAndExit(1, `Invalid agents: ${invalidAgents.join(', ')}`);
-      }
-
+      // Already validated at the start of runAdd.
       targetAgents = options.agent as AgentType[];
     } else {
       spinner.start('Loading agents…');
@@ -2047,8 +2540,6 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
-    const installTargets = buildInstallTargets(targetAgents, eveSubagentTargets);
-
     let installGlobally = options.global ?? false;
 
     // Check if any selected agents support global installation
@@ -2079,21 +2570,19 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       installGlobally = scope as boolean;
     }
 
-    // Determine install mode (symlink vs copy)
-    let installMode: InstallMode = options.copy ? 'copy' : 'symlink';
+    targetAgents = skipAgentsWithoutGlobalDir(targetAgents, {
+      global: installGlobally,
+      explicit: options.agent !== undefined,
+    });
+    const installTargets = buildInstallTargets(targetAgents, eveSubagentTargets);
 
-    // Only prompt for install mode when there are multiple unique target directories.
-    // When all selected targets share the same skillsDir, symlink vs copy is meaningless.
-    // Eve writes skill files directly into each (sub)agent dir, so a symlink prompt is
-    // never meaningful when every target is Eve.
-    const allEve = installTargets.every((t) => t.agent === 'eve');
-    const uniqueDirs = new Set(
-      installTargets.map((t) =>
-        t.subagent ? `eve:subagent:${t.subagent}` : agents[t.agent].skillsDir
-      )
-    );
+    // Surface an unusable lock before touching disk rather than after installing.
+    if (!installGlobally) await readLocalLock();
 
-    if (!options.copy && !options.yes && uniqueDirs.size > 1 && !allEve) {
+    // Only prompt for install mode when a symlink would actually mean something.
+    let installMode: InstallMode = options.copy ? 'copy' : defaultInstallMode(installTargets);
+
+    if (!options.copy && !options.yes && installMode === 'symlink') {
       const modeChoice = await p.select({
         message: 'Installation method',
         options: [
@@ -2112,10 +2601,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
 
       installMode = modeChoice as InstallMode;
-    } else if (uniqueDirs.size <= 1 || allEve) {
-      // Single target directory (or all-Eve) — default to copy (no symlink needed)
-      installMode = 'copy';
     }
+    // Recorded only when chosen: otherwise `update` derives the same mode from its targets.
+    const lockedInstallMode =
+      installMode === 'copy' && (options.copy || defaultInstallMode(installTargets) === 'symlink')
+        ? { installMode: 'copy' as const }
+        : {};
 
     const cwd = process.cwd();
 
@@ -2245,8 +2736,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     spinner.start('Installing skills…');
 
-    const results = await installToTargets(resolved, selectedSkills, installTargets, {
+    const results = await installToTargets(resolved, selectedSkills, {
       global: installGlobally,
+      targets: installTargets,
       mode: installMode,
       createMissingAgentRoot: (agent) => explicitlySelectedAgents.has(agent),
     });
@@ -2363,6 +2855,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               skillPath: skillPathValue,
               skillFolderHash,
               pluginName: skill.pluginName,
+              ...lockedInstallMode,
             });
           } catch {
             // Don't fail installation if lock file update fails
@@ -2394,6 +2887,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               {
                 ...projectLockEntry(parsed, skillPathValue, computedHash),
                 ...(recordSubagents && { subagents: eveSubagents }),
+                ...lockedInstallMode,
               },
               cwd
             );

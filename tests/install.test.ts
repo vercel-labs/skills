@@ -12,10 +12,15 @@ vi.mock('../src/sync.ts', () => ({
 vi.mock('../src/agents.ts', () => ({
   getUniversalAgents: vi.fn().mockReturnValue(['cursor']),
 }));
+// The suite itself runs in CI, where --frozen-lockfile would otherwise default on
+vi.mock('../src/ci.ts', () => ({ isCI: () => false }));
 
 describe('runInstallFromLock', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(add.fetchSources).mockImplementation(async (requests) =>
+      requests.map(({ parsed }) => ({ parsed, resolved: null, error: 'not fetched' }))
+    );
     vi.mocked(add.installFromSource).mockResolvedValue({ installed: ['skill-a'], failed: [] });
   });
 
@@ -36,7 +41,9 @@ describe('runInstallFromLock', () => {
     await runInstallFromLock([]);
 
     expect(add.installFromSource).toHaveBeenCalledWith(
-      expect.objectContaining({ url: 'https://gitlab.example.com/acme/skills.git' }),
+      expect.objectContaining({
+        parsed: expect.objectContaining({ url: 'https://gitlab.example.com/acme/skills.git' }),
+      }),
       { skills: ['skill-a'], agents: ['cursor'] }
     );
   });
