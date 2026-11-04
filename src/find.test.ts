@@ -1,10 +1,72 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseFindOptions, runFind, searchSkillsAPI } from './find.ts';
+import * as detectAgent from './detect-agent.ts';
+import { stripVTControlCharacters } from 'node:util';
 
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
+  vi.useRealTimers();
+});
+
+it('navigates search results with Ctrl+P/Ctrl+N while plain p/n still search', async () => {
+  vi.useFakeTimers();
+  vi.spyOn(detectAgent, 'isRunningInAgent').mockResolvedValue(false);
+  vi.spyOn(process.stdin, 'resume').mockReturnValue(process.stdin);
+  const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+  vi.stubEnv('DISABLE_TELEMETRY', '1');
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      skills: ['one', 'two', 'three'].map((name, index) => ({
+        id: `owner/repo/${name}`,
+        name,
+        source: 'owner/repo',
+        installs: 3 - index,
+      })),
+    }),
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  const originalTTY = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+  const originalRawMode = Object.getOwnPropertyDescriptor(process.stdin, 'setRawMode');
+  Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+  Object.defineProperty(process.stdin, 'setRawMode', { configurable: true, value: vi.fn() });
+  const prompt = runFind([]);
+
+  try {
+    await vi.advanceTimersByTimeAsync(0);
+    for (const name of ['p', 'n']) {
+      process.stdin.emit('keypress', name, { name, sequence: name });
+    }
+    await vi.advanceTimersByTimeAsync(300);
+    expect(new URL(fetchMock.mock.calls[0]![0]).searchParams.get('q')).toBe('pn');
+
+    for (const [name, expected] of [
+      ['p', 'one'],
+      ['n', 'two'],
+      ['n', 'three'],
+      ['n', 'three'],
+      ['p', 'two'],
+    ]) {
+      write.mockClear();
+      process.stdin.emit('keypress', '', { name, ctrl: true });
+      const output = stripVTControlCharacters(write.mock.calls.map(([text]) => text).join(''));
+      expect(output).toContain(`> ${expected} `);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  } finally {
+    process.stdin.emit('keypress', '', { name: 'escape' });
+    await prompt;
+    for (const [key, descriptor] of [
+      ['isTTY', originalTTY],
+      ['setRawMode', originalRawMode],
+    ] as const) {
+      if (descriptor) Object.defineProperty(process.stdin, key, descriptor);
+      else Reflect.deleteProperty(process.stdin, key);
+    }
+  }
 });
 
 describe('parseFindOptions', () => {
