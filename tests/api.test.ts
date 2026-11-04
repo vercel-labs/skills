@@ -13,7 +13,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type Api = typeof import('../src/index.ts');
 
-const ENV_KEYS = ['HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'DISABLE_TELEMETRY'] as const;
+// USERPROFILE is what os.homedir() reads on Windows.
+const ENV_KEYS = [
+  'HOME',
+  'USERPROFILE',
+  'XDG_CONFIG_HOME',
+  'XDG_STATE_HOME',
+  'DISABLE_TELEMETRY',
+] as const;
 // Agent home overrides; any of them would point global installs outside the temp HOME.
 const AGENT_HOME_KEYS = [
   'APPDATA',
@@ -56,6 +63,7 @@ beforeEach(async () => {
   );
   for (const key of AGENT_HOME_KEYS) delete process.env[key];
   process.env.HOME = join(root, 'home');
+  process.env.USERPROFILE = process.env.HOME;
   process.env.XDG_CONFIG_HOME = join(root, 'home', '.config');
   process.env.XDG_STATE_HOME = join(root, 'home', '.local', 'state');
   process.env.DISABLE_TELEMETRY = '1';
