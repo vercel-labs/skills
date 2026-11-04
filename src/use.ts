@@ -14,6 +14,7 @@ import type { AgentType, Skill } from './types.ts';
 import { downloadSource } from './download-source.ts';
 import {
   wellKnownProvider,
+  WellKnownIntegrityError,
   WellKnownScopeNotFoundError,
   type WellKnownSkill,
   type WellKnownFileContent,
@@ -223,7 +224,12 @@ export async function runUse(
           includeInternal,
         })
         .catch((error) => {
-          if (error instanceof WellKnownScopeNotFoundError) fail(error.message);
+          if (
+            error instanceof WellKnownScopeNotFoundError ||
+            error instanceof WellKnownIntegrityError
+          ) {
+            fail(error.message);
+          }
           return [] as WellKnownSkill[];
         });
       if (skills.length > 0) {

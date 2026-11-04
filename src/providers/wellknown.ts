@@ -50,6 +50,14 @@ export interface WellKnownSkillEntryV2 {
   digest: string;
 }
 
+/** A published artifact failed verification and must not fall back to an unchecked source. */
+export class WellKnownIntegrityError extends Error {
+  constructor(skillName: string, expected: string, actual: string) {
+    super(`Digest mismatch for skill '${skillName}': expected ${expected}, received ${actual}.`);
+    this.name = 'WellKnownIntegrityError';
+  }
+}
+
 /**
  * Thrown when a path-scoped URL (for example https://host/s/my-list) has no
  * usable skills under that path while the host does publish a root index.
@@ -414,7 +422,8 @@ export class WellKnownProvider implements HostProvider {
       }
 
       return null;
-    } catch {
+    } catch (error) {
+      if (error instanceof WellKnownIntegrityError) throw error;
       return null;
     }
   }
@@ -508,7 +517,10 @@ export class WellKnownProvider implements HostProvider {
 
       const contentType = response.headers.get('content-type') ?? '';
       const bytes = new Uint8Array(await response.arrayBuffer());
-      if (this.computeDigest(bytes) !== entry.digest) return null;
+      const actualDigest = this.computeDigest(bytes);
+      if (actualDigest !== entry.digest) {
+        throw new WellKnownIntegrityError(entry.name, entry.digest, actualDigest);
+      }
 
       if (entry.type === 'skill-md') {
         const content = new TextDecoder().decode(bytes);
@@ -551,7 +563,8 @@ export class WellKnownProvider implements HostProvider {
         files,
         indexEntry: entry.indexEntry,
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof WellKnownIntegrityError) throw error;
       return null;
     }
   }
@@ -603,6 +616,8 @@ export class WellKnownProvider implements HostProvider {
    * If the scope yields no skills but the host publishes a root index, this
    * throws {@link WellKnownScopeNotFoundError} instead of silently widening
    * to the root index and returning the host's entire catalog.
+   * Digest mismatches throw {@link WellKnownIntegrityError} rather than
+   * downgrading to an index or download without integrity verification.
    */
   async fetchAllSkills(
     url: string,
@@ -631,7 +646,12 @@ export class WellKnownProvider implements HostProvider {
 
       return [];
     } catch (error) {
-      if (error instanceof WellKnownScopeNotFoundError) throw error;
+      if (
+        error instanceof WellKnownScopeNotFoundError ||
+        error instanceof WellKnownIntegrityError
+      ) {
+        throw error;
+      }
       return [];
     }
   }

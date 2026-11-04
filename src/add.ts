@@ -36,6 +36,7 @@ import { detectAgent, getAgentType } from './detect-agent.ts';
 import {
   wellKnownProvider,
   computeWellKnownSkillDigest,
+  WellKnownIntegrityError,
   WellKnownScopeNotFoundError,
   type WellKnownSkill,
 } from './providers/index.ts';
@@ -892,8 +893,12 @@ async function handleWellKnownSkills(
       ),
     });
   } catch (error) {
-    if (error instanceof WellKnownScopeNotFoundError) {
-      spinner.stop(pc.red('No matching skills'));
+    if (error instanceof WellKnownScopeNotFoundError || error instanceof WellKnownIntegrityError) {
+      spinner.stop(
+        pc.red(
+          error instanceof WellKnownIntegrityError ? 'Integrity check failed' : 'No matching skills'
+        )
+      );
       p.log.error(error.message);
       process.exit(1);
     }
