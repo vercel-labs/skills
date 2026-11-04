@@ -353,10 +353,13 @@ function isHostedArtifactUrl(input: string): boolean {
  * `githubHost` pins `owner/repo` shorthand to a host regardless of GH_HOST,
  * for inputs known to come from github.com (e.g. a public lock entry).
  */
-export function parseSource(input: string, options: { githubHost?: string } = {}): ParsedSource {
+export function parseSource(
+  input: string,
+  options: { githubHost?: string; cwd?: string } = {}
+): ParsedSource {
   // Local path: absolute, relative, or current directory
   if (isLocalPath(input)) {
-    const resolvedPath = resolve(input);
+    const resolvedPath = resolve(options.cwd ?? process.cwd(), input);
     // Return local type even if path doesn't exist - we'll handle validation in main flow
     return {
       type: 'local',

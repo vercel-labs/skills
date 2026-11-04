@@ -76,6 +76,244 @@ function isSameDir(a: string, b: string): boolean {
   }
 }
 
+/** Names of skill folders (holding a SKILL.md) installed in `cwd` or globally. */
+export async function scanInstalledSkillNames(
+  isGlobal: boolean,
+  cwd: string,
+  onWarn?: (message: string) => void
+): Promise<string[]> {
+  const skillNamesSet = new Set<string>();
+
+  const scanDir = async (dir: string) => {
+    try {
+      const entries = await readdir(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        // Dot-directories belong to the agent, not to us: sanitizeName() strips
+        // leading dots, so a skill can never be installed under such a name and
+        // removal could never address one either. Offering Codex's bundled
+        // `$CODEX_HOME/skills/.system` was always a dead entry.
+        if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+
+        // A directory is only a skill if it holds a SKILL.md, which is what
+        // listInstalledSkills() already requires. Without this, any directory
+        // in a scanned path counted as installed — including the contents of a
+        // source repo's `skills/` folder, which is also OpenClaw's project
+        // install dir and so is always scanned.
+        if (!(await hasSkillMd(join(dir, entry.name)))) continue;
+
+        skillNamesSet.add(entry.name);
+      }
+    } catch (err) {
+      if (err instanceof Error && (err as { code?: string }).code !== 'ENOENT') {
+        onWarn?.(`Could not scan directory ${dir}: ${err.message}`);
+      }
+    }
+  };
+
+  if (isGlobal) {
+    await scanDir(getCanonicalSkillsDir(true, cwd));
+    for (const agent of Object.values(agents)) {
+      if (agent.globalSkillsDir !== undefined) {
+        await scanDir(agent.globalSkillsDir);
+      }
+    }
+  } else {
+    await scanDir(getCanonicalSkillsDir(false, cwd));
+    for (const agent of Object.values(agents)) {
+      await scanDir(join(cwd, agent.skillsDir));
+    }
+    // Eve subagents keep their skills under agent/subagents/<name>/skills.
+    for (const subagent of getEveSubagents(cwd)) {
+      await scanDir(getEveSubagentSkillsDir(subagent, cwd));
+    }
+  }
+
+  return Array.from(skillNamesSet).sort();
+}
+
+/**
+ * Skills in `selected` a project-scoped remove must refuse: when the project
+ * skills dir is the global one (cwd is home), removing would delete a globally
+ * tracked skill and leave its global lock entry (#2469).
+ */
+export async function findGloballyTrackedSkills(
+  selected: string[],
+  cwd: string
+): Promise<string[]> {
+  if (!isSameDir(getCanonicalSkillsDir(false, cwd), getCanonicalSkillsDir(true))) return [];
+  const lockEntries = (await readLocalLock(cwd)).skills;
+  const globalNames = new Set(Object.keys((await readSkillLock()).skills).map(sanitizeName));
+  return selected.filter((s) => !lockEntries[s] && globalNames.has(sanitizeName(s)));
+}
+
+export interface RemoveSkillResult {
+  skill: string;
+  success: boolean;
+  source?: string;
+  sourceType?: string;
+  error?: string;
+  /** False when another installed agent still links the skill, so its canonical copy stays. */
+  canonicalRemoved?: boolean;
+}
+
+/**
+ * Remove `skills` from `targetAgents` without prompting or exiting. The
+ * canonical copy and lock entry go only when no other installed agent uses them.
+ */
+export async function removeInstalledSkills(
+  skills: string[],
+  options: {
+    global: boolean;
+    cwd: string;
+    targetAgents: AgentType[];
+    /** Update the lock file; defaults to true. */
+    lockfile?: boolean;
+    onWarn?: (message: string) => void;
+  }
+): Promise<RemoveSkillResult[]> {
+  const { global: isGlobal, cwd, targetAgents } = options;
+  const results: RemoveSkillResult[] = [];
+
+  for (const skillName of skills) {
+    try {
+      const canonicalPath = getCanonicalPath(skillName, { global: isGlobal, cwd });
+
+      for (const agentKey of targetAgents) {
+        const agent = agents[agentKey];
+        const skillPath = getInstallPath(skillName, agentKey, { global: isGlobal, cwd });
+
+        // Determine potential paths to cleanup. For universal agents, getInstallPath
+        // now returns the canonical path, so we also need to check their 'native'
+        // directory to clean up any legacy symlinks.
+        const pathsToCleanup = new Set([skillPath]);
+        const sanitizedName = sanitizeName(skillName);
+        if (isGlobal && agent.globalSkillsDir) {
+          pathsToCleanup.add(join(agent.globalSkillsDir, sanitizedName));
+        } else {
+          pathsToCleanup.add(join(cwd, agent.skillsDir, sanitizedName));
+          // Eve skills may also live in subagent directories.
+          if (agentKey === 'eve') {
+            for (const subagent of getEveSubagents(cwd)) {
+              pathsToCleanup.add(join(getEveSubagentSkillsDir(subagent, cwd), sanitizedName));
+            }
+          }
+        }
+
+        for (const pathToCleanup of pathsToCleanup) {
+          // Skip if this is the canonical path - we'll handle that after checking all agents
+          if (pathToCleanup === canonicalPath) {
+            continue;
+          }
+
+          try {
+            const stats = await lstat(pathToCleanup).catch(() => null);
+            if (stats) {
+              await rm(pathToCleanup, { recursive: true, force: true });
+            }
+          } catch (err) {
+            options.onWarn?.(
+              `Could not remove skill from ${agent.displayName}: ${
+                err instanceof Error ? err.message : String(err)
+              }`
+            );
+          }
+        }
+      }
+
+      // Only remove the canonical path if no other installed agents are using it.
+      // This prevents breaking other agents when uninstalling from a specific agent (#287).
+      const installedAgents = await detectInstalledAgents(cwd);
+      const remainingAgents = installedAgents.filter((a) => !targetAgents.includes(a));
+
+      let isStillUsed = false;
+      for (const agentKey of remainingAgents) {
+        const path = getInstallPath(skillName, agentKey, { global: isGlobal, cwd });
+        const exists = await lstat(path).catch(() => null);
+        if (exists) {
+          isStillUsed = true;
+          break;
+        }
+      }
+
+      if (!isStillUsed) {
+        await rm(canonicalPath, { recursive: true, force: true });
+      }
+
+      let effectiveSource = 'local';
+      let effectiveSourceType = 'local';
+      const updateLock = options.lockfile !== false && !isStillUsed;
+
+      // The lock entry tracks the canonical path, so it survives for as long as
+      // that path does. Dropping it while another installed agent still links
+      // the skill leaves the skill in place but no longer updatable (#1718).
+      if (isGlobal) {
+        const lockEntry = await getSkillFromLock(skillName);
+        effectiveSource = lockEntry?.source || 'local';
+        effectiveSourceType = lockEntry?.sourceType || 'local';
+        if (updateLock) {
+          await removeSkillFromLock(skillName);
+        }
+      } else {
+        const localLock = await readLocalLock(cwd);
+        const lockEntry = localLock.skills[skillName];
+        effectiveSource = lockEntry?.source || 'local';
+        effectiveSourceType = lockEntry?.sourceType || 'local';
+        if (updateLock) {
+          await removeSkillFromLocalLock(skillName, cwd);
+        }
+      }
+
+      results.push({
+        skill: skillName,
+        success: true,
+        source: effectiveSource,
+        sourceType: effectiveSourceType,
+        canonicalRemoved: !isStillUsed,
+      });
+    } catch (err) {
+      results.push({
+        skill: skillName,
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return results;
+}
+
+/** Send one remove telemetry event per source of the successful removals. */
+export function trackRemovals(
+  results: RemoveSkillResult[],
+  targetAgents: AgentType[],
+  isGlobal: boolean
+): void {
+  const successful = results.filter((r) => r.success);
+  if (successful.length === 0) return;
+  const bySource = new Map<string, { skills: string[]; sourceType?: string }>();
+
+  for (const r of successful) {
+    // A local lock entry's source is an absolute path on the user's machine; telemetry only
+    // ever receives the generic 'local' for it.
+    const source = r.sourceType === 'local' ? 'local' : r.source || 'local';
+    const existing = bySource.get(source) || { skills: [] };
+    existing.skills.push(r.skill);
+    existing.sourceType = r.sourceType;
+    bySource.set(source, existing);
+  }
+
+  for (const [source, data] of bySource) {
+    track({
+      event: 'remove',
+      source,
+      skills: data.skills.join(','),
+      agents: targetAgents.join(','),
+      ...(isGlobal && { global: '1' }),
+      sourceType: data.sourceType,
+    });
+  }
+}
+
 export async function removeCommand(skillNames: string[], options: RemoveOptions) {
   // Auto-enable non-interactive mode when running inside an AI agent
   const agentResult = await detectAgent();
@@ -113,53 +351,9 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   const spinner = p.spinner();
 
   spinner.start('Scanning for installed skills…');
-  const skillNamesSet = new Set<string>();
-
-  const scanDir = async (dir: string) => {
-    try {
-      const entries = await readdir(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        // Dot-directories belong to the agent, not to us: sanitizeName() strips
-        // leading dots, so a skill can never be installed under such a name and
-        // removal could never address one either. Offering Codex's bundled
-        // `$CODEX_HOME/skills/.system` was always a dead entry.
-        if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
-
-        // A directory is only a skill if it holds a SKILL.md, which is what
-        // listInstalledSkills() already requires. Without this, any directory
-        // in a scanned path counted as installed — including the contents of a
-        // source repo's `skills/` folder, which is also OpenClaw's project
-        // install dir and so is always scanned.
-        if (!(await hasSkillMd(join(dir, entry.name)))) continue;
-
-        skillNamesSet.add(entry.name);
-      }
-    } catch (err) {
-      if (err instanceof Error && (err as { code?: string }).code !== 'ENOENT') {
-        p.log.warn(`Could not scan directory ${dir}: ${err.message}`);
-      }
-    }
-  };
-
-  if (isGlobal) {
-    await scanDir(getCanonicalSkillsDir(true, cwd));
-    for (const agent of Object.values(agents)) {
-      if (agent.globalSkillsDir !== undefined) {
-        await scanDir(agent.globalSkillsDir);
-      }
-    }
-  } else {
-    await scanDir(getCanonicalSkillsDir(false, cwd));
-    for (const agent of Object.values(agents)) {
-      await scanDir(join(cwd, agent.skillsDir));
-    }
-    // Eve subagents keep their skills under agent/subagents/<name>/skills.
-    for (const subagent of getEveSubagents(cwd)) {
-      await scanDir(getEveSubagentSkillsDir(subagent, cwd));
-    }
-  }
-
-  const installedSkills = Array.from(skillNamesSet).sort();
+  const installedSkills = await scanInstalledSkillNames(isGlobal, cwd, (message) =>
+    p.log.warn(message)
+  );
   spinner.stop(`Found ${installedSkills.length} unique installed skill(s)`);
 
   // Read lock file keys up front. These are needed both to decide whether there is
@@ -227,11 +421,8 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
   // When the project skills dir is the global one (cwd is home), a project-scoped
   // remove would delete a globally tracked skill and leave its global lock entry (#2469).
-  if (!isGlobal && isSameDir(getCanonicalSkillsDir(false, cwd), getCanonicalSkillsDir(true))) {
-    const globalNames = new Set(Object.keys((await readSkillLock()).skills).map(sanitizeName));
-    const globallyTracked = selectedSkills.filter(
-      (s) => !lockEntries[s] && globalNames.has(sanitizeName(s))
-    );
+  if (!isGlobal) {
+    const globallyTracked = await findGloballyTrackedSkills(selectedSkills, cwd);
     if (globallyTracked.length > 0) {
       p.log.error(`Tracked in the global lock: ${globallyTracked.join(', ')}`);
       p.log.info(`Remove globally with: skills remove ${globallyTracked.join(' ')} -g`);
@@ -269,147 +460,19 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
   spinner.start('Removing skills…');
 
-  const results: {
-    skill: string;
-    success: boolean;
-    source?: string;
-    sourceType?: string;
-    error?: string;
-  }[] = [];
-
-  for (const skillName of selectedSkills) {
-    try {
-      const canonicalPath = getCanonicalPath(skillName, { global: isGlobal, cwd });
-
-      for (const agentKey of targetAgents) {
-        const agent = agents[agentKey];
-        const skillPath = getInstallPath(skillName, agentKey, { global: isGlobal, cwd });
-
-        // Determine potential paths to cleanup. For universal agents, getInstallPath
-        // now returns the canonical path, so we also need to check their 'native'
-        // directory to clean up any legacy symlinks.
-        const pathsToCleanup = new Set([skillPath]);
-        const sanitizedName = sanitizeName(skillName);
-        if (isGlobal && agent.globalSkillsDir) {
-          pathsToCleanup.add(join(agent.globalSkillsDir, sanitizedName));
-        } else {
-          pathsToCleanup.add(join(cwd, agent.skillsDir, sanitizedName));
-          // Eve skills may also live in subagent directories.
-          if (agentKey === 'eve') {
-            for (const subagent of getEveSubagents(cwd)) {
-              pathsToCleanup.add(join(getEveSubagentSkillsDir(subagent, cwd), sanitizedName));
-            }
-          }
-        }
-
-        for (const pathToCleanup of pathsToCleanup) {
-          // Skip if this is the canonical path - we'll handle that after checking all agents
-          if (pathToCleanup === canonicalPath) {
-            continue;
-          }
-
-          try {
-            const stats = await lstat(pathToCleanup).catch(() => null);
-            if (stats) {
-              await rm(pathToCleanup, { recursive: true, force: true });
-            }
-          } catch (err) {
-            p.log.warn(
-              `Could not remove skill from ${agent.displayName}: ${
-                err instanceof Error ? err.message : String(err)
-              }`
-            );
-          }
-        }
-      }
-
-      // Only remove the canonical path if no other installed agents are using it.
-      // This prevents breaking other agents when uninstalling from a specific agent (#287).
-      const installedAgents = await detectInstalledAgents();
-      const remainingAgents = installedAgents.filter((a) => !targetAgents.includes(a));
-
-      let isStillUsed = false;
-      for (const agentKey of remainingAgents) {
-        const path = getInstallPath(skillName, agentKey, { global: isGlobal, cwd });
-        const exists = await lstat(path).catch(() => null);
-        if (exists) {
-          isStillUsed = true;
-          break;
-        }
-      }
-
-      if (!isStillUsed) {
-        await rm(canonicalPath, { recursive: true, force: true });
-      }
-
-      let effectiveSource = 'local';
-      let effectiveSourceType = 'local';
-
-      // The lock entry tracks the canonical path, so it survives for as long as
-      // that path does. Dropping it while another installed agent still links
-      // the skill leaves the skill in place but no longer updatable (#1718).
-      if (isGlobal) {
-        const lockEntry = await getSkillFromLock(skillName);
-        effectiveSource = lockEntry?.source || 'local';
-        effectiveSourceType = lockEntry?.sourceType || 'local';
-        if (!isStillUsed) {
-          await removeSkillFromLock(skillName);
-        }
-      } else {
-        const localLock = await readLocalLock(cwd);
-        const lockEntry = localLock.skills[skillName];
-        effectiveSource = lockEntry?.source || 'local';
-        effectiveSourceType = lockEntry?.sourceType || 'local';
-        if (!isStillUsed) {
-          await removeSkillFromLocalLock(skillName, cwd);
-        }
-      }
-
-      results.push({
-        skill: skillName,
-        success: true,
-        source: effectiveSource,
-        sourceType: effectiveSourceType,
-      });
-    } catch (err) {
-      results.push({
-        skill: skillName,
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
+  const results = await removeInstalledSkills(selectedSkills, {
+    global: isGlobal,
+    cwd,
+    targetAgents,
+    onWarn: (message) => p.log.warn(message),
+  });
 
   spinner.stop('Removal process complete');
 
   const successful = results.filter((r) => r.success);
   const failed = results.filter((r) => !r.success);
 
-  // Track removal (grouped by source)
-  if (successful.length > 0) {
-    const bySource = new Map<string, { skills: string[]; sourceType?: string }>();
-
-    for (const r of successful) {
-      // A local lock entry's source is an absolute path on the user's machine; telemetry only
-      // ever receives the generic 'local' for it.
-      const source = r.sourceType === 'local' ? 'local' : r.source || 'local';
-      const existing = bySource.get(source) || { skills: [] };
-      existing.skills.push(r.skill);
-      existing.sourceType = r.sourceType;
-      bySource.set(source, existing);
-    }
-
-    for (const [source, data] of bySource) {
-      track({
-        event: 'remove',
-        source,
-        skills: data.skills.join(','),
-        agents: targetAgents.join(','),
-        ...(isGlobal && { global: '1' }),
-        sourceType: data.sourceType,
-      });
-    }
-  }
+  trackRemovals(results, targetAgents, isGlobal);
 
   if (successful.length > 0) {
     p.log.success(pc.green(`Successfully removed ${successful.length} skill(s)`));

@@ -382,11 +382,13 @@ function ensureUniversalAgents(targetAgents: AgentType[]): AgentType[] {
  * inside (plus universal), else Eve alone when present, else every agent when
  * none is detected, else the detected ones plus universal.
  */
-export async function nonInteractiveTargetAgents(): Promise<AgentType[]> {
+export async function nonInteractiveTargetAgents(
+  cwd: string = process.cwd()
+): Promise<AgentType[]> {
   const detected = await detectAgent();
   const hostAgent = detected.isAgent ? getAgentType(detected.agent.name) : null;
   if (hostAgent) return ensureUniversalAgents([hostAgent]);
-  const installed = await detectInstalledAgents();
+  const installed = await detectInstalledAgents(cwd);
   if (installed.includes('eve')) return ['eve'];
   if (installed.length === 0) return Object.keys(agents) as AgentType[];
   return ensureUniversalAgents(installed);
@@ -1511,7 +1513,9 @@ async function resolveWellKnownSkills(
 
 export type TargetInstallResult = Awaited<ReturnType<typeof installSkillForAgent>> & {
   skill: string;
+  /** Display name of the target, e.g. "Eve (research)". */
   agent: string;
+  agentType: AgentType;
   pluginName?: string;
 };
 
@@ -1521,6 +1525,8 @@ export interface InstallPlacement {
   targets: InstallTarget[];
   mode: InstallMode;
   createMissingAgentRoot?: (agent: AgentType) => boolean;
+  /** Project directory; defaults to process.cwd(). */
+  cwd?: string;
 }
 
 /** Install every skill into every target. Failures are returned per skill × target. */
@@ -1535,6 +1541,7 @@ export async function installToTargets(
       const { agent, subagent } = target;
       const installOptions = {
         global: placement.global,
+        cwd: placement.cwd,
         mode: placement.mode,
         eveSubagent: subagent,
         createMissingAgentRoot: placement.createMissingAgentRoot?.(agent) ?? false,
@@ -1561,6 +1568,7 @@ export async function installToTargets(
       results.push({
         skill: getSkillDisplayName(skill),
         agent: targetDisplayName(target),
+        agentType: agent,
         pluginName: skill.pluginName,
         ...result,
       });
@@ -1643,11 +1651,13 @@ function wellKnownLockEntry(
   };
 }
 
-interface SourceRequest {
+export interface SourceRequest {
   parsed: ParsedSource;
   /** Skill names to keep; all when empty. */
   skills: string[];
   fullDepth?: boolean;
+  /** Include `metadata.internal` skills; defaults to true when `skills` names any. */
+  includeInternal?: boolean;
 }
 
 /** A source after its network phase; `resolved` owns a temp dir until it is installed. */
@@ -1663,8 +1673,16 @@ interface SourceInstallResult {
   error?: string;
 }
 
-async function fetchSource({ parsed, skills, fullDepth }: SourceRequest): Promise<FetchedSource> {
-  const includeInternal = skills.length > 0;
+/**
+ * Download one source and discover its skills without any terminal output.
+ * A failure is reported in `error` and never throws.
+ */
+export async function fetchSource({
+  parsed,
+  skills,
+  fullDepth,
+  includeInternal = skills.length > 0,
+}: SourceRequest): Promise<FetchedSource> {
   try {
     // Arbitrary URLs: prefer the well-known endpoint, else a direct download.
     const resolved =
@@ -1821,7 +1839,7 @@ export async function installFromSource(
       );
       if (changes.length > 0) result.error = frozenLockfileError(changes);
     } else {
-      await recordProjectLock(fetched, outcome.installed, options.via);
+      await recordProjectLock(fetched, outcome.installed, { via: options.via });
     }
   } catch (error) {
     result.error = error instanceof Error ? error.message : String(error);
@@ -1835,8 +1853,9 @@ export async function installFromSource(
 export async function recordProjectLock(
   { parsed, resolved }: FetchedSource,
   installed: InstalledSkill[],
-  via?: string
+  options: { via?: string; cwd?: string; installMode?: 'copy' } = {}
 ): Promise<void> {
+  const { via, cwd, installMode } = options;
   if (!resolved) return;
   const repoPaths = getSkillRepoPaths(
     resolved,
@@ -1846,7 +1865,11 @@ export async function recordProjectLock(
     const entry = isWellKnownSourceSkill(skill)
       ? wellKnownLockEntry(parsed.url, skill.wellKnown, hash)
       : projectLockEntry(parsed, repoPaths[skill.name], hash);
-    await addSkillToLocalLock(skill.name, { ...entry, ...(via && { via }) });
+    await addSkillToLocalLock(
+      skill.name,
+      { ...entry, ...(via && { via }), ...(installMode && { installMode }) },
+      cwd
+    );
   }
 }
 
@@ -1861,6 +1884,118 @@ export async function recordGlobalWellKnownLock(
   }
 }
 
+/**
+ * Record `skills` of `fetched` in the global lock for update tracking. Lock
+ * write failures are ignored per skill; installation already succeeded.
+ */
+export async function recordGlobalLock(
+  { parsed, resolved }: FetchedSource,
+  skills: Skill[],
+  options: { directDownload?: boolean; lockedInstallMode?: { installMode?: 'copy' } } = {}
+): Promise<void> {
+  if (!resolved || skills.length === 0) return;
+  const directDownload = options.directDownload ?? parsed.type === 'download';
+  const normalizedSource = directDownload ? null : getOwnerRepo(parsed);
+  // Only a remote source or a real local path can be re-fetched by `update`.
+  if (!normalizedSource && !(parsed.type === 'local' && !directDownload)) return;
+  const lockSource = directDownload ? null : getLockSource(parsed.url, normalizedSource);
+  const { blobResult, tempDir } = resolved;
+  const skillFiles = getSkillRepoPaths(resolved, skills);
+
+  // For GitHub clone installs, fetch the repo tree once and reuse it
+  // for all skills — avoids N sequential API calls that take ~400ms each.
+  let cachedTree: Awaited<ReturnType<typeof fetchRepoTree>> | undefined;
+  if (parsed.type === 'github' && !blobResult && normalizedSource) {
+    cachedTree = await fetchRepoTree(normalizedSource, parsed.ref, getGitHubToken);
+  }
+
+  for (const skill of skills) {
+    try {
+      let skillFolderHash = '';
+      const skillPathValue = skillFiles[skill.name];
+
+      if (blobResult && skillPathValue) {
+        const hash = getSkillFolderHashFromTree(blobResult.tree, skillPathValue);
+        if (hash) skillFolderHash = hash;
+      } else if (parsed.type === 'github' && skillPathValue && cachedTree) {
+        const hash = getSkillFolderHashFromTree(cachedTree, skillPathValue);
+        if (hash) skillFolderHash = hash;
+      } else if (skillPathValue && tempDir) {
+        const skillDir = join(tempDir, dirname(skillPathValue));
+        const hash = await computeSkillFolderHash(skillDir);
+        if (hash) skillFolderHash = hash;
+      } else if (parsed.type === 'local') {
+        // Local sources aren't cloned into tempDir, so hash the skill's
+        // own directory directly (same approach as the project-scope lock).
+        const hash = await computeSkillFolderHash(skill.path);
+        if (hash) skillFolderHash = hash;
+      }
+
+      await addSkillToLock(skill.name, {
+        source: lockSource || normalizedSource || parsed.url,
+        sourceType: parsed.type,
+        sourceUrl: parsed.url,
+        ref: parsed.ref,
+        skillPath: skillPathValue,
+        skillFolderHash,
+        pluginName: skill.pluginName,
+        ...options.lockedInstallMode,
+      });
+    } catch {
+      // Don't fail installation if lock file update fails
+    }
+  }
+}
+
+/**
+ * Send install telemetry for `skills` of `fetched`, as `add` does: GitHub
+ * sources only when the repo is known to be public, well-known sources unless
+ * known to be private, and nothing for local paths or direct downloads.
+ */
+export async function trackSourceInstall(
+  { parsed, resolved }: FetchedSource,
+  skills: Skill[],
+  options: { agents: string[]; global: boolean; metadata?: string }
+): Promise<void> {
+  if (!resolved || skills.length === 0) return;
+  const common = {
+    event: 'install' as const,
+    agents: options.agents.join(','),
+    ...(options.global && { global: '1' as const }),
+    metadata: options.metadata,
+  };
+
+  const wellKnown = skills.filter(isWellKnownSourceSkill);
+  if (wellKnown.length > 0) {
+    const sourceIdentifier = wellKnownProvider.getSourceIdentifier(parsed.url);
+    if ((await isSourcePrivate(sourceIdentifier)) === true) return;
+    track({
+      ...common,
+      source: sourceIdentifier,
+      skills: wellKnown.map((s) => s.name).join(','),
+      skillFiles: JSON.stringify(
+        Object.fromEntries(wellKnown.map((s) => [s.name, s.wellKnown.sourceUrl]))
+      ),
+      installUrl: parsed.url,
+      sourceType: 'well-known',
+    });
+    return;
+  }
+
+  if (parsed.type === 'download') return;
+  const normalizedSource = getOwnerRepo(parsed);
+  if (!normalizedSource) return;
+  // If we can't determine privacy (null), err on the side of caution and skip telemetry
+  const ownerRepo = parseOwnerRepo(normalizedSource);
+  if (ownerRepo && (await isRepoPrivate(ownerRepo.owner, ownerRepo.repo)) !== false) return;
+  track({
+    ...common,
+    source: normalizedSource,
+    skills: skills.map((s) => s.name).join(','),
+    skillFiles: JSON.stringify(getSkillRepoPaths(resolved, skills)),
+  });
+}
+
 /** Content hash of a skill at its source: the blob snapshot, or the folder on disk. */
 function sourceSkillHash(skill: Skill): Promise<string> {
   // snapshotHash is only present on BlobSkill
@@ -1870,7 +2005,7 @@ function sourceSkillHash(skill: Skill): Promise<string> {
 }
 
 /** Well-known skills have no source folder, so hash the installed copy like runAdd does. */
-function installedSkillHash(skill: Skill, target: TargetInstallResult): Promise<string> {
+export function installedSkillHash(skill: Skill, target: TargetInstallResult): Promise<string> {
   return isWellKnownSourceSkill(skill)
     ? computeSkillFolderHash(target.canonicalPath || target.path)
     : sourceSkillHash(skill);
@@ -2708,52 +2843,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       installGlobally &&
       (normalizedSource || (parsed.type === 'local' && !directDownload))
     ) {
-      // For GitHub clone installs, fetch the repo tree once and reuse it
-      // for all skills — avoids N sequential API calls that take ~400ms each.
-      let cachedTree: Awaited<ReturnType<typeof fetchRepoTree>> | undefined;
-      if (parsed.type === 'github' && !blobResult && normalizedSource) {
-        cachedTree = await fetchRepoTree(normalizedSource, parsed.ref, getGitHubToken);
-      }
-
-      for (const skill of selectedSkills) {
-        const skillDisplayName = getSkillDisplayName(skill);
-        if (successfulSkillNames.has(skillDisplayName)) {
-          try {
-            let skillFolderHash = '';
-            const skillPathValue = skillFiles[skill.name];
-
-            if (blobResult && skillPathValue) {
-              const hash = getSkillFolderHashFromTree(blobResult.tree, skillPathValue);
-              if (hash) skillFolderHash = hash;
-            } else if (parsed.type === 'github' && skillPathValue && cachedTree) {
-              const hash = getSkillFolderHashFromTree(cachedTree, skillPathValue);
-              if (hash) skillFolderHash = hash;
-            } else if (skillPathValue && tempDir) {
-              const skillDir = join(tempDir, dirname(skillPathValue));
-              const hash = await computeSkillFolderHash(skillDir);
-              if (hash) skillFolderHash = hash;
-            } else if (parsed.type === 'local') {
-              // Local sources aren't cloned into tempDir, so hash the skill's
-              // own directory directly (same approach as the project-scope lock below).
-              const hash = await computeSkillFolderHash(skill.path);
-              if (hash) skillFolderHash = hash;
-            }
-
-            await addSkillToLock(skill.name, {
-              source: lockSource || normalizedSource || parsed.url,
-              sourceType: parsed.type,
-              sourceUrl: parsed.url,
-              ref: parsed.ref,
-              skillPath: skillPathValue,
-              skillFolderHash,
-              pluginName: skill.pluginName,
-              ...lockedInstallMode,
-            });
-          } catch {
-            // Don't fail installation if lock file update fails
-          }
-        }
-      }
+      await recordGlobalLock(
+        { parsed, resolved },
+        selectedSkills.filter((skill) => successfulSkillNames.has(getSkillDisplayName(skill))),
+        { directDownload, lockedInstallMode }
+      );
     }
 
     // Add to local lock file for project-scoped installs

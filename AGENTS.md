@@ -25,6 +25,16 @@ Aliases: `skills a` works for `add`. `skills i`, `skills install` (no args) rest
 
 ```
 src/
+├── index.ts         # Public library entry: named re-exports of src/api only
+├── api/             # Programmatic API (see docs/api.md)
+│   ├── types.ts     # Hand-written public types (never alias internal types)
+│   ├── config.ts    # resolveConfig: call options > config > defaults; agent limits
+│   ├── errors.ts    # SkillsError + codes
+│   ├── agents.ts    # getAgents, detectAgents
+│   ├── resolve.ts   # resolveSource / SkillSource handles
+│   ├── install.ts   # installSkills
+│   ├── list.ts      # listSkills
+│   └── remove.ts    # removeSkills
 ├── cli.ts           # Main entry point, command routing, init/check/update
 ├── cli.test.ts      # CLI tests
 ├── add.ts           # Core add command logic
@@ -73,7 +83,10 @@ tests/
 ├── skill-path.test.ts        # Tests for skill path handling
 ├── wellknown-provider.test.ts # Tests for well-known provider
 ├── xdg-config-paths.test.ts   # XDG global path handling tests
+├── api.test.ts                # Programmatic API tests
 └── dist.test.ts               # Tests for built distribution
+
+__snapshots__/tsnapi/          # Public API snapshot, checked by every build
 ```
 
 ## Update Checking System
@@ -101,6 +114,26 @@ If reading an older lock file version, it's wiped. Users must reinstall skills t
 | `skills experimental_sync` | `src/sync.ts` - crawl node_modules                                   |
 | `skills check`             | `src/cli.ts` + `fetchSkillFolderHash` in `src/skill-lock.ts`         |
 | `skills update`            | `src/update.ts` hash compare + in-process reinstall via `src/add.ts` |
+
+## Public API
+
+`src/index.ts` is the package's library entry (`import { installSkills } from 'skills'`).
+Its surface is snapshotted by [tsnapi](https://github.com/antfu/tsnapi) into
+`__snapshots__/tsnapi/`, and `pnpm build` fails when it changes. After an intended change run
+`pnpm api:update` (additive) or `pnpm api:update:breaking`, and commit the snapshot.
+
+Keep the API small and stable (full rules in [docs/api.md](docs/api.md#stability)):
+
+- Export by name from `src/index.ts`; never `export *` or re-export internal modules/types.
+- Public types live in `src/api/types.ts` and are written by hand.
+- `fn(requiredInput, options?)`; new behavior is a new optional option. Results are frozen
+  objects, never bare arrays.
+- API calls never prompt, print, spin, or exit. Whole-call failures throw `SkillsError` with a
+  code; per-skill/agent failures go in `result.failed`.
+- `SkillsConfig` stays JSON-serializable (it is the future `skills.config` file shape); runtime
+  values (`cwd`, `signal`, callbacks) go in `BaseOptions`.
+- Agent ids are `string` in public types (validated at runtime), so adding an agent never changes
+  the snapshot.
 
 ## Factory collaboration
 

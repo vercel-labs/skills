@@ -1180,7 +1180,7 @@ export async function listInstalledSkills(
   const scopes: Array<{ global: boolean; path: string; agentType?: AgentType }> = [];
 
   // Detect which agents are actually installed
-  const detectedAgents = await detectInstalledAgents();
+  const detectedAgents = await detectInstalledAgents(cwd);
   const agentFilter = options.agentFilter;
   const agentsToCheck = agentFilter
     ? detectedAgents.filter((a) => agentFilter.includes(a))
