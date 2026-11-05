@@ -676,6 +676,63 @@ describe('Update Cleanup Unit Tests', () => {
       logSpy.mockRestore();
     });
 
+    it('compares root blob installs using only the installed skill file', async () => {
+      vi.mocked(localLock.readLocalLock).mockResolvedValue({
+        version: 1,
+        skills: {
+          'root-skill': {
+            source: 'owner/repo',
+            sourceType: 'github',
+            skillPath: 'SKILL.md',
+            computedHash: 'same-hash',
+            computedHashScope: 'skill-file',
+          },
+        },
+      });
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        { name: 'root-skill', path: '/tmp/repo', description: 'Root', rawContent: '' },
+      ]);
+      vi.mocked(localLock.computeSkillFileHash).mockResolvedValue('same-hash');
+
+      const result = await updateProjectSkills({ yes: true });
+
+      expect(localLock.computeSkillFileHash).toHaveBeenCalledWith('/tmp/repo', 'SKILL.md');
+      expect(localLock.computeSkillFolderHash).not.toHaveBeenCalled();
+      expect(add.installToTargets).not.toHaveBeenCalled();
+      expect(result).toEqual({ successCount: 0, failCount: 0, foundCount: 1 });
+    });
+
+    it('records a folder hash without a scope after reinstalling a root blob skill', async () => {
+      vi.mocked(localLock.readLocalLock).mockResolvedValue({
+        version: 1,
+        skills: {
+          'root-skill': {
+            source: 'owner/repo',
+            sourceType: 'github',
+            skillPath: 'SKILL.md',
+            computedHash: 'old-file-hash',
+            computedHashScope: 'skill-file',
+          },
+        },
+      });
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        { name: 'root-skill', path: '/tmp/repo', description: 'Root', rawContent: '' },
+      ]);
+      vi.mocked(localLock.computeSkillFileHash).mockResolvedValue('new-file-hash');
+      vi.mocked(localLock.computeSkillFolderHash).mockResolvedValue('folder-hash');
+
+      const result = await updateProjectSkills({ yes: true });
+
+      expect(add.installToTargets).toHaveBeenCalledTimes(1);
+      const [name, entry] = vi.mocked(localLock.addSkillToLocalLock).mock.calls[0]!;
+      expect(name).toBe('root-skill');
+      expect(entry.computedHash).toBe('folder-hash');
+      expect(entry).not.toHaveProperty('computedHashScope');
+      expect(result.successCount).toBe(1);
+    });
+
     it('pins public GitHub project updates to github.com when GH_HOST points elsewhere', async () => {
       vi.stubEnv('GH_HOST', 'github.example.com');
       vi.mocked(localLock.readLocalLock).mockResolvedValue({

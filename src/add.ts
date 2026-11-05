@@ -119,6 +119,14 @@ export function getLockSource(parsedUrl: string, normalizedSource: string | null
 export function getProjectLockSourceUrl(sourceType: string, sourceUrl: string): string | undefined {
   return sourceType === 'git' || sourceType === 'gitlab' ? sourceUrl : undefined;
 }
+
+export function getProjectLockComputedHashScope(
+  isBlobInstall: boolean,
+  skillPath?: string
+): 'skill-file' | undefined {
+  return isBlobInstall && skillPath && !skillPath.includes('/') ? 'skill-file' : undefined;
+}
+
 export function initTelemetry(version: string): void {
   setVersion(version);
 }
@@ -1626,8 +1634,10 @@ export function getProjectLockSource(parsed: ParsedSource): string {
 function projectLockEntry(
   parsed: ParsedSource,
   skillPath: string | undefined,
-  computedHash: string
+  computedHash: string,
+  isBlobInstall: boolean
 ): LocalSkillLockEntry {
+  const computedHashScope = getProjectLockComputedHashScope(isBlobInstall, skillPath);
   const sourceUrl = getProjectLockSourceUrl(parsed.type, parsed.url);
   return {
     source: getProjectLockSource(parsed),
@@ -1636,6 +1646,7 @@ function projectLockEntry(
     sourceType: parsed.type,
     ...(skillPath && { skillPath }),
     computedHash,
+    ...(computedHashScope && { computedHashScope }),
   };
 }
 
@@ -1903,7 +1914,7 @@ export async function recordProjectLock(
   for (const { skill, hash } of installed) {
     const entry = isWellKnownSourceSkill(skill)
       ? wellKnownLockEntry(parsed.url, skill.wellKnown, hash)
-      : projectLockEntry(parsed, repoPaths[skill.name], hash);
+      : projectLockEntry(parsed, repoPaths[skill.name], hash, resolved.blobResult !== null);
     await addSkillToLocalLock(
       skill.name,
       { ...entry, ...(via && { via }), ...(installMode && { installMode }) },
@@ -2920,7 +2931,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             await addSkillToLocalLock(
               skill.name,
               {
-                ...projectLockEntry(parsed, skillPathValue, computedHash),
+                ...projectLockEntry(parsed, skillPathValue, computedHash, blobResult !== null),
                 ...(recordSubagents && { subagents: eveSubagents }),
                 ...lockedInstallMode,
               },
