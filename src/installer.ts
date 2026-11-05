@@ -184,6 +184,38 @@ export function getAgentBaseDir(
   return join(baseDir, agent.skillsDir);
 }
 
+/**
+ * Whether a universal agent reads globally installed skills directly from the
+ * canonical ~/.agents/skills dir, making an agent-specific global symlink
+ * redundant:
+ * - the agent's native global dir IS the canonical dir, or
+ * - GitHub Copilot, which reads ~/.agents/skills natively on top of
+ *   ~/.copilot/skills (see #294 — a symlink there duplicates skills in VS Code).
+ */
+export function agentReadsCanonicalGlobally(agentType: AgentType): boolean {
+  const nativeDir = agents[agentType].globalSkillsDir;
+  if (nativeDir === undefined) return false;
+  if (resolve(nativeDir) === resolve(getCanonicalSkillsDir(true))) return true;
+  return agentType === 'github-copilot';
+}
+
+/**
+ * For a global install of a universal agent, resolves the path in the agent's
+ * native global skills directory where the skill must be linked (or copied) so
+ * the agent actually sees it (e.g. ~/.gemini/antigravity-cli/skills/<skill>).
+ * Returns undefined when no separate native location is needed (the agent is
+ * not a universal agent, or it reads the canonical dir directly).
+ */
+export function getUniversalGlobalSkillTarget(
+  agentType: AgentType,
+  skillName: string
+): string | undefined {
+  if (!isUniversalAgent(agentType)) return undefined;
+  const nativeDir = agents[agentType].globalSkillsDir;
+  if (nativeDir === undefined || agentReadsCanonicalGlobally(agentType)) return undefined;
+  return join(nativeDir, skillName);
+}
+
 function resolveSymlinkTarget(linkPath: string, linkTarget: string): string {
   return resolve(dirname(linkPath), linkTarget);
 }
@@ -335,6 +367,13 @@ export async function installSkillForAgent(
   const agentBase = getAgentBaseDir(agentType, isGlobal, cwd, eveSubagent);
   const agentDir = join(agentBase, skillName);
 
+  // For global universal-agent installs, the location in the agent's native
+  // global skills dir (when it differs from canonical) that must be linked or
+  // copied so the agent actually sees the skill.
+  const nativeGlobalTarget = isGlobal
+    ? getUniversalGlobalSkillTarget(agentType, skillName)
+    : undefined;
+
   // Validate paths
   if (!isPathSafe(canonicalBase, canonicalDir)) {
     return {
@@ -374,6 +413,13 @@ export async function installSkillForAgent(
       await cleanAndCreateDirectory(agentDir);
       await copyDirectory(skill.path, agentDir, agentType);
 
+      // For global universal-agent installs whose native global dir differs from
+      // canonical, also copy to the native dir so the agent actually sees the skill.
+      if (nativeGlobalTarget !== undefined && nativeGlobalTarget !== agentDir) {
+        await cleanAndCreateDirectory(nativeGlobalTarget);
+        await copyDirectory(skill.path, nativeGlobalTarget, agentType);
+      }
+
       return {
         success: true,
         path: agentDir,
@@ -408,9 +454,12 @@ export async function installSkillForAgent(
     }
 
     // For universal agents with global install, the skill is already in the canonical
-    // ~/.agents/skills directory. Skip creating a symlink to the agent-specific global dir
-    // (e.g. ~/.copilot/skills) to avoid duplicates.
-    if (isGlobal && isUniversalAgent(agentType)) {
+    // ~/.agents/skills directory. Skip creating a symlink to the agent's native global
+    // dir when the agent reads canonical directly (native dir IS canonical, or GitHub
+    // Copilot — see #294). For universal agents whose native global dir differs
+    // (e.g. ~/.gemini/antigravity-cli/skills), the symlink is created there below so
+    // the agent actually sees the skill (see #1874).
+    if (isGlobal && isUniversalAgent(agentType) && nativeGlobalTarget === undefined) {
       return {
         success: true,
         path: canonicalDir,
@@ -441,12 +490,19 @@ export async function installSkillForAgent(
       };
     }
 
-    const symlinkCreated = await createSymlink(canonicalDir, agentDir);
+    const symlinkCreated = await createSymlink(canonicalDir, nativeGlobalTarget ?? agentDir);
 
     if (!symlinkCreated) {
       // Symlink failed, fall back to copy
       await cleanAndCreateDirectory(agentDir);
       await copyDirectory(skill.path, agentDir, agentType);
+
+      // Mirror the copy-mode native block: also populate the agent-native
+      // global dir so the agent still sees the skill on symlink-less systems.
+      if (nativeGlobalTarget !== undefined && nativeGlobalTarget !== agentDir) {
+        await cleanAndCreateDirectory(nativeGlobalTarget);
+        await copyDirectory(skill.path, nativeGlobalTarget, agentType);
+      }
 
       return {
         success: true,
@@ -747,6 +803,13 @@ export async function installRemoteSkillForAgent(
   const agentBase = getAgentBaseDir(agentType, isGlobal, cwd, eveSubagent);
   const agentDir = join(agentBase, skillName);
 
+  // For global universal-agent installs, the location in the agent's native
+  // global skills dir (when it differs from canonical) that must be linked or
+  // copied so the agent actually sees the skill.
+  const nativeGlobalTarget = isGlobal
+    ? getUniversalGlobalSkillTarget(agentType, skillName)
+    : undefined;
+
   // Validate paths
   if (!isPathSafe(canonicalBase, canonicalDir)) {
     return {
@@ -779,6 +842,20 @@ export async function installRemoteSkillForAgent(
         'utf-8'
       );
 
+      // For global universal-agent installs whose native global dir differs from
+      // canonical, also copy to the native dir so the agent actually sees the skill.
+      if (nativeGlobalTarget !== undefined && nativeGlobalTarget !== agentDir) {
+        await cleanAndCreateDirectory(nativeGlobalTarget);
+        const nativeSkillFileName =
+          agentType === 'eve' ? toEveFlatSkillFileName(skill.installName) : 'SKILL.md';
+        const nativeSkillMdPath = join(nativeGlobalTarget, nativeSkillFileName);
+        await writeFile(
+          nativeSkillMdPath,
+          agentType === 'eve' ? stripIgnoredEveFrontmatter(skill.content) : skill.content,
+          'utf-8'
+        );
+      }
+
       return {
         success: true,
         path: agentDir,
@@ -797,8 +874,13 @@ export async function installRemoteSkillForAgent(
       'utf-8'
     );
 
-    // For universal agents with global install, skip creating agent-specific symlink
-    if (isGlobal && isUniversalAgent(agentType)) {
+    // For universal agents with global install, the skill is already in the canonical
+    // ~/.agents/skills directory. Skip creating a symlink to the agent's native global
+    // dir when the agent reads canonical directly (native dir IS canonical, or GitHub
+    // Copilot — see #294). For universal agents whose native global dir differs
+    // (e.g. ~/.gemini/antigravity-cli/skills), the symlink is created there below so
+    // the agent actually sees the skill (see #1874).
+    if (isGlobal && isUniversalAgent(agentType) && nativeGlobalTarget === undefined) {
       return {
         success: true,
         path: canonicalDir,
@@ -807,7 +889,7 @@ export async function installRemoteSkillForAgent(
       };
     }
 
-    const symlinkCreated = await createSymlink(canonicalDir, agentDir);
+    const symlinkCreated = await createSymlink(canonicalDir, nativeGlobalTarget ?? agentDir);
 
     if (!symlinkCreated) {
       // Symlink failed, fall back to copy
@@ -820,6 +902,20 @@ export async function installRemoteSkillForAgent(
         agentType === 'eve' ? stripIgnoredEveFrontmatter(skill.content) : skill.content,
         'utf-8'
       );
+
+      // Mirror the copy-mode native block: also populate the agent-native
+      // global dir so the agent still sees the skill on symlink-less systems.
+      if (nativeGlobalTarget !== undefined && nativeGlobalTarget !== agentDir) {
+        await cleanAndCreateDirectory(nativeGlobalTarget);
+        const nativeSkillFileName =
+          agentType === 'eve' ? toEveFlatSkillFileName(skill.installName) : 'SKILL.md';
+        const nativeSkillMdPath = join(nativeGlobalTarget, nativeSkillFileName);
+        await writeFile(
+          nativeSkillMdPath,
+          agentType === 'eve' ? stripIgnoredEveFrontmatter(skill.content) : skill.content,
+          'utf-8'
+        );
+      }
 
       return {
         success: true,
@@ -888,6 +984,13 @@ export async function installWellKnownSkillForAgent(
   const agentBase = getAgentBaseDir(agentType, isGlobal, cwd, eveSubagent);
   const agentDir = join(agentBase, skillName);
 
+  // For global universal-agent installs, the location in the agent's native
+  // global skills dir (when it differs from canonical) that must be linked or
+  // copied so the agent actually sees the skill.
+  const nativeGlobalTarget = isGlobal
+    ? getUniversalGlobalSkillTarget(agentType, skillName)
+    : undefined;
+
   // Validate paths
   if (!isPathSafe(canonicalBase, canonicalDir)) {
     return {
@@ -941,6 +1044,13 @@ export async function installWellKnownSkillForAgent(
       await cleanAndCreateDirectory(agentDir);
       await writeSkillFiles(agentDir);
 
+      // For global universal-agent installs whose native global dir differs from
+      // canonical, also copy to the native dir so the agent actually sees the skill.
+      if (nativeGlobalTarget !== undefined && nativeGlobalTarget !== agentDir) {
+        await cleanAndCreateDirectory(nativeGlobalTarget);
+        await writeSkillFiles(nativeGlobalTarget);
+      }
+
       return {
         success: true,
         path: agentDir,
@@ -952,8 +1062,13 @@ export async function installWellKnownSkillForAgent(
     await cleanAndCreateDirectory(canonicalDir);
     await writeSkillFiles(canonicalDir);
 
-    // For universal agents with global install, skip creating agent-specific symlink
-    if (isGlobal && isUniversalAgent(agentType)) {
+    // For universal agents with global install, the skill is already in the canonical
+    // ~/.agents/skills directory. Skip creating a symlink to the agent's native global
+    // dir when the agent reads canonical directly (native dir IS canonical, or GitHub
+    // Copilot — see #294). For universal agents whose native global dir differs
+    // (e.g. ~/.gemini/antigravity-cli/skills), the symlink is created there below so
+    // the agent actually sees the skill (see #1874).
+    if (isGlobal && isUniversalAgent(agentType) && nativeGlobalTarget === undefined) {
       return {
         success: true,
         path: canonicalDir,
@@ -962,12 +1077,19 @@ export async function installWellKnownSkillForAgent(
       };
     }
 
-    const symlinkCreated = await createSymlink(canonicalDir, agentDir);
+    const symlinkCreated = await createSymlink(canonicalDir, nativeGlobalTarget ?? agentDir);
 
     if (!symlinkCreated) {
       // Symlink failed, fall back to copy
       await cleanAndCreateDirectory(agentDir);
       await writeSkillFiles(agentDir);
+
+      // Mirror the copy-mode native block: also populate the agent-native
+      // global dir so the agent still sees the skill on symlink-less systems.
+      if (nativeGlobalTarget !== undefined && nativeGlobalTarget !== agentDir) {
+        await cleanAndCreateDirectory(nativeGlobalTarget);
+        await writeSkillFiles(nativeGlobalTarget);
+      }
 
       return {
         success: true,
@@ -1055,6 +1177,13 @@ export async function installBlobSkillForAgent(
   const canonicalDir = join(canonicalBase, skillName);
   const agentDir = join(agentBase, skillName);
 
+  // For global universal-agent installs, the location in the agent's native
+  // global skills dir (when it differs from canonical) that must be linked or
+  // copied so the agent actually sees the skill.
+  const nativeGlobalTarget = isGlobal
+    ? getUniversalGlobalSkillTarget(agentType, skillName)
+    : undefined;
+
   if (!isPathSafe(canonicalBase, canonicalDir)) {
     return {
       success: false,
@@ -1098,6 +1227,14 @@ export async function installBlobSkillForAgent(
     if (installMode === 'copy') {
       await cleanAndCreateDirectory(agentDir);
       await writeSkillFiles(agentDir);
+
+      // For global universal-agent installs whose native global dir differs from
+      // canonical, also copy to the native dir so the agent actually sees the skill.
+      if (nativeGlobalTarget !== undefined && nativeGlobalTarget !== agentDir) {
+        await cleanAndCreateDirectory(nativeGlobalTarget);
+        await writeSkillFiles(nativeGlobalTarget);
+      }
+
       return { success: true, path: agentDir, mode: 'copy' };
     }
 
@@ -1105,7 +1242,13 @@ export async function installBlobSkillForAgent(
     await cleanAndCreateDirectory(canonicalDir);
     await writeSkillFiles(canonicalDir);
 
-    if (isGlobal && isUniversalAgent(agentType)) {
+    // For universal agents with global install, the skill is already in the canonical
+    // ~/.agents/skills directory. Skip creating a symlink to the agent's native global
+    // dir when the agent reads canonical directly (native dir IS canonical, or GitHub
+    // Copilot — see #294). For universal agents whose native global dir differs
+    // (e.g. ~/.gemini/antigravity-cli/skills), the symlink is created there below so
+    // the agent actually sees the skill (see #1874).
+    if (isGlobal && isUniversalAgent(agentType) && nativeGlobalTarget === undefined) {
       return {
         success: true,
         path: canonicalDir,
@@ -1135,11 +1278,18 @@ export async function installBlobSkillForAgent(
       };
     }
 
-    const symlinkCreated = await createSymlink(canonicalDir, agentDir);
+    const symlinkCreated = await createSymlink(canonicalDir, nativeGlobalTarget ?? agentDir);
 
     if (!symlinkCreated) {
       await cleanAndCreateDirectory(agentDir);
       await writeSkillFiles(agentDir);
+
+      // Mirror the copy-mode native block: also populate the agent-native
+      // global dir so the agent still sees the skill on symlink-less systems.
+      if (nativeGlobalTarget !== undefined && nativeGlobalTarget !== agentDir) {
+        await cleanAndCreateDirectory(nativeGlobalTarget);
+        await writeSkillFiles(nativeGlobalTarget);
+      }
       return {
         success: true,
         path: agentDir,
