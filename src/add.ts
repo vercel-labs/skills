@@ -6,7 +6,9 @@ import { sep, join, dirname } from 'path';
 import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
 import { stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
-import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
+import type { Diagnostic } from 'nostics';
+import { diagnostics, formatError, isDiagnostic } from './diagnostics.ts';
+import { cloneRepo, cleanupTempDir } from './git.ts';
 import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
 import {
   installSkillForAgent,
@@ -36,14 +38,13 @@ import { detectAgent, getAgentType } from './detect-agent.ts';
 import {
   wellKnownProvider,
   computeWellKnownSkillDigest,
-  WellKnownIntegrityError,
-  WellKnownScopeNotFoundError,
   type WellKnownSkill,
 } from './providers/index.ts';
 import { downloadSource } from './download-source.ts';
 import { mapConcurrent } from './concurrency.ts';
 import {
   addSkillToLock,
+  getSkillLockPath,
   getGitHubToken,
   isPromptDismissed,
   dismissPrompt,
@@ -52,6 +53,7 @@ import {
 } from './skill-lock.ts';
 import {
   addSkillToLocalLock,
+  getLocalLockPath,
   readLocalLock,
   computeSkillFolderHash,
   frozenLockfileError,
@@ -383,11 +385,13 @@ function ensureUniversalAgents(targetAgents: AgentType[]): AgentType[] {
  * inside (plus universal), else Eve alone when present, else every agent when
  * none is detected, else the detected ones plus universal.
  */
-export async function nonInteractiveTargetAgents(): Promise<AgentType[]> {
+export async function nonInteractiveTargetAgents(
+  cwd: string = process.cwd()
+): Promise<AgentType[]> {
   const detected = await detectAgent();
   const hostAgent = detected.isAgent ? getAgentType(detected.agent.name) : null;
   if (hostAgent) return ensureUniversalAgents([hostAgent]);
-  const installed = await detectInstalledAgents();
+  const installed = await detectInstalledAgents(cwd);
   if (installed.includes('eve')) return ['eve'];
   if (installed.length === 0) return Object.keys(agents) as AgentType[];
   return ensureUniversalAgents(installed);
@@ -467,10 +471,7 @@ function buildResultLines(
 function exitInstallationCancelled(): never {
   p.cancel('Installation cancelled');
   if (!process.stdin.isTTY) {
-    console.error(
-      'Interactive prompt required but stdin is not a TTY. Nothing was installed. ' +
-        `Use --agent <name> (or --agent '*') and -y to run non-interactively.`
-    );
+    console.error(formatError(diagnostics.SKILLS_PROMPT_REQUIRES_TTY()));
     process.exit(1);
   }
   process.exit(0);
@@ -893,13 +894,14 @@ async function handleWellKnownSkills(
       ),
     });
   } catch (error) {
-    if (error instanceof WellKnownScopeNotFoundError || error instanceof WellKnownIntegrityError) {
-      spinner.stop(
-        pc.red(
-          error instanceof WellKnownIntegrityError ? 'Integrity check failed' : 'No matching skills'
-        )
-      );
-      p.log.error(error.message);
+    if (isDiagnostic(error, 'SKILLS_WELLKNOWN_DIGEST_MISMATCH')) {
+      spinner.stop(pc.red('Integrity check failed'));
+      p.log.error(formatError(error));
+      process.exit(1);
+    }
+    if (isDiagnostic(error, 'SKILLS_WELLKNOWN_SCOPE_NOT_FOUND')) {
+      spinner.stop(pc.red('No matching skills'));
+      p.log.error(formatError(error));
       process.exit(1);
     }
   }
@@ -956,11 +958,14 @@ async function handleWellKnownSkills(
     );
 
     if (selectedSkills.length === 0) {
-      p.log.error(`No matching skills found for: ${options.skill.join(', ')}`);
-      p.log.info('Available skills:');
-      for (const s of skills) {
-        p.log.message(`  - ${s.installName}`);
-      }
+      p.log.error(
+        formatError(
+          diagnostics.SKILLS_NO_MATCHING_SKILLS({
+            requested: options.skill,
+            available: skills.map((s) => s.installName),
+          })
+        )
+      );
       process.exit(1);
     }
   } else if (skills.length === 1 || options.yes) {
@@ -1266,8 +1271,8 @@ async function handleWellKnownSkills(
       if (successfulSkillNames.has(skill.installName)) {
         try {
           await addSkillToLock(skill.installName, globalWellKnownLockEntry(url, skill));
-        } catch {
-          // Don't fail installation if lock file update fails
+        } catch (error) {
+          reportLockWriteFailure(skill.installName, getSkillLockPath(), error);
         }
       }
     }
@@ -1294,8 +1299,8 @@ async function handleWellKnownSkills(
               cwd
             );
           }
-        } catch {
-          // Don't fail installation if lock file update fails
+        } catch (error) {
+          reportLockWriteFailure(skill.installName, getLocalLockPath(cwd), error);
         }
       }
     }
@@ -1387,6 +1392,8 @@ export interface ResolvedSkills {
   /** Clone or download root; the caller removes it with cleanup(). */
   tempDir: string | null;
   blobResult: BlobInstallResult | null;
+  /** Directory skills were discovered in (the source root); unset for blob and well-known. */
+  rootDir?: string;
 }
 
 /**
@@ -1395,19 +1402,26 @@ export interface ResolvedSkills {
  */
 async function resolveSkills(
   parsed: ParsedSource,
-  options: { includeInternal: boolean; fullDepth?: boolean; requestedSkills?: string[] },
+  options: {
+    includeInternal: boolean;
+    fullDepth?: boolean;
+    requestedSkills?: string[];
+    includeDuplicateNames?: boolean;
+  },
   spinner: Spinner
 ): Promise<ResolvedSkills> {
   const { includeInternal } = options;
   let skills: Skill[];
   let blobResult: BlobInstallResult | null = null;
   let tempDir: string | null = null;
+  let discoveredRoot: string | undefined;
 
   const missingRequestedSkill = (found: Skill[]): boolean =>
     !!options.requestedSkills?.some(
       (name) => name !== '*' && filterSkills(found, [name]).length === 0
     );
   const discover = async (rootDir: string): Promise<Skill[]> => {
+    discoveredRoot = rootDir;
     const found = await discoverSkills(rootDir, parsed.subpath, options);
     if (!options.fullDepth && missingRequestedSkill(found)) {
       return discoverSkills(rootDir, parsed.subpath, { ...options, fullDepth: true });
@@ -1482,7 +1496,7 @@ async function resolveSkills(
     throw error;
   }
 
-  return { skills, tempDir, blobResult };
+  return { skills, tempDir, blobResult, ...(discoveredRoot && { rootDir: discoveredRoot }) };
 }
 
 /** A well-known skill shaped as a Skill so it flows through installToTargets and the lock. */
@@ -1516,7 +1530,9 @@ async function resolveWellKnownSkills(
 
 export type TargetInstallResult = Awaited<ReturnType<typeof installSkillForAgent>> & {
   skill: string;
+  /** Display name of the target, e.g. "Eve (research)". */
   agent: string;
+  agentType: AgentType;
   pluginName?: string;
 };
 
@@ -1526,6 +1542,8 @@ export interface InstallPlacement {
   targets: InstallTarget[];
   mode: InstallMode;
   createMissingAgentRoot?: (agent: AgentType) => boolean;
+  /** Project directory; defaults to process.cwd(). */
+  cwd?: string;
 }
 
 /** Install every skill into every target. Failures are returned per skill × target. */
@@ -1540,6 +1558,7 @@ export async function installToTargets(
       const { agent, subagent } = target;
       const installOptions = {
         global: placement.global,
+        cwd: placement.cwd,
         mode: placement.mode,
         eveSubagent: subagent,
         createMissingAgentRoot: placement.createMissingAgentRoot?.(agent) ?? false,
@@ -1566,6 +1585,7 @@ export async function installToTargets(
       results.push({
         skill: getSkillDisplayName(skill),
         agent: targetDisplayName(target),
+        agentType: agent,
         pluginName: skill.pluginName,
         ...result,
       });
@@ -1648,11 +1668,15 @@ function wellKnownLockEntry(
   };
 }
 
-interface SourceRequest {
+export interface SourceRequest {
   parsed: ParsedSource;
   /** Skill names to keep; all when empty. */
   skills: string[];
   fullDepth?: boolean;
+  /** Include `metadata.internal` skills; defaults to true when `skills` names any. */
+  includeInternal?: boolean;
+  /** Keep skills that share a name instead of dropping all but the first. */
+  includeDuplicateNames?: boolean;
 }
 
 /** A source after its network phase; `resolved` owns a temp dir until it is installed. */
@@ -1660,6 +1684,8 @@ export interface FetchedSource {
   parsed: ParsedSource;
   resolved: ResolvedSkills | null;
   error?: string;
+  /** The original error behind `error`. */
+  cause?: unknown;
 }
 
 interface SourceInstallResult {
@@ -1668,8 +1694,17 @@ interface SourceInstallResult {
   error?: string;
 }
 
-async function fetchSource({ parsed, skills, fullDepth }: SourceRequest): Promise<FetchedSource> {
-  const includeInternal = skills.length > 0;
+/**
+ * Download one source and discover its skills without any terminal output.
+ * A failure is reported in `error` and never throws.
+ */
+export async function fetchSource({
+  parsed,
+  skills,
+  fullDepth,
+  includeInternal = skills.length > 0,
+  includeDuplicateNames,
+}: SourceRequest): Promise<FetchedSource> {
   try {
     // Arbitrary URLs: prefer the well-known endpoint, else a direct download.
     const resolved =
@@ -1677,7 +1712,7 @@ async function fetchSource({ parsed, skills, fullDepth }: SourceRequest): Promis
         (await resolveWellKnownSkills(parsed.url, includeInternal))) ||
       (await resolveSkills(
         parsed,
-        { includeInternal, fullDepth, requestedSkills: skills },
+        { includeInternal, fullDepth, requestedSkills: skills, includeDuplicateNames },
         silentSpinner
       ));
     return { parsed, resolved };
@@ -1686,6 +1721,7 @@ async function fetchSource({ parsed, skills, fullDepth }: SourceRequest): Promis
       parsed,
       resolved: null,
       error: error instanceof Error ? error.message : String(error),
+      cause: error,
     };
   }
 }
@@ -1722,6 +1758,19 @@ export interface FetchedInstallOutcome {
   error?: string;
 }
 
+/** The skills at least one target accepted, hashed as the lock files record them. */
+export async function collectInstalled(
+  skills: Skill[],
+  results: TargetInstallResult[]
+): Promise<InstalledSkill[]> {
+  const installed: InstalledSkill[] = [];
+  for (const skill of skills) {
+    const target = results.find((r) => r.success && r.skill === getSkillDisplayName(skill));
+    if (target) installed.push({ skill, hash: await installedSkillHash(skill, target) });
+  }
+  return installed;
+}
+
 /** Remove a fetched source's clone or download, if it has one. */
 export function releaseSource({ resolved }: FetchedSource): Promise<void> {
   return cleanup(resolved?.tempDir ?? null);
@@ -1751,14 +1800,8 @@ export async function installFetched(
     if (options.select) selected = await options.select(selected);
 
     const results = await installToTargets(resolved, selected, options.placement);
-    const installed: InstalledSkill[] = [];
-    for (const skill of selected) {
-      const target = results.find((r) => r.success && r.skill === getSkillDisplayName(skill));
-      if (!target) continue;
-      installed.push({ skill, hash: await installedSkillHash(skill, target) });
-    }
     return {
-      installed,
+      installed: await collectInstalled(selected, results),
       failed: results.filter((r) => !r.success).map((r) => `${r.skill} → ${r.agent}: ${r.error}`),
     };
   } catch (error) {
@@ -1837,10 +1880,20 @@ export async function installFromSource(
 }
 
 /** Record `installed` in skills-lock.json as skills of `fetched` (with `via` when given). */
+/** The skill is on disk but untracked, so `update` and restore will not see it. */
+function reportLockWriteFailure(skillName: string, lockPath: string, error: unknown): void {
+  const reason = error instanceof Error ? error.message : String(error);
+  p.log.error(
+    `Installed ${stripTerminalEscapes(skillName)} but could not record it in ${lockPath}: ${reason}`
+  );
+  process.exitCode = 1;
+}
+
 export async function recordProjectLock(
   { parsed, resolved }: FetchedSource,
   installed: InstalledSkill[],
-  via?: string
+  via?: string,
+  { cwd, installMode }: { cwd?: string; installMode?: 'copy' } = {}
 ): Promise<void> {
   if (!resolved) return;
   const repoPaths = getSkillRepoPaths(
@@ -1851,7 +1904,11 @@ export async function recordProjectLock(
     const entry = isWellKnownSourceSkill(skill)
       ? wellKnownLockEntry(parsed.url, skill.wellKnown, hash)
       : projectLockEntry(parsed, repoPaths[skill.name], hash);
-    await addSkillToLocalLock(skill.name, { ...entry, ...(via && { via }) });
+    await addSkillToLocalLock(
+      skill.name,
+      { ...entry, ...(via && { via }), ...(installMode && { installMode }) },
+      cwd
+    );
   }
 }
 
@@ -1864,6 +1921,123 @@ export async function recordGlobalWellKnownLock(
     if (!isWellKnownSourceSkill(skill)) continue;
     await addSkillToLock(skill.name, globalWellKnownLockEntry(baseUrl, skill.wellKnown));
   }
+}
+
+/**
+ * Record `skills` of `fetched` in the global lock for update tracking. A
+ * failed write goes to `onWriteFailure` and the remaining skills are still
+ * recorded; installation already succeeded.
+ */
+export async function recordGlobalLock(
+  { parsed, resolved }: FetchedSource,
+  skills: Skill[],
+  options: {
+    directDownload?: boolean;
+    installMode?: 'copy';
+    onWriteFailure: (skillName: string, error: unknown) => void;
+  }
+): Promise<void> {
+  if (!resolved || skills.length === 0) return;
+  const directDownload = options.directDownload ?? parsed.type === 'download';
+  const normalizedSource = directDownload ? null : getOwnerRepo(parsed);
+  // Only a remote source or a real local path can be re-fetched by `update`.
+  if (!normalizedSource && !(parsed.type === 'local' && !directDownload)) return;
+  const lockSource = directDownload ? null : getLockSource(parsed.url, normalizedSource);
+  const { blobResult, tempDir } = resolved;
+  const skillFiles = getSkillRepoPaths(resolved, skills);
+
+  // For GitHub clone installs, fetch the repo tree once and reuse it
+  // for all skills — avoids N sequential API calls that take ~400ms each.
+  let cachedTree: Awaited<ReturnType<typeof fetchRepoTree>> | undefined;
+  if (parsed.type === 'github' && !blobResult && normalizedSource) {
+    cachedTree = await fetchRepoTree(normalizedSource, parsed.ref, getGitHubToken);
+  }
+
+  for (const skill of skills) {
+    try {
+      let skillFolderHash = '';
+      const skillPathValue = skillFiles[skill.name];
+
+      if (blobResult && skillPathValue) {
+        const hash = getSkillFolderHashFromTree(blobResult.tree, skillPathValue);
+        if (hash) skillFolderHash = hash;
+      } else if (parsed.type === 'github' && skillPathValue && cachedTree) {
+        const hash = getSkillFolderHashFromTree(cachedTree, skillPathValue);
+        if (hash) skillFolderHash = hash;
+      } else if (skillPathValue && tempDir) {
+        const skillDir = join(tempDir, dirname(skillPathValue));
+        const hash = await computeSkillFolderHash(skillDir);
+        if (hash) skillFolderHash = hash;
+      } else if (parsed.type === 'local') {
+        // Local sources aren't cloned into tempDir, so hash the skill's
+        // own directory directly (same approach as the project-scope lock).
+        const hash = await computeSkillFolderHash(skill.path);
+        if (hash) skillFolderHash = hash;
+      }
+
+      await addSkillToLock(skill.name, {
+        source: lockSource || normalizedSource || parsed.url,
+        sourceType: parsed.type,
+        sourceUrl: parsed.url,
+        ref: parsed.ref,
+        skillPath: skillPathValue,
+        skillFolderHash,
+        pluginName: skill.pluginName,
+        ...(options.installMode && { installMode: options.installMode }),
+      });
+    } catch (error) {
+      options.onWriteFailure(skill.name, error);
+    }
+  }
+}
+
+/**
+ * Send install telemetry for `skills` of `fetched`, as `add` does: GitHub
+ * sources only when the repo is known to be public, well-known sources unless
+ * known to be private, and nothing for local paths or direct downloads.
+ */
+export async function trackSourceInstall(
+  { parsed, resolved }: FetchedSource,
+  skills: Skill[],
+  options: { agents: string[]; global: boolean; metadata?: string }
+): Promise<void> {
+  if (!resolved || skills.length === 0) return;
+  const common = {
+    event: 'install' as const,
+    agents: options.agents.join(','),
+    ...(options.global && { global: '1' as const }),
+    metadata: options.metadata,
+  };
+
+  const wellKnown = skills.filter(isWellKnownSourceSkill);
+  if (wellKnown.length > 0) {
+    const sourceIdentifier = wellKnownProvider.getSourceIdentifier(parsed.url);
+    if ((await isSourcePrivate(sourceIdentifier)) === true) return;
+    track({
+      ...common,
+      source: sourceIdentifier,
+      skills: wellKnown.map((s) => s.name).join(','),
+      skillFiles: JSON.stringify(
+        Object.fromEntries(wellKnown.map((s) => [s.name, s.wellKnown.sourceUrl]))
+      ),
+      installUrl: parsed.url,
+      sourceType: 'well-known',
+    });
+    return;
+  }
+
+  if (parsed.type === 'download') return;
+  const normalizedSource = getOwnerRepo(parsed);
+  if (!normalizedSource) return;
+  // If we can't determine privacy (null), err on the side of caution and skip telemetry
+  const ownerRepo = parseOwnerRepo(normalizedSource);
+  if (ownerRepo && (await isRepoPrivate(ownerRepo.owner, ownerRepo.repo)) !== false) return;
+  track({
+    ...common,
+    source: normalizedSource,
+    skills: skills.map((s) => s.name).join(','),
+    skillFiles: JSON.stringify(getSkillRepoPaths(resolved, skills)),
+  });
 }
 
 /** Content hash of a skill at its source: the blob snapshot, or the folder on disk. */
@@ -2020,9 +2194,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 
     if (invalidAgents.length > 0) {
-      p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
-      p.log.info(`Valid agents: ${validAgents.join(', ')}`);
-      emitJsonAndExit(1, `Invalid agents: ${invalidAgents.join(', ')}`);
+      const error = diagnostics.SKILLS_INVALID_AGENTS({
+        invalid: invalidAgents,
+        valid: validAgents,
+      });
+      p.log.error(formatError(error));
+      emitJsonAndExit(1, error.message);
     }
   }
 
@@ -2110,8 +2287,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       spinner.start('Validating local path…');
       if (!existsSync(parsed.localPath!)) {
         spinner.stop(pc.red('Path not found'));
-        p.outro(pc.red(`Local path does not exist: ${parsed.localPath}`));
-        emitJsonAndExit(1, `Local path does not exist: ${parsed.localPath}`);
+        const error = diagnostics.SKILLS_LOCAL_PATH_NOT_FOUND({ path: parsed.localPath! });
+        p.outro(pc.red(formatError(error)));
+        emitJsonAndExit(1, error.message);
       }
       spinner.stop('Local path validated');
     }
@@ -2127,14 +2305,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     if (skills.length === 0) {
       spinner.stop(pc.red('No skills found'));
-      p.outro(
-        pc.red('No valid skills found. Skills require a SKILL.md with name and description.')
-      );
+      const error = diagnostics.SKILLS_NO_VALID_SKILLS();
+      p.outro(pc.red(formatError(error)));
       await cleanup(tempDir);
-      emitJsonAndExit(
-        1,
-        'No valid skills found. Skills require a SKILL.md with name and description.'
-      );
+      emitJsonAndExit(1, error.message);
     }
 
     if (!blobResult) {
@@ -2218,13 +2392,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
 
       if (selectedSkills.length === 0) {
-        p.log.error(`No matching skills found for: ${options.skill.join(', ')}`);
-        p.log.info('Available skills:');
-        for (const s of skills) {
-          p.log.message(`  - ${getSkillDisplayName(s)}`);
-        }
+        const error = diagnostics.SKILLS_NO_MATCHING_SKILLS({
+          requested: options.skill,
+          available: skills.map(getSkillDisplayName),
+        });
+        p.log.error(formatError(error));
         await cleanup(tempDir);
-        emitJsonAndExit(1, `No matching skills found for: ${options.skill.join(', ')}`);
+        emitJsonAndExit(1, error.message);
       }
 
       p.log.info(
@@ -2713,52 +2887,16 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       installGlobally &&
       (normalizedSource || (parsed.type === 'local' && !directDownload))
     ) {
-      // For GitHub clone installs, fetch the repo tree once and reuse it
-      // for all skills — avoids N sequential API calls that take ~400ms each.
-      let cachedTree: Awaited<ReturnType<typeof fetchRepoTree>> | undefined;
-      if (parsed.type === 'github' && !blobResult && normalizedSource) {
-        cachedTree = await fetchRepoTree(normalizedSource, parsed.ref, getGitHubToken);
-      }
-
-      for (const skill of selectedSkills) {
-        const skillDisplayName = getSkillDisplayName(skill);
-        if (successfulSkillNames.has(skillDisplayName)) {
-          try {
-            let skillFolderHash = '';
-            const skillPathValue = skillFiles[skill.name];
-
-            if (blobResult && skillPathValue) {
-              const hash = getSkillFolderHashFromTree(blobResult.tree, skillPathValue);
-              if (hash) skillFolderHash = hash;
-            } else if (parsed.type === 'github' && skillPathValue && cachedTree) {
-              const hash = getSkillFolderHashFromTree(cachedTree, skillPathValue);
-              if (hash) skillFolderHash = hash;
-            } else if (skillPathValue && tempDir) {
-              const skillDir = join(tempDir, dirname(skillPathValue));
-              const hash = await computeSkillFolderHash(skillDir);
-              if (hash) skillFolderHash = hash;
-            } else if (parsed.type === 'local') {
-              // Local sources aren't cloned into tempDir, so hash the skill's
-              // own directory directly (same approach as the project-scope lock below).
-              const hash = await computeSkillFolderHash(skill.path);
-              if (hash) skillFolderHash = hash;
-            }
-
-            await addSkillToLock(skill.name, {
-              source: lockSource || normalizedSource || parsed.url,
-              sourceType: parsed.type,
-              sourceUrl: parsed.url,
-              ref: parsed.ref,
-              skillPath: skillPathValue,
-              skillFolderHash,
-              pluginName: skill.pluginName,
-              ...lockedInstallMode,
-            });
-          } catch {
-            // Don't fail installation if lock file update fails
-          }
+      await recordGlobalLock(
+        { parsed, resolved },
+        selectedSkills.filter((skill) => successfulSkillNames.has(getSkillDisplayName(skill))),
+        {
+          directDownload,
+          ...lockedInstallMode,
+          onWriteFailure: (skillName, error) =>
+            reportLockWriteFailure(skillName, getSkillLockPath(), error),
         }
-      }
+      );
     }
 
     // Add to local lock file for project-scoped installs
@@ -2788,8 +2926,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               },
               cwd
             );
-          } catch {
-            // Don't fail installation if lock file update fails
+          } catch (error) {
+            reportLockWriteFailure(skill.name, getLocalLockPath(cwd), error);
           }
         }
       }
@@ -2944,23 +3082,30 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Prompt for find-skills after successful install
     await promptForFindSkills(options, targetAgents);
   } catch (error) {
-    if (error instanceof GitCloneError) {
+    const isCloneError = isDiagnostic(
+      error,
+      'SKILLS_UNSUPPORTED_GIT_TRANSPORT',
+      'SKILLS_GIT_CLONE_TIMEOUT',
+      'SKILLS_GIT_AUTH_FAILED',
+      'SKILLS_GIT_SAML_SSO_BLOCKED',
+      'SKILLS_GIT_CLONE_FAILED'
+    );
+    if (isCloneError) {
       p.log.error(pc.red('Failed to clone repository'));
       // Print each line of the error message separately for better formatting
-      for (const line of error.message.split('\n')) {
+      for (const line of formatError(error).split('\n')) {
         p.log.message(pc.dim(line));
       }
     } else {
-      p.log.error(error instanceof Error ? error.message : 'Unknown error occurred');
+      p.log.error(error instanceof Error ? formatError(error) : 'Unknown error occurred');
     }
     showInstallTip();
     p.outro(pc.red('Installation failed'));
-    const errorMessage =
-      error instanceof GitCloneError
-        ? `Failed to clone repository\n${error.message}`
-        : error instanceof Error
-          ? error.message
-          : 'Unknown error occurred';
+    const errorMessage = isCloneError
+      ? `Failed to clone repository\n${error.message}`
+      : error instanceof Error
+        ? error.message
+        : 'Unknown error occurred';
     emitJsonAndExit(1, errorMessage);
   } finally {
     if (jsonMode) process.removeListener('exit', emitJsonOnExit);
@@ -3059,11 +3204,11 @@ async function promptForFindSkills(
 export function parseAddOptions(args: string[]): {
   source: string[];
   options: AddOptions;
-  errors: string[];
+  errors: Diagnostic[];
 } {
   const options: AddOptions = {};
   const source: string[] = [];
-  const errors: string[] = [];
+  const errors: Diagnostic[] = [];
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -3099,13 +3244,20 @@ export function parseAddOptions(args: string[]): {
     } else if (arg === '--metadata') {
       const metadata = args[++i];
       if (metadata === undefined) {
-        errors.push('--metadata requires a JSON value');
+        errors.push(
+          diagnostics.SKILLS_OPTION_REQUIRES_VALUE({ option: '--metadata', value: 'a JSON value' })
+        );
       } else {
         try {
           JSON.parse(metadata);
           options.metadata = metadata;
         } catch {
-          errors.push('--metadata must be valid JSON');
+          errors.push(
+            diagnostics.SKILLS_INVALID_OPTION_VALUE({
+              option: '--metadata',
+              expected: 'valid JSON',
+            })
+          );
         }
       }
     } else if (arg === '--full-depth') {

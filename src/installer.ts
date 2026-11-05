@@ -26,9 +26,11 @@ import {
   EVE_SUBAGENTS_DIR,
 } from './agents.ts';
 import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
+import { diagnostics } from './diagnostics.ts';
 import { parseFrontmatter } from './frontmatter.ts';
 import { stringify } from 'yaml';
 import { parseSkillMd } from './skills.ts';
+import { warn } from './warnings.ts';
 
 /**
  * - `symlink`: copy into the canonical dir, symlink agent dirs to it
@@ -481,6 +483,16 @@ const isExcluded = (name: string, isDirectory: boolean = false): boolean => {
   return false;
 };
 
+/**
+ * isExcluded() for a snapshot's relative file path, so blob installs drop the same
+ * files copyDirectory() skips when installing from a clone. Snapshot hashes still
+ * cover the full file set; this only decides what is written to disk.
+ */
+const isExcludedPath = (relativePath: string): boolean => {
+  const parts = relativePath.split(/[\\/]/).filter(Boolean);
+  return parts.some((part, index) => isExcluded(part, index < parts.length - 1));
+};
+
 function stripIgnoredEveFrontmatter(raw: string): string {
   const { data, content } = parseFrontmatter(raw);
   const eveData: Record<string, unknown> = {};
@@ -547,7 +559,7 @@ export async function copyDirectory(
   const realSrc = await realpath(src);
   const root = ctx?.root ?? realSrc;
   if (ctx?.ancestors.has(realSrc)) {
-    console.warn(`Skipping symlink that creates a directory cycle: ${src}`);
+    warn(diagnostics.SKILLS_SYMLINK_CYCLE({ path: src }));
     return;
   }
   const ancestors = new Set(ctx?.ancestors);
@@ -571,11 +583,11 @@ export async function copyDirectory(
             realTarget = await realpath(srcPath);
           } catch {
             // Broken/dangling symlink (target does not exist, or a link loop).
-            console.warn(`Skipping broken symlink: ${srcPath}`);
+            warn(diagnostics.SKILLS_BROKEN_SYMLINK({ path: srcPath }));
             return;
           }
           if (!isWithinRoot(root, realTarget)) {
-            console.warn(`Skipping symlink that points outside the skill directory: ${srcPath}`);
+            warn(diagnostics.SKILLS_SYMLINK_OUTSIDE_SKILL({ path: srcPath }));
             return;
           }
           isDirectory = (await stat(realTarget)).isDirectory();
@@ -668,7 +680,7 @@ export function getInstallPath(
   const installPath = join(targetBase, sanitized);
 
   if (!isPathSafe(targetBase, installPath)) {
-    throw new Error('Invalid skill name: potential path traversal detected');
+    throw diagnostics.SKILLS_UNSAFE_SKILL_NAME();
   }
 
   return installPath;
@@ -689,7 +701,7 @@ export function getCanonicalPath(
   const canonicalPath = join(canonicalBase, sanitized);
 
   if (!isPathSafe(canonicalBase, canonicalPath)) {
-    throw new Error('Invalid skill name: potential path traversal detected');
+    throw diagnostics.SKILLS_UNSAFE_SKILL_NAME();
   }
 
   return canonicalPath;
@@ -1064,6 +1076,7 @@ export async function installBlobSkillForAgent(
 
   async function writeSkillFiles(targetDir: string): Promise<void> {
     for (const file of skill.files) {
+      if (isExcludedPath(file.path)) continue;
       const fullPath = join(targetDir, file.path);
       if (!isPathSafe(targetDir, fullPath)) continue;
 
@@ -1180,7 +1193,7 @@ export async function listInstalledSkills(
   const scopes: Array<{ global: boolean; path: string; agentType?: AgentType }> = [];
 
   // Detect which agents are actually installed
-  const detectedAgents = await detectInstalledAgents();
+  const detectedAgents = await detectInstalledAgents(cwd);
   const agentFilter = options.agentFilter;
   const agentsToCheck = agentFilter
     ? detectedAgents.filter((a) => agentFilter.includes(a))

@@ -96,7 +96,8 @@ export interface AgentConfig {
   skillsDir: string;
   /** Global skills directory. Set to undefined if the agent doesn't support global installation. */
   globalSkillsDir: string | undefined;
-  detectInstalled: () => Promise<boolean>;
+  /** `cwd` is the project directory for agents detected by project markers. */
+  detectInstalled: (cwd?: string) => Promise<boolean>;
   /** Whether to show this agent in the universal agents list. Defaults to true. */
   showInUniversalList?: boolean;
   /** Whether to display this universal agent in the interactive locked section. Defaults to true. */

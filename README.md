@@ -104,6 +104,7 @@ See [creating and sharing skills](docs/creating-skills.md) for the format and di
 - [Supported agents](docs/agents.md): agent names, skill directories, and compatibility
 - [Creating skills](docs/creating-skills.md): frontmatter, repository layouts, and plugins
 - [Troubleshooting and configuration](docs/troubleshooting.md): common problems, environment variables, and telemetry
+- [Programmatic API](docs/api.md): install and manage skills from your own tools with `import { installSkills } from 'skills'`
 
 ## Telemetry
 

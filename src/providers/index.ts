@@ -7,8 +7,6 @@ export { registry, registerProvider, findProvider, getProviders } from './regist
 // Export individual providers
 export {
   WellKnownProvider,
-  WellKnownIntegrityError,
-  WellKnownScopeNotFoundError,
   wellKnownProvider,
   computeWellKnownSkillDigest,
   type NormalizedWellKnownEntry,

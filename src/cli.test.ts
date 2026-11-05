@@ -63,8 +63,8 @@ describe('skills CLI', () => {
     it('should show error for unknown command', () => {
       const output = runCliOutput(['unknown-command']);
       expect(output).toMatchInlineSnapshot(`
-        "Unknown command: unknown-command
-        Run skills --help for usage.
+        "[SKILLS_UNKNOWN_COMMAND] Unknown command: unknown-command
+        ╰▶ fix: Run skills --help for usage.
         "
       `);
     });
