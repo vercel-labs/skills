@@ -31,7 +31,7 @@ import * as agentsModule from '../src/agents.ts';
 import { searchMultiselect } from '../src/prompts/search-multiselect.ts';
 import { getLastSelectedAgents, saveSelectedAgents } from '../src/skill-lock.ts';
 
-describe('experimental_sync agent selection', () => {
+describe('sync agent selection', () => {
   let project: string;
   let state: string;
   let originalCwd: string;

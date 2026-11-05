@@ -193,6 +193,41 @@ description: Test OpenCode global attribution
     expect(skills[0]!.name).toBe('test-skill');
   });
 
+  it.each([false, true])(
+    'respects agent filters for undetected agent directories (global=%s)',
+    async (global) => {
+      vi.spyOn(agentsModule, 'detectInstalledAgents').mockResolvedValue([]);
+      const created: string[] = [];
+      try {
+        for (const agentType of ['claude-code', 'augment'] as const) {
+          const agent = agentsModule.agents[agentType];
+          const base = global ? agent.globalSkillsDir! : join(testDir, agent.skillsDir);
+          const dir = join(base, `${agentType}-filter-test`);
+          await mkdir(dir, { recursive: true });
+          created.push(dir);
+          await writeFile(
+            join(dir, 'SKILL.md'),
+            `---\nname: ${agentType}-filter-test\ndescription: Agent filter regression\n---\n`
+          );
+        }
+        const filtered = await listInstalledSkills({
+          global,
+          cwd: testDir,
+          agentFilter: ['claude-code'],
+        });
+        expect(filtered.map((skill) => skill.name)).toEqual(['claude-code-filter-test']);
+        expect(filtered[0]!.agents).toEqual(['claude-code']);
+        const all = await listInstalledSkills({ global, cwd: testDir });
+        expect(all.map((skill) => skill.name).sort()).toEqual([
+          'augment-filter-test',
+          'claude-code-filter-test',
+        ]);
+      } finally {
+        for (const dir of created) await rm(dir, { recursive: true, force: true });
+      }
+    }
+  );
+
   // Issue #225 part 1: Only installed agents should be attributed
   it('should only attribute skills to installed agents (issue #225)', async () => {
     // Mock: only Amp is installed (not Kimi, even though they share .agents/skills)

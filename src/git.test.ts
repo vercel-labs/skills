@@ -17,7 +17,6 @@ vi.mock('child_process', async () => {
 });
 
 import {
-  GitCloneError,
   cloneRepo,
   getGitTreeHash,
   isCommitSha,
@@ -286,7 +285,7 @@ describe('git clone fallbacks', () => {
       await cloneRepo('https://github.com/Giphy/giphy-codex-skills.git');
       throw new Error('Expected cloneRepo to throw');
     } catch (error) {
-      expect(error).toBeInstanceOf(GitCloneError);
+      expect(error).toMatchObject({ code: 'SKILLS_GIT_SAML_SSO_BLOCKED' });
       expect((error as Error).message).toMatch(/SAML SSO/);
       expect((error as Error).message).toMatch(/git@github\.com:Giphy\/giphy-codex-skills\.git/);
     }
@@ -301,9 +300,9 @@ describe('git clone fallbacks', () => {
 
     simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
 
-    await expect(cloneRepo('https://gitlab.com/Giphy/giphy-codex-skills.git')).rejects.toThrow(
-      GitCloneError
-    );
+    await expect(
+      cloneRepo('https://gitlab.com/Giphy/giphy-codex-skills.git')
+    ).rejects.toMatchObject({ code: 'SKILLS_GIT_AUTH_FAILED' });
     expect(execFileMock).not.toHaveBeenCalled();
   });
 
@@ -312,9 +311,9 @@ describe('git clone fallbacks', () => {
 
     simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
 
-    await expect(cloneRepo('git@github.com:Giphy/giphy-codex-skills.git')).rejects.toThrow(
-      GitCloneError
-    );
+    await expect(cloneRepo('git@github.com:Giphy/giphy-codex-skills.git')).rejects.toMatchObject({
+      code: 'SKILLS_GIT_AUTH_FAILED',
+    });
     expect(execFileMock).not.toHaveBeenCalled();
   });
 
@@ -372,6 +371,26 @@ describe('git clone fallbacks', () => {
     expect(shaClient.checkout).toHaveBeenCalledWith('FETCH_HEAD');
   });
 
+  it('overrides a translated user locale with LC_ALL=C for every git client', async () => {
+    vi.stubEnv('LC_ALL', 'ko_KR.UTF-8');
+    const primaryClient = createGitClientMock(
+      vi
+        .fn()
+        .mockRejectedValue(
+          new Error(`fatal: Remote branch ${FULL_SHA} not found in upstream origin`)
+        )
+    );
+    const shaClient = createShaClientMock();
+
+    simpleGitMock.mockReturnValueOnce(primaryClient).mockReturnValueOnce(shaClient);
+
+    const tempDir = await cloneRepo('https://gitlab.com/group/repo.git', FULL_SHA);
+    createdDirs.push(tempDir);
+
+    expect(primaryClient.env).toHaveBeenCalledWith(expect.objectContaining({ LC_ALL: 'C' }));
+    expect(shaClient.env).toHaveBeenCalledWith(expect.objectContaining({ LC_ALL: 'C' }));
+  });
+
   it('does not attempt the SHA fetch for a non-SHA ref', async () => {
     const primaryClone = vi
       .fn()
@@ -379,9 +398,9 @@ describe('git clone fallbacks', () => {
 
     simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
 
-    await expect(cloneRepo('https://gitlab.com/group/repo.git', 'deadbeef')).rejects.toThrow(
-      GitCloneError
-    );
+    await expect(cloneRepo('https://gitlab.com/group/repo.git', 'deadbeef')).rejects.toMatchObject({
+      code: 'SKILLS_GIT_CLONE_FAILED',
+    });
     // Only the primary --branch client is constructed; no SHA-fetch client.
     expect(simpleGitMock).toHaveBeenCalledTimes(1);
   });
@@ -391,9 +410,9 @@ describe('git clone fallbacks', () => {
 
     simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
 
-    await expect(cloneRepo('https://gitlab.com/group/repo.git', FULL_SHA)).rejects.toThrow(
-      GitCloneError
-    );
+    await expect(cloneRepo('https://gitlab.com/group/repo.git', FULL_SHA)).rejects.toMatchObject({
+      code: 'SKILLS_GIT_AUTH_FAILED',
+    });
     expect(simpleGitMock).toHaveBeenCalledTimes(1);
   });
 });
