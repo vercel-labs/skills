@@ -1407,17 +1407,17 @@ async function resolveSkills(
   let skills: Skill[];
   let blobResult: BlobInstallResult | null = null;
   let tempDir: string | null = null;
-  let rootDir: string | undefined;
+  let discoveredRoot: string | undefined;
 
   const missingRequestedSkill = (found: Skill[]): boolean =>
     !!options.requestedSkills?.some(
       (name) => name !== '*' && filterSkills(found, [name]).length === 0
     );
-  const discover = async (dir: string): Promise<Skill[]> => {
-    rootDir = dir;
-    const found = await discoverSkills(dir, parsed.subpath, options);
+  const discover = async (rootDir: string): Promise<Skill[]> => {
+    discoveredRoot = rootDir;
+    const found = await discoverSkills(rootDir, parsed.subpath, options);
     if (!options.fullDepth && missingRequestedSkill(found)) {
-      return discoverSkills(dir, parsed.subpath, { ...options, fullDepth: true });
+      return discoverSkills(rootDir, parsed.subpath, { ...options, fullDepth: true });
     }
     return found;
   };
@@ -1489,7 +1489,7 @@ async function resolveSkills(
     throw error;
   }
 
-  return { skills, tempDir, blobResult, ...(rootDir && { rootDir }) };
+  return { skills, tempDir, blobResult, ...(discoveredRoot && { rootDir: discoveredRoot }) };
 }
 
 /** A well-known skill shaped as a Skill so it flows through installToTargets and the lock. */
@@ -1751,6 +1751,19 @@ export interface FetchedInstallOutcome {
   error?: string;
 }
 
+/** The skills at least one target accepted, hashed as the lock files record them. */
+export async function collectInstalled(
+  skills: Skill[],
+  results: TargetInstallResult[]
+): Promise<InstalledSkill[]> {
+  const installed: InstalledSkill[] = [];
+  for (const skill of skills) {
+    const target = results.find((r) => r.success && r.skill === getSkillDisplayName(skill));
+    if (target) installed.push({ skill, hash: await installedSkillHash(skill, target) });
+  }
+  return installed;
+}
+
 /** Remove a fetched source's clone or download, if it has one. */
 export function releaseSource({ resolved }: FetchedSource): Promise<void> {
   return cleanup(resolved?.tempDir ?? null);
@@ -1780,14 +1793,8 @@ export async function installFetched(
     if (options.select) selected = await options.select(selected);
 
     const results = await installToTargets(resolved, selected, options.placement);
-    const installed: InstalledSkill[] = [];
-    for (const skill of selected) {
-      const target = results.find((r) => r.success && r.skill === getSkillDisplayName(skill));
-      if (!target) continue;
-      installed.push({ skill, hash: await installedSkillHash(skill, target) });
-    }
     return {
-      installed,
+      installed: await collectInstalled(selected, results),
       failed: results.filter((r) => !r.success).map((r) => `${r.skill} → ${r.agent}: ${r.error}`),
     };
   } catch (error) {
@@ -1855,7 +1862,7 @@ export async function installFromSource(
       );
       if (changes.length > 0) result.error = frozenLockfileError(changes);
     } else {
-      await recordProjectLock(fetched, outcome.installed, { via: options.via });
+      await recordProjectLock(fetched, outcome.installed, options.via);
     }
   } catch (error) {
     result.error = error instanceof Error ? error.message : String(error);
@@ -1869,9 +1876,9 @@ export async function installFromSource(
 export async function recordProjectLock(
   { parsed, resolved }: FetchedSource,
   installed: InstalledSkill[],
-  options: { via?: string; cwd?: string; installMode?: 'copy' } = {}
+  via?: string,
+  { cwd, installMode }: { cwd?: string; installMode?: 'copy' } = {}
 ): Promise<void> {
-  const { via, cwd, installMode } = options;
   if (!resolved) return;
   const repoPaths = getSkillRepoPaths(
     resolved,
@@ -1907,7 +1914,7 @@ export async function recordGlobalWellKnownLock(
 export async function recordGlobalLock(
   { parsed, resolved }: FetchedSource,
   skills: Skill[],
-  options: { directDownload?: boolean; lockedInstallMode?: { installMode?: 'copy' } } = {}
+  options: { directDownload?: boolean; installMode?: 'copy' } = {}
 ): Promise<void> {
   if (!resolved || skills.length === 0) return;
   const directDownload = options.directDownload ?? parsed.type === 'download';
@@ -1955,7 +1962,7 @@ export async function recordGlobalLock(
         skillPath: skillPathValue,
         skillFolderHash,
         pluginName: skill.pluginName,
-        ...options.lockedInstallMode,
+        ...(options.installMode && { installMode: options.installMode }),
       });
     } catch {
       // Don't fail installation if lock file update fails
@@ -2021,7 +2028,7 @@ function sourceSkillHash(skill: Skill): Promise<string> {
 }
 
 /** Well-known skills have no source folder, so hash the installed copy like runAdd does. */
-export function installedSkillHash(skill: Skill, target: TargetInstallResult): Promise<string> {
+function installedSkillHash(skill: Skill, target: TargetInstallResult): Promise<string> {
   return isWellKnownSourceSkill(skill)
     ? computeSkillFolderHash(target.canonicalPath || target.path)
     : sourceSkillHash(skill);
@@ -2862,7 +2869,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       await recordGlobalLock(
         { parsed, resolved },
         selectedSkills.filter((skill) => successfulSkillNames.has(getSkillDisplayName(skill))),
-        { directDownload, lockedInstallMode }
+        { directDownload, ...lockedInstallMode }
       );
     }
 

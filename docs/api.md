@@ -54,8 +54,8 @@ that has no commit; pass a `ref` when you need one.
 
 Each `SkillInfo` has a `path` relative to the source root. When several
 folders declare the same skill name, the first one found wins (as with
-`skills add`) and the others are listed in `duplicates`. Symlinked copies of
-the same folder do not count.
+`skills add`) and the others are listed in `duplicates`. Symlinked folders
+are not discovered, so they never count as duplicates.
 
 A `SkillSource` owns a temporary clone or download. Dispose it when you are
 done; `installSkills` never disposes a source it was given, so one fetch can

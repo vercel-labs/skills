@@ -1,5 +1,4 @@
 import { existsSync } from 'fs';
-import { realpath } from 'fs/promises';
 import { posix, relative, sep } from 'path';
 import { fetchSource, releaseSource, type FetchedSource } from '../add.ts';
 import { Diagnostic } from 'nostics';
@@ -9,9 +8,8 @@ import { getSkillDisplayName } from '../skills.ts';
 import { parseSource } from '../source-parser.ts';
 import type { ParsedSource, Skill } from '../types.ts';
 import { resolveConfig, type ResolvedConfig } from './config.ts';
-import { throwIfAborted } from './errors.ts';
 import type { ResolveOptions, SkillInfo, SkillSource, SourceInfo } from './types.ts';
-import { runWithWarnings } from './warnings.ts';
+import { withWarnings } from '../warnings.ts';
 
 interface SourceState {
   fetched: FetchedSource;
@@ -23,7 +21,7 @@ const GIT_SOURCE_TYPES: ReadonlySet<ParsedSource['type']> = new Set(['github', '
 /** Internal state of each SkillSource, kept off the public object. */
 const sourceStates = new WeakMap<SkillSource, SourceState>();
 
-export function parseSourceInput(input: string, cwd: string): ParsedSource {
+function parseSourceInput(input: string, cwd: string): ParsedSource {
   if (typeof input !== 'string' || input.trim() === '') {
     throw diagnostics.SKILLS_INVALID_OPTION_VALUE({
       option: 'source',
@@ -33,7 +31,7 @@ export function parseSourceInput(input: string, cwd: string): ParsedSource {
   return parseSource(input, { cwd });
 }
 
-export function toSourceInfo(input: string, parsed: ParsedSource, commit?: string): SourceInfo {
+function toSourceInfo(input: string, parsed: ParsedSource, commit?: string): SourceInfo {
   return Object.freeze({
     input,
     type: parsed.type,
@@ -54,7 +52,7 @@ export async function resolveSource(
   options: ResolveOptions = {}
 ): Promise<SkillSource> {
   const config = resolveConfig(options);
-  return runWithWarnings(options, () => openSource(source, config, [], options));
+  return withWarnings(options.onWarning, () => openSource(source, config, [], options));
 }
 
 /** Fetch `input` and wrap it in a SkillSource; `requested` names guide discovery. */
@@ -65,7 +63,7 @@ export async function openSource(
   options: Pick<ResolveOptions, 'signal' | 'onProgress' | 'ref'>
 ): Promise<SkillSource> {
   const parsed = withRef(parseSourceInput(input, config.cwd), options.ref);
-  throwIfAborted(options.signal);
+  options.signal?.throwIfAborted();
 
   if (parsed.type === 'local' && !existsSync(parsed.localPath!)) {
     throw diagnostics.SKILLS_LOCAL_PATH_NOT_FOUND({ path: parsed.localPath! });
@@ -87,7 +85,7 @@ export async function openSource(
   const handle = await createSkillSource(input, fetched);
   if (options.signal?.aborted) {
     await handle.dispose();
-    throwIfAborted(options.signal);
+    options.signal?.throwIfAborted();
   }
   if (handle.skills.length === 0) {
     await handle.dispose();
@@ -134,7 +132,7 @@ function fetchError(input: string, fetched: FetchedSource): Error {
 }
 
 async function createSkillSource(input: string, raw: FetchedSource): Promise<SkillSource> {
-  const { fetched, duplicates } = await dedupeSkills(raw);
+  const { fetched, duplicates } = dedupeSkills(raw);
   const skills: SkillInfo[] = fetched.resolved!.skills.map((skill) => {
     const path = skillPath(fetched, skill);
     const others = duplicates.get(skill);
@@ -170,33 +168,32 @@ async function createSkillSource(input: string, raw: FetchedSource): Promise<Ski
 
 /**
  * Keep the first skill of each name, as `skills add` does, and record the
- * paths of the others. Copies that resolve to the same folder (symlinks)
- * are not duplicates.
+ * paths of the others. (Discovery never follows symlinked folders, so a
+ * symlinked copy is not seen at all.)
  */
-async function dedupeSkills(
-  fetched: FetchedSource
-): Promise<{ fetched: FetchedSource; duplicates: Map<Skill, string[]> }> {
+function dedupeSkills(fetched: FetchedSource): {
+  fetched: FetchedSource;
+  duplicates: Map<Skill, string[]>;
+} {
   const resolved = fetched.resolved!;
-  const first = new Map<string, { skill: Skill; real: string }>();
-  const kept: Skill[] = [];
+  const first = new Map<string, Skill>();
   const duplicates = new Map<Skill, string[]>();
 
   for (const skill of resolved.skills) {
     const name = getSkillDisplayName(skill);
-    const real = skill.path ? await realpath(skill.path).catch(() => skill.path) : '';
     const winner = first.get(name);
     if (!winner) {
-      first.set(name, { skill, real });
-      kept.push(skill);
+      first.set(name, skill);
       continue;
     }
-    if (real && real === winner.real) continue;
     const path = skillPath(fetched, skill);
-    if (path === undefined) continue;
-    duplicates.set(winner.skill, [...(duplicates.get(winner.skill) ?? []), path]);
+    if (path !== undefined) duplicates.set(winner, [...(duplicates.get(winner) ?? []), path]);
   }
 
-  return { fetched: { ...fetched, resolved: { ...resolved, skills: kept } }, duplicates };
+  return {
+    fetched: { ...fetched, resolved: { ...resolved, skills: [...first.values()] } },
+    duplicates,
+  };
 }
 
 /** A skill's folder relative to the source root, `/`-separated; undefined when unknown. */

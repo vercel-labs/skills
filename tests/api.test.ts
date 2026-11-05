@@ -109,6 +109,15 @@ describe('agents', () => {
     expect(Object.isFrozen(claude)).toBe(true);
   });
 
+  it('detects agents from project markers in cwd', async () => {
+    const other = join(root, 'other');
+    mkdirSync(join(other, '.continue'), { recursive: true });
+    const inOther = await api.detectAgents({ cwd: other });
+    expect(inOther.agents.map((agent) => agent.id)).toContain('continue');
+    const inCwd = await api.detectAgents({ cwd });
+    expect(inCwd.agents.map((agent) => agent.id)).not.toContain('continue');
+  });
+
   it('limits detected agents to config.agents', async () => {
     mkdirSync(join(process.env.HOME!, '.claude'), { recursive: true });
     const all = await api.detectAgents({ cwd });
@@ -410,7 +419,7 @@ describe('skill paths and duplicate names', () => {
     await handle.dispose();
   });
 
-  unixOnly('does not count a symlinked copy of the same folder as a duplicate', async () => {
+  unixOnly('ignores symlinked skill folders, so they are never duplicates', async () => {
     mkdirSync(join(source, '.claude', 'skills'), { recursive: true });
     symlinkSync(join(source, 'skills', 'alpha'), join(source, '.claude', 'skills', 'alpha'));
     const handle = await api.resolveSource(source, { cwd });
@@ -478,6 +487,27 @@ describe('universal target', () => {
     ]);
     expect(lstatSync(join(stage, '.agents/skills/alpha')).isDirectory()).toBe(true);
     expect(existsSync(join(stage, 'skills-lock.json'))).toBe(false);
+  });
+});
+
+describe('download sources', () => {
+  it('reports skill paths relative to the downloaded root', async () => {
+    const url = 'https://downloads.example.com/skills/direct-skill';
+    const skillMd = '---\nname: direct-skill\ndescription: Direct skill\n---\n\n# Direct\n';
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input) =>
+        String(input) === url
+          ? new Response(skillMd, { headers: { 'content-length': String(skillMd.length) } })
+          : new Response('not found', { status: 404 })
+      );
+    try {
+      const handle = await api.resolveSource(url, { cwd });
+      expect(handle.skills).toEqual([expect.objectContaining({ name: 'direct-skill', path: '.' })]);
+      await handle.dispose();
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });
 

@@ -13,8 +13,7 @@ import { flushTelemetry, setVersion } from '../telemetry.ts';
 import type { AgentType } from '../types.ts';
 import { version } from './version.ts';
 import { assertKnownAgents, isAgentAllowed, resolveConfig } from './config.ts';
-import { throwIfAborted } from './errors.ts';
-import { runWithWarnings } from './warnings.ts';
+import { withWarnings } from '../warnings.ts';
 import type { RemoveFailure, RemoveOptions, RemoveResult } from './types.ts';
 
 /**
@@ -27,7 +26,7 @@ export function removeSkills(
   names: readonly string[],
   options: RemoveOptions = {}
 ): Promise<RemoveResult> {
-  return runWithWarnings(options, () => remove(names, options));
+  return withWarnings(options.onWarning, () => remove(names, options));
 }
 
 async function remove(names: readonly string[], options: RemoveOptions): Promise<RemoveResult> {
@@ -49,7 +48,7 @@ async function remove(names: readonly string[], options: RemoveOptions): Promise
   if (targetAgents.length === 0) {
     throw diagnostics.SKILLS_NO_TARGET_AGENTS();
   }
-  throwIfAborted(options.signal);
+  options.signal?.throwIfAborted();
 
   const global = config.scope === 'global';
   const { cwd } = config;
@@ -73,7 +72,7 @@ async function remove(names: readonly string[], options: RemoveOptions): Promise
     }
     selected = selected.filter((skill) => !tracked.has(skill));
   }
-  throwIfAborted(options.signal);
+  options.signal?.throwIfAborted();
 
   const results = await removeInstalledSkills(selected, {
     global,

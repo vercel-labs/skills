@@ -2,7 +2,7 @@ import { lstat, readdir } from 'fs/promises';
 import { join, posix } from 'path';
 import {
   defaultInstallMode,
-  installedSkillHash,
+  collectInstalled,
   installToTargets,
   nonInteractiveTargetAgents,
   recordGlobalLock,
@@ -23,9 +23,8 @@ import { flushTelemetry, setVersion } from '../telemetry.ts';
 import type { AgentType, Skill } from '../types.ts';
 import { version } from './version.ts';
 import { assertKnownAgents, isAgentAllowed, resolveConfig, type ResolvedConfig } from './config.ts';
-import { errorMessage, throwIfAborted } from './errors.ts';
 import { getFetchedSource, openSource } from './resolve.ts';
-import { runWithWarnings } from './warnings.ts';
+import { withWarnings } from '../warnings.ts';
 import type {
   InstalledSkillTarget,
   InstallFailure,
@@ -56,7 +55,7 @@ export async function installSkills(
       expected: 'used with a source string; pass it to resolveSource() instead',
     });
   }
-  return runWithWarnings(options, () => install(source, options, config, requested));
+  return withWarnings(options.onWarning, () => install(source, options, config, requested));
 }
 
 async function install(
@@ -66,7 +65,7 @@ async function install(
   requested: readonly string[] | undefined
 ): Promise<InstallResult> {
   if (config.scope === 'project' && config.lockfile) await assertReadableLock(config.cwd);
-  throwIfAborted(options.signal);
+  options.signal?.throwIfAborted();
 
   const owned = typeof source === 'string';
   const handle = owned ? await openSource(source, config, requested ?? [], options) : source;
@@ -76,7 +75,7 @@ async function install(
     if (config.duplicates === 'error') rejectDuplicates(handle, skills);
     if (config.symlinks === 'reject') await rejectSymlinks(fetched, skills);
     const { targets, failures } = await resolveTargets(options.agents, config, skills);
-    throwIfAborted(options.signal);
+    options.signal?.throwIfAborted();
 
     const explicit = new Set<AgentType>(
       (options.agents ?? config.agents.default ?? []) as AgentType[]
@@ -101,7 +100,7 @@ async function install(
       failed: result.failed.length,
     });
 
-    const installed = await installedSkills(skills, results);
+    const installed = await collectInstalled(skills, results);
     if (config.lockfile && installed.length > 0) {
       await recordLock(fetched, installed, config, config.mode === 'copy');
     }
@@ -258,27 +257,6 @@ function buildResult(
   });
 }
 
-/** Skills at least one target accepted, hashed as the lock files record them. */
-async function installedSkills(
-  skills: Skill[],
-  results: TargetInstallResult[]
-): Promise<InstalledSkill[]> {
-  const installed: InstalledSkill[] = [];
-  for (const skill of skills) {
-    const name = getSkillDisplayName(skill);
-    const target =
-      results.find((r) => r.success && !r.skipped && r.skill === name) ??
-      results.find((r) => r.success && r.skill === name);
-    if (!target) continue;
-    try {
-      installed.push({ skill, hash: await installedSkillHash(skill, target) });
-    } catch {
-      // Without a hash the skill stays installed but cannot be locked.
-    }
-  }
-  return installed;
-}
-
 async function recordLock(
   fetched: FetchedSource,
   installed: InstalledSkill[],
@@ -290,18 +268,24 @@ async function recordLock(
     if (config.scope === 'project') {
       // Direct downloads cannot be fetched again, so they are not locked (as in `add`).
       if (fetched.parsed.type === 'download') return;
-      await recordProjectLock(fetched, installed, { cwd: config.cwd, ...lockedInstallMode });
+      await recordProjectLock(fetched, installed, undefined, {
+        cwd: config.cwd,
+        ...lockedInstallMode,
+      });
     } else if (installed.some(({ skill }) => 'wellKnown' in skill)) {
       await recordGlobalWellKnownLock(fetched.parsed.url, installed);
     } else {
       await recordGlobalLock(
         fetched,
         installed.map(({ skill }) => skill),
-        { lockedInstallMode }
+        lockedInstallMode
       );
     }
   } catch (error) {
-    throw diagnostics.SKILLS_LOCK_WRITE_FAILED({ detail: errorMessage(error), cause: error });
+    throw diagnostics.SKILLS_LOCK_WRITE_FAILED({
+      detail: error instanceof Error ? error.message : String(error),
+      cause: error,
+    });
   }
 }
 

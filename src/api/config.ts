@@ -72,7 +72,7 @@ export function resolveConfig(options: BaseOptions & Overrides = {}): ResolvedCo
   return resolved;
 }
 
-export function isKnownAgent(id: string): id is AgentType {
+function isKnownAgent(id: string): id is AgentType {
   return Object.hasOwn(agentConfigs, id);
 }
 

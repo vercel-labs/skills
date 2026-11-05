@@ -3,13 +3,12 @@ import { readLocalLock } from '../local-lock.ts';
 import { readSkillLock } from '../skill-lock.ts';
 import { assertKnownAgents, resolveConfig } from './config.ts';
 import { diagnostics } from '../diagnostics.ts';
-import { throwIfAborted } from './errors.ts';
-import { runWithWarnings } from './warnings.ts';
+import { withWarnings } from '../warnings.ts';
 import type { InstalledSkillInfo, ListOptions, ListResult, Scope } from './types.ts';
 
 /** Skills installed in the project (`cwd`), globally, or both. */
 export function listSkills(options: ListOptions = {}): Promise<ListResult> {
-  return runWithWarnings(options, () => list(options));
+  return withWarnings(options.onWarning, () => list(options));
 }
 
 async function list(options: ListOptions): Promise<ListResult> {
@@ -22,14 +21,14 @@ async function list(options: ListOptions): Promise<ListResult> {
     });
   }
   assertKnownAgents(options.agents);
-  throwIfAborted(options.signal);
+  options.signal?.throwIfAborted();
 
   const found = await listInstalledSkills({
     cwd,
     ...(scope !== 'all' && { global: scope === 'global' }),
     ...(options.agents && { agentFilter: [...options.agents] }),
   });
-  throwIfAborted(options.signal);
+  options.signal?.throwIfAborted();
 
   const sources: Record<Scope, Record<string, string>> = {
     project: scope === 'global' ? {} : await lockSources(() => readLocalLock(cwd)),

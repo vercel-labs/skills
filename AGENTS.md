@@ -29,7 +29,6 @@ src/
 ├── api/             # Programmatic API (see docs/api.md)
 │   ├── types.ts     # Hand-written public types (never alias internal types)
 │   ├── config.ts    # resolveConfig: call options > config > defaults; agent limits
-│   ├── errors.ts    # Abort and message helpers
 │   ├── agents.ts    # getSupportedAgents, detectAgents
 │   ├── resolve.ts   # resolveSource / SkillSource handles
 │   ├── install.ts   # installSkills

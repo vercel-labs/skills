@@ -16,7 +16,10 @@ export function warn(warning: Diagnostic<unknown>): void {
   else console.warn(formatError(warning));
 }
 
-/** Run `fn` with warnings routed to `handler` instead of the console. */
-export function withWarnings<T>(handler: WarningHandler, fn: () => Promise<T>): Promise<T> {
-  return handlers.run(handler, fn);
+/** Run `fn` with warnings routed to `handler` (or dropped) instead of the console. */
+export function withWarnings<T>(
+  handler: WarningHandler | undefined,
+  fn: () => Promise<T>
+): Promise<T> {
+  return handlers.run(handler ?? (() => {}), fn);
 }
