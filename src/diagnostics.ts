@@ -110,6 +110,7 @@ export const diagnostics = defineDiagnostics({
     },
     SKILLS_SKILL_SKIPPED: {
       why: (p: { path: string; reason: string }) => `⚠ Skipped ${p.path} — ${p.reason}`,
+      data: (p: { path: string }) => ({ path: p.path }),
     },
 
     SKILLS_UNSUPPORTED_GIT_TRANSPORT: {
@@ -218,6 +219,7 @@ export const diagnostics = defineDiagnostics({
     },
     SKILLS_BROKEN_SYMLINK: {
       why: (p: { path: string }) => `Skipping broken symlink: ${p.path}`,
+      data: (p: { path: string }) => ({ path: p.path }),
     },
     SKILLS_LOCK_MISSING_SOURCE_URL: {
       why: (p: { skill: string }) =>
@@ -230,10 +232,12 @@ export const diagnostics = defineDiagnostics({
     SKILLS_SYMLINK_OUTSIDE_SKILL: {
       why: (p: { path: string }) =>
         `Skipping symlink that points outside the skill directory: ${p.path}`,
+      data: (p: { path: string }) => ({ path: p.path }),
     },
 
     SKILLS_SYMLINK_CYCLE: {
       why: (p: { path: string }) => `Skipping symlink that creates a directory cycle: ${p.path}`,
+      data: (p: { path: string }) => ({ path: p.path }),
     },
 
     SKILLS_PACKAGE_SKILLS_NOT_ARRAY: {
@@ -336,6 +340,47 @@ export const diagnostics = defineDiagnostics({
     SKILLS_USE_NO_MATCHING_SKILL: {
       why: (p: { selector: string }) => `No matching skill found for: ${p.selector}`,
       fix: (p: { available: string[] }) => availableSkills(p.available),
+    },
+
+    // Programmatic API (src/api). Thrown, or carried as `code` by per-skill failures.
+    SKILLS_SOURCE_FETCH_FAILED: {
+      why: (p: { source: string; detail: string }) => `Could not fetch ${p.source}: ${p.detail}`,
+    },
+    SKILLS_SOURCE_DISPOSED: {
+      why: 'This source was already disposed. Resolve it again with resolveSource().',
+    },
+    SKILLS_DUPLICATE_SKILL_NAME: {
+      why: (p: { skills: string[] }) =>
+        ['Several folders declare the same skill name:', ...p.skills.map((s) => `  - ${s}`)].join(
+          '\n'
+        ),
+      fix: "Select another skill, or install with duplicates: 'first'.",
+    },
+    SKILLS_SKILL_CONTAINS_SYMLINKS: {
+      why: (p: { links: string[] }) =>
+        ['Skills contain symlinks:', ...p.links.map((link) => `  - ${link}`)].join('\n'),
+      fix: "Remove the symlinks from the source, or install with symlinks: 'follow'.",
+    },
+    SKILLS_AGENT_NOT_ALLOWED: {
+      why: (p: { agents: string[] }) => `Not allowed by config.agents: ${p.agents.join(', ')}`,
+    },
+    SKILLS_NO_TARGET_AGENTS: {
+      why: 'No allowed agents to target.',
+      fix: 'Name agents that config.agents allows, or widen config.agents.include.',
+    },
+    SKILLS_GLOBAL_INSTALL_UNSUPPORTED: {
+      why: (p: { agent: string }) => `${p.agent} does not support global skill installation`,
+    },
+    SKILLS_INSTALL_FAILED: {
+      why: (p: { skill: string; agent: string; detail: string }) =>
+        `Failed to install ${p.skill} for ${p.agent}: ${p.detail}`,
+    },
+    SKILLS_REMOVE_FAILED: {
+      why: (p: { skill: string; detail: string }) => `Failed to remove ${p.skill}: ${p.detail}`,
+    },
+    SKILLS_LOCK_WRITE_FAILED: {
+      why: (p: { detail: string }) =>
+        `Skills were installed but the lock file could not be updated: ${p.detail}`,
     },
 
     SKILLS_PROVIDER_ALREADY_REGISTERED: {

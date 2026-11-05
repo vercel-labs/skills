@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from 'fs/promises';
 import { join, basename, dirname, resolve, normalize, sep, relative } from 'path';
 import { parseFrontmatter } from './frontmatter.ts';
-import { diagnostics, formatError, isDiagnostic } from './diagnostics.ts';
+import { diagnostics, isDiagnostic } from './diagnostics.ts';
 import { sanitizeMetadata, stripTerminalEscapes } from './sanitize.ts';
 import type { Skill } from './types.ts';
 import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
@@ -77,13 +77,11 @@ export async function hasSkillMd(dir: string): Promise<boolean> {
 }
 
 function warnSkippedSkill(skillMdPath: string, reason: string): void {
-  const diagnostic = diagnostics.SKILLS_SKILL_SKIPPED({
-    path: sanitizeMetadata(skillMdPath),
-    reason: stripTerminalEscapes(reason),
-  });
   warn(
-    { code: 'SKILL_SKIPPED', message: diagnostic.message.replace(/^⚠ /, ''), path: skillMdPath },
-    formatError(diagnostic)
+    diagnostics.SKILLS_SKILL_SKIPPED({
+      path: sanitizeMetadata(skillMdPath),
+      reason: stripTerminalEscapes(reason),
+    })
   );
 }
 

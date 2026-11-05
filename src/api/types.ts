@@ -6,6 +6,11 @@
  * shows up in the tsnapi snapshot (`__snapshots__/tsnapi`).
  */
 
+import type { Diagnostic } from 'nostics';
+import type { DiagnosticCode } from '../diagnostics.ts';
+
+export type { Diagnostic, DiagnosticCode };
+
 /** Where skills are installed: the project (`cwd`) or the user's home. */
 export type Scope = 'project' | 'global';
 
@@ -34,14 +39,14 @@ export interface InstallSettings {
   /**
    * When a source has several folders declaring the same skill name: `first`
    * installs the first one found (as `skills add` does); `error` makes
-   * installSkills throw SKILL_AMBIGUOUS before writing anything when a selected
+   * installSkills throw SKILLS_DUPLICATE_SKILL_NAME before writing anything when a selected
    * skill's name is declared more than once. @default 'first'
    */
   duplicates?: 'first' | 'error';
   /**
    * Symlinks inside a skill folder: `follow` copies what in-skill links point
    * to and skips unsafe ones with a warning; `reject` makes installSkills throw
-   * SYMLINK_REJECTED before writing anything when a selected skill contains a
+   * SKILLS_SKILL_CONTAINS_SYMLINKS before writing anything when a selected skill contains a
    * symlink. @default 'follow'
    */
   symlinks?: 'follow' | 'reject';
@@ -81,23 +86,12 @@ export type ProgressEvent =
 export type ProgressHandler = (event: ProgressEvent) => void;
 
 /**
- * Kinds of non-fatal problems reported through `onWarning`:
- * - `SKILL_SKIPPED`: a SKILL.md was unreadable or had invalid frontmatter, so
- *   it was not discovered.
- * - `SYMLINK_SKIPPED`: a symlink inside a skill was broken, cyclic, or pointed
- *   outside the skill, so it was not copied.
+ * Receives non-fatal problems as diagnostics, the same ones the CLI prints:
+ * SKILLS_SKILL_SKIPPED (an invalid SKILL.md was not discovered) and
+ * SKILLS_BROKEN_SYMLINK / SKILLS_SYMLINK_OUTSIDE_SKILL / SKILLS_SYMLINK_CYCLE
+ * (an unsafe symlink inside a skill was not copied).
  */
-export type SkillsWarningCode = 'SKILL_SKIPPED' | 'SYMLINK_SKIPPED';
-
-/** A non-fatal problem. Warnings never reach the console from API calls. */
-export interface SkillsWarning {
-  readonly code: SkillsWarningCode;
-  readonly message: string;
-  /** Absolute path of the file the warning is about (may be inside a temporary clone). */
-  readonly path?: string;
-}
-
-export type WarningHandler = (warning: SkillsWarning) => void;
+export type WarningHandler = (warning: Diagnostic<unknown>) => void;
 
 /** Runtime context shared by every operation. Never comes from a config file. */
 export interface BaseOptions {
@@ -227,7 +221,7 @@ export interface SkippedSkillTarget {
 export interface InstallFailure {
   readonly skill: string;
   readonly agent: string;
-  readonly code: SkillsErrorCode;
+  readonly code: DiagnosticCode;
   readonly message: string;
 }
 
@@ -273,7 +267,7 @@ export interface RemoveOptions extends BaseOptions {
 
 export interface RemoveFailure {
   readonly skill: string;
-  readonly code: SkillsErrorCode;
+  readonly code: DiagnosticCode;
   readonly message: string;
 }
 
@@ -284,27 +278,3 @@ export interface RemoveResult {
   readonly notFound: readonly string[];
   readonly failed: readonly RemoveFailure[];
 }
-
-/** Codes carried by `SkillsError` and by per-skill failures. */
-export type SkillsErrorCode =
-  | 'INVALID_OPTIONS'
-  | 'INVALID_SOURCE'
-  | 'SOURCE_NOT_FOUND'
-  | 'SOURCE_FETCH_FAILED'
-  | 'SOURCE_AUTH_FAILED'
-  | 'SOURCE_REF_NOT_FOUND'
-  | 'SOURCE_TIMEOUT'
-  | 'SOURCE_DISPOSED'
-  | 'NO_SKILLS_FOUND'
-  | 'SKILL_NOT_FOUND'
-  | 'SKILL_AMBIGUOUS'
-  | 'SYMLINK_REJECTED'
-  | 'UNKNOWN_AGENT'
-  | 'AGENT_NOT_ALLOWED'
-  | 'NO_TARGET_AGENTS'
-  | 'GLOBAL_NOT_SUPPORTED'
-  | 'GLOBALLY_TRACKED'
-  | 'INVALID_LOCKFILE'
-  | 'INSTALL_FAILED'
-  | 'REMOVE_FAILED'
-  | 'ABORTED';

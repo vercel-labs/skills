@@ -6,12 +6,12 @@
  * Never `export *`, and never re-export internal types. See docs/api.md.
  */
 
-export { getAgents, detectAgents } from './api/agents.ts';
+export { getSupportedAgents, detectAgents } from './api/agents.ts';
 export { resolveSource } from './api/resolve.ts';
 export { installSkills } from './api/install.ts';
 export { listSkills } from './api/list.ts';
 export { removeSkills } from './api/remove.ts';
-export { SkillsError } from './api/errors.ts';
+export { diagnostics, isDiagnostic } from './diagnostics.ts';
 export { version } from './api/version.ts';
 
 export type {
@@ -19,6 +19,8 @@ export type {
   AgentsConfig,
   BaseOptions,
   DetectAgentsResult,
+  Diagnostic,
+  DiagnosticCode,
   InstalledSkillInfo,
   InstalledSkillTarget,
   InstallFailure,
@@ -37,10 +39,7 @@ export type {
   Scope,
   SkillInfo,
   SkillsConfig,
-  SkillsErrorCode,
   SkillSource,
-  SkillsWarning,
-  SkillsWarningCode,
   SkippedSkillTarget,
   SourceInfo,
   SourceType,

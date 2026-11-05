@@ -43,7 +43,7 @@ export interface InstalledSkillTarget {
 export interface InstallFailure {
   readonly skill: string;
   readonly agent: string;
-  readonly code: SkillsErrorCode;
+  readonly code: DiagnosticCode;
   readonly message: string;
 }
 export interface InstallOptions extends BaseOptions, InstallSettings {
@@ -77,7 +77,7 @@ export interface ListResult {
 }
 export interface RemoveFailure {
   readonly skill: string;
-  readonly code: SkillsErrorCode;
+  readonly code: DiagnosticCode;
   readonly message: string;
 }
 export interface RemoveOptions extends BaseOptions {
@@ -113,11 +113,6 @@ export interface SkillSource {
   readonly skills: readonly SkillInfo[];
   dispose(): Promise<void>;
 }
-export interface SkillsWarning {
-  readonly code: SkillsWarningCode;
-  readonly message: string;
-  readonly path?: string;
-}
 export interface SkippedSkillTarget {
   readonly skill: string;
   readonly agent: string;
@@ -134,6 +129,7 @@ export interface SourceInfo {
 // #endregion
 
 // #region Types
+export type DiagnosticCode = keyof typeof diagnostics;
 export type InstallMode = 'auto' | 'symlink' | 'copy';
 export type ProgressEvent = {
   readonly type: 'resolve:start';
@@ -153,30 +149,510 @@ export type ProgressEvent = {
 };
 export type ProgressHandler = (_: ProgressEvent) => void;
 export type Scope = 'project' | 'global';
-export type SkillsErrorCode = 'INVALID_OPTIONS' | 'INVALID_SOURCE' | 'SOURCE_NOT_FOUND' | 'SOURCE_FETCH_FAILED' | 'SOURCE_AUTH_FAILED' | 'SOURCE_REF_NOT_FOUND' | 'SOURCE_TIMEOUT' | 'SOURCE_DISPOSED' | 'NO_SKILLS_FOUND' | 'SKILL_NOT_FOUND' | 'SKILL_AMBIGUOUS' | 'SYMLINK_REJECTED' | 'UNKNOWN_AGENT' | 'AGENT_NOT_ALLOWED' | 'NO_TARGET_AGENTS' | 'GLOBAL_NOT_SUPPORTED' | 'GLOBALLY_TRACKED' | 'INVALID_LOCKFILE' | 'INSTALL_FAILED' | 'REMOVE_FAILED' | 'ABORTED';
-export type SkillsWarningCode = 'SKILL_SKIPPED' | 'SYMLINK_SKIPPED';
 export type SourceType = 'github' | 'gitlab' | 'git' | 'local' | 'well-known' | 'download';
-export type WarningHandler = (_: SkillsWarning) => void;
+export type WarningHandler = (_: Diagnostic<unknown>) => void;
 // #endregion
 
 // #region Classes
-export declare class SkillsError extends Error {
-  readonly code: SkillsErrorCode;
-  constructor(_: SkillsErrorCode, _: string, _?: {
-    cause?: unknown;
-  });
+export declare class Diagnostic<Data = undefined> extends Error {
+  name: string;
+  code: string;
+  docs?: string;
+  fix?: string;
+  sources?: string[];
+  data: Data;
+  get why(): string;
+  constructor(_: DiagnosticInit<Data>, _?: StackTraceFrame);
+  toJSON(): DiagnosticJSON<Data>;
 }
 // #endregion
 
 // #region Functions
 export declare function detectAgents(_?: BaseOptions): Promise<DetectAgentsResult>;
-export declare function getAgents(): readonly AgentInfo[];
+export declare function getSupportedAgents(): readonly AgentInfo[];
 export declare function installSkills(_: string | SkillSource, _?: InstallOptions): Promise<InstallResult>;
+export declare function isDiagnostic(_: unknown, ..._: DiagnosticCode[]): error is Diagnostic;
 export declare function listSkills(_?: ListOptions): Promise<ListResult>;
 export declare function removeSkills(_: readonly string[], _?: RemoveOptions): Promise<RemoveResult>;
 export declare function resolveSource(_: string, _?: ResolveOptions): Promise<SkillSource>;
 // #endregion
 
 // #region Variables
+export declare const diagnostics: Diagnostics<{
+  readonly SKILLS_INVALID_AGENTS: {
+    readonly why: (p: {
+      invalid: string[];
+      valid: string[];
+    }) => string;
+    readonly fix: (p: {
+      valid: string[];
+    }) => string;
+  };
+  readonly SKILLS_OPTION_REQUIRES_VALUE: {
+    readonly why: (p: {
+      option: string;
+      value: string;
+    }) => string;
+  };
+  readonly SKILLS_UNKNOWN_OPTION: {
+    readonly why: (p: {
+      option: string;
+    }) => string;
+  };
+  readonly SKILLS_INVALID_OPTION_VALUE: {
+    readonly why: (p: {
+      option: string;
+      expected: string;
+    }) => string;
+  };
+  readonly SKILLS_DUPLICATE_OPTION: {
+    readonly why: (p: {
+      option: string;
+    }) => string;
+  };
+  readonly SKILLS_REMOVE_ALL_WITH_NAMES: {
+    readonly why: "Cannot combine --all with specific skill names.";
+    readonly fix: (p: {
+      example: string;
+    }) => string;
+  };
+  readonly SKILLS_PROMPT_REQUIRES_TTY: {
+    readonly why: string;
+  };
+  readonly SKILLS_MISSING_ARGUMENT: {
+    readonly why: (p: {
+      name: string;
+    }) => string;
+  };
+  readonly SKILLS_MULTIPLE_SOURCES: {
+    readonly why: (p: {
+      received: string[];
+    }) => string;
+  };
+  readonly SKILLS_UNKNOWN_COMMAND: {
+    readonly why: (p: {
+      command: string;
+    }) => string;
+    readonly fix: "Run skills --help for usage.";
+  };
+  readonly SKILLS_REMOVE_GLOBALLY_TRACKED: {
+    readonly why: (p: {
+      skills: string[];
+    }) => string;
+    readonly fix: (p: {
+      skills: string[];
+    }) => string;
+  };
+  readonly SKILLS_UNSAFE_SUBPATH: {
+    readonly why: (p: {
+      subpath: string;
+    }) => string;
+  };
+  readonly SKILLS_SUBPATH_OUTSIDE_REPO: {
+    readonly why: (p: {
+      subpath: string;
+    }) => string;
+  };
+  readonly SKILLS_NO_MATCHING_SKILLS: {
+    readonly why: (p: {
+      requested: string[];
+    }) => string;
+    readonly fix: (p: {
+      available: string[];
+    }) => string;
+  };
+  readonly SKILLS_NO_VALID_SKILLS: {
+    readonly why: "No valid skills found. Skills require a SKILL.md with name and description.";
+  };
+  readonly SKILLS_MULTIPLE_SKILLS_IN_SOURCE: {
+    readonly why: (p: {
+      names: string[];
+    }) => string;
+    readonly fix: (p: {
+      source: string;
+      names: string[];
+    }) => string;
+  };
+  readonly SKILLS_AMBIGUOUS_SKILL_SELECTOR: {
+    readonly why: (p: {
+      selector: string;
+    }) => string;
+  };
+  readonly SKILLS_CONFLICTING_SKILL_SELECTORS: {
+    readonly why: (p: {
+      fromSource: string;
+      fromOption: string;
+    }) => string;
+  };
+  readonly SKILLS_LOCAL_PATH_NOT_FOUND: {
+    readonly why: (p: {
+      path: string;
+    }) => string;
+  };
+  readonly SKILLS_WELLKNOWN_SCOPE_NOT_FOUND: {
+    readonly why: (p: {
+      scopePath: string;
+      rootUrl: string;
+    }) => string;
+  };
+  readonly SKILLS_WELLKNOWN_INDEX_NOT_FOUND: {
+    readonly why: "No skills found at this URL. Make sure the server has a /.well-known/agent-skills/index.json or /.well-known/skills/index.json file.";
+  };
+  readonly SKILLS_SKILL_SKIPPED: {
+    readonly why: (p: {
+      path: string;
+      reason: string;
+    }) => string;
+    readonly data: (p: {
+      path: string;
+    }) => {
+      path: string;
+    };
+  };
+  readonly SKILLS_UNSUPPORTED_GIT_TRANSPORT: {
+    readonly why: (p: {
+      transport: string;
+    }) => string;
+  };
+  readonly SKILLS_GIT_CLONE_TIMEOUT: {
+    readonly why: (p: {
+      seconds: number;
+    }) => string;
+  };
+  readonly SKILLS_GIT_AUTH_FAILED: {
+    readonly why: (p: {
+      url: string;
+      sshUrl?: string;
+      host: string;
+    }) => string;
+  };
+  readonly SKILLS_GIT_SAML_SSO_BLOCKED: {
+    readonly why: (p: {
+      url: string;
+      sshUrl: string;
+      host: string;
+    }) => string;
+  };
+  readonly SKILLS_GIT_CLONE_FAILED: {
+    readonly why: (p: {
+      url: string;
+      detail: string;
+    }) => string;
+  };
+  readonly SKILLS_DOWNLOAD_HTTP_ERROR: {
+    readonly why: (p: {
+      status: number;
+    }) => string;
+  };
+  readonly SKILLS_DOWNLOAD_TOO_LARGE: {
+    readonly why: (p: {
+      maxBytes: number;
+    }) => string;
+  };
+  readonly SKILLS_DOWNLOAD_NO_BODY: {
+    readonly why: "Download response has no body";
+  };
+  readonly SKILLS_DOWNLOAD_EMPTY: {
+    readonly why: "Downloaded URL is empty";
+  };
+  readonly SKILLS_DOWNLOAD_NOT_A_SKILL: {
+    readonly why: "Downloaded URL is not a valid SKILL.md file or supported archive";
+  };
+  readonly SKILLS_ARCHIVE_INVALID: {
+    readonly why: (p: {
+      reason: string;
+    }) => string;
+  };
+  readonly SKILLS_ARCHIVE_MULTI_DISK_ZIP: {
+    readonly why: "Multi-disk zip archives are not supported";
+  };
+  readonly SKILLS_ARCHIVE_UNSAFE_PATH: {
+    readonly why: (p: {
+      path: string;
+    }) => string;
+  };
+  readonly SKILLS_ARCHIVE_ENCRYPTED_ENTRY: {
+    readonly why: "Encrypted zip entries are not supported";
+  };
+  readonly SKILLS_ARCHIVE_LINK_ENTRY: {
+    readonly why: "Archive links are not supported";
+  };
+  readonly SKILLS_ARCHIVE_TOO_MANY_FILES: {
+    readonly why: (p: {
+      count: number;
+      max: number;
+      overrideEnv?: string;
+    }) => string;
+  };
+  readonly SKILLS_ARCHIVE_TOO_LARGE: {
+    readonly why: (p: {
+      maxBytes: number;
+      overrideEnv?: string;
+    }) => string;
+  };
+  readonly SKILLS_ARCHIVE_UNSUPPORTED_COMPRESSION: {
+    readonly why: (p: {
+      method: number;
+    }) => string;
+  };
+  readonly SKILLS_ARCHIVE_UNSUPPORTED_FORMAT: {
+    readonly why: "Unsupported archive format";
+  };
+  readonly SKILLS_ARCHIVE_MISSING_SKILL_MD: {
+    readonly why: "Archive missing root SKILL.md";
+  };
+  readonly SKILLS_WELLKNOWN_ARCHIVE_UNSAFE_PATH: {
+    readonly why: (p: {
+      path: string;
+    }) => string;
+  };
+  readonly SKILLS_WELLKNOWN_ARCHIVE_TOO_LARGE: {
+    readonly why: "Archive exceeds maximum unpacked size";
+  };
+  readonly SKILLS_WELLKNOWN_ARCHIVE_TOO_MANY_FILES: {
+    readonly why: "Archive contains too many files";
+  };
+  readonly SKILLS_UNSAFE_SKILL_NAME: {
+    readonly why: "Invalid skill name: potential path traversal detected";
+  };
+  readonly SKILLS_CLEANUP_OUTSIDE_TEMP_DIR: {
+    readonly why: "Attempted to clean up directory outside of temp directory";
+  };
+  readonly SKILLS_BROKEN_SYMLINK: {
+    readonly why: (p: {
+      path: string;
+    }) => string;
+    readonly data: (p: {
+      path: string;
+    }) => {
+      path: string;
+    };
+  };
+  readonly SKILLS_LOCK_MISSING_SOURCE_URL: {
+    readonly why: (p: {
+      skill: string;
+    }) => string;
+  };
+  readonly SKILLS_INVALID_LOCAL_LOCK: {
+    readonly why: (p: {
+      path: string;
+      reason: string;
+    }) => string;
+  };
+  readonly SKILLS_SYMLINK_OUTSIDE_SKILL: {
+    readonly why: (p: {
+      path: string;
+    }) => string;
+    readonly data: (p: {
+      path: string;
+    }) => {
+      path: string;
+    };
+  };
+  readonly SKILLS_SYMLINK_CYCLE: {
+    readonly why: (p: {
+      path: string;
+    }) => string;
+    readonly data: (p: {
+      path: string;
+    }) => {
+      path: string;
+    };
+  };
+  readonly SKILLS_PACKAGE_SKILLS_NOT_ARRAY: {
+    readonly why: "package.json: \"skills\" must be an array";
+  };
+  readonly SKILLS_PACKAGE_SKILLS_INVALID_ENTRY: {
+    readonly why: (p: {
+      declarer: string;
+      entry: string;
+    }) => string;
+  };
+  readonly SKILLS_PACKAGE_SKILLS_NOT_GIT_SOURCE: {
+    readonly why: (p: {
+      declarer: string;
+      source: string;
+    }) => string;
+  };
+  readonly SKILLS_PACKAGE_SKILLS_DUPLICATE_REF: {
+    readonly why: (p: {
+      declarer: string;
+      source: string;
+    }) => string;
+  };
+  readonly SKILLS_PACKAGE_SKILLS_REF_NOT_ALLOWED: {
+    readonly why: (p: {
+      declarer: string;
+      source: string;
+    }) => string;
+  };
+  readonly SKILLS_PACKAGE_SKILLS_UNRESOLVED_NPM: {
+    readonly why: (p: {
+      declarer: string;
+      pkg: string;
+    }) => string;
+  };
+  readonly SKILLS_NOTION_CLI_MISSING: {
+    readonly why: "Notion CLI (ntn) is required. Install it from:\nhttps://developers.notion.com/cli/get-started/overview\nThen run `ntn login`.";
+  };
+  readonly SKILLS_NOTION_API_FAILED: {
+    readonly why: (p: {
+      stderr: string;
+      exitCode: number | null;
+    }) => string;
+  };
+  readonly SKILLS_NOTION_API_TIMEOUT: {
+    readonly why: (p: {
+      seconds: number;
+    }) => string;
+  };
+  readonly SKILLS_NOTION_API_OUTPUT_TOO_LARGE: {
+    readonly why: "ntn api output exceeded 10 MiB";
+  };
+  readonly SKILLS_NOTION_CLI_START_FAILED: {
+    readonly why: (p: {
+      detail: string;
+    }) => string;
+  };
+  readonly SKILLS_NOTION_RESPONSE_MISSING_FIELD: {
+    readonly why: (p: {
+      response: "response" | "list response";
+      field: string;
+    }) => string;
+  };
+  readonly SKILLS_NOTION_RESPONSE_INVALID_FIELD: {
+    readonly why: (p: {
+      response: "response" | "list response";
+      field: string;
+    }) => string;
+  };
+  readonly SKILLS_NOTION_INVALID_PACK: {
+    readonly why: "Notion Agent Plugins response contains an invalid pack";
+  };
+  readonly SKILLS_NOTION_INVALID_LIST_RESPONSE: {
+    readonly why: "Notion Agent Plugins list response is invalid";
+  };
+  readonly SKILLS_NOTION_INVALID_DIRECTORY_RESPONSE: {
+    readonly why: (p: {
+      label: string;
+    }) => string;
+  };
+  readonly SKILLS_NOTION_INVALID_JSON: {
+    readonly why: (p: {
+      label: string;
+    }) => string;
+  };
+  readonly SKILLS_NOTION_INVALID_CURSOR: {
+    readonly why: "Notion Agent Plugins pagination returned an invalid cursor";
+  };
+  readonly SKILLS_NOTION_NO_PACKS: {
+    readonly why: "Notion returned no packs for the authenticated workspace";
+  };
+  readonly SKILLS_NOTION_NO_MATCHING_PACKS: {
+    readonly why: (p: {
+      requested: string[];
+    }) => string;
+  };
+  readonly SKILLS_NOTION_PACK_CHANGED: {
+    readonly why: (p: {
+      pack: string;
+    }) => string;
+  };
+  readonly SKILLS_NOTION_PACK_PREPARE_FAILED: {
+    readonly why: (p: {
+      pack: string;
+      detail: string;
+    }) => string;
+  };
+  readonly SKILLS_NOTION_PACK_NO_SKILLS: {
+    readonly why: "pack contains no valid skills";
+  };
+  readonly SKILLS_USE_AGENT_UNSUPPORTED: {
+    readonly why: (p: {
+      agent: string;
+    }) => string;
+    readonly fix: (p: {
+      supported: string[];
+    }) => string;
+  };
+  readonly SKILLS_USE_AGENT_COMMAND_NOT_FOUND: {
+    readonly why: (p: {
+      agent: string;
+      command: string;
+    }) => string;
+  };
+  readonly SKILLS_USE_AGENT_WILDCARD: {
+    readonly why: "skills use --agent does not support '*'; specify exactly one agent.";
+  };
+  readonly SKILLS_USE_MULTIPLE_AGENTS: {
+    readonly why: "skills use --agent accepts exactly one agent.";
+  };
+  readonly SKILLS_USE_NO_MATCHING_SKILL: {
+    readonly why: (p: {
+      selector: string;
+    }) => string;
+    readonly fix: (p: {
+      available: string[];
+    }) => string;
+  };
+  readonly SKILLS_SOURCE_FETCH_FAILED: {
+    readonly why: (p: {
+      source: string;
+      detail: string;
+    }) => string;
+  };
+  readonly SKILLS_SOURCE_DISPOSED: {
+    readonly why: "This source was already disposed. Resolve it again with resolveSource().";
+  };
+  readonly SKILLS_DUPLICATE_SKILL_NAME: {
+    readonly why: (p: {
+      skills: string[];
+    }) => string;
+    readonly fix: "Select another skill, or install with duplicates: 'first'.";
+  };
+  readonly SKILLS_SKILL_CONTAINS_SYMLINKS: {
+    readonly why: (p: {
+      links: string[];
+    }) => string;
+    readonly fix: "Remove the symlinks from the source, or install with symlinks: 'follow'.";
+  };
+  readonly SKILLS_AGENT_NOT_ALLOWED: {
+    readonly why: (p: {
+      agents: string[];
+    }) => string;
+  };
+  readonly SKILLS_NO_TARGET_AGENTS: {
+    readonly why: "No allowed agents to target.";
+    readonly fix: "Name agents that config.agents allows, or widen config.agents.include.";
+  };
+  readonly SKILLS_GLOBAL_INSTALL_UNSUPPORTED: {
+    readonly why: (p: {
+      agent: string;
+    }) => string;
+  };
+  readonly SKILLS_INSTALL_FAILED: {
+    readonly why: (p: {
+      skill: string;
+      agent: string;
+      detail: string;
+    }) => string;
+  };
+  readonly SKILLS_REMOVE_FAILED: {
+    readonly why: (p: {
+      skill: string;
+      detail: string;
+    }) => string;
+  };
+  readonly SKILLS_LOCK_WRITE_FAILED: {
+    readonly why: (p: {
+      detail: string;
+    }) => string;
+  };
+  readonly SKILLS_PROVIDER_ALREADY_REGISTERED: {
+    readonly why: (p: {
+      id: string;
+    }) => string;
+  };
+}, readonly AnyDiagnosticReporter[], never>;
 export declare const version: string;
 // #endregion

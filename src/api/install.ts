@@ -15,14 +15,15 @@ import {
   type TargetInstallResult,
 } from '../add.ts';
 import { agents as agentConfigs } from '../agents.ts';
-import { isDiagnostic } from '../diagnostics.ts';
+import type { Diagnostic } from 'nostics';
+import { diagnostics, type DiagnosticCode } from '../diagnostics.ts';
 import { readLocalLock } from '../local-lock.ts';
 import { filterSkills, getSkillDisplayName } from '../skills.ts';
 import { flushTelemetry, setVersion } from '../telemetry.ts';
 import type { AgentType, Skill } from '../types.ts';
 import { version } from './version.ts';
 import { assertKnownAgents, isAgentAllowed, resolveConfig, type ResolvedConfig } from './config.ts';
-import { errorMessage, SkillsError, throwIfAborted } from './errors.ts';
+import { errorMessage, throwIfAborted } from './errors.ts';
 import { getFetchedSource, openSource } from './resolve.ts';
 import { runWithWarnings } from './warnings.ts';
 import type {
@@ -39,7 +40,7 @@ import type {
  * (fetched and cleaned up by this call) or a SkillSource from resolveSource
  * (left for the caller to dispose).
  *
- * Throws SkillsError when nothing can be attempted; failures of single skills
+ * Throws a diagnostic when nothing can be attempted; failures of single skills
  * or agents are returned in `failed`.
  */
 export async function installSkills(
@@ -50,10 +51,10 @@ export async function installSkills(
   const requested = validateNames(options.skills, 'skills');
   assertKnownAgents(validateNames(options.agents, 'agents'));
   if (typeof source !== 'string' && options.ref !== undefined) {
-    throw new SkillsError(
-      'INVALID_OPTIONS',
-      '`ref` applies to source strings; pass it to resolveSource'
-    );
+    throw diagnostics.SKILLS_INVALID_OPTION_VALUE({
+      option: 'ref',
+      expected: 'used with a source string; pass it to resolveSource() instead',
+    });
   }
   return runWithWarnings(options, () => install(source, options, config, requested));
 }
@@ -129,20 +130,17 @@ function validateNames(
 ): readonly string[] | undefined {
   if (names === undefined) return undefined;
   if (!Array.isArray(names) || names.some((name) => typeof name !== 'string' || name === '')) {
-    throw new SkillsError('INVALID_OPTIONS', `\`${option}\` must be an array of non-empty strings`);
+    throw diagnostics.SKILLS_INVALID_OPTION_VALUE({
+      option: option,
+      expected: 'an array of non-empty strings',
+    });
   }
   return names;
 }
 
+/** Throws SKILLS_INVALID_LOCAL_LOCK before anything is written when the project lock is unusable. */
 async function assertReadableLock(cwd: string): Promise<void> {
-  try {
-    await readLocalLock(cwd);
-  } catch (error) {
-    if (isDiagnostic(error, 'SKILLS_INVALID_LOCAL_LOCK')) {
-      throw new SkillsError('INVALID_LOCKFILE', error.message, { cause: error });
-    }
-    throw error;
-  }
+  await readLocalLock(cwd);
 }
 
 /** The skills of `fetched` to install: all, or those `requested` names (`*` means all). */
@@ -152,22 +150,17 @@ function selectSkills(fetched: FetchedSource, requested: readonly string[] | und
     requested ?? (fetched.parsed.skillFilter ? [fetched.parsed.skillFilter] : undefined);
   if (!names || names.length === 0 || names.includes('*')) return available;
 
-  const ambiguous = names.flatMap((name) => {
-    const matches = filterSkills(available, [name]);
-    return matches.length > 1
-      ? [`${name} (matches ${matches.map(getSkillDisplayName).join(', ')})`]
-      : [];
-  });
-  if (ambiguous.length > 0) {
-    throw new SkillsError('SKILL_AMBIGUOUS', `Ambiguous skill names: ${ambiguous.join('; ')}`);
+  const ambiguous = names.find((name) => filterSkills(available, [name]).length > 1);
+  if (ambiguous !== undefined) {
+    throw diagnostics.SKILLS_AMBIGUOUS_SKILL_SELECTOR({ selector: ambiguous });
   }
 
   const missing = names.filter((name) => filterSkills(available, [name]).length === 0);
   if (missing.length > 0) {
-    throw new SkillsError(
-      'SKILL_NOT_FOUND',
-      `Skill${missing.length > 1 ? 's' : ''} not found in source: ${missing.join(', ')}`
-    );
+    throw diagnostics.SKILLS_NO_MATCHING_SKILLS({
+      requested: missing,
+      available: available.map(getSkillDisplayName),
+    });
   }
   return filterSkills(available, [...names]);
 }
@@ -188,21 +181,20 @@ async function resolveTargets(
 
   const targets: AgentType[] = [];
   const failures: InstallFailure[] = [];
-  const fail = (agent: AgentType, code: InstallFailure['code'], message: string) => {
+  const fail = (agent: AgentType, diagnostic: Diagnostic<unknown>) => {
     if (!named) return;
     for (const skill of skills) {
-      failures.push({ skill: getSkillDisplayName(skill), agent, code, message });
+      failures.push(failure(getSkillDisplayName(skill), agent, diagnostic));
     }
   };
 
   for (const agent of candidates) {
     if (!isAgentAllowed(agent, config.agents)) {
-      fail(agent, 'AGENT_NOT_ALLOWED', `${agent} is not allowed by config.agents`);
+      fail(agent, diagnostics.SKILLS_AGENT_NOT_ALLOWED({ agents: [agent] }));
     } else if (global && agentConfigs[agent].globalSkillsDir === undefined) {
       fail(
         agent,
-        'GLOBAL_NOT_SUPPORTED',
-        `${agentConfigs[agent].displayName} does not support global skill installation`
+        diagnostics.SKILLS_GLOBAL_INSTALL_UNSUPPORTED({ agent: agentConfigs[agent].displayName })
       );
     } else {
       targets.push(agent);
@@ -210,9 +202,18 @@ async function resolveTargets(
   }
 
   if (targets.length === 0) {
-    throw new SkillsError('NO_TARGET_AGENTS', 'No allowed agents to install into');
+    throw diagnostics.SKILLS_NO_TARGET_AGENTS();
   }
   return { targets, failures };
+}
+
+function failure(skill: string, agent: string, diagnostic: Diagnostic<unknown>): InstallFailure {
+  return Object.freeze({
+    skill,
+    agent,
+    code: diagnostic.code as DiagnosticCode,
+    message: diagnostic.message,
+  });
 }
 
 function buildResult(
@@ -227,12 +228,12 @@ function buildResult(
 
   for (const r of results) {
     if (!r.success) {
-      failed.push({
+      const diagnostic = diagnostics.SKILLS_INSTALL_FAILED({
         skill: r.skill,
         agent: r.agentType,
-        code: 'INSTALL_FAILED',
-        message: r.error ?? 'Unknown error',
+        detail: r.error ?? 'unknown error',
       });
+      failed.push(failure(r.skill, r.agentType, diagnostic));
     } else if (r.skipReason === 'missing-agent-project-directory') {
       skipped.push({ skill: r.skill, agent: r.agentType, reason: 'missing-agent-directory' });
     } else {
@@ -300,11 +301,7 @@ async function recordLock(
       );
     }
   } catch (error) {
-    throw new SkillsError(
-      'INVALID_LOCKFILE',
-      `Skills were installed but the lock file could not be updated: ${errorMessage(error)}`,
-      { cause: error }
-    );
+    throw diagnostics.SKILLS_LOCK_WRITE_FAILED({ detail: errorMessage(error), cause: error });
   }
 }
 
@@ -313,12 +310,11 @@ function rejectDuplicates(handle: SkillSource, skills: Skill[]): void {
   const names = new Set(skills.map(getSkillDisplayName));
   const duplicated = handle.skills.filter((info) => names.has(info.name) && info.duplicates);
   if (duplicated.length === 0) return;
-  throw new SkillsError(
-    'SKILL_AMBIGUOUS',
-    `Several folders declare the same skill name: ${duplicated
-      .map((info) => `${info.name} (${[info.path ?? '?', ...info.duplicates!].join(', ')})`)
-      .join('; ')}`
-  );
+  throw diagnostics.SKILLS_DUPLICATE_SKILL_NAME({
+    skills: duplicated.map(
+      (info) => `${info.name}: ${[info.path ?? '?', ...info.duplicates!].join(', ')}`
+    ),
+  });
 }
 
 /** With `symlinks: 'reject'`, refuse selected skills that contain a symlink. */
@@ -330,7 +326,7 @@ async function rejectSymlinks(fetched: FetchedSource, skills: Skill[]): Promise<
     }
   }
   if (found.length > 0) {
-    throw new SkillsError('SYMLINK_REJECTED', `Skills contain symlinks: ${found.join(', ')}`);
+    throw diagnostics.SKILLS_SKILL_CONTAINS_SYMLINKS({ links: found });
   }
 }
 

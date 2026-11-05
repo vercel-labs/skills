@@ -1,6 +1,6 @@
 import { agents as agentConfigs } from '../agents.ts';
 import type { AgentType } from '../types.ts';
-import { SkillsError } from './errors.ts';
+import { diagnostics } from '../diagnostics.ts';
 import type { AgentsConfig, BaseOptions, InstallMode, Scope, SkillsConfig } from './types.ts';
 
 /** Every setting with its default applied. */
@@ -43,16 +43,28 @@ export function resolveConfig(options: BaseOptions & Overrides = {}): ResolvedCo
   };
 
   if (resolved.scope !== 'project' && resolved.scope !== 'global') {
-    throw new SkillsError('INVALID_OPTIONS', `Invalid scope: ${String(resolved.scope)}`);
+    throw diagnostics.SKILLS_INVALID_OPTION_VALUE({
+      option: 'scope',
+      expected: "'project' or 'global'",
+    });
   }
   if (!['auto', 'symlink', 'copy'].includes(resolved.mode)) {
-    throw new SkillsError('INVALID_OPTIONS', `Invalid mode: ${String(resolved.mode)}`);
+    throw diagnostics.SKILLS_INVALID_OPTION_VALUE({
+      option: 'mode',
+      expected: "'auto', 'symlink' or 'copy'",
+    });
   }
   if (resolved.duplicates !== 'first' && resolved.duplicates !== 'error') {
-    throw new SkillsError('INVALID_OPTIONS', `Invalid duplicates: ${String(resolved.duplicates)}`);
+    throw diagnostics.SKILLS_INVALID_OPTION_VALUE({
+      option: 'duplicates',
+      expected: "'first' or 'error'",
+    });
   }
   if (resolved.symlinks !== 'follow' && resolved.symlinks !== 'reject') {
-    throw new SkillsError('INVALID_OPTIONS', `Invalid symlinks: ${String(resolved.symlinks)}`);
+    throw diagnostics.SKILLS_INVALID_OPTION_VALUE({
+      option: 'symlinks',
+      expected: "'follow' or 'reject'",
+    });
   }
   assertKnownAgents(resolved.agents.include);
   assertKnownAgents(resolved.agents.exclude);
@@ -70,10 +82,7 @@ export function assertKnownAgents(
 ): asserts ids is readonly AgentType[] | undefined {
   const unknown = ids?.filter((id) => !isKnownAgent(id)) ?? [];
   if (unknown.length > 0) {
-    throw new SkillsError(
-      'UNKNOWN_AGENT',
-      `Unknown agent${unknown.length > 1 ? 's' : ''}: ${unknown.join(', ')}`
-    );
+    throw diagnostics.SKILLS_INVALID_AGENTS({ invalid: unknown, valid: Object.keys(agentConfigs) });
   }
 }
 

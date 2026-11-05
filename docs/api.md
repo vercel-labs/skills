@@ -34,7 +34,7 @@ The package is ESM only and requires Node.js 22.20 or later.
 
 | Function                        | Description                                                                      |
 | ------------------------------- | -------------------------------------------------------------------------------- |
-| `getAgents()`                   | Every supported agent (including `universal`): id, name, skills directories.     |
+| `getSupportedAgents()`          | Every supported agent (including `universal`): id, name, skills directories.     |
 | `detectAgents(options?)`        | Agents installed on this machine or in `cwd`, limited by `config.agents`.        |
 | `resolveSource(source, opts?)`  | Fetch a source and list its skills without installing. Returns a `SkillSource`.  |
 | `installSkills(source, opts?)`  | Install skills from a source string or a `SkillSource`.                          |
@@ -89,8 +89,8 @@ await installSkills(source, {
   through `onWarning`; without a handler they are dropped.
 - **Two kinds of failure.** When nothing can be attempted (an invalid source,
   an unknown agent or skill name, an unreadable lock file), the call throws a
-  `SkillsError` with a `code`. When individual skills or agents fail, the call
-  still completes and lists them in `result.failed`.
+  diagnostic (see [Errors](#errors)). When individual skills or agents fail,
+  the call still completes and lists them in `result.failed`.
 - **Defaults match `skills add -y`.** Without `agents`, skills go to the agents
   `add -y` would pick (the agent you run inside, else the detected ones).
   Without `mode`, skills are symlinked from one shared copy when targets use
@@ -102,9 +102,11 @@ await installSkills(source, {
   name several folders declare, and `symlinks: 'reject'` refuses selected
   skills that contain symlinks. Both throw before anything is written. A
   requested name that matches several different skills (for example
-  `foo-bar` matching `Foo Bar` and `foo_bar`) always throws `SKILL_AMBIGUOUS`.
-- **Cancellation.** `signal` is checked between steps; a running clone is not
-  interrupted.
+  `foo-bar` matching `Foo Bar` and `foo_bar`) always throws
+  `SKILLS_AMBIGUOUS_SKILL_SELECTOR`.
+- **Cancellation.** `signal` is checked between steps (a running clone is not
+  interrupted); an aborted call rejects with `signal.reason`, usually an
+  `AbortError`.
 
 ## Configuration
 
@@ -153,43 +155,66 @@ for public repositories). Turn it off per call or in config with
 `telemetry: false`; `DISABLE_TELEMETRY=1` and `DO_NOT_TRACK=1` always turn it
 off. See [what is collected](troubleshooting.md#telemetry).
 
-## Error codes
+## Errors
 
-`SkillsError.code` and the `code` of each failure is one of:
+Errors and warnings are [nostics](https://github.com/antfu/nostics)
+diagnostics from the same catalog the CLI uses, exported as `diagnostics`.
+Each has a permanent `code` (`SKILLS_*`), a `message`, and often a `fix`.
+Check them with `isDiagnostic`:
 
-| Code                   | Meaning                                                                          |
-| ---------------------- | -------------------------------------------------------------------------------- |
-| `INVALID_OPTIONS`      | An option has the wrong type or value.                                           |
-| `INVALID_SOURCE`       | The source string could not be parsed.                                           |
-| `SOURCE_NOT_FOUND`     | A local source path does not exist.                                              |
-| `SOURCE_FETCH_FAILED`  | Cloning or downloading the source failed for another reason.                     |
-| `SOURCE_AUTH_FAILED`   | Access was denied, or the repository does not exist (see below).                 |
-| `SOURCE_REF_NOT_FOUND` | The branch, tag, or commit does not exist.                                       |
-| `SOURCE_TIMEOUT`       | The clone timed out; retrying may succeed.                                       |
-| `SOURCE_DISPOSED`      | A `SkillSource` was used after `dispose()`.                                      |
-| `NO_SKILLS_FOUND`      | The source contains no skills.                                                   |
-| `SKILL_NOT_FOUND`      | A requested skill name is not in the source.                                     |
-| `SKILL_AMBIGUOUS`      | A name matches several skills (or, with `duplicates: 'error'`, several folders). |
-| `SYMLINK_REJECTED`     | With `symlinks: 'reject'`, a selected skill contains a symlink.                  |
-| `UNKNOWN_AGENT`        | An agent id is not supported (see `getAgents()`).                                |
-| `AGENT_NOT_ALLOWED`    | `config.agents` does not allow the agent.                                        |
-| `NO_TARGET_AGENTS`     | No allowed agent is left to install into or remove from.                         |
-| `GLOBAL_NOT_SUPPORTED` | The agent has no global skills directory.                                        |
-| `GLOBALLY_TRACKED`     | A project remove would delete a skill tracked by the global lock.                |
-| `INVALID_LOCKFILE`     | The lock file is unreadable or could not be updated.                             |
-| `INSTALL_FAILED`       | Writing a skill into an agent's directory failed.                                |
-| `REMOVE_FAILED`        | Removing a skill failed.                                                         |
-| `ABORTED`              | `signal` was aborted.                                                            |
+```ts
+import { installSkills, isDiagnostic } from 'skills';
 
-Source errors keep the original error as `cause`. Git hosts report a private
-repository you cannot access as "not found", so `SOURCE_AUTH_FAILED` also
-covers repositories that do not exist.
+try {
+  await installSkills(source, options);
+} catch (error) {
+  if (isDiagnostic(error, 'SKILLS_GIT_CLONE_TIMEOUT')) return retry();
+  if (isDiagnostic(error, 'SKILLS_GIT_AUTH_FAILED', 'SKILLS_GIT_SAML_SSO_BLOCKED')) {
+    return askForCredentials();
+  }
+  throw error;
+}
+```
 
-New codes may be added in minor releases; handle unknown codes generically.
+Per-skill failures in `result.failed` carry the same `code` and `message`.
+Fetch failures are the original diagnostic from git, the download, or the
+archive, not a wrapper. Git hosts report a private repository you cannot
+access as "not found", so `SKILLS_GIT_AUTH_FAILED` also covers repositories
+that do not exist; a missing branch, tag, or commit is `SKILLS_GIT_CLONE_FAILED`.
 
-Warnings passed to `onWarning` have a `code` of `SKILL_SKIPPED` or
-`SYMLINK_SKIPPED`, a `message`, and the `path` they concern (which may be
-inside a temporary clone).
+Codes most API callers handle:
+
+| Code                                                    | Meaning                                                              |
+| ------------------------------------------------------- | -------------------------------------------------------------------- |
+| `SKILLS_INVALID_OPTION_VALUE`                           | An option or argument has the wrong type or value.                   |
+| `SKILLS_INVALID_AGENTS`                                 | An agent id is not supported (see `getSupportedAgents()`).           |
+| `SKILLS_LOCAL_PATH_NOT_FOUND`                           | A local source path does not exist.                                  |
+| `SKILLS_GIT_CLONE_TIMEOUT`                              | The clone timed out; retrying may succeed.                           |
+| `SKILLS_GIT_AUTH_FAILED`, `SKILLS_GIT_SAML_SSO_BLOCKED` | Access was denied, or the repository does not exist.                 |
+| `SKILLS_GIT_CLONE_FAILED`                               | Cloning failed otherwise (including a missing ref).                  |
+| `SKILLS_SOURCE_FETCH_FAILED`                            | Fetching failed with an error that has no specific code.             |
+| `SKILLS_SOURCE_DISPOSED`                                | A `SkillSource` was used after `dispose()`.                          |
+| `SKILLS_NO_VALID_SKILLS`                                | The source contains no skills.                                       |
+| `SKILLS_NO_MATCHING_SKILLS`                             | A requested skill name is not in the source.                         |
+| `SKILLS_AMBIGUOUS_SKILL_SELECTOR`                       | A requested name matches several different skills.                   |
+| `SKILLS_DUPLICATE_SKILL_NAME`                           | With `duplicates: 'error'`, several folders declare a selected name. |
+| `SKILLS_SKILL_CONTAINS_SYMLINKS`                        | With `symlinks: 'reject'`, a selected skill contains a symlink.      |
+| `SKILLS_AGENT_NOT_ALLOWED`                              | `config.agents` does not allow the agent.                            |
+| `SKILLS_NO_TARGET_AGENTS`                               | No allowed agent is left to install into or remove from.             |
+| `SKILLS_GLOBAL_INSTALL_UNSUPPORTED`                     | The agent has no global skills directory.                            |
+| `SKILLS_REMOVE_GLOBALLY_TRACKED`                        | A project remove would delete a skill tracked by the global lock.    |
+| `SKILLS_INVALID_LOCAL_LOCK`                             | `skills-lock.json` is unreadable; nothing was written.               |
+| `SKILLS_LOCK_WRITE_FAILED`                              | Skills were installed but the lock file could not be updated.        |
+| `SKILLS_INSTALL_FAILED`, `SKILLS_REMOVE_FAILED`         | Writing or removing one skill failed.                                |
+
+Codes are never renamed or reused. New codes may be added in minor releases,
+so handle unknown codes generically.
+
+`onWarning` receives diagnostics too: `SKILLS_SKILL_SKIPPED` (an invalid
+`SKILL.md` was not discovered) and `SKILLS_BROKEN_SYMLINK`,
+`SKILLS_SYMLINK_OUTSIDE_SKILL`, `SKILLS_SYMLINK_CYCLE` (an unsafe symlink
+inside a skill was not copied). Their `data.path` is the file concerned, which
+may be inside a temporary clone.
 
 ## Stability
 

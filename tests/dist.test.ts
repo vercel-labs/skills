@@ -24,10 +24,11 @@ describe('dist build', () => {
       { cwd: rootDir, stdio: 'pipe', encoding: 'utf-8' }
     );
     expect(JSON.parse(api)).toEqual([
-      'SkillsError',
       'detectAgents',
-      'getAgents',
+      'diagnostics',
+      'getSupportedAgents',
       'installSkills',
+      'isDiagnostic',
       'listSkills',
       'removeSkills',
       'resolveSource',

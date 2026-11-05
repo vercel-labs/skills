@@ -26,7 +26,7 @@ import {
   EVE_SUBAGENTS_DIR,
 } from './agents.ts';
 import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
-import { diagnostics, formatError } from './diagnostics.ts';
+import { diagnostics } from './diagnostics.ts';
 import { parseFrontmatter } from './frontmatter.ts';
 import { stringify } from 'yaml';
 import { parseSkillMd } from './skills.ts';
@@ -549,11 +549,7 @@ export async function copyDirectory(
   const realSrc = await realpath(src);
   const root = ctx?.root ?? realSrc;
   if (ctx?.ancestors.has(realSrc)) {
-    const diagnostic = diagnostics.SKILLS_SYMLINK_CYCLE({ path: src });
-    warn(
-      { code: 'SYMLINK_SKIPPED', message: diagnostic.message, path: src },
-      formatError(diagnostic)
-    );
+    warn(diagnostics.SKILLS_SYMLINK_CYCLE({ path: src }));
     return;
   }
   const ancestors = new Set(ctx?.ancestors);
@@ -577,19 +573,11 @@ export async function copyDirectory(
             realTarget = await realpath(srcPath);
           } catch {
             // Broken/dangling symlink (target does not exist, or a link loop).
-            const diagnostic = diagnostics.SKILLS_BROKEN_SYMLINK({ path: srcPath });
-            warn(
-              { code: 'SYMLINK_SKIPPED', message: diagnostic.message, path: srcPath },
-              formatError(diagnostic)
-            );
+            warn(diagnostics.SKILLS_BROKEN_SYMLINK({ path: srcPath }));
             return;
           }
           if (!isWithinRoot(root, realTarget)) {
-            const diagnostic = diagnostics.SKILLS_SYMLINK_OUTSIDE_SKILL({ path: srcPath });
-            warn(
-              { code: 'SYMLINK_SKIPPED', message: diagnostic.message, path: srcPath },
-              formatError(diagnostic)
-            );
+            warn(diagnostics.SKILLS_SYMLINK_OUTSIDE_SKILL({ path: srcPath }));
             return;
           }
           isDirectory = (await stat(realTarget)).isDirectory();

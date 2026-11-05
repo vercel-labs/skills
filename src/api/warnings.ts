@@ -11,7 +11,7 @@ export function runWithWarnings<T>(
 ): Promise<T> {
   return withWarnings((warning) => {
     try {
-      options.onWarning?.(Object.freeze({ ...warning }));
+      options.onWarning?.(warning);
     } catch {
       // The caller's handler failing must not fail the operation.
     }

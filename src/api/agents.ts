@@ -21,7 +21,7 @@ export function toAgentInfo(id: AgentType): AgentInfo {
  * Every supported agent, including `universal`: the neutral `.agents/skills`
  * target that universal agents read. It is never detected, only targeted.
  */
-export function getAgents(): readonly AgentInfo[] {
+export function getSupportedAgents(): readonly AgentInfo[] {
   agentInfos ??= Object.freeze((Object.keys(agentConfigs) as AgentType[]).map(toAgentInfo));
   return agentInfos;
 }

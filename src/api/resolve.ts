@@ -2,20 +2,15 @@ import { existsSync } from 'fs';
 import { realpath } from 'fs/promises';
 import { posix, relative, sep } from 'path';
 import { fetchSource, releaseSource, type FetchedSource } from '../add.ts';
-import { isDiagnostic } from '../diagnostics.ts';
-import { getHeadCommit, isMissingRefError } from '../git.ts';
+import { Diagnostic } from 'nostics';
+import { diagnostics } from '../diagnostics.ts';
+import { getHeadCommit } from '../git.ts';
 import { getSkillDisplayName } from '../skills.ts';
 import { parseSource } from '../source-parser.ts';
 import type { ParsedSource, Skill } from '../types.ts';
 import { resolveConfig, type ResolvedConfig } from './config.ts';
-import { errorMessage, SkillsError, throwIfAborted } from './errors.ts';
-import type {
-  ResolveOptions,
-  SkillInfo,
-  SkillsErrorCode,
-  SkillSource,
-  SourceInfo,
-} from './types.ts';
+import { throwIfAborted } from './errors.ts';
+import type { ResolveOptions, SkillInfo, SkillSource, SourceInfo } from './types.ts';
 import { runWithWarnings } from './warnings.ts';
 
 interface SourceState {
@@ -30,13 +25,12 @@ const sourceStates = new WeakMap<SkillSource, SourceState>();
 
 export function parseSourceInput(input: string, cwd: string): ParsedSource {
   if (typeof input !== 'string' || input.trim() === '') {
-    throw new SkillsError('INVALID_SOURCE', 'Source must be a non-empty string');
+    throw diagnostics.SKILLS_INVALID_OPTION_VALUE({
+      option: 'source',
+      expected: 'a non-empty string',
+    });
   }
-  try {
-    return parseSource(input, { cwd });
-  } catch (error) {
-    throw new SkillsError('INVALID_SOURCE', errorMessage(error), { cause: error });
-  }
+  return parseSource(input, { cwd });
 }
 
 export function toSourceInfo(input: string, parsed: ParsedSource, commit?: string): SourceInfo {
@@ -74,7 +68,7 @@ export async function openSource(
   throwIfAborted(options.signal);
 
   if (parsed.type === 'local' && !existsSync(parsed.localPath!)) {
-    throw new SkillsError('SOURCE_NOT_FOUND', `Local path does not exist: ${parsed.localPath}`);
+    throw diagnostics.SKILLS_LOCAL_PATH_NOT_FOUND({ path: parsed.localPath! });
   }
 
   const skills =
@@ -97,7 +91,7 @@ export async function openSource(
   }
   if (handle.skills.length === 0) {
     await handle.dispose();
-    throw new SkillsError('NO_SKILLS_FOUND', `No skills found in ${input}`);
+    throw diagnostics.SKILLS_NO_VALID_SKILLS();
   }
   options.onProgress?.({
     type: 'resolve:done',
@@ -111,29 +105,32 @@ export async function openSource(
 function withRef(parsed: ParsedSource, ref: string | undefined): ParsedSource {
   if (ref === undefined) return parsed;
   if (typeof ref !== 'string' || ref.trim() === '') {
-    throw new SkillsError('INVALID_OPTIONS', '`ref` must be a non-empty string');
+    throw diagnostics.SKILLS_INVALID_OPTION_VALUE({
+      option: 'ref',
+      expected: 'a non-empty string',
+    });
   }
   if (!GIT_SOURCE_TYPES.has(parsed.type)) {
-    throw new SkillsError('INVALID_OPTIONS', `\`ref\` is not supported for ${parsed.type} sources`);
+    throw diagnostics.SKILLS_INVALID_OPTION_VALUE({
+      option: 'ref',
+      expected: 'used only with git sources',
+    });
   }
   return { ...parsed, ref };
 }
 
-/** Map a failed fetch to a SkillsError, keeping the original error as `cause`. */
-function fetchError(input: string, fetched: FetchedSource): SkillsError {
-  const message = fetched.error ?? `Could not fetch ${input}`;
+/**
+ * The error behind a failed fetch: the original diagnostic (git, download,
+ * archive, well-known), or SKILLS_SOURCE_FETCH_FAILED wrapping anything else.
+ */
+function fetchError(input: string, fetched: FetchedSource): Error {
   const { cause } = fetched;
-  let code: SkillsErrorCode = 'SOURCE_FETCH_FAILED';
-  if (isDiagnostic(cause, 'SKILLS_GIT_CLONE_TIMEOUT')) code = 'SOURCE_TIMEOUT';
-  else if (isDiagnostic(cause, 'SKILLS_GIT_CLONE_FAILED') && isMissingRefError(cause.message)) {
-    code = 'SOURCE_REF_NOT_FOUND';
-  }
-  // Hosts report a private repository without access as "not found", so a
-  // missing repository and missing credentials are indistinguishable.
-  else if (isDiagnostic(cause, 'SKILLS_GIT_AUTH_FAILED', 'SKILLS_GIT_SAML_SSO_BLOCKED')) {
-    code = 'SOURCE_AUTH_FAILED';
-  }
-  return new SkillsError(code, message, { cause });
+  if (cause instanceof Diagnostic) return cause;
+  return diagnostics.SKILLS_SOURCE_FETCH_FAILED({
+    source: input,
+    detail: fetched.error ?? 'unknown error',
+    cause,
+  });
 }
 
 async function createSkillSource(input: string, raw: FetchedSource): Promise<SkillSource> {
@@ -217,10 +214,13 @@ function skillPath({ resolved }: FetchedSource, skill: Skill): string | undefine
 export function getFetchedSource(handle: SkillSource): FetchedSource {
   const state = sourceStates.get(handle);
   if (!state) {
-    throw new SkillsError('INVALID_SOURCE', 'Expected a source returned by resolveSource()');
+    throw diagnostics.SKILLS_INVALID_OPTION_VALUE({
+      option: 'source',
+      expected: 'a source string or a SkillSource returned by resolveSource()',
+    });
   }
   if (state.disposed) {
-    throw new SkillsError('SOURCE_DISPOSED', 'This source was already disposed');
+    throw diagnostics.SKILLS_SOURCE_DISPOSED();
   }
   return state.fetched;
 }

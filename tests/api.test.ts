@@ -15,6 +15,7 @@ import { pathToFileURL } from 'url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type Api = typeof import('../src/index.ts');
+type DiagnosticCode = import('../src/index.ts').DiagnosticCode;
 
 // USERPROFILE is what os.homedir() reads on Windows.
 const ENV_KEYS = [
@@ -86,13 +87,18 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-async function expectCode(promise: Promise<unknown>, code: string): Promise<void> {
-  await expect(promise).rejects.toMatchObject({ name: 'SkillsError', code });
+async function expectCode(promise: Promise<unknown>, code: DiagnosticCode): Promise<void> {
+  const error = await promise.then(
+    () => undefined,
+    (e: unknown) => e
+  );
+  expect(error).toMatchObject({ code });
+  expect(api.isDiagnostic(error, code)).toBe(true);
 }
 
 describe('agents', () => {
   it('lists supported agents as frozen records, including the neutral universal target', () => {
-    const agents = api.getAgents();
+    const agents = api.getSupportedAgents();
     const claude = agents.find((agent) => agent.id === 'claude-code');
     expect(claude).toMatchObject({ name: 'Claude Code', projectSkillsDir: '.claude/skills' });
     expect(agents.find((agent) => agent.id === 'universal')).toMatchObject({
@@ -118,7 +124,7 @@ describe('agents', () => {
   it('rejects unknown agents in config', async () => {
     await expectCode(
       api.detectAgents({ config: { agents: { include: ['nope'] } } }),
-      'UNKNOWN_AGENT'
+      'SKILLS_INVALID_AGENTS'
     );
   });
 });
@@ -130,7 +136,7 @@ describe('resolveSource', () => {
     expect(handle.skills.map((skill) => skill.name).sort()).toEqual(['alpha', 'beta']);
     await handle.dispose();
     await handle.dispose();
-    await expectCode(api.installSkills(handle, { cwd }), 'SOURCE_DISPOSED');
+    await expectCode(api.installSkills(handle, { cwd }), 'SKILLS_SOURCE_DISPOSED');
   });
 
   it('resolves relative local paths against cwd', async () => {
@@ -140,13 +146,17 @@ describe('resolveSource', () => {
   });
 
   it('reports a missing local path', async () => {
-    await expectCode(api.resolveSource('./missing', { cwd }), 'SOURCE_NOT_FOUND');
+    await expectCode(api.resolveSource('./missing', { cwd }), 'SKILLS_LOCAL_PATH_NOT_FOUND');
   });
 
   it('honors an aborted signal', async () => {
     const controller = new AbortController();
     controller.abort();
-    await expectCode(api.resolveSource(source, { cwd, signal: controller.signal }), 'ABORTED');
+    await expect(
+      api.resolveSource(source, { cwd, signal: controller.signal })
+    ).rejects.toMatchObject({
+      name: 'AbortError',
+    });
   });
 });
 
@@ -215,7 +225,11 @@ describe('installSkills', () => {
     });
     expect(result.installed.map((t) => t.agent)).toEqual(['claude-code']);
     expect(result.failed).toEqual([
-      expect.objectContaining({ skill: 'alpha', agent: 'cursor', code: 'AGENT_NOT_ALLOWED' }),
+      expect.objectContaining({
+        skill: 'alpha',
+        agent: 'cursor',
+        code: 'SKILLS_AGENT_NOT_ALLOWED',
+      }),
     ]);
   });
 
@@ -226,20 +240,29 @@ describe('installSkills', () => {
         agents: ['cursor'],
         config: { agents: { include: ['claude-code'] } },
       }),
-      'NO_TARGET_AGENTS'
+      'SKILLS_NO_TARGET_AGENTS'
     );
   });
 
   it('rejects unknown skills and agents before writing anything', async () => {
-    await expectCode(api.installSkills(source, { cwd, skills: ['gamma'] }), 'SKILL_NOT_FOUND');
-    await expectCode(api.installSkills(source, { cwd, agents: ['nope'] }), 'UNKNOWN_AGENT');
-    await expectCode(api.installSkills(source, { cwd, scope: 'nope' as never }), 'INVALID_OPTIONS');
+    await expectCode(
+      api.installSkills(source, { cwd, skills: ['gamma'] }),
+      'SKILLS_NO_MATCHING_SKILLS'
+    );
+    await expectCode(api.installSkills(source, { cwd, agents: ['nope'] }), 'SKILLS_INVALID_AGENTS');
+    await expectCode(
+      api.installSkills(source, { cwd, scope: 'nope' as never }),
+      'SKILLS_INVALID_OPTION_VALUE'
+    );
     expect(existsSync(join(cwd, '.agents'))).toBe(false);
   });
 
   it('reports an invalid project lock instead of overwriting it', async () => {
     writeFileSync(join(cwd, 'skills-lock.json'), '{ not json');
-    await expectCode(api.installSkills(source, { cwd, agents: ['cursor'] }), 'INVALID_LOCKFILE');
+    await expectCode(
+      api.installSkills(source, { cwd, agents: ['cursor'] }),
+      'SKILLS_INVALID_LOCAL_LOCK'
+    );
   });
 
   it('installs globally into the home directory', async () => {
@@ -310,7 +333,7 @@ describe('listSkills and removeSkills', () => {
         agents: ['cursor'],
         config: { agents: { exclude: ['cursor'] } },
       }),
-      'AGENT_NOT_ALLOWED'
+      'SKILLS_AGENT_NOT_ALLOWED'
     );
   });
 });
@@ -342,13 +365,16 @@ describe('warnings', () => {
     await silent.dispose();
     const reported = await api.resolveSource(source, {
       cwd,
-      onWarning: (warning) => warnings.push(`${warning.code} ${warning.path}`),
+      onWarning: (warning) =>
+        warnings.push(`${warning.code} ${(warning.data as { path: string }).path}`),
     });
     await reported.dispose();
 
     expect(consoleWarn).not.toHaveBeenCalled();
     consoleWarn.mockRestore();
-    expect(warnings).toEqual([`SKILL_SKIPPED ${join(source, 'skills', 'broken', 'SKILL.md')}`]);
+    expect(warnings).toEqual([
+      `SKILLS_SKILL_SKIPPED ${join(source, 'skills', 'broken', 'SKILL.md')}`,
+    ]);
   });
 });
 
@@ -368,11 +394,11 @@ describe('skill paths and duplicate names', () => {
     expect(result.installed.map((t) => t.skill)).toEqual(['alpha']);
     await expectCode(
       api.installSkills(handle, { cwd, skills: ['alpha'], duplicates: 'error' }),
-      'SKILL_AMBIGUOUS'
+      'SKILLS_DUPLICATE_SKILL_NAME'
     );
     await expectCode(
       api.installSkills(handle, { cwd, config: { duplicates: 'error' } }),
-      'SKILL_AMBIGUOUS'
+      'SKILLS_DUPLICATE_SKILL_NAME'
     );
     // Selecting only unambiguous skills is fine in strict mode.
     await api.installSkills(handle, {
@@ -395,7 +421,10 @@ describe('skill paths and duplicate names', () => {
   it('refuses a requested name that matches several different skills', async () => {
     writeSkill(join(source, 'skills'), 'Foo Bar');
     writeSkill(join(source, 'skills'), 'foo_bar');
-    await expectCode(api.installSkills(source, { cwd, skills: ['foo-bar'] }), 'SKILL_AMBIGUOUS');
+    await expectCode(
+      api.installSkills(source, { cwd, skills: ['foo-bar'] }),
+      'SKILLS_AMBIGUOUS_SKILL_SELECTOR'
+    );
     const exact = await api.installSkills(source, {
       cwd,
       skills: ['foo_bar'],
@@ -412,7 +441,7 @@ describe('symlinks', () => {
 
     await expectCode(
       api.installSkills(source, { cwd, skills: ['alpha'], symlinks: 'reject' }),
-      'SYMLINK_REJECTED'
+      'SKILLS_SKILL_CONTAINS_SYMLINKS'
     );
     expect(existsSync(join(cwd, '.agents'))).toBe(false);
 
@@ -463,7 +492,10 @@ describe('git sources', () => {
 
     const pinned = await api.resolveSource(repo.url, { cwd, ref: repo.sha });
     expect(pinned.source).toMatchObject({ ref: repo.sha, commit: repo.sha });
-    await expectCode(api.installSkills(pinned, { cwd, ref: repo.sha }), 'INVALID_OPTIONS');
+    await expectCode(
+      api.installSkills(pinned, { cwd, ref: repo.sha }),
+      'SKILLS_INVALID_OPTION_VALUE'
+    );
     await pinned.dispose();
 
     const installed = await api.installSkills(repo.url, {
@@ -479,16 +511,19 @@ describe('git sources', () => {
     const repo = gitRepo(source);
     await expectCode(
       api.resolveSource(repo.url, { cwd, ref: 'no-such-branch' }),
-      'SOURCE_REF_NOT_FOUND'
+      'SKILLS_GIT_CLONE_FAILED'
     );
 
     const missing = pathToFileURL(join(root, 'missing-repo')).href;
     const error = await api.resolveSource(missing, { cwd }).catch((e: unknown) => e);
-    expect(error).toMatchObject({ code: 'SOURCE_FETCH_FAILED' });
-    expect((error as Error).cause).toMatchObject({ code: 'SKILLS_GIT_CLONE_FAILED' });
+    // Git failures surface as the original diagnostic, not a wrapper.
+    expect(api.isDiagnostic(error, 'SKILLS_GIT_CLONE_FAILED')).toBe(true);
   });
 
   it('accepts ref only for git sources', async () => {
-    await expectCode(api.resolveSource(source, { cwd, ref: 'main' }), 'INVALID_OPTIONS');
+    await expectCode(
+      api.resolveSource(source, { cwd, ref: 'main' }),
+      'SKILLS_INVALID_OPTION_VALUE'
+    );
   });
 });

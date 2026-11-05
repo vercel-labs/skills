@@ -1,5 +1,5 @@
 import { agents as agentConfigs } from '../agents.ts';
-import { isDiagnostic } from '../diagnostics.ts';
+import { diagnostics, type DiagnosticCode } from '../diagnostics.ts';
 import { readLocalLock } from '../local-lock.ts';
 import {
   findGloballyTrackedSkills,
@@ -13,7 +13,7 @@ import { flushTelemetry, setVersion } from '../telemetry.ts';
 import type { AgentType } from '../types.ts';
 import { version } from './version.ts';
 import { assertKnownAgents, isAgentAllowed, resolveConfig } from './config.ts';
-import { SkillsError, throwIfAborted } from './errors.ts';
+import { throwIfAborted } from './errors.ts';
 import { runWithWarnings } from './warnings.ts';
 import type { RemoveFailure, RemoveOptions, RemoveResult } from './types.ts';
 
@@ -33,21 +33,21 @@ export function removeSkills(
 async function remove(names: readonly string[], options: RemoveOptions): Promise<RemoveResult> {
   const config = resolveConfig(options);
   if (!Array.isArray(names) || names.some((name) => typeof name !== 'string' || name === '')) {
-    throw new SkillsError('INVALID_OPTIONS', '`names` must be an array of non-empty strings');
+    throw diagnostics.SKILLS_INVALID_OPTION_VALUE({
+      option: 'names',
+      expected: 'an array of non-empty strings',
+    });
   }
   assertKnownAgents(options.agents);
   const disallowed = options.agents?.filter((agent) => !isAgentAllowed(agent, config.agents));
   if (disallowed && disallowed.length > 0) {
-    throw new SkillsError(
-      'AGENT_NOT_ALLOWED',
-      `Not allowed by config.agents: ${disallowed.join(', ')}`
-    );
+    throw diagnostics.SKILLS_AGENT_NOT_ALLOWED({ agents: disallowed });
   }
   const targetAgents = ((options.agents ?? Object.keys(agentConfigs)) as AgentType[]).filter(
     (agent) => isAgentAllowed(agent, config.agents)
   );
   if (targetAgents.length === 0) {
-    throw new SkillsError('NO_TARGET_AGENTS', 'No allowed agents to remove from');
+    throw diagnostics.SKILLS_NO_TARGET_AGENTS();
   }
   throwIfAborted(options.signal);
 
@@ -68,11 +68,8 @@ async function remove(names: readonly string[], options: RemoveOptions): Promise
   if (!global) {
     const tracked = new Set(await findGloballyTrackedSkills(selected, cwd));
     for (const skill of tracked) {
-      failed.push({
-        skill,
-        code: 'GLOBALLY_TRACKED',
-        message: `${skill} is tracked in the global lock; remove it with scope 'global'`,
-      });
+      const diagnostic = diagnostics.SKILLS_REMOVE_GLOBALLY_TRACKED({ skills: [skill] });
+      failed.push({ skill, code: diagnostic.code as DiagnosticCode, message: diagnostic.message });
     }
     selected = selected.filter((skill) => !tracked.has(skill));
   }
@@ -86,7 +83,15 @@ async function remove(names: readonly string[], options: RemoveOptions): Promise
   });
   for (const r of results) {
     if (!r.success) {
-      failed.push({ skill: r.skill, code: 'REMOVE_FAILED', message: r.error ?? 'Unknown error' });
+      const diagnostic = diagnostics.SKILLS_REMOVE_FAILED({
+        skill: r.skill,
+        detail: r.error ?? 'unknown error',
+      });
+      failed.push({
+        skill: r.skill,
+        code: diagnostic.code as DiagnosticCode,
+        message: diagnostic.message,
+      });
     }
   }
 
@@ -103,13 +108,7 @@ async function remove(names: readonly string[], options: RemoveOptions): Promise
   });
 }
 
-async function readProjectLock(cwd: string) {
-  try {
-    return await readLocalLock(cwd);
-  } catch (error) {
-    if (isDiagnostic(error, 'SKILLS_INVALID_LOCAL_LOCK')) {
-      throw new SkillsError('INVALID_LOCKFILE', error.message, { cause: error });
-    }
-    throw error;
-  }
+/** Throws SKILLS_INVALID_LOCAL_LOCK when the project lock is unusable. */
+function readProjectLock(cwd: string) {
+  return readLocalLock(cwd);
 }

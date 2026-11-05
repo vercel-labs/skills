@@ -29,8 +29,8 @@ src/
 ├── api/             # Programmatic API (see docs/api.md)
 │   ├── types.ts     # Hand-written public types (never alias internal types)
 │   ├── config.ts    # resolveConfig: call options > config > defaults; agent limits
-│   ├── errors.ts    # SkillsError + codes
-│   ├── agents.ts    # getAgents, detectAgents
+│   ├── errors.ts    # Abort and message helpers
+│   ├── agents.ts    # getSupportedAgents, detectAgents
 │   ├── resolve.ts   # resolveSource / SkillSource handles
 │   ├── install.ts   # installSkills
 │   ├── list.ts      # listSkills
@@ -129,8 +129,11 @@ Keep the API small and stable (full rules in [docs/api.md](docs/api.md#stability
 - Public types live in `src/api/types.ts` and are written by hand.
 - `fn(requiredInput, options?)`; new behavior is a new optional option. Results are frozen
   objects, never bare arrays.
-- API calls never prompt, print, spin, or exit. Whole-call failures throw `SkillsError` with a
-  code; per-skill/agent failures go in `result.failed`.
+- API calls never prompt, print, spin, or exit. Whole-call failures throw a `diagnostics.SKILLS_*`
+  diagnostic (the same catalog as the CLI, exported publicly); per-skill/agent failures go in
+  `result.failed` with its code. Warnings go through `warn()` in `src/warnings.ts`, which prints
+  in the CLI and reaches `onWarning` in API calls. The catalog is public API: changing a code's
+  name or parameters shows up in the tsnapi snapshot.
 - `SkillsConfig` stays JSON-serializable (it is the future `skills.config` file shape); runtime
   values (`cwd`, `signal`, callbacks) go in `BaseOptions`.
 - Agent ids are `string` in public types (validated at runtime), so adding an agent never changes

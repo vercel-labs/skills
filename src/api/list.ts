@@ -2,7 +2,8 @@ import { listInstalledSkills } from '../installer.ts';
 import { readLocalLock } from '../local-lock.ts';
 import { readSkillLock } from '../skill-lock.ts';
 import { assertKnownAgents, resolveConfig } from './config.ts';
-import { SkillsError, throwIfAborted } from './errors.ts';
+import { diagnostics } from '../diagnostics.ts';
+import { throwIfAborted } from './errors.ts';
 import { runWithWarnings } from './warnings.ts';
 import type { InstalledSkillInfo, ListOptions, ListResult, Scope } from './types.ts';
 
@@ -15,7 +16,10 @@ async function list(options: ListOptions): Promise<ListResult> {
   const { cwd } = resolveConfig({ cwd: options.cwd, config: options.config });
   const scope = options.scope ?? 'all';
   if (scope !== 'all' && scope !== 'project' && scope !== 'global') {
-    throw new SkillsError('INVALID_OPTIONS', `Invalid scope: ${String(scope)}`);
+    throw diagnostics.SKILLS_INVALID_OPTION_VALUE({
+      option: 'scope',
+      expected: "'project', 'global' or 'all'",
+    });
   }
   assertKnownAgents(options.agents);
   throwIfAborted(options.signal);
