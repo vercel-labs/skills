@@ -12,7 +12,7 @@ import {
 } from 'fs';
 import { join, resolve } from 'path';
 import { execFileSync } from 'child_process';
-import { pathToFileURL } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { tmpdir } from 'os';
 import { runCli } from '../src/test-utils.ts';
 
@@ -822,6 +822,19 @@ describe('sync command', () => {
     });
   });
 
+  it('rejects npm skills with dependency requirements before installing', () => {
+    declareDeps(['example']);
+    const packageDir = createPackage('example');
+    writeFileSync(
+      join(packageDir, 'SKILL.md'),
+      '---\nname: a\ndescription: Test skill.\nmetadata:\n  dependencies: "b"\n---\n'
+    );
+    const result = runCli(['experimental_sync', '-y', '-a', 'claude-code'], testDir);
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('not supported for npm packages');
+    expect(existsSync(join(testDir, 'skills-lock.json'))).toBe(false);
+  });
+
   describe('remote skills field entries', () => {
     const sync = (...flags: string[]) =>
       runCli(['sync', '-y', '-a', 'claude-code', ...flags], testDir);
@@ -829,9 +842,27 @@ describe('sync command', () => {
     const readLock = () => JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8'));
 
     /** A local git repository with one skills/<name> folder per name; returns its file:// URL. */
-    function createSkillsRepo(dirName: string, names: string[]): string {
+    function createSkillsRepo(
+      dirName: string,
+      names: string[],
+      dependencies: Record<string, string> = {},
+      internal: string[] = []
+    ): string {
       const repo = join(testDir, '..', `${testDir.split(/[\\/]/).pop()}-${dirName}`);
       for (const name of names) writeSkill(join(repo, 'skills', name), name);
+      for (const [name, required] of Object.entries(dependencies)) {
+        writeFileSync(
+          join(repo, 'skills', name, 'SKILL.md'),
+          skillMd(name).replace('---\n\n', `metadata:\n  dependencies: "${required}"\n---\n\n`)
+        );
+      }
+      for (const name of internal) {
+        const path = join(repo, 'skills', name, 'SKILL.md');
+        writeFileSync(
+          path,
+          skillMd(name).replace('---\n\n', 'metadata:\n  internal: true\n---\n\n')
+        );
+      }
       const git = (...args: string[]) =>
         execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
           cwd: repo,
@@ -871,6 +902,137 @@ describe('sync command', () => {
       }
     });
 
+    it('sync repairs missing dependencies, honors no-remote and keeps an offline no-op', () => {
+      const url = createSkillsRepo('repo', ['a', 'b'], { a: 'b' });
+      declareProject([], [{ source: url, skills: ['a'] }]);
+      expect(sync().exitCode).toBe(0);
+      const lock = readLock();
+      expect(lock.skills.b).toMatchObject({
+        via: '.',
+        source: url,
+        skillPath: 'skills/b/SKILL.md',
+      });
+      rmSync(canonical('b'), { recursive: true });
+      expect(sync('--no-remote').exitCode).toBe(0);
+      expect(existsSync(canonical('b'))).toBe(false);
+      expect(sync().exitCode).toBe(0);
+      expect(existsSync(canonical('b'))).toBe(true);
+      rmSync(fileURLToPath(url), { recursive: true });
+      const result = sync();
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(result.stdout).toContain('Nothing to sync');
+    });
+
+    it('does not promote cached internal dependencies to roots', () => {
+      const url = createSkillsRepo('repo', ['a', 'b'], { a: 'b' }, ['b']);
+      declareProject([], [url]);
+      expect(sync().exitCode).toBe(0);
+      expect(existsSync(canonical('b'))).toBe(true);
+      rmSync(fileURLToPath(url), { recursive: true });
+      const result = sync('--exclude', '.#a');
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(existsSync(canonical('a'))).toBe(false);
+      expect(existsSync(canonical('b'))).toBe(false);
+    });
+
+    it('checks npm conflicts against a previously installed remote closure', () => {
+      const url = createSkillsRepo('repo', ['a', 'b'], { a: 'b' });
+      declareProject([], [{ source: url, skills: ['a'] }]);
+      expect(sync().exitCode).toBe(0);
+      declareProject(['local-pack'], [{ source: url, skills: ['a'] }]);
+      writeSkill(join(createPackage('local-pack'), 'skills', 'b'), 'b');
+      const result = sync();
+      expect(result.exitCode, result.stdout).toBe(1);
+      expect(result.stdout).toContain('missing dependency');
+      expect(readLock().skills.b.source).toBe('local-pack');
+    });
+
+    it('preserves an installed closure when a filter excludes a required dependency', () => {
+      const url = createSkillsRepo('repo', ['a', 'b'], { a: 'b' });
+      declareProject([], [{ source: url, skills: ['a'] }]);
+      expect(sync().exitCode).toBe(0);
+      const lock = readLock();
+      const result = sync('--exclude', '.#b');
+      expect(result.exitCode, result.stdout).toBe(1);
+      expect(result.stdout).toContain('missing dependency');
+      expect(readLock()).toEqual(lock);
+      expect(existsSync(canonical('a'))).toBe(true);
+      expect(existsSync(canonical('b'))).toBe(true);
+    });
+
+    it('repairs cached dependency links without fetching or pruning the dependency', () => {
+      const url = createSkillsRepo('repo', ['a', 'b'], { a: 'b' });
+      declareProject([], [{ source: url, skills: ['a'] }]);
+      expect(runCli(['sync', '-y', '-a', 'codex'], testDir).exitCode).toBe(0);
+      const lock = readLock();
+      rmSync(fileURLToPath(url), { recursive: true });
+      const result = sync();
+      expect(result.exitCode, result.stdout).toBe(0);
+      for (const name of ['a', 'b']) {
+        expect(realpathSync(join(testDir, '.claude', 'skills', name))).toBe(
+          realpathSync(canonical(name))
+        );
+      }
+      expect(readLock()).toEqual(lock);
+    });
+
+    it('sync rejects a protected dependency before writes and dry-run also resolves it', () => {
+      const url = createSkillsRepo('repo', ['a', 'b'], { a: 'b' });
+      declareProject([], [{ source: url, skills: ['a'] }]);
+      const protectedDir = canonical('b');
+      mkdirSync(protectedDir, { recursive: true });
+      writeFileSync(join(protectedDir, 'SKILL.md'), 'protected');
+      for (const flags of [['--dry-run'], []]) {
+        const result = sync(...flags);
+        expect(result.exitCode, result.stdout).toBe(1);
+        expect(result.stdout).toContain('missing dependency');
+        expect(readFileSync(join(protectedDir, 'SKILL.md'), 'utf8')).toBe('protected');
+        expect(existsSync(canonical('a'))).toBe(false);
+        expect(existsSync(join(testDir, 'skills-lock.json'))).toBe(false);
+      }
+    });
+
+    it('does not install dependencies when their requested root is protected', () => {
+      const url = createSkillsRepo('repo', ['a', 'b'], { a: 'b' });
+      declareProject([], [{ source: url, skills: ['a'] }]);
+      mkdirSync(canonical('a'), { recursive: true });
+      writeFileSync(join(canonical('a'), 'SKILL.md'), 'protected');
+      const result = sync();
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(readFileSync(join(canonical('a'), 'SKILL.md'), 'utf8')).toBe('protected');
+      expect(existsSync(canonical('b'))).toBe(false);
+      expect(existsSync(join(testDir, 'skills-lock.json'))).toBe(false);
+    });
+
+    it('sync dry-run prepares the complete closure without creating installations or lock', () => {
+      const url = createSkillsRepo('repo', ['a', 'b'], { a: 'b' });
+      declareProject([], [{ source: url, skills: ['a'] }]);
+      const result = sync('--dry-run');
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(result.stdout).toContain('Skills: b, a');
+      expect(existsSync(join(testDir, '.agents'))).toBe(false);
+      expect(existsSync(join(testDir, 'skills-lock.json'))).toBe(false);
+    });
+
+    it('does not reserve names from a request rejected after conflict filtering', () => {
+      const first = createSkillsRepo('repo', ['a', 'b', 'd'], { a: 'd b' });
+      const second = createSkillsRepo('other', ['c', 'd'], { c: 'd' });
+      declareProject(
+        [],
+        [
+          { source: first, skills: ['a'] },
+          { source: second, skills: ['c'] },
+        ]
+      );
+      mkdirSync(canonical('b'), { recursive: true });
+      writeFileSync(join(canonical('b'), 'SKILL.md'), 'protected');
+      const result = sync();
+      expect(result.exitCode, result.stdout).toBe(1);
+      expect(existsSync(canonical('a'))).toBe(false);
+      const lock = readLock();
+      expect(Object.keys(lock.skills).sort()).toEqual(['c', 'd']);
+      expect(lock.skills.d.source).toBe(second);
+    });
     it('installs skills from a git source and records via', () => {
       const repo = createSkillsRepo('repo', ['remote-a']);
       declareProject([], [repo]);

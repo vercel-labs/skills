@@ -46,6 +46,33 @@ metadata:
 ---
 ```
 
+### Same-source skill dependencies
+
+Use `metadata.dependencies` to install required skills alongside a selected skill:
+
+```yaml
+metadata:
+  dependencies: "video-tools text-overlay"
+```
+
+`npx skills add owner/collection --skill video-workflow` installs that skill and
+its transitive dependencies. This is a CLI extension, not a standard Agent Skills
+field. Names must match exactly, separated by whitespace; an empty string means
+none. Paths, URLs and version constraints are not supported.
+
+Git sources resolve from one checkout at the requested reference, including
+siblings outside a selected subpath. Local sources stay inside the supplied
+directory: pass the collection container with `--skill` to include siblings.
+Explicit dependencies may name internal skills. Invalid declarations, missing or
+ambiguous names, cycles, escaping paths and destination collisions fail before
+writing the request. Unselected declarations and `--list` are not validated.
+
+Git sync resolves dependencies before confirmation and respects protected
+installations; an installed closure remains an offline no-op. Dependencies use
+normal lock entries and existing update/restore commands. Removing a consumer
+does not remove dependencies. npm packages, well-known sources and independent
+downloads reject nonempty requirements. Top-level `depends` is not interpreted.
+
 ### Skill Discovery
 
 The CLI searches for skills in these locations within a repository. Each

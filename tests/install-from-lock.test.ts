@@ -68,6 +68,24 @@ describe('experimental_install', () => {
     expect(lock.skills.alpha.computedHash).toMatch(/^[a-f0-9]{64}$/);
   });
 
+  it('restores dependencies added to a previously locked skill', () => {
+    const source = join(testDir, 'source');
+    writeSkill(join(source, 'alpha'), 'alpha');
+    writeSkill(join(source, 'beta'), 'beta');
+    writeLock({ alpha: './source' });
+    const path = join(source, 'alpha', 'SKILL.md');
+    writeFileSync(
+      path,
+      readFileSync(path, 'utf-8').replace('---\n#', 'metadata:\n  dependencies: "beta"\n---\n#')
+    );
+
+    expect(runCli(['experimental_install'], testDir).exitCode).toBe(0);
+    expect(installed('alpha')).toBe(true);
+    expect(installed('beta')).toBe(true);
+    const lock = JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8'));
+    expect(lock.skills.beta.source).toBe('./source');
+  });
+
   it('prints the plan and writes nothing with --dry-run', () => {
     writeSkill(join(testDir, 'src-a', 'alpha'), 'alpha');
     writeLock({ alpha: './src-a' });

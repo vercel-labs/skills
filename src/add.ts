@@ -1,4 +1,10 @@
 import * as p from '@clack/prompts';
+import {
+  skillDependencies,
+  rejectUnsupportedDependencies,
+  resolveSameSourceDependencies,
+  resolveDependencyGraph,
+} from './skill-dependencies.ts';
 import pc from 'picocolors';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
@@ -986,6 +992,8 @@ async function handleWellKnownSkills(
     selectedSkills = selected as WellKnownSkill[];
   }
 
+  rejectUnsupportedDependencies(selectedSkills, 'well-known sources');
+
   // Detect agents
   let targetAgents: AgentType[];
   const validAgents = Object.keys(agents);
@@ -1481,6 +1489,49 @@ async function resolveSkills(
   return { skills, tempDir, blobResult };
 }
 
+async function resolveSelectedDependencies(
+  parsed: ParsedSource,
+  resolved: ResolvedSkills,
+  selected: Skill[],
+  spinner: Spinner
+): Promise<Skill[]> {
+  const needsDependencies = selected.some((skill) => skillDependencies(skill).length > 0);
+  if (!needsDependencies) return selected;
+  if (parsed.type === 'download' || parsed.type === 'well-known') {
+    rejectUnsupportedDependencies(selected, parsed.type);
+  }
+  if (resolved.blobResult) {
+    spinner.start('Cloning repository for same-source dependencies…');
+    resolved.tempDir = await cloneRepo(parsed.url, parsed.ref);
+    const discovered = await discoverSkills(resolved.tempDir, parsed.subpath, {
+      includeInternal: true,
+      includeDuplicateNames: true,
+      fullDepth: true,
+    });
+    selected = selected.map((root) => {
+      const matches = discovered.filter((skill) => skill.name === root.name);
+      if (matches.length !== 1)
+        throw new Error(`${root.name}: missing or ambiguous skill in checkout`);
+      return matches[0]!;
+    });
+    resolved.blobResult = null;
+    spinner.stop('Repository cloned');
+  }
+  const expanded = await resolveSameSourceDependencies(
+    selected,
+    parsed.localPath ?? resolved.tempDir!
+  );
+  for (const skill of expanded) {
+    if (!selected.some((root) => root.path === skill.path)) {
+      const consumers = expanded.filter((s) => skillDependencies(s).includes(skill.name));
+      p.log.info(
+        `Adding dependency ${skill.name} (required by ${consumers.map((s) => s.name).join(', ')})`
+      );
+    }
+  }
+  return expanded;
+}
+
 /** A well-known skill shaped as a Skill so it flows through installToTargets and the lock. */
 interface WellKnownSourceSkill extends Skill {
   wellKnown: WellKnownSkill;
@@ -1664,6 +1715,25 @@ interface SourceInstallResult {
   error?: string;
 }
 
+export interface PreparedSource {
+  roots: Skill[];
+  selected: Skill[];
+}
+
+/** Select the requested skills of a fetched source and close them over same-source dependencies. */
+export async function prepareFetched(
+  fetched: FetchedSource,
+  skills: string[]
+): Promise<PreparedSource> {
+  const { parsed, resolved } = fetched;
+  if (!resolved) throw new Error(fetched.error ?? 'Source could not be resolved');
+  const roots = skills.length ? filterSkills(resolved.skills, skills) : resolved.skills;
+  if (!roots.length) throw new Error('No matching skills found');
+  const rootNames = new Set(roots.map((skill) => skill.name));
+  const selected = await resolveSelectedDependencies(parsed, resolved, roots, silentSpinner);
+  return { roots: selected.filter((skill) => rootNames.has(skill.name)), selected };
+}
+
 async function fetchSource({ parsed, skills, fullDepth }: SourceRequest): Promise<FetchedSource> {
   const includeInternal = skills.length > 0;
   try {
@@ -1734,17 +1804,30 @@ export async function installFetched(
   options: {
     skills: string[];
     placement: InstallPlacement;
+    /** Skills already resolved with their dependencies; replaces the default selection. */
+    prepared?: PreparedSource;
     select?: (skills: Skill[]) => Promise<Skill[]>;
   }
 ): Promise<FetchedInstallOutcome> {
   if (!resolved) return { installed: [], failed: [], error };
   try {
+    const { prepared } = options;
     let selected =
-      options.skills.length > 0 ? filterSkills(resolved.skills, options.skills) : resolved.skills;
+      prepared?.selected ??
+      (options.skills.length > 0 ? filterSkills(resolved.skills, options.skills) : resolved.skills);
     if (selected.length === 0) {
       return { installed: [], failed: [], error: 'No matching skills found' };
     }
-    if (options.select) selected = await options.select(selected);
+    if (options.select) {
+      selected = await options.select(selected);
+      // A retained root must not regain a dependency removed by the filter.
+      if (prepared) {
+        selected = resolveDependencyGraph(
+          prepared.roots.filter((root) => selected.includes(root)),
+          selected
+        );
+      }
+    }
 
     const results = await installToTargets(resolved, selected, options.placement);
     const installed: InstalledSkill[] = [];
@@ -1787,14 +1870,30 @@ export async function installFromSource(
     skills: string[];
     agents: AgentType[];
     via?: string;
+    copy?: boolean;
+    prepared?: PreparedSource;
     select?: (skills: Skill[]) => Promise<Skill[]>;
     frozenLock?: LocalSkillLockFile;
   }
 ): Promise<SourceInstallResult> {
   const { frozenLock } = options;
+  let prepared = options.prepared;
+  if (!prepared && fetched.resolved) {
+    try {
+      prepared = await prepareFetched(fetched, options.skills);
+    } catch (error) {
+      await releaseSource(fetched);
+      return {
+        installed: [],
+        failed: [],
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
   const outcome = await installFetched(fetched, {
     skills: options.skills,
-    placement: projectPlacement(options.agents),
+    prepared,
+    placement: { ...projectPlacement(options.agents), mode: options.copy ? 'copy' : 'symlink' },
     select: async (skills) => {
       const selected = options.select ? await options.select(skills) : skills;
       if (!frozenLock) return selected;
@@ -2121,7 +2220,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       { includeInternal, fullDepth: options.fullDepth, requestedSkills: options.skill },
       spinner
     );
-    const { skills, blobResult } = resolved;
+    const { skills } = resolved;
+    let { blobResult } = resolved;
     // a Notion source already owns tempDir; a local resolve has none of its own
     tempDir = resolved.tempDir ?? tempDir;
 
@@ -2276,6 +2376,14 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
 
       selectedSkills = selected as Skill[];
+    }
+
+    try {
+      if (directDownload) rejectUnsupportedDependencies(selectedSkills, 'independent downloads');
+      selectedSkills = await resolveSelectedDependencies(parsed, resolved, selectedSkills, spinner);
+    } finally {
+      tempDir = resolved.tempDir ?? tempDir;
+      blobResult = resolved.blobResult;
     }
 
     // Kick off the security audit only after GitHub has positively confirmed

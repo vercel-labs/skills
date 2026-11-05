@@ -5,7 +5,7 @@ import { glob, lstat, readdir, readFile, readlink, realpath, rm } from 'fs/promi
 import { basename, dirname, join, posix, relative, resolve, sep } from 'path';
 import { parse as parseYaml } from 'yaml';
 import { homedir } from 'os';
-import { hasSkillMd, parseSkillMd } from './skills.ts';
+import { hasSkillMd, parseSkillMd, shouldInstallInternalSkills } from './skills.ts';
 import {
   installSkillForAgent,
   getCanonicalPath,
@@ -40,7 +40,16 @@ import { isCI } from './ci.ts';
 import { detectAgent, getAgentType } from './detect-agent.ts';
 import { getLastSelectedAgents, saveSelectedAgents } from './skill-lock.ts';
 import { parseSkillsField, type RemoteSkillsRequest } from './skills-field.ts';
-import { fetchSources, getProjectLockSource, installFromSource } from './add.ts';
+import {
+  fetchSources,
+  getProjectLockSource,
+  installFromSource,
+  prepareFetched,
+  releaseSource,
+  type FetchedSource,
+  type PreparedSource,
+} from './add.ts';
+import { resolveDependencyGraph, rejectUnsupportedDependencies } from './skill-dependencies.ts';
 
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
 
@@ -611,23 +620,62 @@ function isFromRequest(entry: LocalSkillLockEntry, request: FieldRemoteRequest):
 }
 
 /** Every skill `request` asks for is in the lock and on disk; `skills update` refreshes them. */
-function isRemoteInstalled(
+async function getInstalledRemoteSkills(
   request: FieldRemoteRequest,
   lock: LocalSkillLockFile,
-  cwd: string
-): boolean {
-  const installed = Object.entries(lock.skills)
-    .filter(
-      ([name, entry]) =>
-        isFromRequest(entry, request) && existsSync(getCanonicalPath(name, { cwd }))
-    )
-    .map(([name]) => sanitizeName(name));
-  return request.skills.length === 0
-    ? installed.length > 0
-    : request.skills.every((name) => installed.includes(sanitizeName(name)));
+  cwd: string,
+  options: SyncOptions
+): Promise<Skill[] | undefined> {
+  const installed: Skill[] = [];
+  const roots: Skill[] = [];
+  for (const [name, entry] of Object.entries(lock.skills)) {
+    if (!isFromRequest(entry, request) || !existsSync(getCanonicalPath(name, { cwd }))) continue;
+    const skill = await parseSkillMd(join(getCanonicalPath(name, { cwd }), 'SKILL.md'), {
+      includeInternal: true,
+    });
+    if (skill) {
+      installed.push(skill);
+      if (
+        requestsLockedSkill(request, name, entry) &&
+        (request.skills.length > 0 ||
+          skill.metadata?.internal !== true ||
+          shouldInstallInternalSkills())
+      )
+        roots.push(skill);
+    }
+  }
+  if (!roots.length || (request.skills.length && roots.length !== new Set(request.skills).size))
+    return undefined;
+  const allowed = installed.filter((skill) => remoteAllowsSkill(request, skill.name, options));
+  try {
+    return resolveDependencyGraph(
+      roots.filter((root) => allowed.includes(root)),
+      allowed
+    );
+  } catch {
+    return undefined;
+  }
 }
 
+type PreparedRemoteRequest = {
+  request: FieldRemoteRequest;
+  fetched: FetchedSource;
+  prepared: PreparedSource;
+};
+
 export async function runSync(args: string[], options: SyncOptions = {}): Promise<void> {
+  const prepared: PreparedRemoteRequest[] = [];
+  try {
+    await syncSkills(options, prepared);
+  } finally {
+    for (const { fetched } of prepared) await releaseSource(fetched);
+  }
+}
+
+async function syncSkills(
+  options: SyncOptions,
+  preparedRequests: PreparedRemoteRequest[]
+): Promise<void> {
   const cwd = process.cwd();
 
   // Auto-enable non-interactive mode when running inside an AI agent
@@ -681,15 +729,42 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   for (const warning of discovery.warnings) p.log.warn(formatError(warning));
 
   const localLock = await readLocalLock(cwd);
+
+  try {
+    rejectUnsupportedDependencies(discoveredSkills, 'npm packages');
+  } catch (error) {
+    p.log.error((error as Error).message);
+    process.exitCode = 1;
+    return;
+  }
+  const installedClosures = new Map<FieldRemoteRequest, Skill[]>();
+  const remoteRequests: FieldRemoteRequest[] = [];
+  for (const request of options.remote === false ? [] : remote) {
+    const installed = await getInstalledRemoteSkills(request, localLock, cwd, options);
+    const conflicts = installed?.some((skill) =>
+      discoveredSkills.some((shipped) => sanitizeName(shipped.name) === sanitizeName(skill.name))
+    );
+    if (installed && !conflicts) installedClosures.set(request, installed);
+    else remoteRequests.push(request);
+  }
   const frozen = options.frozenLockfile ?? isCI();
-  if (options.cleanup !== false) {
+  // Returns true when a frozen lockfile would change, so the caller must stop.
+  const prune = async (): Promise<boolean> => {
+    if (options.cleanup === false) return false;
     const keep = new Set(discoveredSkills.map((skill) => sanitizeName(skill.name)));
     // --no-remote leaves remote skills alone, both installing and removing
     const keepRemote = (entry: LocalSkillLockEntry, name: string) =>
       options.remote === false ||
-      remote.some(
-        (r) => requestsLockedSkill(r, name, entry) && remoteAllowsSkill(r, name, options)
-      );
+      remote.some((request) => {
+        if (!isFromRequest(entry, request)) return false;
+        const selected =
+          installedClosures.get(request) ??
+          preparedRequests.find((item) => item.request === request)?.prepared.selected;
+        // Preserve the previous installation when this request failed preparation.
+        return selected
+          ? selected.some((skill) => sanitizeName(skill.name) === sanitizeName(name))
+          : true;
+      });
     const stale = await pruneStaleSkills(
       cwd,
       keep,
@@ -699,7 +774,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     );
     if (frozen) {
       if (failOnLockChanges(stale.map((name) => `${name} is no longer provided by a dependency`)))
-        return;
+        return true;
     } else {
       for (const name of stale) {
         p.log.info(
@@ -707,11 +782,9 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
         );
       }
     }
-  }
+    return false;
+  };
 
-  const remoteRequests = (options.remote === false ? [] : remote).filter(
-    (request) => !isRemoteInstalled(request, localLock, cwd)
-  );
   const cachedRemoteSkills: Array<{ skill: Skill; source: string }> = [];
   if (options.remote !== false) {
     const shippedNames = new Set(discoveredSkills.map((skill) => sanitizeName(skill.name)));
@@ -721,12 +794,16 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
         !remote.some(
           (request) =>
             !remoteRequests.includes(request) &&
-            requestsLockedSkill(request, name, entry) &&
-            remoteAllowsSkill(request, name, options)
+            isFromRequest(entry, request) &&
+            installedClosures
+              .get(request)
+              ?.some((skill) => sanitizeName(skill.name) === sanitizeName(name))
         )
       )
         continue;
-      const skill = await parseSkillMd(join(getCanonicalPath(name, { cwd }), 'SKILL.md'));
+      const skill = await parseSkillMd(join(getCanonicalPath(name, { cwd }), 'SKILL.md'), {
+        includeInternal: true,
+      });
       if (skill) cachedRemoteSkills.push({ skill, source: entry.source });
     }
   }
@@ -736,6 +813,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     remoteRequests.length === 0 &&
     cachedRemoteSkills.length === 0
   ) {
+    if (await prune()) return;
     p.outro(pc.dim('Nothing to sync.'));
     return;
   }
@@ -837,9 +915,44 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     if (failOnLockChanges(changes)) return;
   }
   if (toInstall.length === 0 && remoteRequests.length === 0 && cachedToInstall.length === 0) {
+    if (await prune()) return;
     console.log();
     p.outro(pc.yellow('Nothing to sync.'));
     return;
+  }
+
+  const claimed = new Set(discoveredSkills.map((skill) => sanitizeName(skill.name)));
+  const lockEntryFor = (name: string) =>
+    Object.entries(localLock.skills).find(([key]) => sanitizeName(key) === name)?.[1];
+  const fetchedSources = await fetchSources(remoteRequests);
+  for (const [index, request] of remoteRequests.entries()) {
+    const fetched = fetchedSources[index]!;
+    try {
+      const prepared = await prepareFetched(fetched, request.skills);
+      const selected: Skill[] = [];
+      for (const skill of prepared.selected) {
+        const name = sanitizeName(skill.name);
+        if (!remoteAllowsSkill(request, name, options)) continue;
+        const reason = claimed.has(name)
+          ? 'another source in this sync provides it'
+          : await blockedReason(name, targetAgents, lockEntryFor(name), cwd);
+        if (reason) {
+          p.log.warn(`Skipped ${name} from ${getProjectLockSource(request.parsed)}: ${reason}`);
+        } else selected.push(skill);
+      }
+      prepared.selected = resolveDependencyGraph(
+        prepared.roots.filter((root) => selected.includes(root)),
+        selected
+      );
+      for (const skill of prepared.selected) claimed.add(sanitizeName(skill.name));
+      preparedRequests.push({ request, fetched, prepared });
+    } catch (error) {
+      await releaseSource(fetched);
+      p.log.error(
+        `Failed to install from ${getProjectLockSource(request.parsed)} (preparation): ${(error as Error).message}`
+      );
+      process.exitCode = 1;
+    }
   }
 
   // 4. Build summary
@@ -853,7 +966,8 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     );
   }
 
-  for (const request of remoteRequests) {
+  for (const { request, prepared } of preparedRequests) {
+    summaryLines.push(`Skills: ${prepared.selected.map((s) => s.name).join(', ')}`);
     summaryLines.push(
       `${pc.cyan(getProjectLockSource(request.parsed))} ${pc.dim(`← ${request.via} (remote)`)}`
     );
@@ -868,6 +982,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   p.note(summaryLines.join('\n'), 'Sync Summary');
 
   if (options.dryRun) {
+    if (await prune()) return;
     p.outro(pc.dim('Dry run — nothing changed.'));
     return;
   }
@@ -877,9 +992,11 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
 
     if (p.isCancel(confirmed) || !confirmed) {
       p.cancel('Sync cancelled');
-      process.exit(0);
+      return;
     }
   }
+
+  if (await prune()) return;
 
   // 5. Install skills (always project-scoped)
   spinner.start('Syncing skills…');
@@ -963,34 +1080,16 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   }
 
   // 7. Install skills that remote `skills` entries request
-  const claimed = new Set(discoveredSkills.map((skill) => sanitizeName(skill.name)));
-  const lockEntryFor = (name: string) =>
-    Object.entries(localLock.skills).find(([key]) => sanitizeName(key) === name)?.[1];
-  const fetched = await fetchSources(remoteRequests);
-  for (const [index, request] of remoteRequests.entries()) {
+  for (const { request, fetched, prepared } of preparedRequests) {
+    if (!prepared.selected.length) continue; // every skill was filtered or blocked
     const label = getProjectLockSource(request.parsed);
-    const result = await installFromSource(fetched[index]!, {
+    const result = await installFromSource(fetched, {
       skills: request.skills,
+      prepared,
       agents: targetAgents,
       via: request.via,
+      copy: options.copy,
       ...(frozen && { frozenLock: localLock }),
-      select: async (skills) => {
-        const selected: Skill[] = [];
-        for (const skill of skills) {
-          const name = sanitizeName(skill.name);
-          if (!remoteAllowsSkill(request, name, options)) continue;
-          const reason = claimed.has(name)
-            ? 'another source in this sync provides it'
-            : await blockedReason(name, targetAgents, lockEntryFor(name), cwd);
-          if (reason) {
-            p.log.warn(`Skipped ${pc.cyan(name)} from ${label}: ${reason}`);
-            continue;
-          }
-          claimed.add(name);
-          selected.push(skill);
-        }
-        return selected;
-      },
     });
     if (result.error) {
       p.log.error(`Failed to install from ${pc.cyan(label)}: ${result.error}`);
