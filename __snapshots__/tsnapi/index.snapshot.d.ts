@@ -153,32 +153,18 @@ export type SourceType = 'github' | 'gitlab' | 'git' | 'local' | 'well-known' | 
 export type WarningHandler = (_: Diagnostic<unknown>) => void;
 // #endregion
 
-// #region Classes
-export declare class Diagnostic<Data = undefined> extends Error {
-  name: string;
-  code: string;
-  docs?: string;
-  fix?: string;
-  sources?: string[];
-  data: Data;
-  get why(): string;
-  constructor(_: DiagnosticInit<Data>, _?: StackTraceFrame);
-  toJSON(): DiagnosticJSON<Data>;
-}
-// #endregion
-
 // #region Functions
 export declare function detectAgents(_?: BaseOptions): Promise<DetectAgentsResult>;
 export declare function getSupportedAgents(): readonly AgentInfo[];
 export declare function installSkills(_: string | SkillSource, _?: InstallOptions): Promise<InstallResult>;
-export declare function isDiagnostic(_: unknown, ..._: DiagnosticCode[]): error is Diagnostic;
+export declare function isDiagnostic(_: unknown, ..._: DiagnosticCode[]): error is Diagnostic$1;
 export declare function listSkills(_?: ListOptions): Promise<ListResult>;
 export declare function removeSkills(_: readonly string[], _?: RemoveOptions): Promise<RemoveResult>;
 export declare function resolveSource(_: string, _?: ResolveOptions): Promise<SkillSource>;
 // #endregion
 
 // #region Variables
-export declare const diagnostics: Diagnostics<{
+export declare const diagnostics: import("nostics").Diagnostics<{
   readonly SKILLS_INVALID_AGENTS: {
     readonly why: (p: {
       invalid: string[];
@@ -653,6 +639,10 @@ export declare const diagnostics: Diagnostics<{
       id: string;
     }) => string;
   };
-}, readonly AnyDiagnosticReporter[], never>;
+}, readonly import("nostics").AnyDiagnosticReporter[], never>;
 export declare const version: string;
+// #endregion
+
+// #region Other
+export { Diagnostic }
 // #endregion
