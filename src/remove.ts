@@ -170,7 +170,13 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     lockSkillsKeys.map((key) => [key, lockEntries[key]?.source])
   );
 
-  const requestedSkills = options.all ? [...installedSkills, ...lockSkillsKeys] : skillNames;
+  // Global `--all` only removes skills this tool manages (tracked in the global lock);
+  // the shared global skills dir may also hold user-managed skills (#604).
+  const requestedSkills = options.all
+    ? isGlobal
+      ? lockSkillsKeys
+      : [...installedSkills, ...lockSkillsKeys]
+    : skillNames;
   const resolvedRequestedSkills =
     options.all || skillNames.length > 0
       ? resolveSkillsToRemove(requestedSkills, installedSkills, lockSkillsKeys, sourceByKey)
@@ -247,6 +253,15 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
       );
       process.exit(1);
     }
+  }
+
+  if (selectedSkills.length === 0) {
+    if (options.all && isGlobal) {
+      p.outro(pc.yellow('No globally managed skills found to remove.'));
+    } else {
+      p.outro(pc.yellow('No skills found to remove.'));
+    }
+    return;
   }
 
   let targetAgents: AgentType[];
