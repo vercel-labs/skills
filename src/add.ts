@@ -44,6 +44,7 @@ import { downloadSource } from './download-source.ts';
 import { mapConcurrent } from './concurrency.ts';
 import {
   addSkillToLock,
+  getSkillLockPath,
   getGitHubToken,
   isPromptDismissed,
   dismissPrompt,
@@ -52,6 +53,7 @@ import {
 } from './skill-lock.ts';
 import {
   addSkillToLocalLock,
+  getLocalLockPath,
   readLocalLock,
   computeSkillFolderHash,
   frozenLockfileError,
@@ -1264,8 +1266,8 @@ async function handleWellKnownSkills(
       if (successfulSkillNames.has(skill.installName)) {
         try {
           await addSkillToLock(skill.installName, globalWellKnownLockEntry(url, skill));
-        } catch {
-          // Don't fail installation if lock file update fails
+        } catch (error) {
+          reportLockWriteFailure(skill.installName, getSkillLockPath(), error);
         }
       }
     }
@@ -1292,8 +1294,8 @@ async function handleWellKnownSkills(
               cwd
             );
           }
-        } catch {
-          // Don't fail installation if lock file update fails
+        } catch (error) {
+          reportLockWriteFailure(skill.installName, getLocalLockPath(cwd), error);
         }
       }
     }
@@ -1873,6 +1875,15 @@ export async function installFromSource(
 }
 
 /** Record `installed` in skills-lock.json as skills of `fetched` (with `via` when given). */
+/** The skill is on disk but untracked, so `update` and restore will not see it. */
+function reportLockWriteFailure(skillName: string, lockPath: string, error: unknown): void {
+  const reason = error instanceof Error ? error.message : String(error);
+  p.log.error(
+    `Installed ${stripTerminalEscapes(skillName)} but could not record it in ${lockPath}: ${reason}`
+  );
+  process.exitCode = 1;
+}
+
 export async function recordProjectLock(
   { parsed, resolved }: FetchedSource,
   installed: InstalledSkill[],
@@ -1908,13 +1919,18 @@ export async function recordGlobalWellKnownLock(
 }
 
 /**
- * Record `skills` of `fetched` in the global lock for update tracking. Lock
- * write failures are ignored per skill; installation already succeeded.
+ * Record `skills` of `fetched` in the global lock for update tracking. A
+ * failed write goes to `onWriteFailure` and the remaining skills are still
+ * recorded; installation already succeeded.
  */
 export async function recordGlobalLock(
   { parsed, resolved }: FetchedSource,
   skills: Skill[],
-  options: { directDownload?: boolean; installMode?: 'copy' } = {}
+  options: {
+    directDownload?: boolean;
+    installMode?: 'copy';
+    onWriteFailure: (skillName: string, error: unknown) => void;
+  }
 ): Promise<void> {
   if (!resolved || skills.length === 0) return;
   const directDownload = options.directDownload ?? parsed.type === 'download';
@@ -1964,8 +1980,8 @@ export async function recordGlobalLock(
         pluginName: skill.pluginName,
         ...(options.installMode && { installMode: options.installMode }),
       });
-    } catch {
-      // Don't fail installation if lock file update fails
+    } catch (error) {
+      options.onWriteFailure(skill.name, error);
     }
   }
 }
@@ -2869,7 +2885,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       await recordGlobalLock(
         { parsed, resolved },
         selectedSkills.filter((skill) => successfulSkillNames.has(getSkillDisplayName(skill))),
-        { directDownload, ...lockedInstallMode }
+        {
+          directDownload,
+          ...lockedInstallMode,
+          onWriteFailure: (skillName, error) =>
+            reportLockWriteFailure(skillName, getSkillLockPath(), error),
+        }
       );
     }
 
@@ -2900,8 +2921,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               },
               cwd
             );
-          } catch {
-            // Don't fail installation if lock file update fails
+          } catch (error) {
+            reportLockWriteFailure(skill.name, getLocalLockPath(cwd), error);
           }
         }
       }

@@ -278,7 +278,12 @@ async function recordLock(
       await recordGlobalLock(
         fetched,
         installed.map(({ skill }) => skill),
-        lockedInstallMode
+        {
+          ...lockedInstallMode,
+          onWriteFailure: (_skill, error) => {
+            throw error;
+          },
+        }
       );
     }
   } catch (error) {
