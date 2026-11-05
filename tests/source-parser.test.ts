@@ -387,6 +387,42 @@ describe('parseSource', () => {
       expect(result.ref).toBe('feature/install');
     });
 
+    it('Git URL - SSH format with /tree/branch', () => {
+      const result = parseSource('git@github.com:owner/repo/tree/mybranch');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@github.com:owner/repo.git');
+      expect(result.ref).toBe('mybranch');
+      expect(result.subpath).toBeUndefined();
+    });
+
+    it('Git URL - SSH format with /tree/branch/path', () => {
+      const result = parseSource('git@github.com:owner/repo/tree/mybranch/skills/foo');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@github.com:owner/repo.git');
+      expect(result.ref).toBe('mybranch');
+      expect(result.subpath).toBe('skills/foo');
+    });
+
+    it('Git URL - SSH format with .git and /tree/branch', () => {
+      const result = parseSource('git@github.com:owner/repo.git/tree/mybranch');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@github.com:owner/repo.git');
+      expect(result.ref).toBe('mybranch');
+    });
+
+    it('Git URL - SSH format with /tree/ on non-GitHub host is left as-is', () => {
+      const result = parseSource('git@git.example.com:group/repo/tree/mybranch.git');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@git.example.com:group/repo/tree/mybranch.git');
+      expect(result.ref).toBeUndefined();
+    });
+
+    it('Git URL - SSH format with /tree/ rejects path traversal', () => {
+      expect(() => parseSource('git@github.com:owner/repo/tree/main/../../etc')).toThrow(
+        /Unsafe subpath/
+      );
+    });
+
     it('Git URL - custom host', () => {
       const result = parseSource('https://git.example.com/owner/repo.git');
       expect(result.type).toBe('git');
