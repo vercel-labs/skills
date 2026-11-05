@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { inject } from 'vitest';
 import { cleanEnv } from './env.ts';
 
@@ -100,6 +100,51 @@ export class Sandbox {
     return exec(cmd, args, { ...opts, cwd: opts.cwd ?? this.project, env: this.env(opts.env) });
   }
 
+  /**
+   * Run `body` as an async ES module function against the installed package's
+   * library entry (`import * as api from 'skills'`, resolved through its exports
+   * map). Runs in a child process because agent paths are computed from HOME at
+   * import time. `body` sees `api`, `project`, `home`, and `codeOf(promise)`
+   * (the diagnostic code a promise rejects with, or null), and returns a
+   * JSON-serializable value.
+   */
+  async api<T = unknown>(body: string, opts: RunOptions = {}): Promise<ApiRunResult<T>> {
+    const dir = join(inject('installDir'), 'api-scripts');
+    await mkdir(dir, { recursive: true });
+    const id = `${basename(this.root)}-${++this.apiRuns}`;
+    const script = join(dir, `${id}.mjs`);
+    const out = join(dir, `${id}.json`);
+    await writeFile(
+      script,
+      [
+        "import { writeFileSync } from 'node:fs';",
+        "import * as api from 'skills';",
+        'const [project, home, out] = process.argv.slice(2);',
+        'async function codeOf(promise) {',
+        '  try { await promise; return null; } catch (error) {',
+        // instanceof check through the package's own isDiagnostic, not just a `code` field.
+        '    return api.isDiagnostic(error, error?.code) ? error.code : `not a diagnostic: ${error}`;',
+        '  }',
+        '}',
+        `const value = await (async () => {\n${body}\n})();`,
+        'writeFileSync(out, JSON.stringify(value ?? null));',
+      ].join('\n')
+    );
+    // --no-warnings: Node runtime notices (e.g. proxy agents) are not package output.
+    const result = await exec(
+      process.execPath,
+      ['--no-warnings', script, this.project, this.home, out],
+      {
+        ...opts,
+        cwd: opts.cwd ?? this.project,
+        env: this.env(opts.env),
+      }
+    );
+    return { ...result, value: JSON.parse(readFileSync(out, 'utf8')) as T };
+  }
+
+  private apiRuns = 0;
+
   /** `skills <args> --json`, parsed. */
   async skillsJson<T = JsonInstallResult[]>(args: string[], opts: RunOptions = {}): Promise<T> {
     const result = await this.skills([...args, '--json'], opts);
@@ -129,6 +174,11 @@ export class Sandbox {
   globalLock(): GlobalLock {
     return JSON.parse(readFileSync(this.homePath('.agents', '.skill-lock.json'), 'utf8'));
   }
+}
+
+export interface ApiRunResult<T> extends RunResult {
+  /** What the script body returned. */
+  value: T;
 }
 
 export interface JsonInstallResult {
