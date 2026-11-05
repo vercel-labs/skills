@@ -34,7 +34,7 @@ The package is ESM only and requires Node.js 22.20 or later.
 
 | Function                        | Description                                                                      |
 | ------------------------------- | -------------------------------------------------------------------------------- |
-| `getAgents()`                   | Every supported agent: id, name, project and global skills directories.          |
+| `getAgents()`                   | Every supported agent (including `universal`): id, name, skills directories.     |
 | `detectAgents(options?)`        | Agents installed on this machine or in `cwd`, limited by `config.agents`.        |
 | `resolveSource(source, opts?)`  | Fetch a source and list its skills without installing. Returns a `SkillSource`.  |
 | `installSkills(source, opts?)`  | Install skills from a source string or a `SkillSource`.                          |
@@ -46,15 +46,47 @@ Sources take the same forms as `skills add`: GitHub shorthand (`owner/repo`,
 `owner/repo@skill`), git and HTTPS URLs, well-known endpoints, and local paths
 (resolved against `cwd`).
 
+Pass `ref` (a branch, tag, or full commit SHA) to pin a git source instead of
+appending `#ref` to the string. For cloned git sources, `source.commit` is the
+commit that was checked out, so a pin can be verified without running git.
+GitHub repositories fetched without a `ref` may use a faster snapshot path
+that has no commit; pass a `ref` when you need one.
+
+Each `SkillInfo` has a `path` relative to the source root. When several
+folders declare the same skill name, the first one found wins (as with
+`skills add`) and the others are listed in `duplicates`. Symlinked copies of
+the same folder do not count.
+
 A `SkillSource` owns a temporary clone or download. Dispose it when you are
 done; `installSkills` never disposes a source it was given, so one fetch can
 serve several installs. When `installSkills` receives a string, it fetches
 and cleans up by itself.
 
+### Installing into a plain directory
+
+`universal` is a neutral target: `<cwd>/.agents/skills/<name>` (or its global
+equivalent), which every universal agent reads. Combined with `mode: 'copy'`
+it copies skills into a directory with no agent-specific links:
+
+```ts
+await installSkills(source, {
+  cwd: stagingDir,
+  skills: ['nuxthub'],
+  agents: ['universal'],
+  mode: 'copy',
+  lockfile: false,
+  telemetry: false,
+  duplicates: 'error', // refuse names declared by several folders
+  symlinks: 'reject', // refuse skills that contain symlinks
+});
+```
+
 ## Behavior
 
 - **No terminal side effects.** API calls never prompt, print, show spinners,
-  or exit the process. Progress is reported through `onProgress`.
+  or exit the process. Progress is reported through `onProgress`, and
+  non-fatal problems (a skipped invalid `SKILL.md`, a skipped unsafe symlink)
+  through `onWarning`; without a handler they are dropped.
 - **Two kinds of failure.** When nothing can be attempted (an invalid source,
   an unknown agent or skill name, an unreadable lock file), the call throws a
   `SkillsError` with a `code`. When individual skills or agents fail, the call
@@ -66,6 +98,11 @@ and cleans up by itself.
 - **Lock files.** Installs and removals update `skills-lock.json` (project) or
   the global lock unless `lockfile: false`, so `skills update` and
   `skills experimental_install` keep working.
+- **Strict installs.** `duplicates: 'error'` refuses selected skills whose
+  name several folders declare, and `symlinks: 'reject'` refuses selected
+  skills that contain symlinks. Both throw before anything is written. A
+  requested name that matches several different skills (for example
+  `foo-bar` matching `Foo Bar` and `foo_bar`) always throws `SKILL_AMBIGUOUS`.
 - **Cancellation.** `signal` is checked between steps; a running clone is not
   interrupted.
 
@@ -84,6 +121,8 @@ const config: SkillsConfig = {
   lockfile: true,
   fullDepth: false,
   includeInternal: false,
+  duplicates: 'first', // 'first' | 'error'
+  symlinks: 'follow', // 'follow' | 'reject'
   telemetry: true,
   agents: {
     include: ['claude-code', 'cursor'], // only these may be targeted
@@ -118,26 +157,39 @@ off. See [what is collected](troubleshooting.md#telemetry).
 
 `SkillsError.code` and the `code` of each failure is one of:
 
-| Code                   | Meaning                                                           |
-| ---------------------- | ----------------------------------------------------------------- |
-| `INVALID_OPTIONS`      | An option has the wrong type or value.                            |
-| `INVALID_SOURCE`       | The source string could not be parsed.                            |
-| `SOURCE_NOT_FOUND`     | A local source path does not exist.                               |
-| `SOURCE_FETCH_FAILED`  | Cloning or downloading the source failed.                         |
-| `SOURCE_DISPOSED`      | A `SkillSource` was used after `dispose()`.                       |
-| `NO_SKILLS_FOUND`      | The source contains no skills.                                    |
-| `SKILL_NOT_FOUND`      | A requested skill name is not in the source.                      |
-| `UNKNOWN_AGENT`        | An agent id is not supported (see `getAgents()`).                 |
-| `AGENT_NOT_ALLOWED`    | `config.agents` does not allow the agent.                         |
-| `NO_TARGET_AGENTS`     | No allowed agent is left to install into or remove from.          |
-| `GLOBAL_NOT_SUPPORTED` | The agent has no global skills directory.                         |
-| `GLOBALLY_TRACKED`     | A project remove would delete a skill tracked by the global lock. |
-| `INVALID_LOCKFILE`     | The lock file is unreadable or could not be updated.              |
-| `INSTALL_FAILED`       | Writing a skill into an agent's directory failed.                 |
-| `REMOVE_FAILED`        | Removing a skill failed.                                          |
-| `ABORTED`              | `signal` was aborted.                                             |
+| Code                   | Meaning                                                                          |
+| ---------------------- | -------------------------------------------------------------------------------- |
+| `INVALID_OPTIONS`      | An option has the wrong type or value.                                           |
+| `INVALID_SOURCE`       | The source string could not be parsed.                                           |
+| `SOURCE_NOT_FOUND`     | A local source path does not exist.                                              |
+| `SOURCE_FETCH_FAILED`  | Cloning or downloading the source failed for another reason.                     |
+| `SOURCE_AUTH_FAILED`   | Access was denied, or the repository does not exist (see below).                 |
+| `SOURCE_REF_NOT_FOUND` | The branch, tag, or commit does not exist.                                       |
+| `SOURCE_TIMEOUT`       | The clone timed out; retrying may succeed.                                       |
+| `SOURCE_DISPOSED`      | A `SkillSource` was used after `dispose()`.                                      |
+| `NO_SKILLS_FOUND`      | The source contains no skills.                                                   |
+| `SKILL_NOT_FOUND`      | A requested skill name is not in the source.                                     |
+| `SKILL_AMBIGUOUS`      | A name matches several skills (or, with `duplicates: 'error'`, several folders). |
+| `SYMLINK_REJECTED`     | With `symlinks: 'reject'`, a selected skill contains a symlink.                  |
+| `UNKNOWN_AGENT`        | An agent id is not supported (see `getAgents()`).                                |
+| `AGENT_NOT_ALLOWED`    | `config.agents` does not allow the agent.                                        |
+| `NO_TARGET_AGENTS`     | No allowed agent is left to install into or remove from.                         |
+| `GLOBAL_NOT_SUPPORTED` | The agent has no global skills directory.                                        |
+| `GLOBALLY_TRACKED`     | A project remove would delete a skill tracked by the global lock.                |
+| `INVALID_LOCKFILE`     | The lock file is unreadable or could not be updated.                             |
+| `INSTALL_FAILED`       | Writing a skill into an agent's directory failed.                                |
+| `REMOVE_FAILED`        | Removing a skill failed.                                                         |
+| `ABORTED`              | `signal` was aborted.                                                            |
+
+Source errors keep the original error as `cause`. Git hosts report a private
+repository you cannot access as "not found", so `SOURCE_AUTH_FAILED` also
+covers repositories that do not exist.
 
 New codes may be added in minor releases; handle unknown codes generically.
+
+Warnings passed to `onWarning` have a `code` of `SKILL_SKIPPED` or
+`SYMLINK_SKIPPED`, a `message`, and the `path` they concern (which may be
+inside a temporary clone).
 
 ## Stability
 

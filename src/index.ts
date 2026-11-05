@@ -39,7 +39,10 @@ export type {
   SkillsConfig,
   SkillsErrorCode,
   SkillSource,
+  SkillsWarning,
+  SkillsWarningCode,
   SkippedSkillTarget,
   SourceInfo,
   SourceType,
+  WarningHandler,
 } from './api/types.ts';

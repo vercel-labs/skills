@@ -29,6 +29,7 @@ import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
 import { parseFrontmatter } from './frontmatter.ts';
 import { stringify } from 'yaml';
 import { parseSkillMd } from './skills.ts';
+import { warn } from './warnings.ts';
 
 /**
  * - `symlink`: copy into the canonical dir, symlink agent dirs to it
@@ -547,7 +548,11 @@ export async function copyDirectory(
   const realSrc = await realpath(src);
   const root = ctx?.root ?? realSrc;
   if (ctx?.ancestors.has(realSrc)) {
-    console.warn(`Skipping symlink that creates a directory cycle: ${src}`);
+    warn({
+      code: 'SYMLINK_SKIPPED',
+      message: `Skipping symlink that creates a directory cycle: ${src}`,
+      path: src,
+    });
     return;
   }
   const ancestors = new Set(ctx?.ancestors);
@@ -571,11 +576,19 @@ export async function copyDirectory(
             realTarget = await realpath(srcPath);
           } catch {
             // Broken/dangling symlink (target does not exist, or a link loop).
-            console.warn(`Skipping broken symlink: ${srcPath}`);
+            warn({
+              code: 'SYMLINK_SKIPPED',
+              message: `Skipping broken symlink: ${srcPath}`,
+              path: srcPath,
+            });
             return;
           }
           if (!isWithinRoot(root, realTarget)) {
-            console.warn(`Skipping symlink that points outside the skill directory: ${srcPath}`);
+            warn({
+              code: 'SYMLINK_SKIPPED',
+              message: `Skipping symlink that points outside the skill directory: ${srcPath}`,
+              path: srcPath,
+            });
             return;
           }
           isDirectory = (await stat(realTarget)).isDirectory();

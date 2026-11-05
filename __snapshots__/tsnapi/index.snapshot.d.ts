@@ -18,6 +18,7 @@ export interface BaseOptions {
   cwd?: string;
   signal?: AbortSignal;
   onProgress?: ProgressHandler;
+  onWarning?: WarningHandler;
   config?: SkillsConfig;
 }
 export interface DetectAgentsResult {
@@ -46,6 +47,7 @@ export interface InstallFailure {
   readonly message: string;
 }
 export interface InstallOptions extends BaseOptions, InstallSettings {
+  ref?: string;
   skills?: readonly string[];
   agents?: readonly string[];
   telemetry?: boolean;
@@ -63,6 +65,8 @@ export interface InstallSettings {
   lockfile?: boolean;
   fullDepth?: boolean;
   includeInternal?: boolean;
+  duplicates?: 'first' | 'error';
+  symlinks?: 'follow' | 'reject';
 }
 export interface ListOptions extends BaseOptions {
   scope?: Scope | 'all';
@@ -88,12 +92,15 @@ export interface RemoveResult {
   readonly failed: readonly RemoveFailure[];
 }
 export interface ResolveOptions extends BaseOptions {
+  ref?: string;
   fullDepth?: boolean;
   includeInternal?: boolean;
 }
 export interface SkillInfo {
   readonly name: string;
   readonly description: string;
+  readonly path?: string;
+  readonly duplicates?: readonly string[];
   readonly pluginName?: string;
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
@@ -106,6 +113,11 @@ export interface SkillSource {
   readonly skills: readonly SkillInfo[];
   dispose(): Promise<void>;
 }
+export interface SkillsWarning {
+  readonly code: SkillsWarningCode;
+  readonly message: string;
+  readonly path?: string;
+}
 export interface SkippedSkillTarget {
   readonly skill: string;
   readonly agent: string;
@@ -116,6 +128,7 @@ export interface SourceInfo {
   readonly type: SourceType;
   readonly url: string;
   readonly ref?: string;
+  readonly commit?: string;
   readonly subpath?: string;
 }
 // #endregion
@@ -140,8 +153,10 @@ export type ProgressEvent = {
 };
 export type ProgressHandler = (_: ProgressEvent) => void;
 export type Scope = 'project' | 'global';
-export type SkillsErrorCode = 'INVALID_OPTIONS' | 'INVALID_SOURCE' | 'SOURCE_NOT_FOUND' | 'SOURCE_FETCH_FAILED' | 'SOURCE_DISPOSED' | 'NO_SKILLS_FOUND' | 'SKILL_NOT_FOUND' | 'UNKNOWN_AGENT' | 'AGENT_NOT_ALLOWED' | 'NO_TARGET_AGENTS' | 'GLOBAL_NOT_SUPPORTED' | 'GLOBALLY_TRACKED' | 'INVALID_LOCKFILE' | 'INSTALL_FAILED' | 'REMOVE_FAILED' | 'ABORTED';
+export type SkillsErrorCode = 'INVALID_OPTIONS' | 'INVALID_SOURCE' | 'SOURCE_NOT_FOUND' | 'SOURCE_FETCH_FAILED' | 'SOURCE_AUTH_FAILED' | 'SOURCE_REF_NOT_FOUND' | 'SOURCE_TIMEOUT' | 'SOURCE_DISPOSED' | 'NO_SKILLS_FOUND' | 'SKILL_NOT_FOUND' | 'SKILL_AMBIGUOUS' | 'SYMLINK_REJECTED' | 'UNKNOWN_AGENT' | 'AGENT_NOT_ALLOWED' | 'NO_TARGET_AGENTS' | 'GLOBAL_NOT_SUPPORTED' | 'GLOBALLY_TRACKED' | 'INVALID_LOCKFILE' | 'INSTALL_FAILED' | 'REMOVE_FAILED' | 'ABORTED';
+export type SkillsWarningCode = 'SKILL_SKIPPED' | 'SYMLINK_SKIPPED';
 export type SourceType = 'github' | 'gitlab' | 'git' | 'local' | 'well-known' | 'download';
+export type WarningHandler = (_: SkillsWarning) => void;
 // #endregion
 
 // #region Classes

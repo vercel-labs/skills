@@ -1384,6 +1384,8 @@ export interface ResolvedSkills {
   /** Clone or download root; the caller removes it with cleanup(). */
   tempDir: string | null;
   blobResult: BlobInstallResult | null;
+  /** Directory skills were discovered in (the source root); unset for blob and well-known. */
+  rootDir?: string;
 }
 
 /**
@@ -1392,22 +1394,29 @@ export interface ResolvedSkills {
  */
 async function resolveSkills(
   parsed: ParsedSource,
-  options: { includeInternal: boolean; fullDepth?: boolean; requestedSkills?: string[] },
+  options: {
+    includeInternal: boolean;
+    fullDepth?: boolean;
+    requestedSkills?: string[];
+    includeDuplicateNames?: boolean;
+  },
   spinner: Spinner
 ): Promise<ResolvedSkills> {
   const { includeInternal } = options;
   let skills: Skill[];
   let blobResult: BlobInstallResult | null = null;
   let tempDir: string | null = null;
+  let rootDir: string | undefined;
 
   const missingRequestedSkill = (found: Skill[]): boolean =>
     !!options.requestedSkills?.some(
       (name) => name !== '*' && filterSkills(found, [name]).length === 0
     );
-  const discover = async (rootDir: string): Promise<Skill[]> => {
-    const found = await discoverSkills(rootDir, parsed.subpath, options);
+  const discover = async (dir: string): Promise<Skill[]> => {
+    rootDir = dir;
+    const found = await discoverSkills(dir, parsed.subpath, options);
     if (!options.fullDepth && missingRequestedSkill(found)) {
-      return discoverSkills(rootDir, parsed.subpath, { ...options, fullDepth: true });
+      return discoverSkills(dir, parsed.subpath, { ...options, fullDepth: true });
     }
     return found;
   };
@@ -1479,7 +1488,7 @@ async function resolveSkills(
     throw error;
   }
 
-  return { skills, tempDir, blobResult };
+  return { skills, tempDir, blobResult, ...(rootDir && { rootDir }) };
 }
 
 /** A well-known skill shaped as a Skill so it flows through installToTargets and the lock. */
@@ -1658,6 +1667,8 @@ export interface SourceRequest {
   fullDepth?: boolean;
   /** Include `metadata.internal` skills; defaults to true when `skills` names any. */
   includeInternal?: boolean;
+  /** Keep skills that share a name instead of dropping all but the first. */
+  includeDuplicateNames?: boolean;
 }
 
 /** A source after its network phase; `resolved` owns a temp dir until it is installed. */
@@ -1665,6 +1676,8 @@ export interface FetchedSource {
   parsed: ParsedSource;
   resolved: ResolvedSkills | null;
   error?: string;
+  /** The original error behind `error`. */
+  cause?: unknown;
 }
 
 interface SourceInstallResult {
@@ -1682,6 +1695,7 @@ export async function fetchSource({
   skills,
   fullDepth,
   includeInternal = skills.length > 0,
+  includeDuplicateNames,
 }: SourceRequest): Promise<FetchedSource> {
   try {
     // Arbitrary URLs: prefer the well-known endpoint, else a direct download.
@@ -1690,7 +1704,7 @@ export async function fetchSource({
         (await resolveWellKnownSkills(parsed.url, includeInternal))) ||
       (await resolveSkills(
         parsed,
-        { includeInternal, fullDepth, requestedSkills: skills },
+        { includeInternal, fullDepth, requestedSkills: skills, includeDuplicateNames },
         silentSpinner
       ));
     return { parsed, resolved };
@@ -1699,6 +1713,7 @@ export async function fetchSource({
       parsed,
       resolved: null,
       error: error instanceof Error ? error.message : String(error),
+      cause: error,
     };
   }
 }

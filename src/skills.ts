@@ -7,6 +7,7 @@ import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
 import { getSkillsShSearchDirs } from './skills-sh-config.ts';
 import { InvalidLocalLockError, readLocalLock } from './local-lock.ts';
 import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
+import { warn } from './warnings.ts';
 
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
 
@@ -75,7 +76,8 @@ export async function hasSkillMd(dir: string): Promise<boolean> {
 }
 
 function warnSkippedSkill(skillMdPath: string, reason: string): void {
-  console.warn(`⚠ Skipped ${sanitizeMetadata(skillMdPath)} — ${stripTerminalEscapes(reason)}`);
+  const message = `Skipped ${sanitizeMetadata(skillMdPath)} — ${stripTerminalEscapes(reason)}`;
+  warn({ code: 'SKILL_SKIPPED', message, path: skillMdPath }, `⚠ ${message}`);
 }
 
 export async function parseSkillMd(

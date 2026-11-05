@@ -11,6 +11,8 @@ export interface ResolvedConfig {
   lockfile: boolean;
   fullDepth: boolean;
   includeInternal: boolean;
+  duplicates: 'first' | 'error';
+  symlinks: 'follow' | 'reject';
   telemetry: boolean;
   agents: AgentsConfig;
 }
@@ -34,6 +36,8 @@ export function resolveConfig(options: BaseOptions & Overrides = {}): ResolvedCo
     lockfile: pick('lockfile') ?? true,
     fullDepth: pick('fullDepth') ?? false,
     includeInternal: pick('includeInternal') ?? false,
+    duplicates: pick('duplicates') ?? 'first',
+    symlinks: pick('symlinks') ?? 'follow',
     telemetry: pick('telemetry') ?? true,
     agents: config.agents ?? {},
   };
@@ -43,6 +47,12 @@ export function resolveConfig(options: BaseOptions & Overrides = {}): ResolvedCo
   }
   if (!['auto', 'symlink', 'copy'].includes(resolved.mode)) {
     throw new SkillsError('INVALID_OPTIONS', `Invalid mode: ${String(resolved.mode)}`);
+  }
+  if (resolved.duplicates !== 'first' && resolved.duplicates !== 'error') {
+    throw new SkillsError('INVALID_OPTIONS', `Invalid duplicates: ${String(resolved.duplicates)}`);
+  }
+  if (resolved.symlinks !== 'follow' && resolved.symlinks !== 'reject') {
+    throw new SkillsError('INVALID_OPTIONS', `Invalid symlinks: ${String(resolved.symlinks)}`);
   }
   assertKnownAgents(resolved.agents.include);
   assertKnownAgents(resolved.agents.exclude);

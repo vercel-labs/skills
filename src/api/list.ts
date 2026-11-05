@@ -3,10 +3,15 @@ import { readLocalLock } from '../local-lock.ts';
 import { readSkillLock } from '../skill-lock.ts';
 import { assertKnownAgents, resolveConfig } from './config.ts';
 import { SkillsError, throwIfAborted } from './errors.ts';
+import { runWithWarnings } from './warnings.ts';
 import type { InstalledSkillInfo, ListOptions, ListResult, Scope } from './types.ts';
 
 /** Skills installed in the project (`cwd`), globally, or both. */
-export async function listSkills(options: ListOptions = {}): Promise<ListResult> {
+export function listSkills(options: ListOptions = {}): Promise<ListResult> {
+  return runWithWarnings(options, () => list(options));
+}
+
+async function list(options: ListOptions): Promise<ListResult> {
   const { cwd } = resolveConfig({ cwd: options.cwd, config: options.config });
   const scope = options.scope ?? 'all';
   if (scope !== 'all' && scope !== 'project' && scope !== 'global') {

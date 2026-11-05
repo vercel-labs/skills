@@ -1,3 +1,5 @@
+import { lstat, readdir } from 'fs/promises';
+import { join, posix } from 'path';
 import {
   defaultInstallMode,
   installedSkillHash,
@@ -21,6 +23,7 @@ import { version } from './version.ts';
 import { assertKnownAgents, isAgentAllowed, resolveConfig, type ResolvedConfig } from './config.ts';
 import { errorMessage, SkillsError, throwIfAborted } from './errors.ts';
 import { getFetchedSource, openSource } from './resolve.ts';
+import { runWithWarnings } from './warnings.ts';
 import type {
   InstalledSkillTarget,
   InstallFailure,
@@ -45,6 +48,21 @@ export async function installSkills(
   const config = resolveConfig(options);
   const requested = validateNames(options.skills, 'skills');
   assertKnownAgents(validateNames(options.agents, 'agents'));
+  if (typeof source !== 'string' && options.ref !== undefined) {
+    throw new SkillsError(
+      'INVALID_OPTIONS',
+      '`ref` applies to source strings; pass it to resolveSource'
+    );
+  }
+  return runWithWarnings(options, () => install(source, options, config, requested));
+}
+
+async function install(
+  source: string | SkillSource,
+  options: InstallOptions,
+  config: ResolvedConfig,
+  requested: readonly string[] | undefined
+): Promise<InstallResult> {
   if (config.scope === 'project' && config.lockfile) await assertReadableLock(config.cwd);
   throwIfAborted(options.signal);
 
@@ -53,6 +71,8 @@ export async function installSkills(
   try {
     const fetched = getFetchedSource(handle);
     const skills = selectSkills(fetched, requested);
+    if (config.duplicates === 'error') rejectDuplicates(handle, skills);
+    if (config.symlinks === 'reject') await rejectSymlinks(fetched, skills);
     const { targets, failures } = await resolveTargets(options.agents, config, skills);
     throwIfAborted(options.signal);
 
@@ -130,6 +150,16 @@ function selectSkills(fetched: FetchedSource, requested: readonly string[] | und
   const names =
     requested ?? (fetched.parsed.skillFilter ? [fetched.parsed.skillFilter] : undefined);
   if (!names || names.length === 0 || names.includes('*')) return available;
+
+  const ambiguous = names.flatMap((name) => {
+    const matches = filterSkills(available, [name]);
+    return matches.length > 1
+      ? [`${name} (matches ${matches.map(getSkillDisplayName).join(', ')})`]
+      : [];
+  });
+  if (ambiguous.length > 0) {
+    throw new SkillsError('SKILL_AMBIGUOUS', `Ambiguous skill names: ${ambiguous.join('; ')}`);
+  }
 
   const missing = names.filter((name) => filterSkills(available, [name]).length === 0);
   if (missing.length > 0) {
@@ -275,4 +305,58 @@ async function recordLock(
       { cause: error }
     );
   }
+}
+
+/** With `duplicates: 'error'`, refuse selected skills whose name more than one folder declares. */
+function rejectDuplicates(handle: SkillSource, skills: Skill[]): void {
+  const names = new Set(skills.map(getSkillDisplayName));
+  const duplicated = handle.skills.filter((info) => names.has(info.name) && info.duplicates);
+  if (duplicated.length === 0) return;
+  throw new SkillsError(
+    'SKILL_AMBIGUOUS',
+    `Several folders declare the same skill name: ${duplicated
+      .map((info) => `${info.name} (${[info.path ?? '?', ...info.duplicates!].join(', ')})`)
+      .join('; ')}`
+  );
+}
+
+/** With `symlinks: 'reject'`, refuse selected skills that contain a symlink. */
+async function rejectSymlinks(fetched: FetchedSource, skills: Skill[]): Promise<void> {
+  const found: string[] = [];
+  for (const skill of skills) {
+    for (const link of await findSymlinks(fetched, skill)) {
+      found.push(`${getSkillDisplayName(skill)}: ${link}`);
+    }
+  }
+  if (found.length > 0) {
+    throw new SkillsError('SYMLINK_REJECTED', `Skills contain symlinks: ${found.join(', ')}`);
+  }
+}
+
+/** Symlinks inside a skill folder, relative to it (`.` when the folder itself is one). */
+async function findSymlinks(fetched: FetchedSource, skill: Skill): Promise<string[]> {
+  if ('repoPath' in skill && typeof skill.repoPath === 'string') {
+    // Fast-path GitHub skills have no checkout; the tree records symlinks as mode 120000.
+    const dir = posix.dirname(skill.repoPath);
+    const prefix = dir === '.' ? '' : `${dir}/`;
+    return (fetched.resolved?.blobResult?.tree.tree ?? [])
+      .filter((entry) => entry.mode === '120000' && entry.path.startsWith(prefix))
+      .map((entry) => entry.path.slice(prefix.length));
+  }
+  if (!skill.path) return []; // Well-known skills are fetched as plain files.
+
+  const links: string[] = [];
+  if ((await lstat(skill.path)).isSymbolicLink()) return ['.'];
+  const walk = async (dir: string, rel: string): Promise<void> => {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const entryRel = rel ? `${rel}/${entry.name}` : entry.name;
+      if (entry.isSymbolicLink()) links.push(entryRel);
+      // .git is never copied, so links inside it are irrelevant.
+      else if (entry.isDirectory() && entry.name !== '.git') {
+        await walk(join(dir, entry.name), entryRel);
+      }
+    }
+  };
+  await walk(skill.path, '');
+  return links;
 }

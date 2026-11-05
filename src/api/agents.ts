@@ -17,11 +17,12 @@ export function toAgentInfo(id: AgentType): AgentInfo {
   });
 }
 
-/** Every supported agent. The `universal` pseudo-agent is not listed. */
+/**
+ * Every supported agent, including `universal`: the neutral `.agents/skills`
+ * target that universal agents read. It is never detected, only targeted.
+ */
 export function getAgents(): readonly AgentInfo[] {
-  agentInfos ??= Object.freeze(
-    (Object.keys(agentConfigs) as AgentType[]).filter((id) => id !== 'universal').map(toAgentInfo)
-  );
+  agentInfos ??= Object.freeze((Object.keys(agentConfigs) as AgentType[]).map(toAgentInfo));
   return agentInfos;
 }
 

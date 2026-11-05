@@ -12,8 +12,8 @@ export class SkillsError extends Error {
 export async function detectAgents(_) {}
 export function getAgents() {}
 export async function installSkills(_, _) {}
-export async function listSkills(_) {}
-export async function removeSkills(_, _) {}
+export function listSkills(_) {}
+export function removeSkills(_, _) {}
 export async function resolveSource(_, _) {}
 // #endregion
 

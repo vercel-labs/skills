@@ -13,6 +13,7 @@ import type { AgentType } from '../types.ts';
 import { version } from './version.ts';
 import { assertKnownAgents, isAgentAllowed, resolveConfig } from './config.ts';
 import { SkillsError, throwIfAborted } from './errors.ts';
+import { runWithWarnings } from './warnings.ts';
 import type { RemoveFailure, RemoveOptions, RemoveResult } from './types.ts';
 
 /**
@@ -21,10 +22,14 @@ import type { RemoveFailure, RemoveOptions, RemoveResult } from './types.ts';
  * removed from every agent `config.agents` allows. A skill's shared copy and
  * lock entry are kept while another installed agent still uses it.
  */
-export async function removeSkills(
+export function removeSkills(
   names: readonly string[],
   options: RemoveOptions = {}
 ): Promise<RemoveResult> {
+  return runWithWarnings(options, () => remove(names, options));
+}
+
+async function remove(names: readonly string[], options: RemoveOptions): Promise<RemoveResult> {
   const config = resolveConfig(options);
   if (!Array.isArray(names) || names.some((name) => typeof name !== 'string' || name === '')) {
     throw new SkillsError('INVALID_OPTIONS', '`names` must be an array of non-empty strings');

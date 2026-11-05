@@ -5,10 +5,13 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'fs';
 import { tmpdir } from 'os';
+import { execFileSync } from 'child_process';
 import { join } from 'path';
+import { pathToFileURL } from 'url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type Api = typeof import('../src/index.ts');
@@ -88,11 +91,14 @@ async function expectCode(promise: Promise<unknown>, code: string): Promise<void
 }
 
 describe('agents', () => {
-  it('lists supported agents as frozen records without the universal pseudo-agent', () => {
+  it('lists supported agents as frozen records, including the neutral universal target', () => {
     const agents = api.getAgents();
     const claude = agents.find((agent) => agent.id === 'claude-code');
     expect(claude).toMatchObject({ name: 'Claude Code', projectSkillsDir: '.claude/skills' });
-    expect(agents.some((agent) => agent.id === 'universal')).toBe(false);
+    expect(agents.find((agent) => agent.id === 'universal')).toMatchObject({
+      projectSkillsDir: '.agents/skills',
+      universal: true,
+    });
     expect(Object.isFrozen(agents)).toBe(true);
     expect(Object.isFrozen(claude)).toBe(true);
   });
@@ -306,5 +312,183 @@ describe('listSkills and removeSkills', () => {
       }),
       'AGENT_NOT_ALLOWED'
     );
+  });
+});
+
+/** Commit `source` as a git repository and return its file:// URL and commit SHA. */
+function gitRepo(dir: string): { url: string; sha: string } {
+  const git = (...args: string[]) =>
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+      cwd: dir,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  git('init', '-q');
+  git('add', '.');
+  git('commit', '-q', '-m', 'skills');
+  return { url: pathToFileURL(dir).href, sha: git('rev-parse', 'HEAD').trim() };
+}
+
+const unixOnly = it.skipIf(process.platform === 'win32');
+
+describe('warnings', () => {
+  it('routes skipped SKILL.md files to onWarning and never to the console', async () => {
+    mkdirSync(join(source, 'skills', 'broken'), { recursive: true });
+    writeFileSync(join(source, 'skills', 'broken', 'SKILL.md'), '# no frontmatter\n');
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warnings: string[] = [];
+
+    const silent = await api.resolveSource(source, { cwd });
+    await silent.dispose();
+    const reported = await api.resolveSource(source, {
+      cwd,
+      onWarning: (warning) => warnings.push(`${warning.code} ${warning.path}`),
+    });
+    await reported.dispose();
+
+    expect(consoleWarn).not.toHaveBeenCalled();
+    consoleWarn.mockRestore();
+    expect(warnings).toEqual([`SKILL_SKIPPED ${join(source, 'skills', 'broken', 'SKILL.md')}`]);
+  });
+});
+
+describe('skill paths and duplicate names', () => {
+  it('reports each skill path and the other folders declaring its name', async () => {
+    writeSkill(join(source, '.claude', 'skills'), 'alpha');
+    const handle = await api.resolveSource(source, { cwd });
+    const alpha = handle.skills.find((skill) => skill.name === 'alpha')!;
+    const beta = handle.skills.find((skill) => skill.name === 'beta')!;
+    expect(alpha).toMatchObject({ path: 'skills/alpha', duplicates: ['.claude/skills/alpha'] });
+    expect(beta.path).toBe('skills/beta');
+    expect(beta.duplicates).toBeUndefined();
+    expect(handle.skills.filter((skill) => skill.name === 'alpha')).toHaveLength(1);
+
+    // The first definition wins by default; `duplicates: 'error'` refuses it.
+    const result = await api.installSkills(handle, { cwd, skills: ['alpha'], agents: ['cursor'] });
+    expect(result.installed.map((t) => t.skill)).toEqual(['alpha']);
+    await expectCode(
+      api.installSkills(handle, { cwd, skills: ['alpha'], duplicates: 'error' }),
+      'SKILL_AMBIGUOUS'
+    );
+    await expectCode(
+      api.installSkills(handle, { cwd, config: { duplicates: 'error' } }),
+      'SKILL_AMBIGUOUS'
+    );
+    // Selecting only unambiguous skills is fine in strict mode.
+    await api.installSkills(handle, {
+      cwd,
+      skills: ['beta'],
+      agents: ['cursor'],
+      duplicates: 'error',
+    });
+    await handle.dispose();
+  });
+
+  unixOnly('does not count a symlinked copy of the same folder as a duplicate', async () => {
+    mkdirSync(join(source, '.claude', 'skills'), { recursive: true });
+    symlinkSync(join(source, 'skills', 'alpha'), join(source, '.claude', 'skills', 'alpha'));
+    const handle = await api.resolveSource(source, { cwd });
+    expect(handle.skills.find((skill) => skill.name === 'alpha')?.duplicates).toBeUndefined();
+    await handle.dispose();
+  });
+
+  it('refuses a requested name that matches several different skills', async () => {
+    writeSkill(join(source, 'skills'), 'Foo Bar');
+    writeSkill(join(source, 'skills'), 'foo_bar');
+    await expectCode(api.installSkills(source, { cwd, skills: ['foo-bar'] }), 'SKILL_AMBIGUOUS');
+    const exact = await api.installSkills(source, {
+      cwd,
+      skills: ['foo_bar'],
+      agents: ['cursor'],
+    });
+    expect(exact.installed.map((t) => t.skill)).toEqual(['foo_bar']);
+  });
+});
+
+describe('symlinks', () => {
+  unixOnly('rejects skills containing symlinks only when asked to', async () => {
+    writeFileSync(join(source, 'skills', 'alpha', 'notes.md'), 'notes');
+    symlinkSync('notes.md', join(source, 'skills', 'alpha', 'link.md'));
+
+    await expectCode(
+      api.installSkills(source, { cwd, skills: ['alpha'], symlinks: 'reject' }),
+      'SYMLINK_REJECTED'
+    );
+    expect(existsSync(join(cwd, '.agents'))).toBe(false);
+
+    // Skills without symlinks install in strict mode; the default follows links.
+    await api.installSkills(source, {
+      cwd,
+      skills: ['beta'],
+      agents: ['cursor'],
+      symlinks: 'reject',
+    });
+    await api.installSkills(source, { cwd, skills: ['alpha'], agents: ['cursor'] });
+    expect(readFileSync(join(cwd, '.agents/skills/alpha/link.md'), 'utf-8')).toBe('notes');
+  });
+});
+
+describe('universal target', () => {
+  it('copies skills into .agents/skills without agent directories', async () => {
+    const stage = join(root, 'stage');
+    mkdirSync(stage);
+    const result = await api.installSkills(source, {
+      cwd: stage,
+      skills: ['alpha'],
+      agents: ['universal'],
+      mode: 'copy',
+      lockfile: false,
+      telemetry: false,
+    });
+    expect(result.installed).toEqual([
+      expect.objectContaining({
+        agent: 'universal',
+        mode: 'copy',
+        path: join(stage, '.agents/skills/alpha'),
+      }),
+    ]);
+    expect(lstatSync(join(stage, '.agents/skills/alpha')).isDirectory()).toBe(true);
+    expect(existsSync(join(stage, 'skills-lock.json'))).toBe(false);
+  });
+});
+
+describe('git sources', () => {
+  it('reports the checked-out commit and honors a ref pinned to it', async () => {
+    const repo = gitRepo(source);
+
+    const latest = await api.resolveSource(repo.url, { cwd });
+    expect(latest.source).toMatchObject({ type: 'git', commit: repo.sha });
+    expect(latest.skills[0]?.path).toMatch(/^skills\//);
+    await latest.dispose();
+
+    const pinned = await api.resolveSource(repo.url, { cwd, ref: repo.sha });
+    expect(pinned.source).toMatchObject({ ref: repo.sha, commit: repo.sha });
+    await expectCode(api.installSkills(pinned, { cwd, ref: repo.sha }), 'INVALID_OPTIONS');
+    await pinned.dispose();
+
+    const installed = await api.installSkills(repo.url, {
+      cwd,
+      ref: repo.sha,
+      skills: ['alpha'],
+      agents: ['cursor'],
+    });
+    expect(installed.source.commit).toBe(repo.sha);
+  });
+
+  it('classifies fetch failures and keeps the original error', async () => {
+    const repo = gitRepo(source);
+    await expectCode(
+      api.resolveSource(repo.url, { cwd, ref: 'no-such-branch' }),
+      'SOURCE_REF_NOT_FOUND'
+    );
+
+    const missing = pathToFileURL(join(root, 'missing-repo')).href;
+    const error = await api.resolveSource(missing, { cwd }).catch((e: unknown) => e);
+    expect(error).toMatchObject({ code: 'SOURCE_FETCH_FAILED' });
+    expect((error as Error).cause).toMatchObject({ name: 'GitCloneError' });
+  });
+
+  it('accepts ref only for git sources', async () => {
+    await expectCode(api.resolveSource(source, { cwd, ref: 'main' }), 'INVALID_OPTIONS');
   });
 });

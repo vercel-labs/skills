@@ -31,6 +31,20 @@ export interface InstallSettings {
   fullDepth?: boolean;
   /** Include skills marked `metadata.internal`. @default false */
   includeInternal?: boolean;
+  /**
+   * When a source has several folders declaring the same skill name: `first`
+   * installs the first one found (as `skills add` does); `error` makes
+   * installSkills throw SKILL_AMBIGUOUS before writing anything when a selected
+   * skill's name is declared more than once. @default 'first'
+   */
+  duplicates?: 'first' | 'error';
+  /**
+   * Symlinks inside a skill folder: `follow` copies what in-skill links point
+   * to and skips unsafe ones with a warning; `reject` makes installSkills throw
+   * SYMLINK_REJECTED before writing anything when a selected skill contains a
+   * symlink. @default 'follow'
+   */
+  symlinks?: 'follow' | 'reject';
 }
 
 /** Which agents may be targeted, and which ones to target when a call names none. */
@@ -66,6 +80,25 @@ export type ProgressEvent =
 
 export type ProgressHandler = (event: ProgressEvent) => void;
 
+/**
+ * Kinds of non-fatal problems reported through `onWarning`:
+ * - `SKILL_SKIPPED`: a SKILL.md was unreadable or had invalid frontmatter, so
+ *   it was not discovered.
+ * - `SYMLINK_SKIPPED`: a symlink inside a skill was broken, cyclic, or pointed
+ *   outside the skill, so it was not copied.
+ */
+export type SkillsWarningCode = 'SKILL_SKIPPED' | 'SYMLINK_SKIPPED';
+
+/** A non-fatal problem. Warnings never reach the console from API calls. */
+export interface SkillsWarning {
+  readonly code: SkillsWarningCode;
+  readonly message: string;
+  /** Absolute path of the file the warning is about (may be inside a temporary clone). */
+  readonly path?: string;
+}
+
+export type WarningHandler = (warning: SkillsWarning) => void;
+
 /** Runtime context shared by every operation. Never comes from a config file. */
 export interface BaseOptions {
   /** Project directory. @default process.cwd() */
@@ -73,13 +106,19 @@ export interface BaseOptions {
   /** Cancels the operation; checked between steps. */
   signal?: AbortSignal;
   onProgress?: ProgressHandler;
+  /** Receives non-fatal problems. Without it they are dropped silently. */
+  onWarning?: WarningHandler;
   /** Shared settings. Options passed to a call take precedence over these. */
   config?: SkillsConfig;
 }
 
 /** A supported agent. */
 export interface AgentInfo {
-  /** Identifier used in `agents` options, e.g. `claude-code`. */
+  /**
+   * Identifier used in `agents` options, e.g. `claude-code`. `universal` is a
+   * neutral target: `.agents/skills` in the project (or its global
+   * equivalent), which every universal agent reads.
+   */
   readonly id: string;
   readonly name: string;
   /** Skills directory relative to the project root. */
@@ -103,6 +142,12 @@ export interface SourceInfo {
   /** Repository or download URL, or the absolute path of a local source. */
   readonly url: string;
   readonly ref?: string;
+  /**
+   * Commit that was checked out, for git sources that were cloned. Absent for
+   * other sources and for GitHub repositories read through the fast path,
+   * which is only used when no `ref` is given.
+   */
+  readonly commit?: string;
   readonly subpath?: string;
 }
 
@@ -110,6 +155,16 @@ export interface SourceInfo {
 export interface SkillInfo {
   readonly name: string;
   readonly description: string;
+  /**
+   * The skill folder relative to the source root, `/`-separated (`.` for a
+   * skill at the root). Absent for well-known sources, which have no tree.
+   */
+  readonly path?: string;
+  /**
+   * Other folders in the source that declare the same name. They are ignored:
+   * the first definition wins, in discovery order, as with `skills add`.
+   */
+  readonly duplicates?: readonly string[];
   readonly pluginName?: string;
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
@@ -126,11 +181,18 @@ export interface SkillSource {
 }
 
 export interface ResolveOptions extends BaseOptions {
+  /**
+   * Branch, tag, or full commit SHA to check out, for git sources. Overrides
+   * a `#ref` in the source string.
+   */
+  ref?: string;
   fullDepth?: boolean;
   includeInternal?: boolean;
 }
 
 export interface InstallOptions extends BaseOptions, InstallSettings {
+  /** Branch, tag, or commit SHA, when `source` is a string. See ResolveOptions.ref. */
+  ref?: string;
   /** Skill names to install. @default all skills in the source */
   skills?: readonly string[];
   /**
@@ -229,9 +291,14 @@ export type SkillsErrorCode =
   | 'INVALID_SOURCE'
   | 'SOURCE_NOT_FOUND'
   | 'SOURCE_FETCH_FAILED'
+  | 'SOURCE_AUTH_FAILED'
+  | 'SOURCE_REF_NOT_FOUND'
+  | 'SOURCE_TIMEOUT'
   | 'SOURCE_DISPOSED'
   | 'NO_SKILLS_FOUND'
   | 'SKILL_NOT_FOUND'
+  | 'SKILL_AMBIGUOUS'
+  | 'SYMLINK_REJECTED'
   | 'UNKNOWN_AGENT'
   | 'AGENT_NOT_ALLOWED'
   | 'NO_TARGET_AGENTS'
