@@ -75,6 +75,17 @@ tests/
 ├── wellknown-provider.test.ts # Tests for well-known provider
 ├── xdg-config-paths.test.ts   # XDG global path handling tests
 └── dist.test.ts               # Tests for built distribution
+
+e2e/                 # Production e2e: packed tarball vs. live sources (`pnpm test:e2e`)
+├── setup.ts         # globalSetup: build, `pnpm pack`, `npm install` into a clean prefix
+├── env.ts           # Env allowlist (drops agent markers, XDG/config overrides, CI)
+├── sandbox.ts       # Per-test HOME + project dir; runs the installed bin
+├── package.e2e.ts   # Tarball contents, bin shim, runtime deps
+├── github.e2e.ts    # anthropics/skills, mattpocock/skills, vercel-labs/agent-skills
+├── blob.e2e.ts      # skills.sh blob fast path, parity with a git clone
+├── well-known.e2e.ts # https://vercel.com discovery index
+├── notion.e2e.ts    # Stub `ntn` on PATH + local archive server
+└── npm.e2e.ts       # experimental_sync with registry and tarball packages
 ```
 
 ## Update Checking System
@@ -134,6 +145,11 @@ pnpm dev init my-skill
 
 # Run all tests
 pnpm test
+
+# Production e2e (packs, installs the tarball in a clean prefix, hits live sources)
+pnpm test:e2e
+SKILLS_E2E_PACKAGE=skills@latest pnpm test:e2e  # test a published version instead
+SKILLS_E2E_KEEP=1 pnpm test:e2e                 # keep the scratch dir for debugging
 
 # Run specific test file(s)
 pnpm test tests/sanitize-name.test.ts
