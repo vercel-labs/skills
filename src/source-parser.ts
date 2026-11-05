@@ -2,6 +2,7 @@ import { isAbsolute, resolve } from 'path';
 import type { ParsedSource } from './types.ts';
 import { diagnostics } from './diagnostics.ts';
 import { getGitHubHost, isGitHubHost } from './github-host.ts';
+import { isCommitSha } from './git.ts';
 
 /**
  * Extract owner/repo (or group/subgroup/repo for GitLab) from a parsed source
@@ -311,6 +312,18 @@ function parseFragmentRef(input: string): FragmentRefResult {
   };
 }
 
+/**
+ * `owner/repo@name` selects a skill. A version tag (`v1.2.3`, `1.2.3`, `v1.2`,
+ * with optional prerelease/build metadata) or a full commit SHA in that
+ * position is a checkout pin, the same as `owner/repo#ref`. A single number
+ * such as `v2` is ambiguous and stays a skill name. Branch pins use `#ref`.
+ */
+function isVersionPin(value: string): boolean {
+  return (
+    /^v?\d+(?:\.\d+)+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(value) || isCommitSha(value)
+  );
+}
+
 function appendFragmentRef(input: string, ref?: string, skillFilter?: string): string {
   if (!ref && !skillFilter) {
     return input;
@@ -530,10 +543,20 @@ export function parseSource(
   const githubHost = options.githubHost ?? getGitHubHost();
   const shorthandSourceType = githubHost === 'github.com' ? 'github' : 'git';
 
-  // First check for @skill syntax: owner/repo@skill-name
+  // First check for @skill syntax: owner/repo@skill-name.
+  // A release tag or full SHA (`owner/repo@v1.2.3`) is a checkout pin, not a
+  // skill name. Otherwise the tag is printed as a filter and the install
+  // uses the default branch (#2526).
   const atSkillMatch = input.match(/^([^/]+)\/([^/@]+)@(.+)$/);
   if (atSkillMatch && !input.includes(':') && !input.startsWith('.') && !input.startsWith('/')) {
     const [, owner, repo, skillFilter] = atSkillMatch;
+    if (!fragmentRef && !fragmentSkillFilter && isVersionPin(skillFilter!)) {
+      return {
+        type: shorthandSourceType,
+        url: `https://${githubHost}/${owner}/${repo}.git`,
+        ref: skillFilter,
+      };
+    }
     return {
       type: shorthandSourceType,
       url: `https://${githubHost}/${owner}/${repo}.git`,
