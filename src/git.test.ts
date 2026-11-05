@@ -145,6 +145,7 @@ describe('git clone fallbacks', () => {
           'filter.lfs.smudge=',
           'filter.lfs.clean=',
           'filter.lfs.process=',
+          'core.longpaths=true',
         ],
         unsafe: {
           allowUnsafeAlias: true,
@@ -389,6 +390,32 @@ describe('git clone fallbacks', () => {
 
     expect(primaryClient.env).toHaveBeenCalledWith(expect.objectContaining({ LC_ALL: 'C' }));
     expect(shaClient.env).toHaveBeenCalledWith(expect.objectContaining({ LC_ALL: 'C' }));
+  });
+
+  it('enables core.longpaths on the commit-SHA fetch and checkout', async () => {
+    // Windows rejects working-tree paths longer than MAX_PATH unless git is
+    // told to opt in. The SHA fallback checks out FETCH_HEAD with a separate
+    // git process, so the option has to arrive through the shared config.
+    const primaryClone = vi
+      .fn()
+      .mockRejectedValue(
+        new Error(`fatal: Remote branch ${FULL_SHA} not found in upstream origin`)
+      );
+    const shaClient = createShaClientMock();
+
+    simpleGitMock
+      .mockReturnValueOnce(createGitClientMock(primaryClone))
+      .mockReturnValueOnce(shaClient);
+
+    const tempDir = await cloneRepo('https://gitlab.com/group/repo.git', FULL_SHA);
+    createdDirs.push(tempDir);
+
+    expect(simpleGitMock).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        config: expect.arrayContaining(['core.longpaths=true']),
+      })
+    );
   });
 
   it('does not attempt the SHA fetch for a non-SHA ref', async () => {
