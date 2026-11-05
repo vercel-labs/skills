@@ -82,6 +82,8 @@ export interface TreeEntry {
   type: 'blob' | 'tree';
   sha: string;
   size?: number;
+  /** Git file mode, e.g. `120000` for a symlink (passed through from the Trees API). */
+  mode?: string;
 }
 
 export interface RepoTree {

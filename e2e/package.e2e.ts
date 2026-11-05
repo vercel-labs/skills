@@ -38,6 +38,25 @@ describe('packed package', () => {
     }
   });
 
+  it('exposes the programmatic API through the exports map', async () => {
+    // Resolve `skills` the way a consumer would: a script in the install prefix.
+    const script = [
+      "const api = await import('skills');",
+      'console.log(JSON.stringify({',
+      '  exports: Object.keys(api).sort(),',
+      "  agent: api.getSupportedAgents().some((a) => a.id === 'claude-code'),",
+      '}));',
+    ].join('\n');
+    const result = await exec(process.execPath, ['--input-type=module', '-e', script], {
+      cwd: inject('installDir'),
+      env: cleanEnv(),
+    });
+    const { exports, agent } = JSON.parse(result.stdout) as { exports: string[]; agent: boolean };
+    expect(exports).toContain('installSkills');
+    expect(exports).toContain('isDiagnostic');
+    expect(agent).toBe(true);
+  });
+
   it('runs through the npm bin shim', async () => {
     const shim = join(
       inject('installDir'),

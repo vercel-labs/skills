@@ -355,8 +355,15 @@ export async function getGitTreeHash(repoDir: string, skillPath: string): Promis
   const segments = normalizedPath.split('/');
   segments.pop();
   const folderPath = segments.join('/');
-  const revision = folderPath ? `HEAD:${folderPath}` : 'HEAD^{tree}';
+  return revParse(repoDir, folderPath ? `HEAD:${folderPath}` : 'HEAD^{tree}');
+}
 
+/** The commit checked out in a cloned repository, or null when it cannot be read. */
+export function getHeadCommit(repoDir: string): Promise<string | null> {
+  return revParse(repoDir, 'HEAD^{commit}');
+}
+
+async function revParse(repoDir: string, revision: string): Promise<string | null> {
   try {
     const stdout = await new Promise<string>((resolve, reject) => {
       execFile(

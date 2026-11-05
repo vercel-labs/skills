@@ -26,10 +26,11 @@ import {
   EVE_SUBAGENTS_DIR,
 } from './agents.ts';
 import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
-import { diagnostics, formatError } from './diagnostics.ts';
+import { diagnostics } from './diagnostics.ts';
 import { parseFrontmatter } from './frontmatter.ts';
 import { stringify } from 'yaml';
 import { parseSkillMd } from './skills.ts';
+import { warn } from './warnings.ts';
 
 /**
  * - `symlink`: copy into the canonical dir, symlink agent dirs to it
@@ -558,7 +559,7 @@ export async function copyDirectory(
   const realSrc = await realpath(src);
   const root = ctx?.root ?? realSrc;
   if (ctx?.ancestors.has(realSrc)) {
-    console.warn(formatError(diagnostics.SKILLS_SYMLINK_CYCLE({ path: src })));
+    warn(diagnostics.SKILLS_SYMLINK_CYCLE({ path: src }));
     return;
   }
   const ancestors = new Set(ctx?.ancestors);
@@ -582,11 +583,11 @@ export async function copyDirectory(
             realTarget = await realpath(srcPath);
           } catch {
             // Broken/dangling symlink (target does not exist, or a link loop).
-            console.warn(formatError(diagnostics.SKILLS_BROKEN_SYMLINK({ path: srcPath })));
+            warn(diagnostics.SKILLS_BROKEN_SYMLINK({ path: srcPath }));
             return;
           }
           if (!isWithinRoot(root, realTarget)) {
-            console.warn(formatError(diagnostics.SKILLS_SYMLINK_OUTSIDE_SKILL({ path: srcPath })));
+            warn(diagnostics.SKILLS_SYMLINK_OUTSIDE_SKILL({ path: srcPath }));
             return;
           }
           isDirectory = (await stat(realTarget)).isDirectory();
@@ -1192,7 +1193,7 @@ export async function listInstalledSkills(
   const scopes: Array<{ global: boolean; path: string; agentType?: AgentType }> = [];
 
   // Detect which agents are actually installed
-  const detectedAgents = await detectInstalledAgents();
+  const detectedAgents = await detectInstalledAgents(cwd);
   const agentFilter = options.agentFilter;
   const agentsToCheck = agentFilter
     ? detectedAgents.filter((a) => agentFilter.includes(a))
