@@ -1,0 +1,4 @@
+# Agent Factory settings for vercel-labs/skills.
+version: 1
+owners:
+  - github:quuu
