@@ -26,11 +26,17 @@ function makeSkill(root: string): string {
   return dir;
 }
 
-function install(agentArgs: string[]) {
+/**
+ * Runs a global `add -y`. With agentArgs it passes `-a`; without, the CLI picks
+ * the agents it detects from the folders in homeDirs.
+ */
+function install(agentArgs: string[], homeDirs: string[] = []) {
   const root = mkdtempSync(join(tmpdir(), 'skills-antigravity-'));
   const home = join(root, 'home');
   mkdirSync(home, { recursive: true });
-  const result = runCli(['add', makeSkill(root), '-g', '-y', '-a', ...agentArgs], root, {
+  for (const dir of homeDirs) mkdirSync(join(home, dir), { recursive: true });
+  const agentFlag = agentArgs.length > 0 ? ['-a', ...agentArgs] : [];
+  const result = runCli(['add', makeSkill(root), '-g', '-y', ...agentFlag], root, {
     HOME: home,
   });
   return { root, home, result };
@@ -65,6 +71,27 @@ describe('Antigravity global install', () => {
       expect(existsSync(join(canonical, 'SKILL.md'))).toBe(true);
       expect(lstatSync(link).isSymbolicLink()).toBe(true);
       expect(resolve(dirname(link), readlinkSync(link))).toBe(canonical);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not install for Antigravity when it was neither requested nor detected', () => {
+    const { root, home } = install([], ['.claude']);
+    try {
+      expect(existsSync(join(home, '.agents', 'skills', 'probe-skill', 'SKILL.md'))).toBe(true);
+      expect(existsSync(join(home, '.claude', 'skills', 'probe-skill'))).toBe(true);
+      expect(existsSync(join(home, '.gemini', 'config', 'skills'))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('installs for Antigravity when it is detected', () => {
+    const { root, home } = install([], ['.claude', '.gemini/antigravity']);
+    try {
+      const link = join(home, '.gemini', 'config', 'skills', 'probe-skill');
+      expect(existsSync(join(link, 'SKILL.md'))).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

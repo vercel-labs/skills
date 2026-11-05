@@ -23,6 +23,7 @@ import {
   getVisibleUniversalAgents,
   getNonUniversalAgents,
   isUniversalAgent,
+  readsCanonicalGlobally,
   getEveSubagents,
 } from './agents.ts';
 import {
@@ -241,9 +242,13 @@ export function formatEveInstallPromptMessage(skills: Skill[]): string {
 
 /**
  * Splits agents into universal and non-universal (symlinked) groups.
- * Returns display names for each group.
+ * Returns display names for each group. On a global install an agent counts as
+ * universal only if it reads the canonical directory; others get their own link.
  */
-function splitAgentsByType(agentTypes: AgentType[]): {
+function splitAgentsByType(
+  agentTypes: AgentType[],
+  global: boolean
+): {
   universal: string[];
   symlinked: string[];
 } {
@@ -251,7 +256,7 @@ function splitAgentsByType(agentTypes: AgentType[]): {
   const symlinked: string[] = [];
 
   for (const a of agentTypes) {
-    if (isUniversalAgent(a)) {
+    if (global ? readsCanonicalGlobally(a) : isUniversalAgent(a)) {
       universal.push(agents[a].displayName);
     } else {
       symlinked.push(agents[a].displayName);
@@ -264,9 +269,13 @@ function splitAgentsByType(agentTypes: AgentType[]): {
 /**
  * Builds summary lines showing universal vs symlinked agents
  */
-function buildAgentSummaryLines(targetAgents: AgentType[], installMode: InstallMode): string[] {
+function buildAgentSummaryLines(
+  targetAgents: AgentType[],
+  installMode: InstallMode,
+  global: boolean
+): string[] {
   const lines: string[] = [];
-  const { universal, symlinked } = splitAgentsByType(targetAgents);
+  const { universal, symlinked } = splitAgentsByType(targetAgents, global);
 
   if (installMode === 'symlink') {
     if (universal.length > 0) {
@@ -330,11 +339,15 @@ function buildInstallTargets(
 /**
  * Builds summary lines showing universal vs symlinked agents and Eve subagents.
  */
-function buildTargetSummaryLines(targets: InstallTarget[], installMode: InstallMode): string[] {
+function buildTargetSummaryLines(
+  targets: InstallTarget[],
+  installMode: InstallMode,
+  global: boolean
+): string[] {
   const lines: string[] = [];
   const rootAgents = targets.filter((t) => !t.subagent).map((t) => t.agent);
   const subagentNames = targets.filter((t) => t.subagent).map(targetDisplayName);
-  const { universal, symlinked } = splitAgentsByType(rootAgents);
+  const { universal, symlinked } = splitAgentsByType(rootAgents, global);
 
   if (installMode === 'symlink') {
     if (universal.length > 0) {
@@ -357,9 +370,14 @@ function buildTargetSummaryLines(targets: InstallTarget[], installMode: InstallM
 /**
  * Ensures universal agents are always included in the target agents list.
  * Used when -y flag is passed or when auto-selecting agents.
+ *
+ * Agents that use .agents/skills in a project but read only their own global
+ * directory (e.g. Antigravity) are not added: a global install would write into
+ * their directory for users who never asked for them, and a project install
+ * already covers them through the shared .agents/skills directory.
  */
 function ensureUniversalAgents(targetAgents: AgentType[]): AgentType[] {
-  const universalAgents = getUniversalAgents();
+  const universalAgents = getUniversalAgents().filter(readsCanonicalGlobally);
   const result = [...targetAgents];
 
   for (const ua of universalAgents) {
@@ -381,12 +399,13 @@ function buildResultLines(
     skipped?: boolean;
     skipReason?: string;
   }>,
-  targetAgents: AgentType[]
+  targetAgents: AgentType[],
+  global: boolean
 ): string[] {
   const lines: string[] = [];
 
   // Split target agents by type
-  const { universal, symlinked: symlinkAgents } = splitAgentsByType(targetAgents);
+  const { universal, symlinked: symlinkAgents } = splitAgentsByType(targetAgents, global);
 
   // For symlink results, also track which ones actually succeeded vs failed
   // Exclude skipped agents (those whose config dir doesn't exist in the project)
@@ -916,7 +935,7 @@ async function handleWellKnownSkills(
     const canonicalPath = getCanonicalPath(skill.installName, { global: installGlobally });
     const shortCanonical = shortenPath(canonicalPath, cwd);
     summaryLines.push(`${pc.cyan(shortCanonical)}`);
-    summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
+    summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode, installGlobally));
     if (skill.files.size > 1) {
       summaryLines.push(`  ${pc.dim('files:')} ${skill.files.size}`);
     }
@@ -1085,7 +1104,7 @@ async function handleWellKnownSkills(
         } else {
           resultLines.push(`${pc.green('✓')} ${skillName}`);
         }
-        resultLines.push(...buildResultLines(skillResults, targetAgents));
+        resultLines.push(...buildResultLines(skillResults, targetAgents, installGlobally));
       }
     }
 
@@ -2078,7 +2097,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             : getCanonicalPath(skill.name, { global: installGlobally });
         const shortCanonical = shortenPath(canonicalPath, cwd);
         summaryLines.push(`${pc.cyan(shortCanonical)}`);
-        summaryLines.push(...buildTargetSummaryLines(installTargets, installMode));
+        summaryLines.push(...buildTargetSummaryLines(installTargets, installMode, installGlobally));
 
         const skillOverwrites = overwriteStatus.get(skill.name);
         const overwriteAgents = installTargets
@@ -2400,7 +2419,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             } else {
               resultLines.push(`${pc.green('✓')} ${entry.skill}`);
             }
-            resultLines.push(...buildResultLines(skillResults, targetAgents));
+            resultLines.push(...buildResultLines(skillResults, targetAgents, installGlobally));
           }
         }
       };
