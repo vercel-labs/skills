@@ -579,7 +579,7 @@ export class WellKnownProvider implements HostProvider {
    *
    * When the URL is scoped to a path, only path-relative indexes are used.
    * If the scope yields no skills but the host publishes a root index, this
-   * throws SKILLS_S009 instead of silently widening to the root index and
+   * throws SKILLS_WELLKNOWN_SCOPE_NOT_FOUND instead of silently widening to the root index and
    * installing the host's entire catalog.
    */
   async fetchAllSkills(
@@ -604,7 +604,7 @@ export class WellKnownProvider implements HostProvider {
       }
 
       if (scope && scopedCandidates.length < candidates.length) {
-        throw diagnostics.SKILLS_S009({
+        throw diagnostics.SKILLS_WELLKNOWN_SCOPE_NOT_FOUND({
           scopePath: scope.scopePath,
           rootUrl: scope.rootBaseUrl,
         });
@@ -612,7 +612,7 @@ export class WellKnownProvider implements HostProvider {
 
       return [];
     } catch (error) {
-      if (isDiagnostic(error, 'SKILLS_S009')) throw error;
+      if (isDiagnostic(error, 'SKILLS_WELLKNOWN_SCOPE_NOT_FOUND')) throw error;
       return [];
     }
   }
@@ -639,7 +639,7 @@ export class WellKnownProvider implements HostProvider {
       return this.extractTarGz(bytes);
     }
 
-    throw diagnostics.SKILLS_A009();
+    throw diagnostics.SKILLS_ARCHIVE_UNSUPPORTED_FORMAT();
   }
 
   private isZipArchive(bytes: Uint8Array, artifactUrl: string, contentType: string): boolean {
@@ -681,14 +681,14 @@ export class WellKnownProvider implements HostProvider {
     runningTotal: { bytes: number }
   ) {
     const normalizedPath = this.normalizeArchivePath(path);
-    if (!normalizedPath) throw diagnostics.SKILLS_A011({ path });
+    if (!normalizedPath) throw diagnostics.SKILLS_WELLKNOWN_ARCHIVE_UNSAFE_PATH({ path });
 
     runningTotal.bytes += content.byteLength;
     if (runningTotal.bytes > MAX_ARCHIVE_UNPACKED_BYTES) {
-      throw diagnostics.SKILLS_A012();
+      throw diagnostics.SKILLS_WELLKNOWN_ARCHIVE_TOO_LARGE();
     }
     if (files.size >= MAX_ARCHIVE_FILES) {
-      throw diagnostics.SKILLS_A013();
+      throw diagnostics.SKILLS_WELLKNOWN_ARCHIVE_TOO_MANY_FILES();
     }
 
     files.set(normalizedPath, content);
@@ -712,12 +712,12 @@ export class WellKnownProvider implements HostProvider {
       const size = Number.parseInt(sizeText || '0', 8);
 
       if (!Number.isFinite(size) || size < 0)
-        throw diagnostics.SKILLS_A001({ reason: 'Invalid tar entry size' });
+        throw diagnostics.SKILLS_ARCHIVE_INVALID({ reason: 'Invalid tar entry size' });
       offset += 512;
 
       // Reject symlinks and hard links. Skip directories and metadata entries.
       if (typeFlag === 0x32 || typeFlag === 0x31) {
-        throw diagnostics.SKILLS_A005();
+        throw diagnostics.SKILLS_ARCHIVE_LINK_ENTRY();
       }
 
       const isFile = typeFlag === 0 || typeFlag === 0x30;
@@ -729,7 +729,7 @@ export class WellKnownProvider implements HostProvider {
       offset += Math.ceil(size / 512) * 512;
     }
 
-    if (!files.has('SKILL.md')) throw diagnostics.SKILLS_A010();
+    if (!files.has('SKILL.md')) throw diagnostics.SKILLS_ARCHIVE_MISSING_SKILL_MD();
     return files;
   }
 

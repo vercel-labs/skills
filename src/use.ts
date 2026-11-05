@@ -102,9 +102,11 @@ export function parseUseOptions(args: string[]): ParseUseOptionsResult {
     } else if (arg === '--skill' || arg === '-s') {
       const value = args[i + 1];
       if (!value || value.startsWith('-')) {
-        errors.push(diagnostics.SKILLS_C002({ option: arg, value: 'a skill name' }));
+        errors.push(
+          diagnostics.SKILLS_OPTION_REQUIRES_VALUE({ option: arg, value: 'a skill name' })
+        );
       } else if (options.skill) {
-        errors.push(diagnostics.SKILLS_C005({ option: '--skill' }));
+        errors.push(diagnostics.SKILLS_DUPLICATE_OPTION({ option: '--skill' }));
         i++;
       } else {
         options.skill = value;
@@ -121,11 +123,13 @@ export function parseUseOptions(args: string[]): ParseUseOptionsResult {
         nextArg = args[i];
       }
       if (options.agent.length === startCount) {
-        errors.push(diagnostics.SKILLS_C002({ option: arg, value: 'an agent name' }));
+        errors.push(
+          diagnostics.SKILLS_OPTION_REQUIRES_VALUE({ option: arg, value: 'an agent name' })
+        );
       }
       i--;
     } else if (arg.startsWith('-')) {
-      errors.push(diagnostics.SKILLS_C003({ option: arg }));
+      errors.push(diagnostics.SKILLS_UNKNOWN_OPTION({ option: arg }));
     } else {
       source.push(arg);
     }
@@ -161,7 +165,7 @@ export async function materializeUseSkill(skill: UseSkill): Promise<Materialized
   const skillDir = join(tempRoot, sanitizeName(skill.directoryName || skill.name));
 
   if (!isPathSafe(tempRoot, skillDir)) {
-    throw diagnostics.SKILLS_I001();
+    throw diagnostics.SKILLS_UNSAFE_SKILL_NAME();
   }
 
   await mkdir(skillDir, { recursive: true });
@@ -198,11 +202,11 @@ export async function runUse(
     }
 
     if (sourceArgs.length === 0) {
-      fail(diagnostics.SKILLS_C008({ name: 'source' }), `\n${getUseHelp()}`);
+      fail(diagnostics.SKILLS_MISSING_ARGUMENT({ name: 'source' }), `\n${getUseHelp()}`);
     }
 
     if (sourceArgs.length > 1) {
-      fail(diagnostics.SKILLS_C009({ received: sourceArgs }));
+      fail(diagnostics.SKILLS_MULTIPLE_SOURCES({ received: sourceArgs }));
     }
 
     const useAgent = options.agent?.[0] as AgentType | undefined;
@@ -224,7 +228,7 @@ export async function runUse(
           includeInternal,
         })
         .catch((error) => {
-          if (isDiagnostic(error, 'SKILLS_S009')) fail(error);
+          if (isDiagnostic(error, 'SKILLS_WELLKNOWN_SCOPE_NOT_FOUND')) fail(error);
           return [] as WellKnownSkill[];
         });
       if (skills.length > 0) {
@@ -258,7 +262,7 @@ export async function runUse(
         });
       } else if (parsed.type === 'local') {
         if (!existsSync(parsed.localPath!)) {
-          fail(diagnostics.SKILLS_S008({ path: parsed.localPath! }));
+          fail(diagnostics.SKILLS_LOCAL_PATH_NOT_FOUND({ path: parsed.localPath! }));
         }
         skills = await discoverSkills(parsed.localPath!, parsed.subpath, {
           includeInternal,
@@ -360,7 +364,7 @@ export async function launchAgentInteractively(
       settled = true;
       if (error.code === 'ENOENT') {
         reject(
-          diagnostics.SKILLS_U002({
+          diagnostics.SKILLS_USE_AGENT_COMMAND_NOT_FOUND({
             agent: agents[agent].displayName,
             command: config.command,
           })
@@ -402,7 +406,7 @@ Examples:
 function resolveSelector(sourceSelector?: string, optionSelector?: string): string | undefined {
   if (sourceSelector && optionSelector) {
     if (sourceSelector.toLowerCase() !== optionSelector.toLowerCase()) {
-      throw diagnostics.SKILLS_S007({
+      throw diagnostics.SKILLS_CONFLICTING_SKILL_SELECTORS({
         fromSource: sourceSelector,
         fromOption: optionSelector,
       });
@@ -415,12 +419,12 @@ function resolveSelector(sourceSelector?: string, optionSelector?: string): stri
 
 function selectSkill(skills: Skill[], selector: string | undefined, source: string): Skill {
   if (skills.length === 0) {
-    throw diagnostics.SKILLS_S004();
+    throw diagnostics.SKILLS_NO_VALID_SKILLS();
   }
 
   if (!selector) {
     if (skills.length === 1) return skills[0]!;
-    throw diagnostics.SKILLS_S005({
+    throw diagnostics.SKILLS_MULTIPLE_SKILLS_IN_SOURCE({
       source,
       names: skills.map(getSkillDisplayName),
     });
@@ -428,13 +432,13 @@ function selectSkill(skills: Skill[], selector: string | undefined, source: stri
 
   const selected = filterSkills(skills, [selector]);
   if (selected.length === 0) {
-    throw diagnostics.SKILLS_U005({
+    throw diagnostics.SKILLS_USE_NO_MATCHING_SKILL({
       selector,
       available: skills.map(getSkillDisplayName),
     });
   }
   if (selected.length > 1) {
-    throw diagnostics.SKILLS_S006({ selector });
+    throw diagnostics.SKILLS_AMBIGUOUS_SKILL_SELECTOR({ selector });
   }
 
   return selected[0]!;
@@ -446,13 +450,13 @@ function selectWellKnownSkill(
   source: string
 ): UseSkill {
   if (skills.length === 0) {
-    throw diagnostics.SKILLS_S010();
+    throw diagnostics.SKILLS_WELLKNOWN_INDEX_NOT_FOUND();
   }
 
   let selected: WellKnownSkill[];
   if (!selector) {
     if (skills.length !== 1) {
-      throw diagnostics.SKILLS_S005({
+      throw diagnostics.SKILLS_MULTIPLE_SKILLS_IN_SOURCE({
         source,
         names: skills.map((s) => s.installName),
       });
@@ -465,13 +469,13 @@ function selectWellKnownSkill(
         skill.name.toLowerCase() === selector.toLowerCase()
     );
     if (selected.length === 0) {
-      throw diagnostics.SKILLS_U005({
+      throw diagnostics.SKILLS_USE_NO_MATCHING_SKILL({
         selector,
         available: skills.map((s) => s.installName),
       });
     }
     if (selected.length > 1) {
-      throw diagnostics.SKILLS_S006({ selector });
+      throw diagnostics.SKILLS_AMBIGUOUS_SKILL_SELECTOR({ selector });
     }
   }
 
@@ -495,20 +499,20 @@ function validateUseAgentOption(agentValues: string[] | undefined): Diagnostic[]
   );
 
   if (agentValues.includes('*')) {
-    errors.push(diagnostics.SKILLS_U003());
+    errors.push(diagnostics.SKILLS_USE_AGENT_WILDCARD());
   }
   if (agentValues.length > 1) {
-    errors.push(diagnostics.SKILLS_U004());
+    errors.push(diagnostics.SKILLS_USE_MULTIPLE_AGENTS());
   }
   if (invalidAgents.length > 0) {
-    errors.push(diagnostics.SKILLS_C001({ invalid: invalidAgents, valid: validAgents }));
+    errors.push(diagnostics.SKILLS_INVALID_AGENTS({ invalid: invalidAgents, valid: validAgents }));
   }
 
   return errors;
 }
 
 function unsupportedAgent(agent: AgentType): Diagnostic {
-  return diagnostics.SKILLS_U001({
+  return diagnostics.SKILLS_USE_AGENT_UNSUPPORTED({
     agent: agents[agent].displayName,
     supported: SUPPORTED_USE_AGENTS,
   });

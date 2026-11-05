@@ -79,7 +79,7 @@ async function readProjectLockOrWarn(cwd: string): Promise<Record<string, ListLo
   try {
     return (await readLocalLock(cwd)).skills;
   } catch (error) {
-    if (!isDiagnostic(error, 'SKILLS_I005')) throw error;
+    if (!isDiagnostic(error, 'SKILLS_INVALID_LOCAL_LOCK')) throw error;
     console.error(`${YELLOW}Warning: ${formatError(error)}${RESET}`);
     return {};
   }
@@ -99,7 +99,9 @@ export async function runList(args: string[]): Promise<void> {
 
     if (invalidAgents.length > 0) {
       console.log(
-        formatError(diagnostics.SKILLS_C001({ invalid: invalidAgents, valid: validAgents }))
+        formatError(
+          diagnostics.SKILLS_INVALID_AGENTS({ invalid: invalidAgents, valid: validAgents })
+        )
       );
       process.exit(1);
     }

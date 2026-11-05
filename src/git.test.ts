@@ -285,7 +285,7 @@ describe('git clone fallbacks', () => {
       await cloneRepo('https://github.com/Giphy/giphy-codex-skills.git');
       throw new Error('Expected cloneRepo to throw');
     } catch (error) {
-      expect(error).toMatchObject({ code: 'SKILLS_G004' });
+      expect(error).toMatchObject({ code: 'SKILLS_GIT_SAML_SSO_BLOCKED' });
       expect((error as Error).message).toMatch(/SAML SSO/);
       expect((error as Error).message).toMatch(/git@github\.com:Giphy\/giphy-codex-skills\.git/);
     }
@@ -302,7 +302,7 @@ describe('git clone fallbacks', () => {
 
     await expect(
       cloneRepo('https://gitlab.com/Giphy/giphy-codex-skills.git')
-    ).rejects.toMatchObject({ code: 'SKILLS_G003' });
+    ).rejects.toMatchObject({ code: 'SKILLS_GIT_AUTH_FAILED' });
     expect(execFileMock).not.toHaveBeenCalled();
   });
 
@@ -312,7 +312,7 @@ describe('git clone fallbacks', () => {
     simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
 
     await expect(cloneRepo('git@github.com:Giphy/giphy-codex-skills.git')).rejects.toMatchObject({
-      code: 'SKILLS_G003',
+      code: 'SKILLS_GIT_AUTH_FAILED',
     });
     expect(execFileMock).not.toHaveBeenCalled();
   });
@@ -399,7 +399,7 @@ describe('git clone fallbacks', () => {
     simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
 
     await expect(cloneRepo('https://gitlab.com/group/repo.git', 'deadbeef')).rejects.toMatchObject({
-      code: 'SKILLS_G005',
+      code: 'SKILLS_GIT_CLONE_FAILED',
     });
     // Only the primary --branch client is constructed; no SHA-fetch client.
     expect(simpleGitMock).toHaveBeenCalledTimes(1);
@@ -411,7 +411,7 @@ describe('git clone fallbacks', () => {
     simpleGitMock.mockReturnValueOnce(createGitClientMock(primaryClone));
 
     await expect(cloneRepo('https://gitlab.com/group/repo.git', FULL_SHA)).rejects.toMatchObject({
-      code: 'SKILLS_G003',
+      code: 'SKILLS_GIT_AUTH_FAILED',
     });
     expect(simpleGitMock).toHaveBeenCalledTimes(1);
   });

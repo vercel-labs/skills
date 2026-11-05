@@ -112,7 +112,7 @@ export function sanitizeSubpath(subpath: string): string {
   const segments = normalized.split('/');
   for (const segment of segments) {
     if (segment === '..') {
-      throw diagnostics.SKILLS_S001({ subpath });
+      throw diagnostics.SKILLS_UNSAFE_SUBPATH({ subpath });
     }
   }
 

@@ -78,7 +78,7 @@ export async function hasSkillMd(dir: string): Promise<boolean> {
 function warnSkippedSkill(skillMdPath: string, reason: string): void {
   console.warn(
     formatError(
-      diagnostics.SKILLS_S011({
+      diagnostics.SKILLS_SKILL_SKIPPED({
         path: sanitizeMetadata(skillMdPath),
         reason: stripTerminalEscapes(reason),
       })
@@ -204,7 +204,7 @@ async function sourceLockedSkillNames(basePath: string): Promise<string[]> {
   try {
     return Object.keys((await readLocalLock(basePath)).skills);
   } catch (error) {
-    if (isDiagnostic(error, 'SKILLS_I005')) return [];
+    if (isDiagnostic(error, 'SKILLS_INVALID_LOCAL_LOCK')) return [];
     throw error;
   }
 }
@@ -223,7 +223,7 @@ export async function discoverSkills(
 
   // Validate subpath doesn't escape basePath (prevent path traversal)
   if (subpath && !isSubpathSafe(basePath, subpath)) {
-    throw diagnostics.SKILLS_S002({ subpath });
+    throw diagnostics.SKILLS_SUBPATH_OUTSIDE_REPO({ subpath });
   }
 
   const searchPath = subpath ? join(basePath, subpath) : basePath;

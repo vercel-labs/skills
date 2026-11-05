@@ -57,7 +57,9 @@ export function parseFindOptions(args: string[]): ParseFindOptionsResult {
     if (arg === '--owner') {
       const value = args[i + 1];
       if (!value || value.startsWith('-')) {
-        errors.push(diagnostics.SKILLS_C002({ option: '--owner', value: 'a GitHub owner' }));
+        errors.push(
+          diagnostics.SKILLS_OPTION_REQUIRES_VALUE({ option: '--owner', value: 'a GitHub owner' })
+        );
         continue;
       }
       ownerValue = value;
@@ -65,7 +67,9 @@ export function parseFindOptions(args: string[]): ParseFindOptionsResult {
     } else if (arg.startsWith('--owner=')) {
       ownerValue = arg.slice('--owner='.length);
       if (!ownerValue) {
-        errors.push(diagnostics.SKILLS_C002({ option: '--owner', value: 'a GitHub owner' }));
+        errors.push(
+          diagnostics.SKILLS_OPTION_REQUIRES_VALUE({ option: '--owner', value: 'a GitHub owner' })
+        );
         continue;
       }
     } else {
@@ -76,7 +80,7 @@ export function parseFindOptions(args: string[]): ParseFindOptionsResult {
     const owner = ownerValue.trim().toLowerCase();
     if (!GITHUB_OWNER_PATTERN.test(owner)) {
       errors.push(
-        diagnostics.SKILLS_C004({
+        diagnostics.SKILLS_INVALID_OPTION_VALUE({
           option: '--owner',
           expected: 'a valid GitHub owner',
         })

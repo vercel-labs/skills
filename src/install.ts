@@ -67,7 +67,9 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
 
     const installSource = buildLocalUpdateSource(entry);
     if (!installSource) {
-      p.log.error(formatError(diagnostics.SKILLS_I004({ skill: pc.cyan(skillName) })));
+      p.log.error(
+        formatError(diagnostics.SKILLS_LOCK_MISSING_SOURCE_URL({ skill: pc.cyan(skillName) }))
+      );
       continue;
     }
     bySource.set(installSource, [...(bySource.get(installSource) ?? []), skillName]);

@@ -100,7 +100,9 @@ describe('local-lock', () => {
 }`;
         await writeFile(join(dir, 'skills-lock.json'), conflicted, 'utf-8');
 
-        await expect(readLocalLock(dir)).rejects.toMatchObject({ code: 'SKILLS_I005' });
+        await expect(readLocalLock(dir)).rejects.toMatchObject({
+          code: 'SKILLS_INVALID_LOCAL_LOCK',
+        });
         await expect(readLocalLock(dir)).rejects.toThrow(join(dir, 'skills-lock.json'));
       } finally {
         await rm(dir, { recursive: true, force: true });
@@ -111,7 +113,9 @@ describe('local-lock', () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
         await writeFile(join(dir, 'skills-lock.json'), '{"version": 1}', 'utf-8');
-        await expect(readLocalLock(dir)).rejects.toMatchObject({ code: 'SKILLS_I005' });
+        await expect(readLocalLock(dir)).rejects.toMatchObject({
+          code: 'SKILLS_INVALID_LOCAL_LOCK',
+        });
       } finally {
         await rm(dir, { recursive: true, force: true });
       }

@@ -258,14 +258,14 @@ async function tryGhClone(repo: GitHubRepoInfo, tempDir: string, ref?: string): 
 function authError(url: string, repo: GitHubRepoInfo | null, message: string, cause: unknown) {
   const host = repo?.sshUrl.match(/^git@([^:]+):/)?.[1] || 'github.com';
   if (repo && isGitHubSsoAuthError(message)) {
-    return diagnostics.SKILLS_G004({ url, sshUrl: repo.sshUrl, host, cause });
+    return diagnostics.SKILLS_GIT_SAML_SSO_BLOCKED({ url, sshUrl: repo.sshUrl, host, cause });
   }
-  return diagnostics.SKILLS_G003({ url, sshUrl: repo?.sshUrl, host, cause });
+  return diagnostics.SKILLS_GIT_AUTH_FAILED({ url, sshUrl: repo?.sshUrl, host, cause });
 }
 
 export async function cloneRepo(url: string, ref?: string): Promise<string> {
   if (/^ext::/i.test(url)) {
-    throw diagnostics.SKILLS_G001({ transport: 'ext' });
+    throw diagnostics.SKILLS_UNSUPPORTED_GIT_TRANSPORT({ transport: 'ext' });
   }
 
   const tempDir = await mkdtemp(join(tmpdir(), 'skills-'));
@@ -298,7 +298,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
 
     if (isTimeout) {
       await rm(tempDir, { recursive: true, force: true }).catch(() => {});
-      throw diagnostics.SKILLS_G002({
+      throw diagnostics.SKILLS_GIT_CLONE_TIMEOUT({
         seconds: Math.round(CLONE_TIMEOUT_MS / 1000),
         cause: error,
       });
@@ -342,7 +342,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
       throw authError(url, repo, errorMessage, error);
     }
 
-    throw diagnostics.SKILLS_G005({ url, detail: errorMessage, cause: error });
+    throw diagnostics.SKILLS_GIT_CLONE_FAILED({ url, detail: errorMessage, cause: error });
   }
 }
 
@@ -386,7 +386,7 @@ export async function cleanupTempDir(dir: string): Promise<void> {
   const normalizedTmpDir = normalize(resolve(tmpdir()));
 
   if (!normalizedDir.startsWith(normalizedTmpDir + sep) && normalizedDir !== normalizedTmpDir) {
-    throw diagnostics.SKILLS_I002();
+    throw diagnostics.SKILLS_CLEANUP_OUTSIDE_TEMP_DIR();
   }
 
   await rm(dir, { recursive: true, force: true });

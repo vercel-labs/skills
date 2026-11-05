@@ -81,7 +81,7 @@ export function getLocalLockPath(cwd?: string): string {
 /**
  * Read the local skill lock file.
  * Returns an empty lock when the file does not exist; throws
- * SKILLS_I005 when it exists but cannot be used.
+ * SKILLS_INVALID_LOCAL_LOCK when it exists but cannot be used.
  */
 export async function readLocalLock(cwd?: string): Promise<LocalSkillLockFile> {
   const lockDir = cwd || process.cwd();
@@ -102,18 +102,18 @@ export async function readLocalLock(cwd?: string): Promise<LocalSkillLockFile> {
     parsed = JSON.parse(content);
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'not valid JSON';
-    throw diagnostics.SKILLS_I005({ path: lockPath, reason, cause: error });
+    throw diagnostics.SKILLS_INVALID_LOCAL_LOCK({ path: lockPath, reason, cause: error });
   }
 
   if (!isLocalLockShape(parsed)) {
-    throw diagnostics.SKILLS_I005({
+    throw diagnostics.SKILLS_INVALID_LOCAL_LOCK({
       path: lockPath,
       reason: 'expected an object with "version" and "skills"',
     });
   }
 
   if (parsed.version !== CURRENT_VERSION) {
-    throw diagnostics.SKILLS_I005({
+    throw diagnostics.SKILLS_INVALID_LOCAL_LOCK({
       path: lockPath,
       reason: `unsupported lock version ${parsed.version} (expected ${CURRENT_VERSION})`,
     });

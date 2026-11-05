@@ -548,7 +548,7 @@ export async function copyDirectory(
   const realSrc = await realpath(src);
   const root = ctx?.root ?? realSrc;
   if (ctx?.ancestors.has(realSrc)) {
-    console.warn(formatError(diagnostics.SKILLS_I007({ path: src })));
+    console.warn(formatError(diagnostics.SKILLS_SYMLINK_CYCLE({ path: src })));
     return;
   }
   const ancestors = new Set(ctx?.ancestors);
@@ -572,11 +572,11 @@ export async function copyDirectory(
             realTarget = await realpath(srcPath);
           } catch {
             // Broken/dangling symlink (target does not exist, or a link loop).
-            console.warn(formatError(diagnostics.SKILLS_I003({ path: srcPath })));
+            console.warn(formatError(diagnostics.SKILLS_BROKEN_SYMLINK({ path: srcPath })));
             return;
           }
           if (!isWithinRoot(root, realTarget)) {
-            console.warn(formatError(diagnostics.SKILLS_I006({ path: srcPath })));
+            console.warn(formatError(diagnostics.SKILLS_SYMLINK_OUTSIDE_SKILL({ path: srcPath })));
             return;
           }
           isDirectory = (await stat(realTarget)).isDirectory();
@@ -669,7 +669,7 @@ export function getInstallPath(
   const installPath = join(targetBase, sanitized);
 
   if (!isPathSafe(targetBase, installPath)) {
-    throw diagnostics.SKILLS_I001();
+    throw diagnostics.SKILLS_UNSAFE_SKILL_NAME();
   }
 
   return installPath;
@@ -690,7 +690,7 @@ export function getCanonicalPath(
   const canonicalPath = join(canonicalBase, sanitized);
 
   if (!isPathSafe(canonicalBase, canonicalPath)) {
-    throw diagnostics.SKILLS_I001();
+    throw diagnostics.SKILLS_UNSAFE_SKILL_NAME();
   }
 
   return canonicalPath;

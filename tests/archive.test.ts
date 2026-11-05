@@ -140,7 +140,7 @@ describe('readZipArchive', () => {
         maxExtractedBytes: 1024,
         maxEntries: 1,
       })
-    ).toThrow(expect.objectContaining({ code: 'SKILLS_A006' }));
+    ).toThrow(expect.objectContaining({ code: 'SKILLS_ARCHIVE_TOO_MANY_FILES' }));
   });
 
   it('omits directory entries after normalizing dot segments', () => {

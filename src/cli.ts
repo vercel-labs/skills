@@ -444,14 +444,14 @@ async function main(): Promise<void> {
       break;
 
     default:
-      console.log(formatError(diagnostics.SKILLS_C010({ command })));
+      console.log(formatError(diagnostics.SKILLS_UNKNOWN_COMMAND({ command })));
       process.exitCode = 1;
   }
 }
 
 main()
   .catch((error: unknown) => {
-    if (!isDiagnostic(error, 'SKILLS_I005')) throw error;
+    if (!isDiagnostic(error, 'SKILLS_INVALID_LOCAL_LOCK')) throw error;
     console.error(`Error: ${formatError(error)}`);
     process.exitCode = 1;
   })

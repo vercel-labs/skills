@@ -337,7 +337,7 @@ async function discoverNodeModuleSkills(
     if (field === undefined) continue;
     if (!Array.isArray(field)) {
       // a dependency may use the key for something else
-      if (problems === errors) errors.push(diagnostics.SKILLS_P001());
+      if (problems === errors) errors.push(diagnostics.SKILLS_PACKAGE_SKILLS_NOT_ARRAY());
       continue;
     }
 
@@ -357,7 +357,7 @@ async function discoverNodeModuleSkills(
       const target = findInstalledPackage(dir, request.package);
       if (!target) {
         problems.push(
-          diagnostics.SKILLS_P006({
+          diagnostics.SKILLS_PACKAGE_SKILLS_UNRESOLVED_NPM({
             declarer: declarer.name,
             pkg: request.package,
           })
@@ -760,7 +760,9 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
     if (invalidAgents.length > 0) {
       p.log.error(
-        formatError(diagnostics.SKILLS_C001({ invalid: invalidAgents, valid: validAgents }))
+        formatError(
+          diagnostics.SKILLS_INVALID_AGENTS({ invalid: invalidAgents, valid: validAgents })
+        )
       );
       process.exit(1);
     }

@@ -7,7 +7,7 @@ class ProviderRegistryImpl implements ProviderRegistry {
   register(provider: HostProvider): void {
     // Check for duplicate IDs
     if (this.providers.some((p) => p.id === provider.id)) {
-      throw diagnostics.SKILLS_E001({ id: provider.id });
+      throw diagnostics.SKILLS_PROVIDER_ALREADY_REGISTERED({ id: provider.id });
     }
     this.providers.push(provider);
   }

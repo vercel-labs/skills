@@ -467,7 +467,7 @@ function buildResultLines(
 function exitInstallationCancelled(): never {
   p.cancel('Installation cancelled');
   if (!process.stdin.isTTY) {
-    console.error(formatError(diagnostics.SKILLS_C007()));
+    console.error(formatError(diagnostics.SKILLS_PROMPT_REQUIRES_TTY()));
     process.exit(1);
   }
   process.exit(0);
@@ -890,7 +890,7 @@ async function handleWellKnownSkills(
       ),
     });
   } catch (error) {
-    if (isDiagnostic(error, 'SKILLS_S009')) {
+    if (isDiagnostic(error, 'SKILLS_WELLKNOWN_SCOPE_NOT_FOUND')) {
       spinner.stop(pc.red('No matching skills'));
       p.log.error(formatError(error));
       process.exit(1);
@@ -951,7 +951,7 @@ async function handleWellKnownSkills(
     if (selectedSkills.length === 0) {
       p.log.error(
         formatError(
-          diagnostics.SKILLS_S003({
+          diagnostics.SKILLS_NO_MATCHING_SKILLS({
             requested: options.skill,
             available: skills.map((s) => s.installName),
           })
@@ -2016,7 +2016,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 
     if (invalidAgents.length > 0) {
-      const error = diagnostics.SKILLS_C001({
+      const error = diagnostics.SKILLS_INVALID_AGENTS({
         invalid: invalidAgents,
         valid: validAgents,
       });
@@ -2109,7 +2109,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       spinner.start('Validating local path…');
       if (!existsSync(parsed.localPath!)) {
         spinner.stop(pc.red('Path not found'));
-        const error = diagnostics.SKILLS_S008({ path: parsed.localPath! });
+        const error = diagnostics.SKILLS_LOCAL_PATH_NOT_FOUND({ path: parsed.localPath! });
         p.outro(pc.red(formatError(error)));
         emitJsonAndExit(1, error.message);
       }
@@ -2127,7 +2127,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     if (skills.length === 0) {
       spinner.stop(pc.red('No skills found'));
-      const error = diagnostics.SKILLS_S004();
+      const error = diagnostics.SKILLS_NO_VALID_SKILLS();
       p.outro(pc.red(formatError(error)));
       await cleanup(tempDir);
       emitJsonAndExit(1, error.message);
@@ -2214,7 +2214,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
 
       if (selectedSkills.length === 0) {
-        const error = diagnostics.SKILLS_S003({
+        const error = diagnostics.SKILLS_NO_MATCHING_SKILLS({
           requested: options.skill,
           available: skills.map(getSkillDisplayName),
         });
@@ -2942,11 +2942,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
   } catch (error) {
     const isCloneError = isDiagnostic(
       error,
-      'SKILLS_G001',
-      'SKILLS_G002',
-      'SKILLS_G003',
-      'SKILLS_G004',
-      'SKILLS_G005'
+      'SKILLS_UNSUPPORTED_GIT_TRANSPORT',
+      'SKILLS_GIT_CLONE_TIMEOUT',
+      'SKILLS_GIT_AUTH_FAILED',
+      'SKILLS_GIT_SAML_SSO_BLOCKED',
+      'SKILLS_GIT_CLONE_FAILED'
     );
     if (isCloneError) {
       p.log.error(pc.red('Failed to clone repository'));
@@ -3102,14 +3102,16 @@ export function parseAddOptions(args: string[]): {
     } else if (arg === '--metadata') {
       const metadata = args[++i];
       if (metadata === undefined) {
-        errors.push(diagnostics.SKILLS_C002({ option: '--metadata', value: 'a JSON value' }));
+        errors.push(
+          diagnostics.SKILLS_OPTION_REQUIRES_VALUE({ option: '--metadata', value: 'a JSON value' })
+        );
       } else {
         try {
           JSON.parse(metadata);
           options.metadata = metadata;
         } catch {
           errors.push(
-            diagnostics.SKILLS_C004({
+            diagnostics.SKILLS_INVALID_OPTION_VALUE({
               option: '--metadata',
               expected: 'valid JSON',
             })

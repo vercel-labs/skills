@@ -83,18 +83,18 @@ function validateArchivePath(path: string): string | null {
 function isRejectedArchive(error: unknown): error is Diagnostic {
   return isDiagnostic(
     error,
-    'SKILLS_A003',
-    'SKILLS_A004',
-    'SKILLS_A005',
-    'SKILLS_A006',
-    'SKILLS_A007'
+    'SKILLS_ARCHIVE_UNSAFE_PATH',
+    'SKILLS_ARCHIVE_ENCRYPTED_ENTRY',
+    'SKILLS_ARCHIVE_LINK_ENTRY',
+    'SKILLS_ARCHIVE_TOO_MANY_FILES',
+    'SKILLS_ARCHIVE_TOO_LARGE'
   );
 }
 
 function incrementEntry(state: ExtractState, size: number, limits: DownloadLimits): void {
   state.entries += 1;
   if (state.entries > limits.extractMaxFiles) {
-    throw diagnostics.SKILLS_A006({
+    throw diagnostics.SKILLS_ARCHIVE_TOO_MANY_FILES({
       count: state.entries,
       max: limits.extractMaxFiles,
       overrideEnv: 'SKILLS_EXTRACT_MAX_FILES',
@@ -103,7 +103,7 @@ function incrementEntry(state: ExtractState, size: number, limits: DownloadLimit
 
   state.bytes += size;
   if (state.bytes > limits.extractMaxBytes) {
-    throw diagnostics.SKILLS_A007({
+    throw diagnostics.SKILLS_ARCHIVE_TOO_LARGE({
       maxBytes: limits.extractMaxBytes,
       overrideEnv: 'SKILLS_EXTRACT_MAX_BYTES',
     });
@@ -121,19 +121,19 @@ async function downloadToFile(
   });
 
   if (!response.ok) {
-    throw diagnostics.SKILLS_D001({ status: response.status });
+    throw diagnostics.SKILLS_DOWNLOAD_HTTP_ERROR({ status: response.status });
   }
 
   const contentLength = response.headers.get('content-length');
   if (contentLength) {
     const parsed = Number.parseInt(contentLength, 10);
     if (Number.isFinite(parsed) && parsed > limits.downloadMaxBytes) {
-      throw diagnostics.SKILLS_D002({ maxBytes: limits.downloadMaxBytes });
+      throw diagnostics.SKILLS_DOWNLOAD_TOO_LARGE({ maxBytes: limits.downloadMaxBytes });
     }
   }
 
   if (!response.body) {
-    throw diagnostics.SKILLS_D003();
+    throw diagnostics.SKILLS_DOWNLOAD_NO_BODY();
   }
 
   let downloaded = 0;
@@ -141,7 +141,7 @@ async function downloadToFile(
     transform(chunk, controller) {
       downloaded += chunk.byteLength;
       if (downloaded > limits.downloadMaxBytes) {
-        throw diagnostics.SKILLS_D002({ maxBytes: limits.downloadMaxBytes });
+        throw diagnostics.SKILLS_DOWNLOAD_TOO_LARGE({ maxBytes: limits.downloadMaxBytes });
       }
       controller.enqueue(chunk);
     },
@@ -173,7 +173,7 @@ async function extractZip(
   for (const [path, contents] of files) {
     const targetPath = join(extractDir, path);
     if (!isPathSafe(extractDir, targetPath)) {
-      throw diagnostics.SKILLS_A003({ path });
+      throw diagnostics.SKILLS_ARCHIVE_UNSAFE_PATH({ path });
     }
 
     await mkdir(dirname(targetPath), { recursive: true });
@@ -211,12 +211,12 @@ async function extractTar(
       try {
         const safePath = validateArchivePath(entryPath);
         if (safePath === null) {
-          throw diagnostics.SKILLS_A003({ path: entryPath });
+          throw diagnostics.SKILLS_ARCHIVE_UNSAFE_PATH({ path: entryPath });
         }
 
         const targetPath = join(extractDir, safePath);
         if (!isPathSafe(extractDir, targetPath)) {
-          throw diagnostics.SKILLS_A003({ path: entryPath });
+          throw diagnostics.SKILLS_ARCHIVE_UNSAFE_PATH({ path: entryPath });
         }
 
         incrementEntry(state, entry.size, limits);
@@ -299,7 +299,7 @@ export async function downloadSource(
 
     const downloadedStats = await stat(downloadedFile);
     if (downloadedStats.size === 0) {
-      throw diagnostics.SKILLS_D004();
+      throw diagnostics.SKILLS_DOWNLOAD_EMPTY();
     }
 
     if (await isValidSkillMarkdown(downloadedFile)) {
@@ -315,7 +315,7 @@ export async function downloadSource(
       return { rootDir, tempDir, kind: 'archive' };
     }
 
-    throw diagnostics.SKILLS_D005();
+    throw diagnostics.SKILLS_DOWNLOAD_NOT_A_SKILL();
   } catch (error) {
     await rm(tempDir, { recursive: true, force: true }).catch(() => {});
     throw error;

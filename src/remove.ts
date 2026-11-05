@@ -100,7 +100,9 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   // Refuse the combination so agents/scripts cannot accidentally mass-delete.
   const namedSkills = skillNames.filter((name) => name !== '*');
   if (options.all && namedSkills.length > 0) {
-    p.log.error(formatError(diagnostics.SKILLS_C006({ example: namedSkills[0]! })));
+    p.log.error(
+      formatError(diagnostics.SKILLS_REMOVE_ALL_WITH_NAMES({ example: namedSkills[0]! }))
+    );
     process.exit(1);
   }
 
@@ -186,7 +188,9 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
     if (invalidAgents.length > 0) {
       p.log.error(
-        formatError(diagnostics.SKILLS_C001({ invalid: invalidAgents, valid: validAgents }))
+        formatError(
+          diagnostics.SKILLS_INVALID_AGENTS({ invalid: invalidAgents, valid: validAgents })
+        )
       );
       process.exit(1);
     }
@@ -202,7 +206,7 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     if (selectedSkills.length === 0) {
       p.log.error(
         formatError(
-          diagnostics.SKILLS_S003({
+          diagnostics.SKILLS_NO_MATCHING_SKILLS({
             requested: skillNames,
             available: [],
           })
@@ -238,7 +242,9 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
       (s) => !lockEntries[s] && globalNames.has(sanitizeName(s))
     );
     if (globallyTracked.length > 0) {
-      p.log.error(formatError(diagnostics.SKILLS_C011({ skills: globallyTracked })));
+      p.log.error(
+        formatError(diagnostics.SKILLS_REMOVE_GLOBALLY_TRACKED({ skills: globallyTracked }))
+      );
       process.exit(1);
     }
   }
