@@ -36,6 +36,9 @@ importers:
       lint-staged:
         specifier: ^16.2.7
         version: 16.4.0
+      nostics:
+        specifier: ^1.3.0
+        version: 1.3.0
       obuild:
         specifier: ^0.4.22
         version: 0.4.37(typescript@5.9.3)
@@ -690,6 +693,9 @@ packages:
 
   normalize-package-data@2.5.0:
     resolution: {integrity: sha512-/5CMN3T0R4XTj4DcGaexo+roZSdSFW/0AOOTROrjxzCG1wrWXEsGbRKevjlIL+ZDE4sZlJr5ED4YW0yqmkK+eA==}
+
+  nostics@1.3.0:
+    resolution: {integrity: sha512-wzRsrJwNlFbqIRQt8aCeL2WE8USip/uuvGSOZV1D02CxX8ABTMbw8IywKjH7yWHETMXbWJI4OBpihg9rmz2Vyg==}
 
   npm-normalize-package-bin@1.0.1:
     resolution: {integrity: sha512-EPfafl6JL5/rU+ot6P3gRSCpPDW5VmIzX959Ob1+ySFUuuYHWHekXpwdUZcKP5C+DS4GEtdJluwBjnsNDl+fSA==}
@@ -1571,6 +1577,8 @@ snapshots:
       resolve: 1.22.13
       semver: 5.7.2
       validate-npm-package-license: 3.0.4
+
+  nostics@1.3.0: {}
 
   npm-normalize-package-bin@1.0.1: {}
 

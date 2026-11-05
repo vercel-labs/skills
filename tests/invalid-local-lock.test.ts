@@ -96,7 +96,7 @@ describe('commands with an invalid skills-lock.json', { timeout: 30000 }, () => 
     const result = runCli(['list'], projectDir);
 
     expect(result.exitCode).toBe(0);
-    expect(result.stderr).toContain(`Warning: Invalid ${lockPath}`);
+    expect(result.stderr).toContain(`Warning: [SKILLS_INVALID_LOCAL_LOCK] Invalid ${lockPath}`);
     expect(result.stdout).toContain('alpha');
     expectLockUntouched();
   });

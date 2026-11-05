@@ -26,6 +26,7 @@ import {
   EVE_SUBAGENTS_DIR,
 } from './agents.ts';
 import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
+import { diagnostics, formatError } from './diagnostics.ts';
 import { parseFrontmatter } from './frontmatter.ts';
 import { stringify } from 'yaml';
 import { parseSkillMd } from './skills.ts';
@@ -547,7 +548,7 @@ export async function copyDirectory(
   const realSrc = await realpath(src);
   const root = ctx?.root ?? realSrc;
   if (ctx?.ancestors.has(realSrc)) {
-    console.warn(`Skipping symlink that creates a directory cycle: ${src}`);
+    console.warn(formatError(diagnostics.SKILLS_SYMLINK_CYCLE({ path: src })));
     return;
   }
   const ancestors = new Set(ctx?.ancestors);
@@ -571,11 +572,11 @@ export async function copyDirectory(
             realTarget = await realpath(srcPath);
           } catch {
             // Broken/dangling symlink (target does not exist, or a link loop).
-            console.warn(`Skipping broken symlink: ${srcPath}`);
+            console.warn(formatError(diagnostics.SKILLS_BROKEN_SYMLINK({ path: srcPath })));
             return;
           }
           if (!isWithinRoot(root, realTarget)) {
-            console.warn(`Skipping symlink that points outside the skill directory: ${srcPath}`);
+            console.warn(formatError(diagnostics.SKILLS_SYMLINK_OUTSIDE_SKILL({ path: srcPath })));
             return;
           }
           isDirectory = (await stat(realTarget)).isDirectory();
@@ -668,7 +669,7 @@ export function getInstallPath(
   const installPath = join(targetBase, sanitized);
 
   if (!isPathSafe(targetBase, installPath)) {
-    throw new Error('Invalid skill name: potential path traversal detected');
+    throw diagnostics.SKILLS_UNSAFE_SKILL_NAME();
   }
 
   return installPath;
@@ -689,7 +690,7 @@ export function getCanonicalPath(
   const canonicalPath = join(canonicalBase, sanitized);
 
   if (!isPathSafe(canonicalBase, canonicalPath)) {
-    throw new Error('Invalid skill name: potential path traversal detected');
+    throw diagnostics.SKILLS_UNSAFE_SKILL_NAME();
   }
 
   return canonicalPath;
