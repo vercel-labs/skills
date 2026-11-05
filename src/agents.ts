@@ -1,4 +1,4 @@
-import { homedir } from 'os';
+import { homedir, platform } from 'os';
 import { join } from 'path';
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { xdgConfig } from 'xdg-basedir';
@@ -14,6 +14,11 @@ const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
 const grokHome = process.env.GROK_HOME?.trim() || join(home, '.grok');
 const sarvamHome = process.env.SARVAM_HOME?.trim() || join(home, '.sarvam');
+const reasonixHome =
+  process.env.REASONIX_HOME?.trim() ||
+  (platform() === 'win32'
+    ? join(process.env.APPDATA?.trim() || join(home, 'AppData', 'Roaming'), 'reasonix')
+    : join(home, '.reasonix'));
 const zedAppDataHome = process.env.APPDATA?.trim();
 const zedFlatpakConfigHome = process.env.FLATPAK_XDG_CONFIG_HOME?.trim();
 
@@ -121,8 +126,8 @@ export const agents: Record<AgentType, AgentConfig> = {
     displayName: 'AstrBot',
     skillsDir: 'data/skills',
     globalSkillsDir: join(home, '.astrbot/data/skills'),
-    detectInstalled: async () => {
-      return existsSync(join(process.cwd(), 'data/skills')) || existsSync(join(home, '.astrbot'));
+    detectInstalled: async (cwd = process.cwd()) => {
+      return existsSync(join(cwd, 'data/skills')) || existsSync(join(home, '.astrbot'));
     },
   },
   'autohand-code': {
@@ -199,8 +204,8 @@ export const agents: Record<AgentType, AgentConfig> = {
     displayName: 'CodeBuddy',
     skillsDir: '.codebuddy/skills',
     globalSkillsDir: join(home, '.codebuddy/skills'),
-    detectInstalled: async () => {
-      return existsSync(join(process.cwd(), '.codebuddy')) || existsSync(join(home, '.codebuddy'));
+    detectInstalled: async (cwd = process.cwd()) => {
+      return existsSync(join(cwd, '.codebuddy')) || existsSync(join(home, '.codebuddy'));
     },
   },
   codemaker: {
@@ -244,8 +249,8 @@ export const agents: Record<AgentType, AgentConfig> = {
     displayName: 'Continue',
     skillsDir: '.continue/skills',
     globalSkillsDir: join(home, '.continue/skills'),
-    detectInstalled: async () => {
-      return existsSync(join(process.cwd(), '.continue')) || existsSync(join(home, '.continue'));
+    detectInstalled: async (cwd = process.cwd()) => {
+      return existsSync(join(cwd, '.continue')) || existsSync(join(home, '.continue'));
     },
   },
   cortex: {
@@ -322,8 +327,7 @@ export const agents: Record<AgentType, AgentConfig> = {
     displayName: 'Eve',
     skillsDir: 'agent/skills',
     globalSkillsDir: undefined,
-    detectInstalled: async () => {
-      const cwd = process.cwd();
+    detectInstalled: async (cwd = process.cwd()) => {
       return (
         existsSync(join(cwd, 'agent')) && packageJsonHasDependency(join(cwd, 'package.json'), 'eve')
       );
@@ -417,8 +421,8 @@ export const agents: Record<AgentType, AgentConfig> = {
     displayName: 'Jazz',
     skillsDir: '.jazz/skills',
     globalSkillsDir: join(home, '.jazz/skills'),
-    detectInstalled: async () => {
-      return existsSync(join(home, '.jazz')) || existsSync(join(process.cwd(), '.jazz'));
+    detectInstalled: async (cwd = process.cwd()) => {
+      return existsSync(join(home, '.jazz')) || existsSync(join(cwd, '.jazz'));
     },
   },
   junie: {
@@ -631,17 +635,17 @@ export const agents: Record<AgentType, AgentConfig> = {
     skillsDir: '.agents/skills',
     globalSkillsDir: join(configHome, 'agents/skills'),
     showInUniversalList: false,
-    detectInstalled: async () => {
-      return existsSync(join(process.cwd(), '.replit'));
+    detectInstalled: async (cwd = process.cwd()) => {
+      return existsSync(join(cwd, '.replit'));
     },
   },
   reasonix: {
     name: 'reasonix',
     displayName: 'Reasonix',
     skillsDir: '.reasonix/skills',
-    globalSkillsDir: join(home, '.reasonix/skills'),
+    globalSkillsDir: join(reasonixHome, 'skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.reasonix'));
+      return existsSync(reasonixHome);
     },
   },
   rovodev: {
@@ -800,11 +804,8 @@ export const agents: Record<AgentType, AgentConfig> = {
     skillsDir: '.agents/skills',
     globalSkillsDir: undefined,
     showInUniversalPrompt: false,
-    detectInstalled: async () => {
-      return (
-        existsSync(join(process.cwd(), '.promptscript')) ||
-        existsSync(join(process.cwd(), 'promptscript.yaml'))
-      );
+    detectInstalled: async (cwd = process.cwd()) => {
+      return existsSync(join(cwd, '.promptscript')) || existsSync(join(cwd, 'promptscript.yaml'));
     },
   },
   adal: {
@@ -826,11 +827,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   },
 };
 
-export async function detectInstalledAgents(): Promise<AgentType[]> {
+export async function detectInstalledAgents(cwd: string = process.cwd()): Promise<AgentType[]> {
   const results = await Promise.all(
     Object.entries(agents).map(async ([type, config]) => ({
       type: type as AgentType,
-      installed: await config.detectInstalled(),
+      installed: await config.detectInstalled(cwd),
     }))
   );
   return results.filter((r) => r.installed).map((r) => r.type);
