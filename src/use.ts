@@ -228,7 +228,12 @@ export async function runUse(
           includeInternal,
         })
         .catch((error) => {
-          if (isDiagnostic(error, 'SKILLS_WELLKNOWN_SCOPE_NOT_FOUND')) fail(error);
+          if (
+            isDiagnostic(error, 'SKILLS_WELLKNOWN_SCOPE_NOT_FOUND') ||
+            isDiagnostic(error, 'SKILLS_WELLKNOWN_DIGEST_MISMATCH')
+          ) {
+            fail(error);
+          }
           return [] as WellKnownSkill[];
         });
       if (skills.length > 0) {

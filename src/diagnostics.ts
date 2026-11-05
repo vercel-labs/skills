@@ -105,6 +105,10 @@ export const diagnostics = defineDiagnostics({
         `Not falling back to the root skills index because that would install every skill the host publishes. ` +
         `Check the URL, or run 'skills add ${p.rootUrl}' to install from the root index.`,
     },
+    SKILLS_WELLKNOWN_DIGEST_MISMATCH: {
+      why: (p: { skill: string; expected: string; actual: string }) =>
+        `Digest mismatch for skill '${p.skill}': expected ${p.expected}, received ${p.actual}.`,
+    },
     SKILLS_WELLKNOWN_INDEX_NOT_FOUND: {
       why: 'No skills found at this URL. Make sure the server has a /.well-known/agent-skills/index.json or /.well-known/skills/index.json file.',
     },

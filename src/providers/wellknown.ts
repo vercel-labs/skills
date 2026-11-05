@@ -392,7 +392,8 @@ export class WellKnownProvider implements HostProvider {
       }
 
       return null;
-    } catch {
+    } catch (error) {
+      if (isDiagnostic(error, 'SKILLS_WELLKNOWN_DIGEST_MISMATCH')) throw error;
       return null;
     }
   }
@@ -486,7 +487,14 @@ export class WellKnownProvider implements HostProvider {
 
       const contentType = response.headers.get('content-type') ?? '';
       const bytes = new Uint8Array(await response.arrayBuffer());
-      if (this.computeDigest(bytes) !== entry.digest) return null;
+      const actualDigest = this.computeDigest(bytes);
+      if (actualDigest !== entry.digest) {
+        throw diagnostics.SKILLS_WELLKNOWN_DIGEST_MISMATCH({
+          skill: entry.name,
+          expected: entry.digest,
+          actual: actualDigest,
+        });
+      }
 
       if (entry.type === 'skill-md') {
         const content = new TextDecoder().decode(bytes);
@@ -529,7 +537,8 @@ export class WellKnownProvider implements HostProvider {
         files,
         indexEntry: entry.indexEntry,
       });
-    } catch {
+    } catch (error) {
+      if (isDiagnostic(error, 'SKILLS_WELLKNOWN_DIGEST_MISMATCH')) throw error;
       return null;
     }
   }
@@ -581,6 +590,8 @@ export class WellKnownProvider implements HostProvider {
    * If the scope yields no skills but the host publishes a root index, this
    * throws SKILLS_WELLKNOWN_SCOPE_NOT_FOUND instead of silently widening to the root index and
    * installing the host's entire catalog.
+   * Digest mismatches throw SKILLS_WELLKNOWN_DIGEST_MISMATCH rather than downgrading to an
+   * index or download without integrity verification.
    */
   async fetchAllSkills(
     url: string,
@@ -612,7 +623,12 @@ export class WellKnownProvider implements HostProvider {
 
       return [];
     } catch (error) {
-      if (isDiagnostic(error, 'SKILLS_WELLKNOWN_SCOPE_NOT_FOUND')) throw error;
+      if (
+        isDiagnostic(error, 'SKILLS_WELLKNOWN_SCOPE_NOT_FOUND') ||
+        isDiagnostic(error, 'SKILLS_WELLKNOWN_DIGEST_MISMATCH')
+      ) {
+        throw error;
+      }
       return [];
     }
   }

@@ -894,6 +894,11 @@ async function handleWellKnownSkills(
       ),
     });
   } catch (error) {
+    if (isDiagnostic(error, 'SKILLS_WELLKNOWN_DIGEST_MISMATCH')) {
+      spinner.stop(pc.red('Integrity check failed'));
+      p.log.error(formatError(error));
+      process.exit(1);
+    }
     if (isDiagnostic(error, 'SKILLS_WELLKNOWN_SCOPE_NOT_FOUND')) {
       spinner.stop(pc.red('No matching skills'));
       p.log.error(formatError(error));
