@@ -34,13 +34,15 @@
     "format:check": "prettier --check \"src/**/*.ts\" \"scripts/**/*.ts\"",
     "prepare": "husky",
     "test": "vitest",
-    "type-check": "tsc --noEmit",
+    "test:e2e": "vitest run --config e2e/vitest.config.ts",
+    "type-check": "tsc --noEmit && tsc --noEmit -p e2e",
     "publish:snapshot": "npm version prerelease --preid=snapshot --no-git-tag-version && npm publish --tag snapshot"
   },
   "lint-staged": {
     "src/**/*.ts": "prettier --write",
     "scripts/**/*.ts": "prettier --write",
-    "tests/**/*.ts": "prettier --write"
+    "tests/**/*.ts": "prettier --write",
+    "e2e/**/*.ts": "prettier --write"
   },
   "keywords": [
     "cli",

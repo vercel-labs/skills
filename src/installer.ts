@@ -483,6 +483,16 @@ const isExcluded = (name: string, isDirectory: boolean = false): boolean => {
   return false;
 };
 
+/**
+ * isExcluded() for a snapshot's relative file path, so blob installs drop the same
+ * files copyDirectory() skips when installing from a clone. Snapshot hashes still
+ * cover the full file set; this only decides what is written to disk.
+ */
+const isExcludedPath = (relativePath: string): boolean => {
+  const parts = relativePath.split(/[\\/]/).filter(Boolean);
+  return parts.some((part, index) => isExcluded(part, index < parts.length - 1));
+};
+
 function stripIgnoredEveFrontmatter(raw: string): string {
   const { data, content } = parseFrontmatter(raw);
   const eveData: Record<string, unknown> = {};
@@ -1066,6 +1076,7 @@ export async function installBlobSkillForAgent(
 
   async function writeSkillFiles(targetDir: string): Promise<void> {
     for (const file of skill.files) {
+      if (isExcludedPath(file.path)) continue;
       const fullPath = join(targetDir, file.path);
       if (!isPathSafe(targetDir, fullPath)) continue;
 
