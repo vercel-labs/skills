@@ -120,7 +120,8 @@ description: Nested skill.
     // not the server's hash.
     const dir = mkdtempSync(join(tmpdir(), 'blob-hash-'));
     try {
-      for (const file of result!.skills[0]!.files) writeFileSync(join(dir, file.path), file.contents);
+      for (const file of result!.skills[0]!.files)
+        writeFileSync(join(dir, file.path), file.contents);
       expect(result!.skills[0]!.snapshotHash).not.toBe('nested-snapshot-hash');
       expect(result!.skills[0]!.snapshotHash).toBe(await computeSkillFolderHash(dir));
     } finally {

@@ -2,7 +2,8 @@ import { existsSync } from 'fs';
 import { realpath } from 'fs/promises';
 import { posix, relative, sep } from 'path';
 import { fetchSource, releaseSource, type FetchedSource } from '../add.ts';
-import { getHeadCommit, GitCloneError, isMissingRefError } from '../git.ts';
+import { isDiagnostic } from '../diagnostics.ts';
+import { getHeadCommit, isMissingRefError } from '../git.ts';
 import { getSkillDisplayName } from '../skills.ts';
 import { parseSource } from '../source-parser.ts';
 import type { ParsedSource, Skill } from '../types.ts';
@@ -123,12 +124,14 @@ function fetchError(input: string, fetched: FetchedSource): SkillsError {
   const message = fetched.error ?? `Could not fetch ${input}`;
   const { cause } = fetched;
   let code: SkillsErrorCode = 'SOURCE_FETCH_FAILED';
-  if (cause instanceof GitCloneError) {
-    if (cause.isTimeout) code = 'SOURCE_TIMEOUT';
-    else if (isMissingRefError(cause.message)) code = 'SOURCE_REF_NOT_FOUND';
-    // Hosts report a private repository without access as "not found", so a
-    // missing repository and missing credentials are indistinguishable.
-    else if (cause.isAuthError) code = 'SOURCE_AUTH_FAILED';
+  if (isDiagnostic(cause, 'SKILLS_GIT_CLONE_TIMEOUT')) code = 'SOURCE_TIMEOUT';
+  else if (isDiagnostic(cause, 'SKILLS_GIT_CLONE_FAILED') && isMissingRefError(cause.message)) {
+    code = 'SOURCE_REF_NOT_FOUND';
+  }
+  // Hosts report a private repository without access as "not found", so a
+  // missing repository and missing credentials are indistinguishable.
+  else if (isDiagnostic(cause, 'SKILLS_GIT_AUTH_FAILED', 'SKILLS_GIT_SAML_SSO_BLOCKED')) {
+    code = 'SOURCE_AUTH_FAILED';
   }
   return new SkillsError(code, message, { cause });
 }

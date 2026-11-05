@@ -36,6 +36,9 @@ importers:
       lint-staged:
         specifier: ^16.2.7
         version: 16.4.0
+      nostics:
+        specifier: ^1.3.0
+        version: 1.3.0
       obuild:
         specifier: ^0.4.22
         version: 0.4.37(typescript@5.9.3)

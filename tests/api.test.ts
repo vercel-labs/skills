@@ -485,7 +485,7 @@ describe('git sources', () => {
     const missing = pathToFileURL(join(root, 'missing-repo')).href;
     const error = await api.resolveSource(missing, { cwd }).catch((e: unknown) => e);
     expect(error).toMatchObject({ code: 'SOURCE_FETCH_FAILED' });
-    expect((error as Error).cause).toMatchObject({ name: 'GitCloneError' });
+    expect((error as Error).cause).toMatchObject({ code: 'SKILLS_GIT_CLONE_FAILED' });
   });
 
   it('accepts ref only for git sources', async () => {

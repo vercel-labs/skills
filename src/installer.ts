@@ -26,6 +26,7 @@ import {
   EVE_SUBAGENTS_DIR,
 } from './agents.ts';
 import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
+import { diagnostics, formatError } from './diagnostics.ts';
 import { parseFrontmatter } from './frontmatter.ts';
 import { stringify } from 'yaml';
 import { parseSkillMd } from './skills.ts';
@@ -548,11 +549,11 @@ export async function copyDirectory(
   const realSrc = await realpath(src);
   const root = ctx?.root ?? realSrc;
   if (ctx?.ancestors.has(realSrc)) {
-    warn({
-      code: 'SYMLINK_SKIPPED',
-      message: `Skipping symlink that creates a directory cycle: ${src}`,
-      path: src,
-    });
+    const diagnostic = diagnostics.SKILLS_SYMLINK_CYCLE({ path: src });
+    warn(
+      { code: 'SYMLINK_SKIPPED', message: diagnostic.message, path: src },
+      formatError(diagnostic)
+    );
     return;
   }
   const ancestors = new Set(ctx?.ancestors);
@@ -576,19 +577,19 @@ export async function copyDirectory(
             realTarget = await realpath(srcPath);
           } catch {
             // Broken/dangling symlink (target does not exist, or a link loop).
-            warn({
-              code: 'SYMLINK_SKIPPED',
-              message: `Skipping broken symlink: ${srcPath}`,
-              path: srcPath,
-            });
+            const diagnostic = diagnostics.SKILLS_BROKEN_SYMLINK({ path: srcPath });
+            warn(
+              { code: 'SYMLINK_SKIPPED', message: diagnostic.message, path: srcPath },
+              formatError(diagnostic)
+            );
             return;
           }
           if (!isWithinRoot(root, realTarget)) {
-            warn({
-              code: 'SYMLINK_SKIPPED',
-              message: `Skipping symlink that points outside the skill directory: ${srcPath}`,
-              path: srcPath,
-            });
+            const diagnostic = diagnostics.SKILLS_SYMLINK_OUTSIDE_SKILL({ path: srcPath });
+            warn(
+              { code: 'SYMLINK_SKIPPED', message: diagnostic.message, path: srcPath },
+              formatError(diagnostic)
+            );
             return;
           }
           isDirectory = (await stat(realTarget)).isDirectory();
@@ -681,7 +682,7 @@ export function getInstallPath(
   const installPath = join(targetBase, sanitized);
 
   if (!isPathSafe(targetBase, installPath)) {
-    throw new Error('Invalid skill name: potential path traversal detected');
+    throw diagnostics.SKILLS_UNSAFE_SKILL_NAME();
   }
 
   return installPath;
@@ -702,7 +703,7 @@ export function getCanonicalPath(
   const canonicalPath = join(canonicalBase, sanitized);
 
   if (!isPathSafe(canonicalBase, canonicalPath)) {
-    throw new Error('Invalid skill name: potential path traversal detected');
+    throw diagnostics.SKILLS_UNSAFE_SKILL_NAME();
   }
 
   return canonicalPath;

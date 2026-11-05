@@ -5,10 +5,10 @@ import { basename, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { stringify as stringifyYaml } from 'yaml';
 import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
+import { diagnostics, formatError, isDiagnostic } from './diagnostics.ts';
 import { runFind } from './find.ts';
 import { runInstallFromLock } from './install.ts';
 import { runList } from './list.ts';
-import { InvalidLocalLockError } from './local-lock.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { flushTelemetry } from './telemetry.ts';
@@ -342,7 +342,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const command = args[0];
+  const command = args[0]!;
   const restArgs = args.slice(1);
 
   // Subcommand --help / -h must short-circuit before dispatch so that running
@@ -391,7 +391,7 @@ async function main(): Promise<void> {
       // JSON mode must keep stdout parseable — no logo
       if (!inAgent && !addOpts.json) showLogo();
       if (errors.length > 0) {
-        for (const error of errors) console.error(`Error: ${error}`);
+        for (const error of errors) console.error(`Error: ${formatError(error)}`);
         // JSON mode promises exactly one JSON value on stdout, even here
         if (addOpts.json) console.log('[]');
         process.exitCode = 1;
@@ -444,16 +444,15 @@ async function main(): Promise<void> {
       break;
 
     default:
-      console.log(`Unknown command: ${command}`);
-      console.log(`Run ${BOLD}skills --help${RESET} for usage.`);
+      console.log(formatError(diagnostics.SKILLS_UNKNOWN_COMMAND({ command })));
       process.exitCode = 1;
   }
 }
 
 main()
   .catch((error: unknown) => {
-    if (!(error instanceof InvalidLocalLockError)) throw error;
-    console.error(`Error: ${error.message}`);
+    if (!isDiagnostic(error, 'SKILLS_INVALID_LOCAL_LOCK')) throw error;
+    console.error(`Error: ${formatError(error)}`);
     process.exitCode = 1;
   })
   .finally(() => flushTelemetry().then(() => process.exit(process.exitCode ?? 0)));

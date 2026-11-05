@@ -33,6 +33,8 @@ import {
   type LocalSkillLockFile,
 } from './local-lock.ts';
 import type { Skill, AgentType } from './types.ts';
+import type { Diagnostic } from 'nostics';
+import { diagnostics, formatError } from './diagnostics.ts';
 import { track } from './telemetry.ts';
 import { isCI } from './ci.ts';
 import { detectAgent, getAgentType } from './detect-agent.ts';
@@ -275,11 +277,11 @@ async function discoverNodeModuleSkills(
 ): Promise<{
   skills: PackageSkill[];
   remote: FieldRemoteRequest[];
-  warnings: string[];
-  errors: string[];
+  warnings: Diagnostic[];
+  errors: Diagnostic[];
 }> {
-  const warnings: string[] = [];
-  const errors: string[] = [];
+  const warnings: Diagnostic[] = [];
+  const errors: Diagnostic[] = [];
   // identical requests from several packages are one
   const remote = new Map<string, FieldRemoteRequest>();
   const pkg = await readPackageJson(cwd);
@@ -335,7 +337,7 @@ async function discoverNodeModuleSkills(
     if (field === undefined) continue;
     if (!Array.isArray(field)) {
       // a dependency may use the key for something else
-      if (problems === errors) errors.push('package.json: "skills" must be an array');
+      if (problems === errors) errors.push(diagnostics.SKILLS_PACKAGE_SKILLS_NOT_ARRAY());
       continue;
     }
 
@@ -355,7 +357,10 @@ async function discoverNodeModuleSkills(
       const target = findInstalledPackage(dir, request.package);
       if (!target) {
         problems.push(
-          `${declarer.name}: cannot resolve "npm:${request.package}"; is it a dependency?`
+          diagnostics.SKILLS_PACKAGE_SKILLS_UNRESOLVED_NPM({
+            declarer: declarer.name,
+            pkg: request.package,
+          })
         );
         continue;
       }
@@ -661,7 +666,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   const discovery = await discoverNodeModuleSkills(cwd, options.recursive ?? false);
   if (discovery.errors.length > 0) {
     spinner.stop(pc.red('Invalid skills field'));
-    for (const error of discovery.errors) p.log.error(error);
+    for (const error of discovery.errors) p.log.error(formatError(error));
     p.outro(pc.red('Fix the "skills" field in package.json and run sync again.'));
     process.exitCode = 1;
     return;
@@ -673,7 +678,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
       ? pc.yellow('No skills found')
       : `Found ${pc.green(String(discoveredSkills.length))} skill${discoveredSkills.length > 1 ? 's' : ''} in node_modules`
   );
-  for (const warning of discovery.warnings) p.log.warn(warning);
+  for (const warning of discovery.warnings) p.log.warn(formatError(warning));
 
   const localLock = await readLocalLock(cwd);
   const frozen = options.frozenLockfile ?? isCI();
@@ -754,8 +759,11 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   } else if (options.agent && options.agent.length > 0) {
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
     if (invalidAgents.length > 0) {
-      p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
-      p.log.info(`Valid agents: ${validAgents.join(', ')}`);
+      p.log.error(
+        formatError(
+          diagnostics.SKILLS_INVALID_AGENTS({ invalid: invalidAgents, valid: validAgents })
+        )
+      );
       process.exit(1);
     }
     targetAgents = options.agent as AgentType[];

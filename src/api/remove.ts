@@ -1,5 +1,6 @@
 import { agents as agentConfigs } from '../agents.ts';
-import { InvalidLocalLockError, readLocalLock } from '../local-lock.ts';
+import { isDiagnostic } from '../diagnostics.ts';
+import { readLocalLock } from '../local-lock.ts';
 import {
   findGloballyTrackedSkills,
   removeInstalledSkills,
@@ -106,7 +107,7 @@ async function readProjectLock(cwd: string) {
   try {
     return await readLocalLock(cwd);
   } catch (error) {
-    if (error instanceof InvalidLocalLockError) {
+    if (isDiagnostic(error, 'SKILLS_INVALID_LOCAL_LOCK')) {
       throw new SkillsError('INVALID_LOCKFILE', error.message, { cause: error });
     }
     throw error;

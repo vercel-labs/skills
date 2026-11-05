@@ -42,6 +42,7 @@ src/
 ├── add.test.ts      # Add command tests
 ├── concurrency.ts   # Bounded parallel map for source clones/downloads (SKILLS_CLONE_CONCURRENCY)
 ├── constants.ts      # Shared constants
+├── diagnostics.ts   # nostics catalog of every error/warning code (SKILLS_<WHAT_WENT_WRONG>)
 ├── find.ts           # Find/search command
 ├── list.ts          # List installed skills command
 ├── list.test.ts     # List command tests
@@ -134,6 +135,10 @@ Keep the API small and stable (full rules in [docs/api.md](docs/api.md#stability
   values (`cwd`, `signal`, callbacks) go in `BaseOptions`.
 - Agent ids are `string` in public types (validated at runtime), so adding an agent never changes
   the snapshot.
+
+## Error Handling
+
+All user-facing errors and warnings come from the `nostics` catalog in `src/diagnostics.ts`. Throw `diagnostics.SKILLS_X({...})` instead of `new Error(...)`, check codes with `isDiagnostic(error, 'SKILLS_X')`, and print caught errors with `formatError(error)`. Codes are permanent: never rename or reuse one.
 
 ## Factory collaboration
 

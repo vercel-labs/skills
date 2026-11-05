@@ -15,7 +15,8 @@ import {
   type TargetInstallResult,
 } from '../add.ts';
 import { agents as agentConfigs } from '../agents.ts';
-import { InvalidLocalLockError, readLocalLock } from '../local-lock.ts';
+import { isDiagnostic } from '../diagnostics.ts';
+import { readLocalLock } from '../local-lock.ts';
 import { filterSkills, getSkillDisplayName } from '../skills.ts';
 import { flushTelemetry, setVersion } from '../telemetry.ts';
 import type { AgentType, Skill } from '../types.ts';
@@ -137,7 +138,7 @@ async function assertReadableLock(cwd: string): Promise<void> {
   try {
     await readLocalLock(cwd);
   } catch (error) {
-    if (error instanceof InvalidLocalLockError) {
+    if (isDiagnostic(error, 'SKILLS_INVALID_LOCAL_LOCK')) {
       throw new SkillsError('INVALID_LOCKFILE', error.message, { cause: error });
     }
     throw error;
