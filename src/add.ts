@@ -44,6 +44,7 @@ import { downloadSource } from './download-source.ts';
 import { mapConcurrent } from './concurrency.ts';
 import {
   addSkillToLock,
+  getSkillLockPath,
   getGitHubToken,
   isPromptDismissed,
   dismissPrompt,
@@ -52,6 +53,7 @@ import {
 } from './skill-lock.ts';
 import {
   addSkillToLocalLock,
+  getLocalLockPath,
   readLocalLock,
   computeSkillFolderHash,
   frozenLockfileError,
@@ -1262,8 +1264,8 @@ async function handleWellKnownSkills(
       if (successfulSkillNames.has(skill.installName)) {
         try {
           await addSkillToLock(skill.installName, globalWellKnownLockEntry(url, skill));
-        } catch {
-          // Don't fail installation if lock file update fails
+        } catch (error) {
+          reportLockWriteFailure(skill.installName, getSkillLockPath(), error);
         }
       }
     }
@@ -1290,8 +1292,8 @@ async function handleWellKnownSkills(
               cwd
             );
           }
-        } catch {
-          // Don't fail installation if lock file update fails
+        } catch (error) {
+          reportLockWriteFailure(skill.installName, getLocalLockPath(cwd), error);
         }
       }
     }
@@ -1833,6 +1835,15 @@ export async function installFromSource(
 }
 
 /** Record `installed` in skills-lock.json as skills of `fetched` (with `via` when given). */
+/** The skill is on disk but untracked, so `update` and restore will not see it. */
+function reportLockWriteFailure(skillName: string, lockPath: string, error: unknown): void {
+  const reason = error instanceof Error ? error.message : String(error);
+  p.log.error(
+    `Installed ${stripTerminalEscapes(skillName)} but could not record it in ${lockPath}: ${reason}`
+  );
+  process.exitCode = 1;
+}
+
 export async function recordProjectLock(
   { parsed, resolved }: FetchedSource,
   installed: InstalledSkill[],
@@ -2750,8 +2761,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               pluginName: skill.pluginName,
               ...lockedInstallMode,
             });
-          } catch {
-            // Don't fail installation if lock file update fails
+          } catch (error) {
+            reportLockWriteFailure(skill.name, getSkillLockPath(), error);
           }
         }
       }
@@ -2784,8 +2795,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               },
               cwd
             );
-          } catch {
-            // Don't fail installation if lock file update fails
+          } catch (error) {
+            reportLockWriteFailure(skill.name, getLocalLockPath(cwd), error);
           }
         }
       }
