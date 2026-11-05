@@ -46,13 +46,12 @@ private repositories, and all options.
 | `npx skills find [query]`         | Search for skills                |
 | `npx skills list`                 | List installed skills            |
 | `npx skills use <source>@<skill>` | Use one skill without installing |
-| `npx skills experimental_sync`    | Sync skills from npm dependencies (experimental) |
 | `npx skills check`                | Check for available updates      |
 | `npx skills update [skills...]`   | Update installed skills          |
 | `npx skills remove [skills...]`   | Remove installed skills          |
 | `npx skills init [name]`          | Create a skill template          |
 
-Read the [CLI reference](docs/commands.md) or run `npx skills --help` for examples and options.
+Read the [CLI reference](docs/commands.md) or run `npx skills --help` for examples and options. Experimental commands are listed [below](#experimental-features).
 
 ## Use a Skill Without Installing
 
@@ -64,19 +63,26 @@ npx skills use vercel-labs/agent-skills@web-design-guidelines --agent claude-cod
 
 Omit `--agent` to print the prompt instead. See [`skills use`](docs/commands.md#skills-use).
 
-## Sync Skills from npm Packages (Experimental)
+## Experimental Features
 
-Some npm packages bundle instructions for your agent alongside their code:
+<details>
+<summary>Commands prefixed with <code>experimental_</code> are previews. Their names, options, and behavior may change or be removed in any release without notice.</summary>
+
+| Command                           | Description                                               |
+| --------------------------------- | --------------------------------------------------------- |
+| `npx skills experimental_sync`    | Sync skills shipped by npm dependencies into your project |
+| `npx skills experimental_install` | Restore project skills recorded in `skills-lock.json`     |
+
+Some npm packages bundle instructions for your agent alongside their code. Sync links them into your project so they update with the dependency, and also installs skill packs declared in `package.json`:
 
 ```bash
 npm install -D skills agent-browser
 npx skills experimental_sync -y
 ```
 
-Sync links packaged skills into your project so they update with
-the dependency. It also supports skill packs declared in `package.json`.
-This feature is experimental; its options and behavior may change as we iterate.
-See [npm skills and automatic setup](docs/commands.md#skills-experimental_sync).
+See the [experimental commands reference](docs/commands.md#experimental-commands) for options, the `skills` field, and the [RFC](https://github.com/vercel-labs/skills/issues/2323) behind it.
+
+</details>
 
 ## Supported Agents
 

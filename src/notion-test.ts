@@ -99,7 +99,10 @@ function parsePack(value: unknown): NotionPack | null {
   }
 
   if (typeof value.name !== 'string') {
-    throw diagnostics.SKILLS_N006({ response: 'response', field: 'pack.name' });
+    throw diagnostics.SKILLS_N006({
+      response: 'response',
+      field: 'pack.name',
+    });
   }
   const name = sanitizeMetadata(value.name);
   if (!name) return null;
@@ -117,12 +120,18 @@ function parsePackList(value: unknown): NotionPackListResponse {
     throw diagnostics.SKILLS_N009();
   }
   if (typeof value.has_more !== 'boolean') {
-    throw diagnostics.SKILLS_N006({ response: 'list response', field: 'has_more' });
+    throw diagnostics.SKILLS_N006({
+      response: 'list response',
+      field: 'has_more',
+    });
   }
 
   const nextCursor = value.next_cursor;
   if (nextCursor !== null && typeof nextCursor !== 'string') {
-    throw diagnostics.SKILLS_N007({ response: 'list response', field: 'next_cursor' });
+    throw diagnostics.SKILLS_N007({
+      response: 'list response',
+      field: 'next_cursor',
+    });
   }
 
   const results = value.results.map(parsePack).filter((pack) => pack !== null);
@@ -201,7 +210,12 @@ export async function runNtnApi(args: string[]): Promise<string> {
         fail(diagnostics.SKILLS_N001({ cause: error }));
         return;
       }
-      fail(diagnostics.SKILLS_N005({ detail: stripTerminalEscapes(error.message), cause: error }));
+      fail(
+        diagnostics.SKILLS_N005({
+          detail: stripTerminalEscapes(error.message),
+          cause: error,
+        })
+      );
     });
     child.on('close', (code) => {
       const stdout = Buffer.concat(stdoutChunks).toString('utf8');
@@ -510,7 +524,11 @@ export async function prepareNotionPackSource(
         skillCount += skills.length;
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Unknown error';
-        throw diagnostics.SKILLS_N016({ pack: pack.name, detail, cause: error });
+        throw diagnostics.SKILLS_N016({
+          pack: pack.name,
+          detail,
+          cause: error,
+        });
       } finally {
         if (downloaded) await cleanupTempDir(downloaded.tempDir).catch(() => {});
       }

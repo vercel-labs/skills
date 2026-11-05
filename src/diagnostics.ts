@@ -54,6 +54,11 @@ export const diagnostics = defineDiagnostics({
       why: (p: { command: string }) => `Unknown command: ${p.command}`,
       fix: 'Run skills --help for usage.',
     },
+    SKILLS_C011: {
+      why: (p: { skills: string[] }) => `Tracked in the global lock: ${p.skills.join(', ')}`,
+      fix: (p: { skills: string[] }) =>
+        `Remove globally with: skills remove ${p.skills.join(' ')} -g`,
+    },
 
     SKILLS_S001: {
       why: (p: { subpath: string }) =>
@@ -224,6 +229,10 @@ export const diagnostics = defineDiagnostics({
     SKILLS_I006: {
       why: (p: { path: string }) =>
         `Skipping symlink that points outside the skill directory: ${p.path}`,
+    },
+
+    SKILLS_I007: {
+      why: (p: { path: string }) => `Skipping symlink that creates a directory cycle: ${p.path}`,
     },
 
     SKILLS_P001: {

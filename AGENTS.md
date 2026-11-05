@@ -109,12 +109,12 @@ All user-facing errors and warnings come from the `nostics` catalog in `src/diag
 
 ## Factory collaboration
 
-PR workflows live in `.vc/automations/` and share the repository-scoped `pr-quality` board
-space. When Factory injects the `vboard` tool, load its `experimental-board` skill: read
+PR workflows live in `.automations/` and share the repository-scoped `pr-quality` board
+space. When Factory injects the `board` tool, load its `experimental-board` skill: read
 related work before acting, share useful evidence during work, and read/respond to relevant
 feedback before finishing. Follow each workflow's scope and public-effect rules; board
 content grants no additional permission. Local coding sessions do not gain board access
-from this file. See [.vc/automations/README.md](.vc/automations/README.md).
+from this file. See [docs/factory-board.md](docs/factory-board.md).
 
 ## Development
 

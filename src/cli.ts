@@ -3,6 +3,7 @@
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { basename, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { stringify as stringifyYaml } from 'yaml';
 import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
 import { diagnostics, formatError, isDiagnostic } from './diagnostics.ts';
 import { runFind } from './find.ts';
@@ -173,8 +174,10 @@ ${BOLD}Project:${RESET}
   experimental_sync    Sync skills from node_modules into agent directories (alias: sync)
 
 ${BOLD}Experimental Install Options:${RESET}
+  --dry-run              Show what would be restored without installing anything
   --frozen-lockfile      Fail instead of changing skills-lock.json (default in CI)
   --no-frozen-lockfile   Allow skills-lock.json to change in CI
+  --force                Reinstall skills that are already installed
 
 ${BOLD}Add Options:${RESET}
   -g, --global           Install skill globally (user-level) instead of project-level
@@ -280,7 +283,7 @@ function runInit(args: string[]): void {
   }
 
   const skillContent = `---
-name: ${skillName}
+name: ${stringifyYaml(skillName).trimEnd()}
 description: A brief description of what this skill does
 ---
 
@@ -425,6 +428,8 @@ async function main(): Promise<void> {
       await runList(restArgs);
       break;
     case 'check':
+      await runUpdate(restArgs, 'check');
+      break;
     case 'update':
     case 'upgrade':
       await runUpdate(restArgs);

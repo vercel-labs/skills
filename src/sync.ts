@@ -356,7 +356,12 @@ async function discoverNodeModuleSkills(
     for (const request of parsed.npm) {
       const target = findInstalledPackage(dir, request.package);
       if (!target) {
-        problems.push(diagnostics.SKILLS_P006({ declarer: declarer.name, pkg: request.package }));
+        problems.push(
+          diagnostics.SKILLS_P006({
+            declarer: declarer.name,
+            pkg: request.package,
+          })
+        );
         continue;
       }
       const found = await discoverPackageSkills(target, request.package, declarer.depth);

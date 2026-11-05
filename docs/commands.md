@@ -171,6 +171,8 @@ Check installed skills for available updates without reinstalling them:
 npx skills check
 ```
 
+It exits with code 1 when any skill has an update, so it can gate CI.
+
 ## `skills update`
 
 ```bash
@@ -317,6 +319,15 @@ and [RFC](https://github.com/vercel-labs/skills/issues/2323) for the full propos
 Sync tracks its skills in `skills-lock.json`, removes skills that are no longer
 provided, and preserves skills installed separately with `skills add`.
 
+When two skills share a name, sync applies these rules in order:
+
+1. A skill installed with `skills add` is never shadowed, and a directory or link
+   that sync did not create is never replaced.
+2. A skill shipped by a direct dependency beats one from a transitive package, and a
+   shipped skill beats one requested from a Git source.
+3. Two packages at the same level shipping the same skill name install neither.
+   Pick one with `--exclude <package>#<skill>`.
+
 | Option                    | Description                                                   |
 | ------------------------- | ------------------------------------------------------------- |
 | `-a, --agent <agents...>` | Select agent directories                                      |
@@ -349,14 +360,17 @@ npx skills experimental_install
 ```
 
 Restore supported sources recorded in `skills-lock.json` into `.agents/skills/`.
-Entries from npm packages are synced from the dependencies already on disk, so
+Skills already in `.agents/skills/` are left as they are; pass `--force` to reinstall
+them. Entries from npm packages are synced from the dependencies already on disk, so
 install your npm dependencies before restoring. This command does not install
 npm packages or create agent-specific links for restored skills.
 
 | Option                 | Description                                                 |
 | ---------------------- | ----------------------------------------------------------- |
+| `--dry-run`            | Show what would be restored without installing anything     |
 | `--frozen-lockfile`    | Fail instead of changing `skills-lock.json` (default in CI) |
 | `--no-frozen-lockfile` | Allow `skills-lock.json` to change in CI                    |
+| `--force`              | Reinstall skills that are already in `.agents/skills/`      |
 
 With `--frozen-lockfile`, every restored skill must match the content hash recorded
 in `skills-lock.json`. A source whose skills differ is skipped entirely, the lock is

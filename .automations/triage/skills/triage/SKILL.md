@@ -57,7 +57,8 @@ for the current patch. A current-head failure caused by the proposed change is a
 Pending, approval-gated, absent, unrelated, or unexplained failed checks are limitations, never
 passing checks. CI status alone does not establish validity.
 
-This workflow cannot execute tests, inspect arbitrary repository files, read PR discussion,
+Use the declared reads to assess the patch; do not edit code, publish a PR or run implementation work.
+Do not claim to have executed tests, inspected arbitrary repository files, read PR discussion,
 verify commit signatures, or establish merge readiness. Do not claim reproduction, independent
 verification, signed commits, complete review, or passing checks beyond the evidence returned
 by the declared tools. A clear patch with a sound regression test may qualify while CI is
@@ -65,11 +66,10 @@ pending; record that status only in internal output.
 
 ## Find unlinked matching issues
 
-After the fix qualifies, use related board findings to identify potentially matching issues
-not already referenced by this PR. The current runtime has no general repository issue-search
-action for this workflow. Do not call `search_repository_issues` or the support-only
-`search_issues` tool, invent candidates, or claim to have searched the GitHub backlog.
-If the board has no relevant issue references, continue without issue suggestions.
+After the fix qualifies, search open issues with `search_repository_issues` in this repository,
+using short symptom queries and related board findings. Read the search completeness result;
+a truncated search does not rule out existing work. Do not use the support-only `search_issues`
+tool. Continue without suggestions when no confident candidate is found.
 
 Read promising candidates with `read_issue` (at most five issues). Suggest an issue only when
 its reported failure, affected behavior, and expected result match the defect this patch

@@ -604,7 +604,10 @@ export class WellKnownProvider implements HostProvider {
       }
 
       if (scope && scopedCandidates.length < candidates.length) {
-        throw diagnostics.SKILLS_S009({ scopePath: scope.scopePath, rootUrl: scope.rootBaseUrl });
+        throw diagnostics.SKILLS_S009({
+          scopePath: scope.scopePath,
+          rootUrl: scope.rootBaseUrl,
+        });
       }
 
       return [];

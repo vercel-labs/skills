@@ -17,7 +17,6 @@ const YELLOW = '\x1b[33m';
 
 // API endpoint for skills search
 const SEARCH_API_BASE = process.env.SKILLS_API_URL || 'https://skills.sh';
-const SEARCH_RESULT_LIMIT = '20';
 
 function formatInstalls(count: number): string {
   if (!count || count <= 0) return '';
@@ -76,7 +75,12 @@ export function parseFindOptions(args: string[]): ParseFindOptionsResult {
 
     const owner = ownerValue.trim().toLowerCase();
     if (!GITHUB_OWNER_PATTERN.test(owner)) {
-      errors.push(diagnostics.SKILLS_C004({ option: '--owner', expected: 'a valid GitHub owner' }));
+      errors.push(
+        diagnostics.SKILLS_C004({
+          option: '--owner',
+          expected: 'a valid GitHub owner',
+        })
+      );
       continue;
     }
     options.owner = owner;
@@ -88,7 +92,7 @@ export function parseFindOptions(args: string[]): ParseFindOptionsResult {
 // Search via API
 export async function searchSkillsAPI(query: string, owner?: string): Promise<SearchSkill[]> {
   try {
-    const params = new URLSearchParams({ q: query, limit: SEARCH_RESULT_LIMIT });
+    const params = new URLSearchParams({ q: query });
     if (owner) params.set('owner', owner);
     const url = `${SEARCH_API_BASE}/api/search?${params.toString()}`;
     const res = await fetch(url);
@@ -104,14 +108,12 @@ export async function searchSkillsAPI(query: string, owner?: string): Promise<Se
       }>;
     };
 
-    return data.skills
-      .map((skill) => ({
-        name: sanitizeMetadata(skill.name),
-        slug: sanitizeMetadata(skill.id),
-        source: sanitizeMetadata(skill.source || ''),
-        installs: skill.installs,
-      }))
-      .sort((a, b) => (b.installs || 0) - (a.installs || 0));
+    return data.skills.map((skill) => ({
+      name: sanitizeMetadata(skill.name),
+      slug: sanitizeMetadata(skill.id),
+      source: sanitizeMetadata(skill.source || ''),
+      installs: skill.installs,
+    }));
   } catch {
     return [];
   }

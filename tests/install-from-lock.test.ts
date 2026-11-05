@@ -68,6 +68,20 @@ describe('experimental_install', () => {
     expect(lock.skills.alpha.computedHash).toMatch(/^[a-f0-9]{64}$/);
   });
 
+  it('prints the plan and writes nothing with --dry-run', () => {
+    writeSkill(join(testDir, 'src-a', 'alpha'), 'alpha');
+    writeLock({ alpha: './src-a' });
+    const before = readFileSync(join(testDir, 'skills-lock.json'), 'utf-8');
+
+    const result = runCli(['experimental_install', '--dry-run'], testDir);
+
+    expect(result.exitCode).toBe(0);
+    expect(installed('alpha')).toBe(false);
+    expect(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8')).toBe(before);
+    expect(result.stdout).toContain('Would restore 1 skill');
+    expect(result.stdout).toContain('alpha');
+  });
+
   it('keeps restoring after a source fails', () => {
     writeSkill(join(testDir, 'src-b', 'beta'), 'beta');
     writeLock({ alpha: './missing', beta: './src-b' });
@@ -77,6 +91,40 @@ describe('experimental_install', () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('Failed to install from');
     expect(installed('beta')).toBe(true);
+  });
+
+  describe('already installed skills', () => {
+    const installedContent = () =>
+      readFileSync(join(testDir, '.agents', 'skills', 'alpha', 'SKILL.md'), 'utf-8');
+
+    beforeEach(() => {
+      writeSkill(join(testDir, 'src-a', 'alpha'), 'alpha');
+      writeLock({ alpha: './src-a' });
+      mkdirSync(join(testDir, '.agents', 'skills', 'alpha'), { recursive: true });
+      writeFileSync(join(testDir, '.agents', 'skills', 'alpha', 'SKILL.md'), 'edited');
+    });
+
+    it('are left as they are', () => {
+      const result = runCli(['experimental_install'], testDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('1 skill already installed');
+      expect(installedContent()).toBe('edited');
+    });
+
+    it('are restored when the folder has no SKILL.md', () => {
+      rmSync(join(testDir, '.agents', 'skills', 'alpha', 'SKILL.md'));
+
+      expect(runCli(['experimental_install'], testDir).exitCode).toBe(0);
+      expect(installedContent()).toContain('name: alpha');
+    });
+
+    it('are reinstalled with --force', () => {
+      const result = runCli(['experimental_install', '--force'], testDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(installedContent()).toContain('name: alpha');
+    });
   });
 
   describe('--frozen-lockfile', () => {

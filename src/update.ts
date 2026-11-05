@@ -47,6 +47,7 @@ import {
   type SkillLocationResolution,
   type SkillLocationResolutionOptions,
 } from './skill-relocation.ts';
+import { listInstalledSkills } from './installer.ts';
 import { wellKnownProvider, computeWellKnownSkillDigest } from './providers/index.ts';
 import { removeCommand } from './remove.ts';
 import { sanitizeMetadata } from './sanitize.ts';
@@ -65,17 +66,29 @@ function printFetching(sourceCount: number): void {
 }
 
 /**
- * Where a reinstalled skill goes: what `add -y` would pick, with Eve fanned
- * out over the subagents recorded at install time (`''` is the root agent).
- * Agent detection runs once per resolver.
+ * Detected agents without a global skills dir (e.g. PromptScript, pulled in as a
+ * universal agent) can't take a global reinstall; drop them like `add -g -y` does.
  */
-function placementResolver(global: boolean): (subagents?: string[]) => Promise<InstallPlacement> {
+export function withGlobalSkillsDir(targetAgents: AgentType[]): AgentType[] {
+  const supported = targetAgents.filter((a) => agents[a].globalSkillsDir !== undefined);
+  return supported.length > 0 ? supported : targetAgents;
+}
+
+/**
+ * Where a reinstalled skill goes: what `add -y` would pick, with Eve fanned
+ * out over the subagents recorded at install time (`''` is the root agent)
+ * and the install mode the user chose. Agent detection runs once per resolver.
+ */
+function placementResolver(
+  global: boolean
+): (subagents?: string[], installMode?: 'copy') => Promise<InstallPlacement> {
   let agentsPromise: Promise<AgentType[]> | undefined;
-  return async (subagents) => {
+  return async (subagents, installMode) => {
     agentsPromise ??= nonInteractiveTargetAgents();
     let targetAgents = await agentsPromise;
     const hasSubagents = !!subagents?.length;
     if (hasSubagents && !targetAgents.includes('eve')) targetAgents = [...targetAgents, 'eve'];
+    if (global) targetAgents = withGlobalSkillsDir(targetAgents);
     const targets = buildInstallTargets(
       targetAgents,
       hasSubagents ? subagents.map((s) => (s === '' ? undefined : s)) : [undefined]
@@ -83,7 +96,7 @@ function placementResolver(global: boolean): (subagents?: string[]) => Promise<I
     return {
       global,
       targets,
-      mode: defaultInstallMode(targets),
+      mode: installMode ?? defaultInstallMode(targets),
       createMissingAgentRoot: (agent) => hasSubagents && agent === 'eve',
     };
   };
@@ -106,6 +119,11 @@ function reportInstall(
   return false;
 }
 
+/** Skills present on disk in a scope; a locked skill missing here is reinstalled. */
+async function installedSkillNames(global: boolean): Promise<Set<string>> {
+  return new Set((await listInstalledSkills({ global })).map((skill) => skill.name));
+}
+
 function targetOutcome(results: TargetInstallResult[]): { ok: boolean; failed: string[] } {
   return {
     ok: results.some((r) => r.success),
@@ -125,6 +143,8 @@ export interface UpdateCheckOptions {
   yes?: boolean;
   /** Optional skill name(s) to filter on (positional args) */
   skills?: string[];
+  /** Check mode: report each skill that has an update instead of installing it. */
+  reportOutdated?: (name: string) => void;
 }
 
 /**
@@ -522,7 +542,11 @@ export async function processWellKnownUpdates(
     printNewSkills(baseUrl, result.newSkills, isGlobal);
 
     if (result.changedSkills.length > 0) {
-      pending.push({ baseUrl, items, changedSkills: result.changedSkills });
+      if (options.reportOutdated) {
+        for (const name of result.changedSkills) options.reportOutdated(name);
+      } else {
+        pending.push({ baseUrl, items, changedSkills: result.changedSkills });
+      }
     }
   }
 
@@ -667,6 +691,7 @@ export async function updateGlobalSkills(
       .filter(([_, entry]) => entry.source === first.source && entry.ref === first.ref)
       .map(([name, _]) => name);
 
+  const onDisk = await installedSkillNames(true);
   const groups = [...bySource.values()];
   printFetching(groups.length);
   const checkouts = await mapConcurrent(groups, (itemsForSource) => {
@@ -693,7 +718,7 @@ export async function updateGlobalSkills(
     if ('tree' in checkout) {
       for (const { name: skillName, entry } of itemsForSource) {
         const latestHash = getSkillFolderHashFromTree(checkout.tree, entry.skillPath!);
-        if (latestHash && latestHash !== entry.skillFolderHash) {
+        if (latestHash && (latestHash !== entry.skillFolderHash || !onDisk.has(skillName))) {
           updates.push({ name: skillName, entry, skillFolderHash: latestHash });
         }
       }
@@ -739,7 +764,10 @@ export async function updateGlobalSkills(
           ? await getGitTreeHash(tempDir, skillPath)
           : await computeSkillFolderHash(join(tempDir, dirname(skillPath)));
         const relocated = skillPath !== entry.skillPath;
-        if (relocated || (latestHash && latestHash !== entry.skillFolderHash)) {
+        if (
+          relocated ||
+          (latestHash && (latestHash !== entry.skillFolderHash || !onDisk.has(skillName)))
+        ) {
           updates.push({
             name: skillName,
             entry: { ...entry, skillPath },
@@ -786,6 +814,12 @@ export async function updateGlobalSkills(
     return { successCount, failCount, checkedCount };
   }
 
+  if (options.reportOutdated) {
+    for (const { name } of updates) options.reportOutdated(name);
+    printSkippedSkills(skipped);
+    return { successCount, failCount, checkedCount };
+  }
+
   console.log(`${TEXT}Found ${updates.length} global update(s)${RESET}`);
   console.log();
 
@@ -814,7 +848,7 @@ export async function updateGlobalSkills(
     const source = fetched[index]!;
     const outcome = await installFetched(source, {
       skills: [name],
-      placement: await placementFor(),
+      placement: await placementFor(undefined, entry.installMode),
     });
     await releaseSource(source);
     if (outcome.installed.length > 0) {
@@ -923,6 +957,7 @@ export async function updateProjectSkills(
   }
 
   const localLock = await readLocalLock();
+  const onDisk = await installedSkillNames(false);
   const placementFor = placementResolver(false);
   let upToDateCount = 0;
 
@@ -998,8 +1033,16 @@ export async function updateProjectSkills(
         // Hash the clone the same way `add` records computedHash, so an
         // unchanged skill is not reinstalled.
         const computedHash = await computeSkillFolderHash(current.path).catch(() => null);
-        if (skillPath === skill.entry.skillPath && computedHash === skill.entry.computedHash) {
+        if (
+          skillPath === skill.entry.skillPath &&
+          computedHash === skill.entry.computedHash &&
+          onDisk.has(skill.name)
+        ) {
           upToDateCount++;
+          continue;
+        }
+        if (options.reportOutdated) {
+          options.reportOutdated(skill.name);
           continue;
         }
 
@@ -1007,7 +1050,7 @@ export async function updateProjectSkills(
         const results = await installToTargets(
           resolved,
           [current],
-          await placementFor(skill.entry.subagents)
+          await placementFor(skill.entry.subagents, skill.entry.installMode)
         );
         const outcome = targetOutcome(results);
         if (outcome.ok && computedHash) {
@@ -1057,11 +1100,23 @@ export function printLegacyProjectSkills(
   }
 }
 
-export async function runUpdate(args: string[] = []): Promise<void> {
+export async function runUpdate(
+  args: string[] = [],
+  mode: 'update' | 'check' = 'update'
+): Promise<void> {
   const options = parseUpdateOptions(args);
+  let outdatedCount = 0;
+  if (mode === 'check') {
+    // Never prompt: pick the scope automatically and only report upstream deletions.
+    options.yes = true;
+    options.reportOutdated = (name) => {
+      outdatedCount++;
+      console.log(`${TEXT}↑ ${sanitizeMetadata(name)} has an update${RESET}`);
+    };
+  }
   const scope = await resolveUpdateScope(options);
 
-  if (options.skills) {
+  if (options.skills && mode === 'update') {
     console.log(`${TEXT}Updating ${options.skills.join(', ')}…${RESET}`);
   } else {
     console.log(`${TEXT}Checking for skill updates…${RESET}`);
@@ -1105,6 +1160,12 @@ export async function runUpdate(args: string[] = []): Promise<void> {
   }
   if (totalFail > 0) {
     console.log(`${DIM}Failed to update ${totalFail} skill(s)${RESET}`);
+    process.exitCode = 1;
+  }
+  if (outdatedCount > 0) {
+    console.log(
+      `${TEXT}${outdatedCount} skill(s) can be updated; run ${BOLD}npx skills update${RESET}${TEXT} to install${RESET}`
+    );
     process.exitCode = 1;
   }
 

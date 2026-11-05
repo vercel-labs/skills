@@ -7,6 +7,7 @@ import * as blob from '../src/blob.ts';
 import * as localLock from '../src/local-lock.ts';
 import * as skillLock from '../src/skill-lock.ts';
 import * as remove from '../src/remove.ts';
+import * as installer from '../src/installer.ts';
 import * as p from '@clack/prompts';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -18,6 +19,10 @@ vi.mock('../src/blob.ts');
 vi.mock('../src/local-lock.ts');
 vi.mock('../src/skill-lock.ts');
 vi.mock('../src/remove.ts');
+vi.mock('../src/installer.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/installer.ts')>()),
+  listInstalledSkills: vi.fn(),
+}));
 vi.mock('@clack/prompts');
 
 // Stub the network and disk seams of add.ts; keep its pure helpers real.
@@ -112,6 +117,18 @@ describe('Update Cleanup Unit Tests', () => {
       }))
     );
     acceptAll();
+    // Every locked skill is on disk unless a test says otherwise.
+    vi.mocked(installer.listInstalledSkills).mockImplementation(async ({ global } = {}) => {
+      const lock = global ? await skillLock.readSkillLock() : await localLock.readLocalLock();
+      return Object.keys(lock.skills).map((name) => ({
+        name,
+        description: '',
+        path: '',
+        canonicalPath: '',
+        scope: global ? 'global' : 'project',
+        agents: [],
+      }));
+    });
     // Default mock for isTTY
     Object.defineProperty(process.stdin, 'isTTY', {
       value: true,
@@ -998,7 +1015,10 @@ describe('Update Cleanup Unit Tests', () => {
       );
     });
 
-    it('does not report an unchanged Git tree SHA as updated after an API fallback', async () => {
+    it.each([
+      ['does not report an unchanged Git tree SHA as updated after an API fallback', true, 0],
+      ['reinstalls an unchanged missing skill after an API fallback', false, 1],
+    ])('%s', async (_title, onDisk, installs) => {
       const treeHash = 'a'.repeat(40);
       vi.mocked(skillLock.readSkillLock).mockResolvedValue({
         version: 3,
@@ -1026,6 +1046,7 @@ describe('Update Cleanup Unit Tests', () => {
       ]);
       vi.mocked(git.getGitTreeHash).mockResolvedValue(treeHash);
       vi.mocked(localLock.computeSkillFolderHash).mockResolvedValue('b'.repeat(64));
+      if (!onDisk) vi.mocked(installer.listInstalledSkills).mockResolvedValue([]);
 
       await updateGlobalSkills({ yes: true });
 
@@ -1033,7 +1054,7 @@ describe('Update Cleanup Unit Tests', () => {
         '/tmp/private-repo',
         'skills/skill-a/SKILL.md'
       );
-      expect(add.installFetched).not.toHaveBeenCalled();
+      expect(add.installFetched).toHaveBeenCalledTimes(installs);
     });
 
     it('uses full-depth discovery for non-GitHub global deletion checks', async () => {
@@ -1258,6 +1279,91 @@ describe('Update Cleanup Unit Tests', () => {
       ]);
     });
 
+    it('reinstalls an unchanged global skill whose folder is missing', async () => {
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            skillFolderHash: 'same',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+      vi.mocked(blob.fetchRepoTree).mockResolvedValue({
+        sha: 'rootsha',
+        branch: 'main',
+        tree: [{ path: 'skills/skill-a/SKILL.md', type: 'blob', sha: 'sha1' }],
+      });
+      vi.mocked(blob.getSkillFolderHashFromTree).mockReturnValue('same');
+      vi.mocked(installer.listInstalledSkills).mockResolvedValue([]);
+
+      const result = await updateGlobalSkills({ yes: true });
+
+      expect(result.successCount).toBe(1);
+    });
+
+    it('reinstalls a copied global skill as a copy', async () => {
+      // Two target dirs, so the default would be a symlink.
+      vi.mocked(add.nonInteractiveTargetAgents).mockResolvedValue(['cursor', 'claude-code']);
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            skillFolderHash: 'old',
+            installedAt: '',
+            updatedAt: '',
+            installMode: 'copy',
+          },
+        },
+      });
+      vi.mocked(blob.fetchRepoTree).mockResolvedValue({
+        sha: 'rootsha',
+        branch: 'main',
+        tree: [{ path: 'skills/skill-a/SKILL.md', type: 'blob', sha: 'sha1' }],
+      });
+      vi.mocked(blob.getSkillFolderHashFromTree).mockReturnValue('new');
+
+      await updateGlobalSkills({ yes: true });
+
+      expect(vi.mocked(add.installFetched).mock.calls[0]![1].placement.mode).toBe('copy');
+    });
+
+    it('skips detected agents without a global skills dir', async () => {
+      // PromptScript is always added as a universal agent but has no global dir.
+      vi.mocked(add.nonInteractiveTargetAgents).mockResolvedValue(['claude-code', 'promptscript']);
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            skillFolderHash: 'old',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+      vi.mocked(blob.fetchRepoTree).mockResolvedValue({
+        sha: 'rootsha',
+        branch: 'main',
+        tree: [{ path: 'skills/skill-a/SKILL.md', type: 'blob', sha: 'sha1' }],
+      });
+      vi.mocked(blob.getSkillFolderHashFromTree).mockReturnValue('new');
+
+      await updateGlobalSkills({ yes: true });
+
+      const { targets } = vi.mocked(add.installFetched).mock.calls[0]![1].placement;
+      expect(targets.map((t) => t.agent)).toEqual(['claude-code']);
+    });
+
     it('fetches every global update before installing any', async () => {
       vi.mocked(skillLock.readSkillLock).mockResolvedValue({
         version: 3,
@@ -1344,6 +1450,58 @@ describe('Update Cleanup Unit Tests', () => {
       await runUpdate(['--project', '--yes']);
 
       expect(process.exitCode).toBeUndefined();
+    });
+  });
+
+  describe('check', () => {
+    it('picks a scope without prompting and installs no project update', async () => {
+      vi.mocked(localLock.readLocalLock).mockResolvedValue({
+        version: 1,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            computedHash: 'old',
+          },
+        },
+      });
+      vi.mocked(git.cloneRepo).mockResolvedValue('/tmp/repo');
+      vi.mocked(skills.discoverSkills).mockResolvedValue([
+        { name: 'skill-a', path: '/tmp/repo/skills/skill-a', description: 'A', rawContent: '' },
+      ]);
+      vi.mocked(localLock.computeSkillFolderHash).mockResolvedValue('new');
+
+      await runUpdate([], 'check');
+
+      expect(p.select).not.toHaveBeenCalled();
+      expect(add.installToTargets).not.toHaveBeenCalled();
+    });
+
+    it('installs no global update', async () => {
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            skillFolderHash: 'old',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+      vi.mocked(blob.fetchRepoTree).mockResolvedValue({
+        sha: 'rootsha',
+        branch: 'main',
+        tree: [{ path: 'skills/skill-a/SKILL.md', type: 'blob', sha: 'sha1' }],
+      });
+      vi.mocked(blob.getSkillFolderHashFromTree).mockReturnValue('new');
+
+      await runUpdate(['-g'], 'check');
+
+      expect(add.installFetched).not.toHaveBeenCalled();
     });
   });
 });

@@ -32,7 +32,9 @@ function ensureRange(buffer: Buffer, offset: number, length: number, label: stri
     length < 0 ||
     offset + length > buffer.length
   ) {
-    throw diagnostics.SKILLS_A001({ reason: `Invalid zip archive: ${label} is out of bounds` });
+    throw diagnostics.SKILLS_A001({
+      reason: `Invalid zip archive: ${label} is out of bounds`,
+    });
   }
 }
 
@@ -230,7 +232,9 @@ function readZip64EntryValues(
   let valueOffset = 0;
   const readNextUInt64 = (label: string): number => {
     if (valueOffset + 8 > zip64Extra.length) {
-      throw diagnostics.SKILLS_A001({ reason: `Invalid zip64 extra field: missing ${label}` });
+      throw diagnostics.SKILLS_A001({
+        reason: `Invalid zip64 extra field: missing ${label}`,
+      });
     }
     const value = readUInt64AsNumber(zip64Extra, valueOffset, `zip64 ${label}`);
     valueOffset += 8;
@@ -249,7 +253,9 @@ function readZip64EntryValues(
   }
   if (resolved.diskStart === 0xffff) {
     if (valueOffset + 4 > zip64Extra.length) {
-      throw diagnostics.SKILLS_A001({ reason: 'Invalid zip64 extra field: missing disk start' });
+      throw diagnostics.SKILLS_A001({
+        reason: 'Invalid zip64 extra field: missing disk start',
+      });
     }
     resolved.diskStart = zip64Extra.readUInt32LE(valueOffset);
   }
@@ -267,7 +273,10 @@ export function readZipArchive(bytes: Uint8Array, limits: ArchiveLimits): Map<st
   const centralDirectory = readCentralDirectory(buffer, endOffset);
   const totalEntries = centralDirectory.entries;
   if (totalEntries > limits.maxEntries) {
-    throw diagnostics.SKILLS_A006({ count: totalEntries, max: limits.maxEntries });
+    throw diagnostics.SKILLS_A006({
+      count: totalEntries,
+      max: limits.maxEntries,
+    });
   }
 
   ensureRange(buffer, centralDirectory.offset, centralDirectory.size, 'central directory');
