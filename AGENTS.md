@@ -91,6 +91,7 @@ e2e/                 # Production e2e: packed tarball vs. live sources (`pnpm te
 ├── env.ts           # Env allowlist (drops agent markers, XDG/config overrides, CI)
 ├── sandbox.ts       # Per-test HOME + project dir; runs the installed bin
 ├── package.e2e.ts   # Tarball contents, bin shim, runtime deps
+├── api.e2e.ts       # Programmatic API from the installed package, CLI interop, shipped types
 ├── github.e2e.ts    # anthropics/skills, mattpocock/skills, vercel-labs/agent-skills
 ├── blob.e2e.ts      # skills.sh blob fast path, parity with a git clone
 ├── well-known.e2e.ts # https://vercel.com discovery index
