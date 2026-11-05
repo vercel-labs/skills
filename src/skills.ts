@@ -12,6 +12,7 @@ import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
 
 const AGENT_PROJECT_SKILL_DIRS = [
+  '.abacusai/skills',
   '.agents/skills',
   '.claude/skills',
   '.cline/skills',
