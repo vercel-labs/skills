@@ -380,17 +380,24 @@ function ensureUniversalAgents(targetAgents: AgentType[]): AgentType[] {
 
 /**
  * The agents `add -y` installs to when none are named: the agent we run
- * inside (plus universal), else Eve alone when present, else every agent when
- * none is detected, else the detected ones plus universal.
+ * inside (plus universal), else Eve alone for project installs when present,
+ * else every agent when none is detected, else detected agents plus universal.
  */
-export async function nonInteractiveTargetAgents(): Promise<AgentType[]> {
+export async function nonInteractiveTargetAgents(global = false): Promise<AgentType[]> {
   const detected = await detectAgent();
   const hostAgent = detected.isAgent ? getAgentType(detected.agent.name) : null;
-  if (hostAgent) return ensureUniversalAgents([hostAgent]);
-  const installed = await detectInstalledAgents();
-  if (installed.includes('eve')) return ['eve'];
-  if (installed.length === 0) return Object.keys(agents) as AgentType[];
-  return ensureUniversalAgents(installed);
+  let targetAgents: AgentType[];
+  if (hostAgent) {
+    targetAgents = ensureUniversalAgents([hostAgent]);
+  } else {
+    const installed = await detectInstalledAgents();
+    if (!global && installed.includes('eve')) return ['eve'];
+    targetAgents =
+      installed.length === 0
+        ? (Object.keys(agents) as AgentType[])
+        : ensureUniversalAgents(installed);
+  }
+  return skipAgentsWithoutGlobalDir(targetAgents, { global, explicit: false });
 }
 
 /**

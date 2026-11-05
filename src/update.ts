@@ -84,7 +84,7 @@ function placementResolver(
 ): (subagents?: string[], installMode?: 'copy') => Promise<InstallPlacement> {
   let agentsPromise: Promise<AgentType[]> | undefined;
   return async (subagents, installMode) => {
-    agentsPromise ??= nonInteractiveTargetAgents();
+    agentsPromise ??= nonInteractiveTargetAgents(global);
     let targetAgents = await agentsPromise;
     const hasSubagents = !!subagents?.length;
     if (hasSubagents && !targetAgents.includes('eve')) targetAgents = [...targetAgents, 'eve'];

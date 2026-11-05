@@ -1,11 +1,13 @@
-import { execFileSync, spawnSync } from 'child_process';
+import { execFile, execFileSync, spawnSync } from 'child_process';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { promisify } from 'util';
 import { stripTerminalEscapes } from './sanitize.ts';
 
 // const PROJECT_ROOT = join(import.meta.dirname, '..');
 const CLI_PATH = join(import.meta.dirname, 'cli.ts');
+const execFileAsync = promisify(execFile);
 
 // Keep synchronized with the environment checks in @vercel/detect-agent@1.2.3
 // and the additional Cursor checks in detect-agent.ts. Filesystem-based detection
@@ -88,6 +90,8 @@ export function createTestHomeEnvironment(home: string): Record<string, string> 
     VIBE_HOME: join(home, '.vibe'),
     HERMES_HOME: join(home, '.hermes'),
     AUTOHAND_HOME: join(home, '.autohand'),
+    GROK_HOME: join(home, '.grok'),
+    SARVAM_HOME: join(home, '.sarvam'),
     FLATPAK_XDG_CONFIG_HOME: join(home, '.var', 'app'),
     DISABLE_TELEMETRY: '1',
   };
@@ -131,6 +135,37 @@ export function runCli(
       stderr: stripAnsi(result.stderr || ''),
       exitCode: result.status ?? 1,
     };
+  } finally {
+    rmSync(temporaryHome, { recursive: true, force: true });
+  }
+}
+
+/** Run the CLI without blocking the event loop, for tests with local servers. */
+export async function runCliAsync(
+  args: string[],
+  cwd?: string,
+  env?: Record<string, string>,
+  timeout?: number
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  const { env: testEnv, temporaryHome } = createIsolatedTestEnvironment(env);
+
+  try {
+    try {
+      const result = await execFileAsync(process.execPath, [CLI_PATH, ...args], {
+        encoding: 'utf-8',
+        cwd,
+        env: testEnv,
+        timeout: timeout ?? 30000,
+      });
+      return { stdout: stripAnsi(result.stdout), stderr: stripAnsi(result.stderr), exitCode: 0 };
+    } catch (error) {
+      const failure = error as { stdout?: string; stderr?: string; code?: number | string };
+      return {
+        stdout: stripAnsi(failure.stdout ?? ''),
+        stderr: stripAnsi(failure.stderr ?? ''),
+        exitCode: typeof failure.code === 'number' ? failure.code : 1,
+      };
+    }
   } finally {
     rmSync(temporaryHome, { recursive: true, force: true });
   }
