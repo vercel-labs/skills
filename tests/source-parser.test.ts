@@ -297,6 +297,14 @@ describe('parseSource', () => {
       expect(result.skillFilter).toBeUndefined();
     });
 
+    it('GitHub shorthand - owner/repo@version pins tags without v or a patch part', () => {
+      for (const tag of ['1.2.3', 'v1.2', '2026.10.1', '1.0.0-rc.1']) {
+        const result = parseSource(`owner/repo@${tag}`);
+        expect(result.ref).toBe(tag);
+        expect(result.skillFilter).toBeUndefined();
+      }
+    });
+
     it('GitHub shorthand - owner/repo@<full sha> pins the commit', () => {
       const sha = 'd22f72308106ef62f558cbde16dacb1f21031ae3';
       const result = parseSource(`owner/repo@${sha}`);
@@ -305,7 +313,7 @@ describe('parseSource', () => {
     });
 
     it('GitHub shorthand - owner/repo@name does not treat skill-like names as pins', () => {
-      for (const name of ['find-skills', 'v2', 'v1.2', 'web-design-guidelines']) {
+      for (const name of ['find-skills', 'v2', '2', 'v1.x', 'web-design-guidelines']) {
         const result = parseSource(`owner/repo@${name}`);
         expect(result.ref).toBeUndefined();
         expect(result.skillFilter).toBe(name);

@@ -2,6 +2,7 @@ import { isAbsolute, resolve } from 'path';
 import type { ParsedSource } from './types.ts';
 import { diagnostics } from './diagnostics.ts';
 import { getGitHubHost, isGitHubHost } from './github-host.ts';
+import { isCommitSha } from './git.ts';
 
 /**
  * Extract owner/repo (or group/subgroup/repo for GitLab) from a parsed source
@@ -312,16 +313,14 @@ function parseFragmentRef(input: string): FragmentRefResult {
 }
 
 /**
- * `owner/repo@name` selects a skill. A release tag or full commit in that
- * position is a checkout pin, the same as `owner/repo#ref`. Other names,
- * including branch names, stay skill selectors so `owner/repo@my-skill`
- * is unchanged. Branch pins use `#ref`.
+ * `owner/repo@name` selects a skill. A version tag (`v1.2.3`, `1.2.3`, `v1.2`,
+ * with optional prerelease/build metadata) or a full commit SHA in that
+ * position is a checkout pin, the same as `owner/repo#ref`. A single number
+ * such as `v2` is ambiguous and stays a skill name. Branch pins use `#ref`.
  */
 function isVersionPin(value: string): boolean {
   return (
-    /^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(
-      value
-    ) || /^[0-9a-f]{40}$/i.test(value)
+    /^v?\d+(?:\.\d+)+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(value) || isCommitSha(value)
   );
 }
 
