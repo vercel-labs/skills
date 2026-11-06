@@ -208,6 +208,44 @@ description: ${description}
       expect(result.stdout).not.toContain('Origin:');
     });
 
+    describe('lock status', () => {
+      beforeEach(() => {
+        createTestSkill(testDir, 'tracked-skill', 'Installed and locked');
+        createTestSkill(testDir, 'handmade-skill', 'Installed, not locked');
+        const entry = { source: 'owner/repo', sourceType: 'github', computedHash: 'h' };
+        writeFileSync(
+          join(testDir, 'skills-lock.json'),
+          JSON.stringify({ version: 1, skills: { 'tracked-skill': entry, 'gone-skill': entry } })
+        );
+      });
+
+      it('reports each skill as tracked, untracked or missing in JSON', () => {
+        const skills: Array<{ name: string; status: string }> = JSON.parse(
+          runCli(['list', '--json'], testDir).stdout.trim()
+        );
+
+        expect(Object.fromEntries(skills.map((s) => [s.name, s.status]))).toEqual({
+          'tracked-skill': 'tracked',
+          'handmade-skill': 'untracked',
+          'gone-skill': 'missing',
+        });
+      });
+
+      it('labels untracked skills and lists missing ones', () => {
+        const { stdout } = runCli(['list'], testDir);
+
+        expect(stdout).toContain('Source: untracked');
+        expect(stdout).toContain('Missing');
+        expect(stdout).toContain('gone-skill');
+      });
+
+      it('does not report missing skills when filtering by agent', () => {
+        const { stdout } = runCli(['list', '-a', 'claude-code'], testDir);
+
+        expect(stdout).not.toContain('gone-skill');
+      });
+    });
+
     it('should keep untrusted source metadata on one output line', () => {
       createTestSkill(testDir, 'tracked-skill', 'A tracked project skill');
       writeFileSync(
@@ -277,9 +315,10 @@ description: ${description}
       );
 
       const result = runCli(['list', '-g', '--json'], testDir, { HOME: testHome });
-      const [skill] = JSON.parse(result.stdout.trim());
+      const skills = JSON.parse(result.stdout.trim());
 
-      expect(skill).toMatchObject({
+      expect(skills).toHaveLength(1);
+      expect(skills[0]).toMatchObject({
         name: 'ce-review',
         source: 'everyinc/compound-engineering-plugin',
         sourceUrl: 'https://github.com/everyinc/compound-engineering-plugin',

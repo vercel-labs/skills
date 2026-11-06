@@ -6,17 +6,16 @@ import { homedir } from 'os';
 import { agents } from '../src/agents.ts';
 
 const ROOT = join(import.meta.dirname, '..');
-const README_PATH = join(ROOT, 'README.md');
 const PACKAGE_PATH = join(ROOT, 'package.json');
 
 function generateAgentList(): string {
   const agentList = Object.values(agents);
   const count = agentList.length;
-  return `Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [${count - 4} more](#supported-agents).`;
+  return `Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [${count - 4} more](docs/agents.md).`;
 }
 
 function generateAgentNames(): string {
-  return 'Target specific agents (e.g., `claude-code`, `codex`). See [Supported Agents](#supported-agents)';
+  return 'Target specific agents (e.g., `claude-code`, `codex`). See [Supported Agents](agents.md#supported-agents)';
 }
 
 function generateAvailableAgentsTable(): string {
@@ -96,16 +95,21 @@ function replaceSection(
   return content.replace(regex, `$1\n${replacement}\n$2`);
 }
 
+function updateDoc(file: string, sections: Record<string, string>, inline = false) {
+  const path = join(ROOT, file);
+  let content = readFileSync(path, 'utf-8');
+  for (const [marker, replacement] of Object.entries(sections)) {
+    content = replaceSection(content, marker, replacement, inline);
+  }
+  writeFileSync(path, content);
+  console.log(`${file} updated`);
+}
+
 function main() {
-  let readme = readFileSync(README_PATH, 'utf-8');
-
-  readme = replaceSection(readme, 'agent-list', generateAgentList());
-  readme = replaceSection(readme, 'agent-names', generateAgentNames(), true);
-  readme = replaceSection(readme, 'supported-agents', generateAvailableAgentsTable());
-  readme = replaceSection(readme, 'skill-discovery', generateSkillDiscoveryPaths());
-
-  writeFileSync(README_PATH, readme);
-  console.log('README.md updated');
+  updateDoc('README.md', { 'agent-list': generateAgentList() });
+  updateDoc('docs/commands.md', { 'agent-names': generateAgentNames() }, true);
+  updateDoc('docs/agents.md', { 'supported-agents': generateAvailableAgentsTable() });
+  updateDoc('docs/creating-skills.md', { 'skill-discovery': generateSkillDiscoveryPaths() });
 
   const pkg = JSON.parse(readFileSync(PACKAGE_PATH, 'utf-8'));
   pkg.keywords = generateKeywords();

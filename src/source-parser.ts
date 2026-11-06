@@ -1,6 +1,8 @@
 import { isAbsolute, resolve } from 'path';
 import type { ParsedSource } from './types.ts';
+import { diagnostics } from './diagnostics.ts';
 import { getGitHubHost, isGitHubHost } from './github-host.ts';
+import { isCommitSha } from './git.ts';
 
 /**
  * Extract owner/repo (or group/subgroup/repo for GitLab) from a parsed source
@@ -111,10 +113,7 @@ export function sanitizeSubpath(subpath: string): string {
   const segments = normalized.split('/');
   for (const segment of segments) {
     if (segment === '..') {
-      throw new Error(
-        `Unsafe subpath: "${subpath}" contains path traversal segments. ` +
-          `Subpaths must not contain ".." components.`
-      );
+      throw diagnostics.SKILLS_UNSAFE_SUBPATH({ subpath });
     }
   }
 
@@ -313,11 +312,23 @@ function parseFragmentRef(input: string): FragmentRefResult {
   };
 }
 
+/**
+ * `owner/repo@name` selects a skill. A version tag (`v1.2.3`, `1.2.3`, `v1.2`,
+ * with optional prerelease/build metadata) or a full commit SHA in that
+ * position is a checkout pin, the same as `owner/repo#ref`. A single number
+ * such as `v2` is ambiguous and stays a skill name. Branch pins use `#ref`.
+ */
+function isVersionPin(value: string): boolean {
+  return (
+    /^v?\d+(?:\.\d+)+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(value) || isCommitSha(value)
+  );
+}
+
 function appendFragmentRef(input: string, ref?: string, skillFilter?: string): string {
-  if (!ref) {
+  if (!ref && !skillFilter) {
     return input;
   }
-  return `${input}#${ref}${skillFilter ? `@${skillFilter}` : ''}`;
+  return `${input}#${ref ? encodeURIComponent(ref) : ''}${skillFilter ? `@${encodeURIComponent(skillFilter)}` : ''}`;
 }
 
 function isHostedArtifactUrl(input: string): boolean {
@@ -349,10 +360,17 @@ function isHostedArtifactUrl(input: string): boolean {
   }
 }
 
-export function parseSource(input: string): ParsedSource {
+/**
+ * `githubHost` pins `owner/repo` shorthand to a host regardless of GH_HOST,
+ * for inputs known to come from github.com (e.g. a public lock entry).
+ */
+export function parseSource(
+  input: string,
+  options: { githubHost?: string; cwd?: string } = {}
+): ParsedSource {
   // Local path: absolute, relative, or current directory
   if (isLocalPath(input)) {
-    const resolvedPath = resolve(input);
+    const resolvedPath = resolve(options.cwd ?? process.cwd(), input);
     // Return local type even if path doesn't exist - we'll handle validation in main flow
     return {
       type: 'local',
@@ -426,6 +444,20 @@ export function parseSource(input: string): ParsedSource {
     } catch {
       // Fall through to the remaining source formats.
     }
+  }
+
+  // GitHub SSH URL with branch: git@github.com:owner/repo/tree/branch[/path/to/skill]
+  const githubSshTreeMatch = input.match(
+    /^git@([^:]+):([^/]+)\/([^/]+?)(?:\.git)?\/tree\/([^/]+)(?:\/(.+))?$/
+  );
+  if (githubSshTreeMatch && isGitHubHost(githubSshTreeMatch[1]!)) {
+    const [, host, owner, repo, ref, subpath] = githubSshTreeMatch;
+    return {
+      type: 'git',
+      url: `git@${host}:${owner}/${repo}.git`,
+      ref,
+      ...(subpath ? { subpath: sanitizeSubpath(subpath) } : {}),
+    };
   }
 
   // GitHub URL with path: https://github.com/owner/repo/tree/branch/path/to/skill
@@ -522,13 +554,23 @@ export function parseSource(input: string): ParsedSource {
   // GH_HOST selects a GitHub Enterprise host for shorthand inputs. Enterprise
   // sources use the generic git path because GitHub.com API optimizations do
   // not apply to them.
-  const githubHost = getGitHubHost();
+  const githubHost = options.githubHost ?? getGitHubHost();
   const shorthandSourceType = githubHost === 'github.com' ? 'github' : 'git';
 
-  // First check for @skill syntax: owner/repo@skill-name
+  // First check for @skill syntax: owner/repo@skill-name.
+  // A release tag or full SHA (`owner/repo@v1.2.3`) is a checkout pin, not a
+  // skill name. Otherwise the tag is printed as a filter and the install
+  // uses the default branch (#2526).
   const atSkillMatch = input.match(/^([^/]+)\/([^/@]+)@(.+)$/);
   if (atSkillMatch && !input.includes(':') && !input.startsWith('.') && !input.startsWith('/')) {
     const [, owner, repo, skillFilter] = atSkillMatch;
+    if (!fragmentRef && !fragmentSkillFilter && isVersionPin(skillFilter!)) {
+      return {
+        type: shorthandSourceType,
+        url: `https://${githubHost}/${owner}/${repo}.git`,
+        ref: skillFilter,
+      };
+    }
     return {
       type: shorthandSourceType,
       url: `https://${githubHost}/${owner}/${repo}.git`,

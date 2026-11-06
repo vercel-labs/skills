@@ -96,11 +96,19 @@ export interface AgentConfig {
   skillsDir: string;
   /** Global skills directory. Set to undefined if the agent doesn't support global installation. */
   globalSkillsDir: string | undefined;
-  detectInstalled: () => Promise<boolean>;
+  /** `cwd` is the project directory for agents detected by project markers. */
+  detectInstalled: (cwd?: string) => Promise<boolean>;
   /** Whether to show this agent in the universal agents list. Defaults to true. */
   showInUniversalList?: boolean;
   /** Whether to display this universal agent in the interactive locked section. Defaults to true. */
   showInUniversalPrompt?: boolean;
+  /**
+   * Whether a universal agent reads the canonical ~/.agents/skills directory for
+   * global installs. Defaults to true. Set to false for an agent that uses
+   * .agents/skills in a project but reads only its own globalSkillsDir, so global
+   * installs link (or copy) into globalSkillsDir like a non-universal agent.
+   */
+  globalReadsCanonical?: boolean;
   /** Whether automatic project installs may create this agent's missing skills root. */
   createProjectSkillsDirByDefault?: boolean;
 }

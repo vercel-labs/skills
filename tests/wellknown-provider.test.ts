@@ -424,8 +424,9 @@ describe('WellKnownProvider', () => {
         return response('not found', { status: 404 });
       });
 
-      const skills = await provider.fetchAllSkills('https://example.com');
-      expect(skills).toHaveLength(0);
+      await expect(provider.fetchAllSkills('https://example.com')).rejects.toThrow(
+        /Digest mismatch for skill 'code-review'/
+      );
     });
 
     it('supports v0.2.0 archive entries after digest verification', async () => {

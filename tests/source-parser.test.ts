@@ -280,6 +280,44 @@ describe('parseSource', () => {
       expect(result.type).toBe('github');
       expect(result.url).toBe('https://github.com/vercel-labs/agent-skills.git');
       expect(result.skillFilter).toBe('find-skills');
+      expect(result.ref).toBeUndefined();
+    });
+
+    it('GitHub shorthand - owner/repo@v1.2.3 pins the release tag', () => {
+      const result = parseSource('mattpocock/skills@v1.3.1');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/mattpocock/skills.git');
+      expect(result.ref).toBe('v1.3.1');
+      expect(result.skillFilter).toBeUndefined();
+    });
+
+    it('GitHub shorthand - owner/repo@tag keeps prerelease and build metadata', () => {
+      const result = parseSource('owner/repo@v1.2.3-beta.1+build.5');
+      expect(result.ref).toBe('v1.2.3-beta.1+build.5');
+      expect(result.skillFilter).toBeUndefined();
+    });
+
+    it('GitHub shorthand - owner/repo@version pins tags without v or a patch part', () => {
+      for (const tag of ['1.2.3', 'v1.2', '2026.10.1', '1.0.0-rc.1']) {
+        const result = parseSource(`owner/repo@${tag}`);
+        expect(result.ref).toBe(tag);
+        expect(result.skillFilter).toBeUndefined();
+      }
+    });
+
+    it('GitHub shorthand - owner/repo@<full sha> pins the commit', () => {
+      const sha = 'd22f72308106ef62f558cbde16dacb1f21031ae3';
+      const result = parseSource(`owner/repo@${sha}`);
+      expect(result.ref).toBe(sha);
+      expect(result.skillFilter).toBeUndefined();
+    });
+
+    it('GitHub shorthand - owner/repo@name does not treat skill-like names as pins', () => {
+      for (const name of ['find-skills', 'v2', '2', 'v1.x', 'web-design-guidelines']) {
+        const result = parseSource(`owner/repo@${name}`);
+        expect(result.ref).toBeUndefined();
+        expect(result.skillFilter).toBe(name);
+      }
     });
 
     it('GitHub shorthand - owner/repo#branch', () => {
@@ -347,6 +385,42 @@ describe('parseSource', () => {
       expect(result.type).toBe('git');
       expect(result.url).toBe('git@github.com:owner/repo.git');
       expect(result.ref).toBe('feature/install');
+    });
+
+    it('Git URL - SSH format with /tree/branch', () => {
+      const result = parseSource('git@github.com:owner/repo/tree/mybranch');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@github.com:owner/repo.git');
+      expect(result.ref).toBe('mybranch');
+      expect(result.subpath).toBeUndefined();
+    });
+
+    it('Git URL - SSH format with /tree/branch/path', () => {
+      const result = parseSource('git@github.com:owner/repo/tree/mybranch/skills/foo');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@github.com:owner/repo.git');
+      expect(result.ref).toBe('mybranch');
+      expect(result.subpath).toBe('skills/foo');
+    });
+
+    it('Git URL - SSH format with .git and /tree/branch', () => {
+      const result = parseSource('git@github.com:owner/repo.git/tree/mybranch');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@github.com:owner/repo.git');
+      expect(result.ref).toBe('mybranch');
+    });
+
+    it('Git URL - SSH format with /tree/ on non-GitHub host is left as-is', () => {
+      const result = parseSource('git@git.example.com:group/repo/tree/mybranch.git');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@git.example.com:group/repo/tree/mybranch.git');
+      expect(result.ref).toBeUndefined();
+    });
+
+    it('Git URL - SSH format with /tree/ rejects path traversal', () => {
+      expect(() => parseSource('git@github.com:owner/repo/tree/main/../../etc')).toThrow(
+        /Unsafe subpath/
+      );
     });
 
     it('Git URL - custom host', () => {
