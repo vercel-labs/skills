@@ -1,5 +1,6 @@
 import { readdir, readFile, stat } from 'fs/promises';
 import { join, basename, dirname, resolve, normalize, sep, relative } from 'path';
+import { AGENT_PROJECT_SKILL_DIRS } from './agents.ts';
 import { parseFrontmatter } from './frontmatter.ts';
 import { diagnostics, isDiagnostic } from './diagnostics.ts';
 import { sanitizeMetadata, stripTerminalEscapes } from './sanitize.ts';
@@ -11,39 +12,6 @@ import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
 import { warn } from './warnings.ts';
 
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
-
-const AGENT_PROJECT_SKILL_DIRS = [
-  '.agents/skills',
-  '.claude/skills',
-  '.cline/skills',
-  '.codebuddy/skills',
-  '.codex/skills',
-  '.commandcode/skills',
-  '.continue/skills',
-  '.factory/skills',
-  '.github/skills',
-  '.goose/skills',
-  '.grok/skills',
-  '.iflow/skills',
-  '.junie/skills',
-  '.kilo/skills',
-  '.kilocode/skills',
-  '.kimchi/skills',
-  '.kiro/skills',
-  '.minimax/skills',
-  '.mux/skills',
-  '.neovate/skills',
-  '.opencode/skills',
-  '.openhands/skills',
-  '.pi/skills',
-  '.posit/assistant/skills',
-  '.qoder/skills',
-  '.roo/skills',
-  '.trae/skills',
-  '.windsurf/skills',
-  '.zcode/skills',
-  '.zencoder/skills',
-];
 
 function normalizeSkillName(name: string): string {
   return name.toLowerCase().replace(/[\s_]+/g, '-');

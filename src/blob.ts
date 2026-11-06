@@ -12,6 +12,7 @@
 
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
+import { AGENT_PROJECT_SKILL_DIRS } from './agents.ts';
 import { parseFrontmatter } from './frontmatter.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { getGitHubHost } from './github-host.ts';
@@ -312,36 +313,7 @@ const PRIORITY_PREFIXES = [
   'skills/.curated/',
   'skills/.experimental/',
   'skills/.system/',
-  '.agents/skills/',
-  '.claude/skills/',
-  '.cline/skills/',
-  '.codebuddy/skills/',
-  '.codex/skills/',
-  '.commandcode/skills/',
-  '.continue/skills/',
-  '.factory/skills/',
-  '.github/skills/',
-  '.goose/skills/',
-  '.grok/skills/',
-  '.iflow/skills/',
-  '.junie/skills/',
-  '.kilo/skills/',
-  '.kilocode/skills/',
-  '.kimchi/skills/',
-  '.kiro/skills/',
-  '.minimax/skills/',
-  '.mux/skills/',
-  '.neovate/skills/',
-  '.opencode/skills/',
-  '.openhands/skills/',
-  '.pi/skills/',
-  '.posit/assistant/skills/',
-  '.qoder/skills/',
-  '.roo/skills/',
-  '.trae/skills/',
-  '.windsurf/skills/',
-  '.zcode/skills/',
-  '.zencoder/skills/',
+  ...AGENT_PROJECT_SKILL_DIRS.map((dir) => `${dir}/`),
 ];
 
 /**

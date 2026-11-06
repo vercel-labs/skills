@@ -833,6 +833,29 @@ export const agents: Record<AgentType, AgentConfig> = {
   },
 };
 
+// Project skill dirs from before these agents moved to the universal `.agents/skills`.
+// Existing skill repositories still publish skills there.
+const LEGACY_AGENT_PROJECT_SKILL_DIRS = [
+  '.cline/skills',
+  '.codex/skills',
+  '.factory/skills',
+  '.github/skills',
+  '.kilo/skills',
+  '.kilocode/skills',
+  '.opencode/skills',
+  '.pi/skills',
+];
+
+/** Agent project skill dirs searched during discovery. The root `skills/` dir is handled separately. */
+export const AGENT_PROJECT_SKILL_DIRS = [
+  ...new Set([
+    ...Object.values(agents).map((agent) => agent.skillsDir),
+    ...LEGACY_AGENT_PROJECT_SKILL_DIRS,
+  ]),
+]
+  .filter((dir) => dir !== 'skills')
+  .sort();
+
 export async function detectInstalledAgents(cwd: string = process.cwd()): Promise<AgentType[]> {
   const results = await Promise.all(
     Object.entries(agents).map(async ([type, config]) => ({
