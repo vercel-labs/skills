@@ -200,7 +200,7 @@ describe('sync command', () => {
       runCli(['sync', '-y', '-a', 'claude-code'], testDir);
 
       const lock = JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8'));
-      expect(lock.version).toBe(1);
+      expect(lock.version).toBe(2);
       expect(lock.skills['lock-test-skill']).toEqual({
         source: 'my-pkg',
         sourceType: 'node_modules',
@@ -397,7 +397,7 @@ describe('sync command', () => {
       writeFileSync(
         join(testDir, 'skills-lock.json'),
         JSON.stringify({
-          version: 1,
+          version: 2,
           skills: {
             migrated: { source: 'my-lib', sourceType: 'node_modules', computedHash: 'stale' },
           },
@@ -434,7 +434,7 @@ describe('sync command', () => {
       writeFileSync(
         join(testDir, 'skills-lock.json'),
         JSON.stringify({
-          version: 1,
+          version: 2,
           skills: { shared: { source: 'owner/repo', sourceType: 'github', computedHash: 'x' } },
         })
       );
@@ -548,7 +548,7 @@ describe('sync command', () => {
       writeFileSync(
         join(testDir, 'skills-lock.json'),
         JSON.stringify({
-          version: 1,
+          version: 2,
           skills: { added: { source: 'owner/repo', sourceType: 'github', computedHash: 'x' } },
         })
       );
@@ -1117,7 +1117,7 @@ describe('sync command', () => {
       writeFileSync(
         join(testDir, 'skills-lock.json'),
         JSON.stringify({
-          version: 1,
+          version: 2,
           skills: { 'remote-a': { source: 'owner/repo', sourceType: 'github', computedHash: 'x' } },
         })
       );

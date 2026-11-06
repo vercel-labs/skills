@@ -32,6 +32,10 @@ import { parseFrontmatter } from './frontmatter.ts';
 import { stringify } from 'yaml';
 import { parseSkillMd } from './skills.ts';
 import { warn } from './warnings.ts';
+import { isExcluded, isExcludedPath } from './skill-hash.ts';
+import { sanitizeName } from './sanitize.ts';
+
+export { sanitizeName };
 
 /**
  * - `symlink`: copy into the canonical dir, symlink agent dirs to it
@@ -58,29 +62,6 @@ interface InstallResult {
   skipped?: boolean;
   skipReason?: 'missing-agent-project-directory';
   error?: string;
-}
-
-/**
- * Sanitizes a filename/directory name to prevent path traversal attacks
- * and ensures it follows kebab-case convention
- * @param name - The name to sanitize
- * @returns Sanitized name safe for use in file paths
- */
-export function sanitizeName(name: string): string {
-  const sanitized = name
-    .toLowerCase()
-    // Replace any sequence of characters that are NOT lowercase letters (a-z),
-    // digits (0-9), dots (.), or underscores (_) with a single hyphen.
-    // This converts spaces, special chars, and path traversal attempts (../) into hyphens.
-    .replace(/[^a-z0-9._]+/g, '-')
-    // Remove leading/trailing dots and hyphens to prevent hidden files (.) and
-    // ensure clean directory names. The pattern matches:
-    // - ^[.\-]+ : one or more dots or hyphens at the start
-    // - [.\-]+$ : one or more dots or hyphens at the end
-    .replace(/^[.\-]+|[.\-]+$/g, '');
-
-  // Limit to 255 chars (common filesystem limit), fallback to 'unnamed-skill' if empty
-  return sanitized.substring(0, 255) || 'unnamed-skill';
 }
 
 /**
@@ -474,25 +455,6 @@ export async function installSkillForAgent(
     };
   }
 }
-
-const EXCLUDE_FILES = new Set(['metadata.json']);
-const EXCLUDE_DIRS = new Set(['.git', '__pycache__', '__pypackages__']);
-
-const isExcluded = (name: string, isDirectory: boolean = false): boolean => {
-  if (EXCLUDE_FILES.has(name)) return true;
-  if (isDirectory && EXCLUDE_DIRS.has(name)) return true;
-  return false;
-};
-
-/**
- * isExcluded() for a snapshot's relative file path, so blob installs drop the same
- * files copyDirectory() skips when installing from a clone. Snapshot hashes still
- * cover the full file set; this only decides what is written to disk.
- */
-const isExcludedPath = (relativePath: string): boolean => {
-  const parts = relativePath.split(/[\\/]/).filter(Boolean);
-  return parts.some((part, index) => isExcluded(part, index < parts.length - 1));
-};
 
 function stripIgnoredEveFrontmatter(raw: string): string {
   const { data, content } = parseFrontmatter(raw);

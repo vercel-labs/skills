@@ -5,9 +5,9 @@ import { tmpdir } from 'os';
 import { runCli } from '../src/test-utils.ts';
 
 const CONFLICTED_LOCK = `<<<<<<< HEAD
-{ "version": 1, "skills": {} }
+{ "version": 2, "skills": {} }
 =======
-{ "version": 1, "skills": {} }
+{ "version": 2, "skills": {} }
 >>>>>>> feature-branch
 `;
 

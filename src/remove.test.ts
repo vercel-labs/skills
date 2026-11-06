@@ -81,7 +81,7 @@ This is a test skill.
     it('should clean stale lock entry even when no skills are installed on disk', () => {
       const lockPath = join(testDir, 'skills-lock.json');
       const lockContent = {
-        version: 1,
+        version: 2,
         skills: {
           'stale-skill': {
             source: 'some-source',
@@ -108,7 +108,7 @@ This is a test skill.
         lockPath,
         JSON.stringify(
           {
-            version: 1,
+            version: 2,
             skills: {
               'stale-skill': {
                 source: 'some-source',
@@ -218,7 +218,7 @@ This is a test skill.
     it('should remove skill that is missing from disk but exists in local lock file', () => {
       const lockPath = join(testDir, 'skills-lock.json');
       const lockContent = {
-        version: 1,
+        version: 2,
         skills: {
           'stale-skill': {
             source: 'some-source',
@@ -248,7 +248,7 @@ This is a test skill.
         lockPath,
         JSON.stringify(
           {
-            version: 1,
+            version: 2,
             skills: {
               'ce:review': {
                 source: 'everyinc/compound-engineering-plugin',
@@ -283,7 +283,7 @@ This is a test skill.
       writeFileSync(
         lockPath,
         JSON.stringify({
-          version: 1,
+          version: 2,
           skills: {
             'skill-one': {
               source: 'mattpocock/skills',
@@ -471,7 +471,7 @@ This is a test skill.
       writeFileSync(
         localLockPath,
         JSON.stringify({
-          version: 1,
+          version: 2,
           skills: { grilling: { source: 'mattpocock/skills', sourceType: 'github' } },
         })
       );
@@ -516,7 +516,7 @@ This is a test skill.
         lockPath,
         JSON.stringify(
           {
-            version: 1,
+            version: 2,
             skills: {
               'broken-skill': {
                 source: 'some-source',
@@ -707,7 +707,7 @@ describe('remove -a with a subset of agents', { timeout: 30000 }, () => {
       lockPath,
       JSON.stringify(
         {
-          version: 1,
+          version: 2,
           skills: {
             [skillName]: {
               source: 'owner/repo',

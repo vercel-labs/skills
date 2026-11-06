@@ -12,6 +12,7 @@ import {
 import {
   computeSkillFolderHash,
   readLocalLock,
+  getLockedSkillState,
   addSkillToLocalLock,
   type LocalSkillLockEntry,
 } from './local-lock.ts';
@@ -51,7 +52,7 @@ import {
 import { listInstalledSkills } from './installer.ts';
 import { wellKnownProvider, computeWellKnownSkillDigest } from './providers/index.ts';
 import { removeCommand } from './remove.ts';
-import { sanitizeMetadata } from './sanitize.ts';
+import { sanitizeMetadata, sanitizeName } from './sanitize.ts';
 import { track } from './telemetry.ts';
 import { agents, isUniversalAgent } from './agents.ts';
 import type { AgentType } from './types.ts';
@@ -1232,6 +1233,35 @@ export async function updateProjectSkills(
   return { successCount, failCount, foundCount: projectSkills.length };
 }
 
+/**
+ * Print each project skill whose installed files no longer match its
+ * computedHash and return how many there are. An unreadable lock reports none.
+ */
+async function reportModifiedProjectSkills(skillFilter?: string[]): Promise<number> {
+  const cwd = process.cwd();
+  const lock = await readLocalLock(cwd).catch(() => null);
+  if (!lock) return 0;
+  const entries = Object.entries(lock.skills).filter(([name]) =>
+    matchesSkillFilter(name, skillFilter)
+  );
+  const installedAt = new Map(
+    (await listInstalledSkills({ global: false, cwd })).map((skill) => [
+      sanitizeName(skill.name),
+      skill.canonicalPath,
+    ])
+  );
+  const states = await Promise.all(
+    entries.map(([name, entry]) =>
+      getLockedSkillState(name, entry, cwd, installedAt.get(sanitizeName(name)))
+    )
+  );
+  const modified = entries.filter((_, index) => states[index] === 'modified');
+  for (const [name] of modified) {
+    console.log(`${TEXT}✎ ${sanitizeMetadata(name)} has local changes${RESET}`);
+  }
+  return modified.length;
+}
+
 export function printLegacyProjectSkills(
   legacy: Array<{ name: string; source: string; entry: LocalSkillLockEntry }>
 ): void {
@@ -1259,6 +1289,7 @@ export async function runUpdate(
 ): Promise<void> {
   const options = parseUpdateOptions(args);
   let outdatedCount = 0;
+  let modifiedCount = 0;
   if (mode === 'check') {
     // Never prompt: pick the scope automatically and only report upstream deletions.
     options.yes = true;
@@ -1301,6 +1332,7 @@ export async function runUpdate(
     totalSuccess += successCount;
     totalFail += failCount;
     totalFound += foundCount;
+    if (mode === 'check') modifiedCount = await reportModifiedProjectSkills(options.skills);
   }
 
   if (options.skills && totalFound === 0) {
@@ -1318,6 +1350,12 @@ export async function runUpdate(
   if (outdatedCount > 0) {
     console.log(
       `${TEXT}${outdatedCount} skill(s) can be updated; run ${BOLD}npx skills update${RESET}${TEXT} to install${RESET}`
+    );
+    process.exitCode = 1;
+  }
+  if (modifiedCount > 0) {
+    console.log(
+      `${TEXT}${modifiedCount} skill(s) differ from skills-lock.json; run ${BOLD}npx skills install --force${RESET}${TEXT} to restore them${RESET}`
     );
     process.exitCode = 1;
   }
