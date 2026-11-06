@@ -7,6 +7,7 @@ export type AgentType =
   | 'autohand-code'
   | 'augment'
   | 'bob'
+  | 'bricks-ctor'
   | 'claude-code'
   | 'openclaw'
   | 'cline'

@@ -19,6 +19,8 @@ const reasonixHome =
   (platform() === 'win32'
     ? join(process.env.APPDATA?.trim() || join(home, 'AppData', 'Roaming'), 'reasonix')
     : join(home, '.reasonix'));
+const bricksCtorHome =
+  process.env.BRICKS_PROJECT_DESKTOP_DATA_DIR?.trim() || join(home, '.bricks-project-desktop');
 const zedAppDataHome = process.env.APPDATA?.trim();
 const zedFlatpakConfigHome = process.env.FLATPAK_XDG_CONFIG_HOME?.trim();
 
@@ -161,6 +163,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.bob/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.bob'));
+    },
+  },
+  'bricks-ctor': {
+    name: 'bricks-ctor',
+    displayName: 'BRICKS CTOR',
+    skillsDir: '.bricks/skills',
+    globalSkillsDir: join(bricksCtorHome, 'skills'),
+    detectInstalled: async () => {
+      return existsSync(bricksCtorHome) || existsSync('/Applications/CTOR.app');
     },
   },
   'claude-code': {

@@ -14,6 +14,7 @@ Skills can be installed to any of these agents:
 | Autohand Code CLI | `autohand-code` | `.autohand/skills/` | `~/.autohand/skills/` |
 | Augment | `augment` | `.augment/skills/` | `~/.augment/skills/` |
 | IBM Bob | `bob` | `.bob/skills/` | `~/.bob/skills/` |
+| BRICKS CTOR | `bricks-ctor` | `.bricks/skills/` | `~/.bricks-project-desktop/skills/` |
 | Claude Code | `claude-code` | `.claude/skills/` | `~/.claude/skills/` |
 | OpenClaw | `openclaw` | `skills/` | `~/.openclaw/skills/` |
 | Cline, Codex, Dexto, fx, Kimi Code CLI, Loaf, Pi, Sarvam Code, Warp, Zed | `cline`, `codex`, `dexto`, `fx`, `kimi-code-cli`, `loaf`, `pi`, `sarvam-code`, `warp`, `zed` | `.agents/skills/` | `~/.agents/skills/` |
@@ -107,6 +108,7 @@ shared [Agent Skills specification](https://agentskills.io). However, some featu
 - [Amp Skills Documentation](https://ampcode.com/manual#agent-skills)
 - [Antigravity Skills Documentation](https://antigravity.google/docs/skills)
 - [Factory AI / Droid Skills Documentation](https://docs.factory.ai/cli/configuration/skills)
+- [BRICKS CTOR Skills Documentation](https://docs.bricks.tools/ctor/reference/skills#using-skills)
 - [Claude Code Skills Documentation](https://code.claude.com/docs/en/skills)
 - [OpenClaw Skills Documentation](https://docs.openclaw.ai/tools/skills)
 - [Cline Skills Documentation](https://docs.cline.bot/features/skills)

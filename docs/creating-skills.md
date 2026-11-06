@@ -69,6 +69,7 @@ discover `SKILL.md` files outside these container directories (e.g. under
 - `.autohand/skills/`
 - `.augment/skills/`
 - `.bob/skills/`
+- `.bricks/skills/`
 - `.claude/skills/`
 - `.codeartsdoer/skills/`
 - `.codebuddy/skills/`
