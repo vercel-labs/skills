@@ -87,6 +87,10 @@ function errorText(e) {
     case 'invalid_quantity': return 'Enter a quantity of 1 or more.';
     case 'invalid_value': return 'That value isn\'t valid.';
     case 'listing_not_found': case 'booking_not_found': return 'We couldn\'t find that.';
+    case 'invalid_pin': return 'Your PIN must be exactly 6 digits.';
+    case 'invalid_credentials': return d.attempts_left != null ? `Name, flat or PIN doesn't match. ${d.attempts_left} ${d.attempts_left === 1 ? 'try' : 'tries'} left.` : 'Name, flat or PIN doesn\'t match.';
+    case 'account_locked': return 'Too many wrong PINs. Try again in 15 minutes.';
+    case 'already_registered': return 'That name and flat are already registered. Use "I already have an account".';
     case 'invalid_phone': return 'Enter a valid 10-digit mobile number.';
     case 'otp_invalid': return d.attempts_left != null ? `That code isn't right. ${d.attempts_left} ${d.attempts_left === 1 ? 'try' : 'tries'} left.` : 'That code isn\'t right or has expired. Ask for a new one.';
     case 'too_many_attempts': return 'Too many wrong tries. Ask for a new code.';
@@ -142,6 +146,7 @@ const fieldErr = (root, msg) => { const el = $('#err', root); if (el) { el.textC
 
 async function login() {
   if (state.authMode === 'dev') return devLogin();
+  if (state.authMode === 'link') return linkLogin();
   const step = ui.step === 'code' && state.phone ? 'code' : 'phone';
   if (step === 'phone') {
     return {
@@ -207,6 +212,38 @@ async function login() {
   };
 }
 
+async function linkLogin() {
+  const signup = state.linkMode !== 'signin';
+  const invite = store.get('invite') || '';
+  return {
+    html: `<div class="page-head"><h1 class="h1">Society Kitchen</h1><p class="sub">Home-cooked food from your neighbours.</p></div>
+      <div class="seg" role="tablist">
+        <button role="tab" aria-selected="${signup}" class="${signup ? 'on' : ''}" data-action="mode" data-m="signup">New here</button>
+        <button role="tab" aria-selected="${!signup}" class="${!signup ? 'on' : ''}" data-action="mode" data-m="signin">I have an account</button></div>
+      <form class="stack" id="f" novalidate>
+        <div><label class="lab" for="invite">Society invite code</label><input class="field" id="invite" autocapitalize="characters" autocomplete="off" placeholder="e.g. MAPLE-123" value="${esc(invite)}"></div>
+        <div><label class="lab" for="name">Your name</label><input class="field" id="name" autocomplete="name" maxlength="60"></div>
+        <div><label class="lab" for="flat">Flat / unit</label><input class="field" id="flat" autocomplete="off" maxlength="20" placeholder="e.g. B-402"></div>
+        <div><label class="lab" for="pin">${signup ? 'Choose a 6-digit PIN' : 'Your 6-digit PIN'}</label><input class="field" id="pin" type="password" inputmode="numeric" autocomplete="${signup ? 'new-password' : 'current-password'}" maxlength="6"></div>
+        <p class="small">${signup ? "Remember your PIN: it's how you sign back in on a new phone. Neighbours see your name and flat." : ''}</p>
+        <p class="small" id="err" role="alert" style="color:var(--danger)" hidden></p>
+        <button class="btn" id="go" type="submit">${signup ? 'Join and continue' : 'Sign in'}</button>
+      </form>`,
+    bind: (root) => {
+      on(root, 'mode', (el) => { state.linkMode = el.dataset.m; route(); });
+      $(invite ? '#name' : '#invite', root).focus();
+      $('#f', root).addEventListener('submit', async (ev) => {
+        ev.preventDefault(); const btn = $('#go', root);
+        const body = { invite_code: $('#invite', root).value.trim(), display_name: $('#name', root).value.trim(), flat_label: $('#flat', root).value.trim(), pin: $('#pin', root).value };
+        if (!body.invite_code || !body.display_name || !body.flat_label || !body.pin) return fieldErr(root, 'Fill in every field.');
+        btn.disabled = true; fieldErr(root, '');
+        try { await api('POST', signup ? '/api/auth/signup' : '/api/auth/login', body); store.set('invite', body.invite_code); state.filter = 'all'; location.hash = '#/'; await route(); }
+        catch (e) { fieldErr(root, errorText(e)); btn.disabled = false; $('#pin', root).value = ''; }
+      });
+    },
+  };
+}
+
 async function devLogin() {
   const { users } = await api('GET', '/api/dev/users');
   const groups = users.reduce((m, u) => ((m[u.society] ||= []).push(u), m), {});
@@ -255,10 +292,17 @@ async function account() {
       <div class="stack" style="padding-top:12px">
         <div class="row gap6"><span class="avatar">${esc(initials(m.display_name))}</span><div class="col"><b>${esc(m.display_name)}</b><span class="small">${esc(m.flat_label)} · ${esc(m.society_name)}</span></div></div>
         ${state.account?.phone ? `<div class="fact">${svg('user', 20)}<div class="col"><div class="k">Mobile number</div><div class="v">${esc(state.account.phone)}</div></div></div>` : ''}
+        ${m.invite_code ? `<div class="fact">${svg('info', 20)}<div class="col"><div class="k">Invite neighbours</div><div class="v">Code ${esc(m.invite_code)}</div></div></div><button class="btn" id="invite">Share invite link</button>` : ''}
         <button class="btn outline" id="logout">Log out</button>
         ${state.authMode === 'dev' ? '<button class="btn neutral" id="switch">Switch user (dev)</button>' : ''}
       </div>`,
     bind: (root) => {
+      $('#invite', root)?.addEventListener('click', async () => {
+        const url = `${location.origin}/?join=${encodeURIComponent(m.invite_code)}`;
+        const text = `Join ${m.society_name} on Society Kitchen to buy and sell home-cooked food: ${url}`;
+        try { if (navigator.share) await navigator.share({ title: 'Society Kitchen', text }); else { await navigator.clipboard.writeText(text); toast('Invite copied. Paste it in your group.'); } }
+        catch (e) { if (e.name !== 'AbortError') toast('Could not share. Copy this link: ' + url); }
+      });
       $('#logout', root).addEventListener('click', logout);
       $('#switch', root)?.addEventListener('click', () => { state.uid = ''; store.set('uid', ''); state.account = null; state.me = null; location.hash = '#/login'; route(); });
     },
@@ -717,6 +761,8 @@ async function route() {
 }
 window.addEventListener('hashchange', route);
 (async () => {
+  const joinCode = new URLSearchParams(location.search).get('join');
+  if (joinCode) { store.set('invite', joinCode.slice(0, 40)); history.replaceState(null, '', location.pathname + location.hash); }
   try { state.authMode = (await api('GET', '/api/config')).authMode; } catch {}
   route();
 })();

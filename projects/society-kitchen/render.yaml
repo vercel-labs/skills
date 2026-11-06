@@ -1,0 +1,23 @@
+# Render settings for this app (docs/DEPLOY.md walks through them with a plain "New Web Service").
+# The database lives elsewhere (Supabase or Neon free tier): paste its connection string
+# when Render asks for DATABASE_URL.
+services:
+  - type: web
+    name: society-kitchen
+    runtime: node
+    plan: free
+    rootDir: projects/society-kitchen   # remove this line if the app is at the repo root
+    buildCommand: npm install --omit=dev
+    startCommand: node server/server.mjs
+    healthCheckPath: /api/health
+    envVars:
+      - key: AUTH_MODE
+        value: link
+      - key: COOKIE_SECURE
+        value: "1"
+      - key: TRUST_PROXY
+        value: "1"
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        sync: false

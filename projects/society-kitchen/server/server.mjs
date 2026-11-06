@@ -14,7 +14,11 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Pool } from '../lib/minipg.mjs';
+import { createPinAuth } from './pinauth.mjs';
+// Real deployments use the `pg` package (TLS + password auth for managed Postgres).
+// Without it (e.g. in tests) fall back to the tiny built-in client, which only speaks to a local trust-auth server.
+let Pool;
+try { ({ Pool } = (await import('pg')).default); } catch { ({ Pool } = await import('../lib/minipg.mjs')); }
 import { extractListing } from './extract.mjs';
 import { createAuth, AuthError } from './auth.mjs';
 import { createSender } from './sms.mjs';
@@ -23,11 +27,11 @@ import { createLimiter } from './ratelimit.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const APP_DIR = path.join(here, '../app');
 const PORT = Number(process.env.PORT ?? 4173);
-const AUTH_MODE = process.env.AUTH_MODE ?? 'otp';
+const AUTH_MODE = process.env.AUTH_MODE ?? 'link';
 const COOKIE = 'sk_session';
 const TRUST_PROXY = process.env.TRUST_PROXY === '1';
 
-if (!['otp', 'dev'].includes(AUTH_MODE)) { console.error('AUTH_MODE must be otp or dev'); process.exit(1); }
+if (!['link', 'otp', 'dev'].includes(AUTH_MODE)) { console.error('AUTH_MODE must be link, otp or dev'); process.exit(1); }
 if (!process.env.DATABASE_URL) {
   console.error('DATABASE_URL is required, e.g. postgres://user@127.0.0.1:5432/society_kitchen');
   process.exit(1);
@@ -40,15 +44,16 @@ if (AUTH_MODE === 'otp') {
     console.error('OTP_PROVIDER=console prints codes in the log. Set OTP_PROVIDER=webhook, or ALLOW_CONSOLE_OTP=1 for local testing.');
     process.exit(1);
   }
-} else if (!authSecret) {
-  authSecret = crypto.randomBytes(24).toString('hex');
-  console.warn('WARNING: AUTH_MODE=dev - anyone can sign in as any seeded user. Do not expose this server.');
+} else {
+  authSecret ||= crypto.randomBytes(24).toString('hex'); // only used for one-time codes, which these modes don't send
+  if (AUTH_MODE === 'dev') console.warn('WARNING: AUTH_MODE=dev - anyone can sign in as any seeded user. Do not expose this server.');
 }
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 10 });
 const auth = createAuth({
   pool, secret: authSecret,
   send: createSender({ provider: otpProvider, webhookUrl: process.env.OTP_WEBHOOK_URL }),
 });
+const pinAuth = createPinAuth({ pool, withUser: (uid, fn) => withUser(uid, fn) });
 const joinLimiter = createLimiter({ windowMs: 3600e3, max: 10 });
 
 class ApiError extends Error {
@@ -117,13 +122,22 @@ if (AUTH_MODE === 'otp') {
     const [p] = await pool.query('select 1 from profiles where id = $1', [accountId]).then((r) => r.rows);
     return { ok: true, has_profile: !!p, _cookie: cookieHeader(token, 30 * 86400) };
   }, { auth: false });
-} else {
+} else if (AUTH_MODE === 'dev') {
   // Dev only: list seeded users (runs without RLS).
   route('GET', '/api/dev/users', async () => ({
     users: (await pool.query(
       `select p.id, p.display_name, p.flat_label, s.name as society
          from profiles p join societies s on s.id = p.society_id order by s.name, p.display_name`)).rows,
   }), { auth: false });
+}
+
+if (AUTH_MODE === 'link') {
+  const start = (fn) => async ({ body, req, ip }) => {
+    const { token } = await fn(body, ip, req.headers['user-agent']);
+    return { ok: true, _cookie: cookieHeader(token, 30 * 86400) };
+  };
+  route('POST', '/api/auth/signup', start(pinAuth.signup), { auth: false });
+  route('POST', '/api/auth/login', start(pinAuth.login), { auth: false });
 }
 
 route('POST', '/api/auth/logout', async ({ token }) => {
@@ -143,7 +157,7 @@ route('POST', '/api/auth/join', async ({ uid, body }) => {
 route('GET', '/api/me', ({ uid }) => withUser(uid, async (c) => {
   const [acct] = (await pool.query('select id, phone from accounts where id = $1', [uid])).rows;
   const account = { id: uid, phone: acct?.phone ?? null };
-  const [me] = await rows(c, `select p.id, p.display_name, p.flat_label, s.name as society_name
+  const [me] = await rows(c, `select p.id, p.display_name, p.flat_label, s.name as society_name, s.invite_code
                                 from profiles p join societies s on s.id = p.society_id where p.id = app_uid()`);
   if (!me) return { account, me: null, unread: 0 };
   const [{ n }] = await rows(c, `select count(*)::int as n from notifications where read_at is null`);
@@ -248,7 +262,7 @@ route('POST', '/api/notifications/read', ({ uid }) => withUser(uid, async (c) =>
 // ---- http plumbing ----
 function send(res, status, data) {
   const { _cookie, ...rest } = data ?? {};
-  const headers = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
+  const headers = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' };
   if (_cookie !== undefined) headers['set-cookie'] = _cookie;
   res.writeHead(status, headers);
   res.end(JSON.stringify(rest));
@@ -298,7 +312,7 @@ async function handleApi(req, res, url) {
 }
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
-  '.svg': 'image/svg+xml', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.png': 'image/png' };
+  '.svg': 'image/svg+xml', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.ico': 'image/x-icon' };
 
 async function serveStatic(req, res, url) {
   let rel = decodeURIComponent(url.pathname);
@@ -307,7 +321,7 @@ async function serveStatic(req, res, url) {
   if (!file.startsWith(APP_DIR + path.sep)) { res.writeHead(403); return res.end(); }
   try {
     const data = await fs.readFile(file);
-    res.writeHead(200, { 'content-type': MIME[path.extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-store' });
+    res.writeHead(200, { 'content-type': MIME[path.extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY', 'referrer-policy': 'same-origin' });
     res.end(data);
   } catch {
     res.writeHead(404, { 'content-type': 'text/plain' }); res.end('Not found');

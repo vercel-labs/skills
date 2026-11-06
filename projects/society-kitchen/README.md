@@ -18,8 +18,7 @@ ADMIN_URL=postgres://YOUR_USER@127.0.0.1:5432/postgres DB=society_kitchen script
 
 # 2. Start the app (demo mode: pick any resident, no password)
 AUTH_MODE=dev DATABASE_URL=postgres://YOUR_USER@127.0.0.1:5432/society_kitchen node server/server.mjs
-#    Real sign-in locally: omit AUTH_MODE and set AUTH_SECRET (16+ random chars) and ALLOW_CONSOLE_OTP=1.
-#    Codes are then printed in the server log. Demo phones: 90000 00001 ... 90000 00008.
+#    Real sign-in locally: omit AUTH_MODE, then open http://localhost:4173/?join=MAPLE-123 (demo society code).
 
 # 3. Open http://localhost:4173 on your computer, or on your phone on the same Wi-Fi
 #    (use your computer's address instead of localhost)
@@ -27,7 +26,15 @@ AUTH_MODE=dev DATABASE_URL=postgres://YOUR_USER@127.0.0.1:5432/society_kitchen n
 
 `YOUR_USER` must be a Postgres superuser for the demo. In dev mode pick a resident on the sign-in screen. Try two browsers as two residents to see the "someone booked first" case.
 
-## Sign-in (phone number + code)
+## Put it online and invite your society
+
+See [docs/DEPLOY.md](docs/DEPLOY.md): free hosting (Neon + Render), the invite link, and installing on phones.
+
+## Sign-in
+
+The default (`AUTH_MODE=link`) needs no SMS: neighbours open your society's invite link, enter name, flat and a 6-digit PIN, and can sign back in on a new phone with the same details. Anyone with the link can join, so treat the invite code like a shared password. `AUTH_MODE=otp` (below) adds phone verification once you have an SMS gateway; `AUTH_MODE=dev` is for demos only.
+
+### Phone number + code (AUTH_MODE=otp)
 
 Default mode (`AUTH_MODE=otp`): enter a mobile number, get a 6-digit code by SMS, then (first time only) enter your society's invite code, name and flat. A cookie keeps you signed in for 30 days; Log out ends it on the server.
 
@@ -52,4 +59,6 @@ ADMIN_URL=postgres://... npm run test:e2e # browser tests; needs Playwright inst
 
 - Push notifications. Alerts appear in the app only.
 - Plain-language extraction is rule-based. It handles the common phrasings and asks about anything unclear, but a Claude-powered version would understand more.
-- An SMS provider. Sign-in is built, but you must plug a gateway in (see below). Indian gateways need a registered message template (DLT).
+- Phone verification in the default mode. The SMS version is built (`AUTH_MODE=otp`) but needs a paid gateway.
+- PIN reset for forgotten PINs (a database admin can do it; see docs/DEPLOY.md).
+- Offline use. The installed app still needs an internet connection.

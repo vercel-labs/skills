@@ -94,3 +94,9 @@ Plain-language listing is rule-based for now. It fills in only what the text cle
 - Sessions: random 256-bit token, stored hashed, revocable, 30 days, HttpOnly + SameSite=Lax cookie (Secure when `COOKIE_SECURE=1`). CSRF: custom `x-sk` header on all non-GET calls.
 - `accounts.id` equals `profiles.id`. A signed-in account with no profile is sent to the invite-code screen; invite attempts are limited to 10/hour per account.
 - `AUTH_MODE=dev` (pick-a-user, `x-user-id`) exists only for demos/tests; the server refuses to start in otp mode without `AUTH_SECRET`, or with the console provider unless explicitly allowed.
+
+## Link + PIN sign-in (default, no SMS)
+
+Decision: no paid SMS gateway, so "anyone with the link can join" with these safeguards. The invite link carries the society's invite code (unique, case-insensitive, rotated by editing one row). Each resident chooses a 6-digit PIN (scrypt-hashed, salted); 5 wrong PINs lock that account for 15 minutes, counted atomically so parallel guesses can't beat it; per-IP caps; unknown resident and wrong PIN give the same error. Same name + flat (ignoring case, spaces and dashes) cannot register twice within a society. Trade-off accepted: identity is not verified, and a leaked code lets outsiders join until it is changed. The phone-OTP mode stays available behind `AUTH_MODE=otp`.
+
+Also added: installable web app (manifest + icons), `deploy/setup.sql` (one-paste database setup, tested on a non-superuser database like Neon's), `scripts/init-db.sh`, `scripts/create-society.sh`, docs/DEPLOY.md, `pg` driver for hosted databases (the built-in client is used only when `pg` isn't installed, i.e. in tests).
