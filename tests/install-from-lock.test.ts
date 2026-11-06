@@ -3,7 +3,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from '../src/test-utils.ts';
-import { computeSkillFolderHash } from '../src/local-lock.ts';
+import { computeLegacySkillFolderHash, computeSkillFolderHash } from '../src/local-lock.ts';
 
 describe('experimental_install', () => {
   let testDir: string;
@@ -20,7 +20,7 @@ describe('experimental_install', () => {
     writeFileSync(
       join(testDir, 'skills-lock.json'),
       JSON.stringify({
-        version: 1,
+        version: 2,
         skills: Object.fromEntries(
           Object.entries(skills).map(([name, source]) => [
             name,
@@ -52,6 +52,46 @@ describe('experimental_install', () => {
 
   afterEach(() => {
     rmSync(testDir, { recursive: true, force: true });
+  });
+
+  function writeV1Lock(computedHash: string): void {
+    writeFileSync(
+      join(testDir, 'skills-lock.json'),
+      JSON.stringify({
+        version: 1,
+        skills: { alpha: { source: './src-a', sourceType: 'local', computedHash } },
+      })
+    );
+  }
+
+  it('upgrades a v1 lock in place, keeping installed skills that match it', async () => {
+    writeSkill(join(testDir, 'src-a', 'alpha'), 'alpha');
+    writeSkill(join(testDir, '.agents', 'skills', 'alpha'), 'alpha');
+    writeV1Lock(await computeLegacySkillFolderHash(join(testDir, '.agents', 'skills', 'alpha')));
+
+    const result = runCli(['experimental_install'], testDir);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('1 skill already installed');
+    const lock = JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8'));
+    expect(lock.version).toBe(2);
+    expect(lock.skills.alpha.computedHash).toBe(
+      await computeSkillFolderHash(join(testDir, '.agents', 'skills', 'alpha'))
+    );
+  });
+
+  it('restores an installed skill that no longer matches its v1 hash', () => {
+    writeSkill(join(testDir, 'src-a', 'alpha'), 'alpha');
+    mkdirSync(join(testDir, '.agents', 'skills', 'alpha'), { recursive: true });
+    writeFileSync(join(testDir, '.agents', 'skills', 'alpha', 'SKILL.md'), 'edited');
+    writeV1Lock('v1');
+
+    const result = runCli(['experimental_install'], testDir);
+
+    expect(result.exitCode).toBe(0);
+    expect(
+      readFileSync(join(testDir, '.agents', 'skills', 'alpha', 'SKILL.md'), 'utf-8')
+    ).toContain('name: alpha');
   });
 
   it('restores every source in the lock', () => {
@@ -116,18 +156,35 @@ describe('experimental_install', () => {
     const installedContent = () =>
       readFileSync(join(testDir, '.agents', 'skills', 'alpha', 'SKILL.md'), 'utf-8');
 
-    beforeEach(() => {
-      writeSkill(join(testDir, 'src-a', 'alpha'), 'alpha');
-      writeLock({ alpha: './src-a' });
-      mkdirSync(join(testDir, '.agents', 'skills', 'alpha'), { recursive: true });
-      writeFileSync(join(testDir, '.agents', 'skills', 'alpha', 'SKILL.md'), 'edited');
+    beforeEach(async () => {
+      await writeMatchingLock();
+      expect(runCli(['experimental_install'], testDir).exitCode).toBe(0);
     });
 
-    it('are left as they are', () => {
+    it('are left as they are when they match the lock', () => {
       const result = runCli(['experimental_install'], testDir);
 
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('1 skill already installed');
+    });
+
+    it('are restored when their files differ from the lock', () => {
+      writeFileSync(join(testDir, '.agents', 'skills', 'alpha', 'SKILL.md'), 'edited');
+
+      const result = runCli(['experimental_install'], testDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('alpha does not match skills-lock.json');
+      expect(installedContent()).toContain('name: alpha');
+    });
+
+    it('are only reported as modified with --dry-run', () => {
+      writeFileSync(join(testDir, '.agents', 'skills', 'alpha', 'SKILL.md'), 'edited');
+
+      const result = runCli(['experimental_install', '--dry-run'], testDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('would restore the locked version');
       expect(installedContent()).toBe('edited');
     });
 
@@ -142,6 +199,7 @@ describe('experimental_install', () => {
       const result = runCli(['experimental_install', '--force'], testDir);
 
       expect(result.exitCode).toBe(0);
+      expect(result.stdout).not.toContain('already installed');
       expect(installedContent()).toContain('name: alpha');
     });
   });
@@ -223,16 +281,12 @@ describe('experimental_install', () => {
 
     it('are added to skills that are already installed', () => {
       expect(restore().exitCode).toBe(0);
-      writeFileSync(join(testDir, '.agents', 'skills', 'alpha', 'SKILL.md'), 'edited');
 
       const result = restore(['--agent', 'claude-code']);
 
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('1 skill already installed');
       expect(linkOf('.claude').isSymbolicLink()).toBe(true);
-      expect(readFileSync(join(testDir, '.claude', 'skills', 'alpha', 'SKILL.md'), 'utf-8')).toBe(
-        'edited'
-      );
     });
 
     it('are only planned with --dry-run', () => {
@@ -268,6 +322,40 @@ describe('experimental_install', () => {
       expect(result.stdout).toContain('skills-lock.json is not up to date');
       expect(result.stdout).toContain('alpha has changed');
       expect(installed('alpha')).toBe(false);
+      expect(lockFile()).toBe(before);
+    });
+
+    it('fails for an entry migrated from a v1 lock without its skill installed', () => {
+      writeSkill(join(testDir, 'src-a', 'alpha'), 'alpha');
+      writeFileSync(
+        join(testDir, 'skills-lock.json'),
+        JSON.stringify({
+          version: 1,
+          skills: { alpha: { source: './src-a', sourceType: 'local', computedHash: 'v1' } },
+        })
+      );
+      const before = lockFile();
+
+      const result = runCli(['experimental_install', '--frozen-lockfile'], testDir);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('alpha has no content hash');
+      expect(installed('alpha')).toBe(false);
+      expect(lockFile()).toBe(before);
+    });
+
+    it('restores over an installed skill that differs from the lock', async () => {
+      await writeMatchingLock();
+      expect(runCli(['experimental_install'], testDir).exitCode).toBe(0);
+      const before = lockFile();
+      writeFileSync(join(testDir, '.agents', 'skills', 'alpha', 'SKILL.md'), 'edited');
+
+      const result = runCli(['experimental_install', '--frozen-lockfile'], testDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(
+        readFileSync(join(testDir, '.agents', 'skills', 'alpha', 'SKILL.md'), 'utf-8')
+      ).toContain('name: alpha');
       expect(lockFile()).toBe(before);
     });
 

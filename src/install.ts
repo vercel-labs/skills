@@ -1,8 +1,7 @@
 import { existsSync } from 'fs';
-import { join } from 'path';
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
-import { readLocalLock } from './local-lock.ts';
+import { getLockedSkillState, readLocalLock } from './local-lock.ts';
 import { fetchSources, installFromSource } from './add.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { agents, detectInstalledAgents, getUniversalAgents, isUniversalAgent } from './agents.ts';
@@ -57,7 +56,8 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
   const { options: syncOptions } = parseSyncOptions(args);
   const frozen = syncOptions.frozenLockfile ?? isCI();
   const force = args.includes('--force');
-  const lock = await readLocalLock(cwd);
+  // A v1 lock is rewritten as v2 unless this run must not write the lock
+  const lock = await readLocalLock(cwd, { persistMigration: !frozen && !syncOptions.dryRun });
   const skillEntries = Object.entries(lock.skills);
 
   if (skillEntries.length === 0) {
@@ -88,6 +88,8 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
   // Separate node_modules skills from remote skills
   const nodeModuleSkills: string[] = [];
   const alreadyInstalled: string[] = [];
+  // Installed, but the files no longer match the lock; restored over
+  const modifiedSkills: string[] = [];
   // Lock entries that could not be restored; their lock entries are left untouched
   const failedSkills: string[] = [];
   // Keyed by source, install mode, and download, so copied skills stay copies
@@ -102,9 +104,13 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
       continue;
     }
 
-    if (!force && existsSync(join(getCanonicalPath(skillName, { cwd }), 'SKILL.md'))) {
-      alreadyInstalled.push(skillName);
-      continue;
+    if (!force) {
+      const state = await getLockedSkillState(skillName, entry, cwd);
+      if (state === 'tracked') {
+        alreadyInstalled.push(skillName);
+        continue;
+      }
+      if (state === 'modified') modifiedSkills.push(skillName);
     }
 
     // A download is fetched again from its URL as-is; it has no folder or ref to append.
@@ -128,6 +134,12 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
   if (alreadyInstalled.length > 0) {
     p.log.info(
       `${pc.cyan(String(alreadyInstalled.length))} skill${alreadyInstalled.length !== 1 ? 's' : ''} already installed ${pc.dim('(use --force to reinstall)')}`
+    );
+  }
+
+  if (modifiedSkills.length > 0) {
+    p.log.warn(
+      `${modifiedSkills.map((name) => pc.cyan(name)).join(', ')} ${modifiedSkills.length === 1 ? 'does' : 'do'} not match skills-lock.json; ${syncOptions.dryRun ? 'would restore' : 'restoring'} the locked version`
     );
   }
 

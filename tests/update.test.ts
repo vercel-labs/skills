@@ -144,7 +144,7 @@ describe('Update Cleanup Unit Tests', () => {
     it('should prompt to remove deleted skill on update', async () => {
       // Mock local lock with 2 skills from same source
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
-        version: 1,
+        version: 2,
         skills: {
           'skill-a': {
             source: 'owner/repo',
@@ -187,7 +187,7 @@ describe('Update Cleanup Unit Tests', () => {
 
     it('should skip deletion in non-interactive mode', async () => {
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
-        version: 1,
+        version: 2,
         skills: {
           'skill-a': {
             source: 'owner/repo',
@@ -226,7 +226,7 @@ describe('Update Cleanup Unit Tests', () => {
       });
 
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
-        version: 1,
+        version: 2,
         skills: {
           'skill-a': {
             source: 'owner/repo',
@@ -256,7 +256,7 @@ describe('Update Cleanup Unit Tests', () => {
 
     it('uses full-depth discovery for project deletion checks', async () => {
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
-        version: 1,
+        version: 2,
         skills: {
           'help-me-read': {
             source: 'owner/repo',
@@ -292,7 +292,7 @@ describe('Update Cleanup Unit Tests', () => {
 
     it('updates a relocated project skill from its canonical path', async () => {
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
-        version: 1,
+        version: 2,
         skills: {
           'swiftui-expert-skill': {
             source: 'owner/repo',
@@ -334,7 +334,7 @@ describe('Update Cleanup Unit Tests', () => {
 
     it('does not reinstall a project skill whose content hash is unchanged', async () => {
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
-        version: 1,
+        version: 2,
         skills: {
           'skill-a': {
             source: 'owner/repo',
@@ -362,7 +362,7 @@ describe('Update Cleanup Unit Tests', () => {
 
     it('reinstalls only the project skills whose content hash changed', async () => {
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
-        version: 1,
+        version: 2,
         skills: {
           'skill-a': {
             source: 'owner/repo',
@@ -404,7 +404,7 @@ describe('Update Cleanup Unit Tests', () => {
 
     it('skips an ambiguous relocated project skill without deleting it', async () => {
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
-        version: 1,
+        version: 2,
         skills: {
           'skill-a': {
             source: 'owner/repo',
@@ -439,7 +439,7 @@ describe('Update Cleanup Unit Tests', () => {
 
     it('updates a GitHub skill from its locked path when a same-name mirror exists', async () => {
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
-        version: 1,
+        version: 2,
         skills: {
           'skill-a': {
             source: 'owner/repo',
@@ -477,7 +477,7 @@ describe('Update Cleanup Unit Tests', () => {
 
     it('does not reinstall an ambiguous exact-path skill from a generic Git source', async () => {
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
-        version: 1,
+        version: 2,
         skills: {
           'skill-a': {
             source: 'owner/repo',
@@ -513,7 +513,7 @@ describe('Update Cleanup Unit Tests', () => {
 
     it('does not reinstall project skills when source discovery fails', async () => {
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
-        version: 1,
+        version: 2,
         skills: {
           'skill-a': {
             source: 'owner/repo',
@@ -534,7 +534,7 @@ describe('Update Cleanup Unit Tests', () => {
 
     it('uses sourceUrl for self-hosted GitLab project updates', async () => {
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
-        version: 1,
+        version: 2,
         skills: {
           'skill-a': {
             source: 'acme/skills',
@@ -571,7 +571,7 @@ describe('Update Cleanup Unit Tests', () => {
 
     it('normalizes GitHub shorthand for deletion checks and keeps updates path-targeted', async () => {
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
-        version: 1,
+        version: 2,
         skills: {
           'skill-a': {
             source: 'owner/repo',
@@ -603,7 +603,7 @@ describe('Update Cleanup Unit Tests', () => {
 
     it('reinstalls into the Eve subagents recorded at install time', async () => {
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
-        version: 1,
+        version: 2,
         skills: {
           'skill-a': {
             source: 'owner/repo',
@@ -642,7 +642,7 @@ describe('Update Cleanup Unit Tests', () => {
 
     it('counts a skill no target accepted as failed and prints why', async () => {
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
-        version: 1,
+        version: 2,
         skills: {
           'skill-a': {
             source: 'owner/repo',
@@ -679,7 +679,7 @@ describe('Update Cleanup Unit Tests', () => {
     it('pins public GitHub project updates to github.com when GH_HOST points elsewhere', async () => {
       vi.stubEnv('GH_HOST', 'github.example.com');
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
-        version: 1,
+        version: 2,
         skills: {
           'skill-a': {
             source: 'owner/repo',
@@ -703,7 +703,7 @@ describe('Update Cleanup Unit Tests', () => {
 
     it('does not reinterpret generic git shorthands as GitHub during project update', async () => {
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
-        version: 1,
+        version: 2,
         skills: {
           'skill-a': {
             source: 'acme/skills',
@@ -1412,7 +1412,7 @@ describe('Update Cleanup Unit Tests', () => {
   describe('runUpdate exit status', () => {
     beforeEach(() => {
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
-        version: 1,
+        version: 2,
         skills: {
           'skill-a': {
             source: 'owner/repo',
@@ -1456,7 +1456,7 @@ describe('Update Cleanup Unit Tests', () => {
   describe('check', () => {
     it('picks a scope without prompting and installs no project update', async () => {
       vi.mocked(localLock.readLocalLock).mockResolvedValue({
-        version: 1,
+        version: 2,
         skills: {
           'skill-a': {
             source: 'owner/repo',

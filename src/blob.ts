@@ -10,7 +10,6 @@
  *   3. skills.sh/api/download → fetch full file contents from cached blob
  */
 
-import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { AGENT_PROJECT_SKILL_DIRS } from './agents.ts';
 import { parseFrontmatter } from './frontmatter.ts';
@@ -18,6 +17,7 @@ import { sanitizeMetadata } from './sanitize.ts';
 import { getGitHubHost } from './github-host.ts';
 import type { Skill } from './types.ts';
 import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
+import { hashSkillFiles, isExcludedPath } from './skill-hash.ts';
 import { SKILLS_SH_CONFIG_FILE, parseSkillsShPaths } from './skills-sh-config.ts';
 
 // ─── Types ───
@@ -495,13 +495,13 @@ export interface BlobInstallResult {
   tree: RepoTree;
 }
 
+/** The installed copy's computedHash: only the files the installer writes count. */
 function computeSnapshotHash(files: SkillSnapshotFile[]): string {
-  const hash = createHash('sha256');
-  for (const file of [...files].sort((a, b) => a.path.localeCompare(b.path))) {
-    hash.update(file.path);
-    hash.update(file.contents);
-  }
-  return hash.digest('hex');
+  return hashSkillFiles(
+    files
+      .filter((file) => !isExcludedPath(file.path))
+      .map((file) => ({ path: file.path, content: file.contents }))
+  );
 }
 
 function getSkillFolderPath(skillMdPath: string): string {
@@ -511,17 +511,10 @@ function getSkillFolderPath(skillMdPath: string): string {
   return skillMdPath.slice(0, -(1 + 'SKILL.md'.length));
 }
 
-// Keep these exclusions aligned with copyDirectory() in installer.ts. Cached
-// snapshots do not need files that the normal clone installer intentionally
-// omits, but every other repository blob in a nested skill must be present.
-const SNAPSHOT_EXCLUDED_FILES = new Set(['metadata.json']);
-const SNAPSHOT_EXCLUDED_DIRS = new Set(['.git', '__pycache__', '__pypackages__']);
-
+// Cached snapshots do not need files that the clone installer omits, but every
+// other repository blob in a nested skill must be present.
 function isInstallableSnapshotPath(path: string): boolean {
-  const parts = path.split('/');
-  const fileName = parts.at(-1);
-  if (!fileName || SNAPSHOT_EXCLUDED_FILES.has(fileName)) return false;
-  return parts.slice(0, -1).every((part) => !SNAPSHOT_EXCLUDED_DIRS.has(part));
+  return !isExcludedPath(path);
 }
 
 function hasCompleteNestedSnapshot(
@@ -703,9 +696,8 @@ export async function tryBlobInstall(
       rawContent: skill.content,
       metadata: skill.metadata,
       files,
-      // Hash locally rather than trusting download.hash. The server's hashSkillFiles
-      // (add-skill-telemetry) joins path and contents with \0 separators, so it never
-      // matches computeSkillFolderHash and `check` would flag every fresh add as outdated.
+      // Hash locally rather than trusting download.hash, so the lock records the
+      // same computedHash a clone install of this skill would.
       snapshotHash: computeSnapshotHash(files),
       repoPath: skill.mdPath,
     };

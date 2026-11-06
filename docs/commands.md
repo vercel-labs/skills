@@ -153,6 +153,11 @@ npx skills ls -g
 npx skills ls -a claude-code -a cursor
 ```
 
+Project skills are compared with `skills-lock.json`. A skill whose files no longer match
+the lock's content hash is marked `modified`. A skill with no lock entry is marked
+`untracked`. A locked skill that is not on disk is listed under `Missing`. With
+`--json`, each skill has a `status`: `tracked`, `modified`, `untracked`, or `missing`.
+
 ## `skills find`
 
 Search for skills interactively or by keyword.
@@ -176,7 +181,9 @@ Check installed skills for available updates without reinstalling them:
 npx skills check
 ```
 
-It exits with code 1 when any skill has an update, so it can gate CI.
+It also reports project skills whose installed files differ from the content hash in
+`skills-lock.json` (`has local changes`). It exits with code 1 when any skill has an
+update or local changes, so it can gate CI.
 
 ## `skills update`
 
@@ -370,8 +377,10 @@ npx skills experimental_install
 a source, they behave like `skills add`.
 
 Restore supported sources recorded in `skills-lock.json` into `.agents/skills/` and
-link them into agent directories. Skills already in `.agents/skills/` are left as they
-are and only get the agent links they are missing; pass `--force` to reinstall them.
+link them into agent directories. Skills already in `.agents/skills/` whose files match
+the lock's content hash are left as they are and only get the agent links they are
+missing. Skills whose files differ are restored from their source. Pass `--force` to
+reinstall every skill.
 Entries from npm packages are synced from the dependencies already on disk, so
 install your npm dependencies before restoring. This command does not install
 npm packages.
@@ -390,7 +399,9 @@ machine. With none of these, only `.agents/skills/` is filled. Skills recorded w
 | `--force`              | Reinstall skills that are already in `.agents/skills/`      |
 
 With `--frozen-lockfile`, every restored skill must match the content hash recorded
-in `skills-lock.json`. A source whose skills differ is skipped entirely, the lock is
+in `skills-lock.json`, and so must every skill that is skipped because it is already
+installed. An entry with no hash is an error. A version 1 lock produces one when the skill was
+not installed, or when its files did not match the version 1 hash. A source whose skills differ is skipped entirely, the lock is
 left untouched, and the command exits with code 1. A missing or empty lock is also
 an error. This is the default in CI; pass `--no-frozen-lockfile` to refresh the lock
 from CI instead.

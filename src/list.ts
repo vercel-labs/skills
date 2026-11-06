@@ -5,7 +5,7 @@ import { diagnostics, formatError, isDiagnostic } from './diagnostics.ts';
 import { listInstalledSkills, sanitizeName, type InstalledSkill } from './installer.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { getAllLockedSkills } from './skill-lock.ts';
-import { readLocalLock } from './local-lock.ts';
+import { getLockedSkillState, readLocalLock } from './local-lock.ts';
 
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -25,6 +25,8 @@ interface ListLockEntry {
   sourceUrl?: string;
   sourceType: string;
   pluginName?: string;
+  /** Project lock only; lets `list` tell a modified skill from a tracked one. */
+  computedHash?: string;
 }
 
 /**
@@ -132,6 +134,30 @@ export async function runList(args: string[]): Promise<void> {
     ? []
     : Object.entries(lockedSkills).filter(([name]) => !installedNames.has(sanitizeName(name)));
 
+  // Project skills whose files no longer hash to their lock entry
+  const modifiedNames = new Set<string>();
+  if (!scope) {
+    await Promise.all(
+      installedSkills.map(async (skill) => {
+        const lockEntry = getLockEntry(skill.name);
+        if (lockEntry?.computedHash === undefined) return;
+        const state = await getLockedSkillState(
+          skill.name,
+          { computedHash: lockEntry.computedHash },
+          cwd,
+          skill.canonicalPath
+        );
+        if (state === 'modified') modifiedNames.add(skill.name);
+      })
+    );
+  }
+  const statusOf = (skill: InstalledSkill): 'tracked' | 'untracked' | 'modified' =>
+    !getLockEntry(skill.name)
+      ? 'untracked'
+      : modifiedNames.has(skill.name)
+        ? 'modified'
+        : 'tracked';
+
   // JSON output mode: structured, no ANSI, untruncated agent lists
   if (options.json) {
     const jsonOutput = installedSkills.map((skill) => {
@@ -144,7 +170,7 @@ export async function runList(args: string[]): Promise<void> {
         source: lockEntry?.source ?? null,
         sourceUrl: lockEntry?.sourceUrl ?? null,
         sourceType: lockEntry?.sourceType ?? null,
-        status: lockEntry ? 'tracked' : 'untracked',
+        status: statusOf(skill),
       };
     });
     const missingOutput = missingSkills.map(([name, lockEntry]) => ({
@@ -197,10 +223,14 @@ export async function runList(args: string[]): Promise<void> {
     const lockEntry = getLockEntry(skill.name);
     const source = lockEntry?.source ?? null;
     const sourceLabel = source ? sanitizeMetadata(source) : `${YELLOW}untracked${RESET}`;
+    const modifiedLabel =
+      statusOf(skill) === 'modified'
+        ? `  ${YELLOW}modified${RESET} ${DIM}(differs from the lock)${RESET}`
+        : '';
 
     console.log(`${prefix}${CYAN}${paddedName}${RESET} ${DIM}${paddedPath}${RESET}`);
     console.log(
-      `${prefix}  ${DIM}Agents:${RESET} ${agentInfo}  ${DIM}Source:${RESET} ${sourceLabel}`
+      `${prefix}  ${DIM}Agents:${RESET} ${agentInfo}  ${DIM}Source:${RESET} ${sourceLabel}${modifiedLabel}`
     );
   }
 

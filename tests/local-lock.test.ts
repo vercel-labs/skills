@@ -29,7 +29,7 @@ describe('local-lock', () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
         const lock = await readLocalLock(dir);
-        expect(lock).toEqual({ version: 1, skills: {} });
+        expect(lock).toEqual({ version: 2, skills: {} });
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
@@ -39,7 +39,7 @@ describe('local-lock', () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
         const content = {
-          version: 1,
+          version: 2,
           skills: {
             'my-skill': {
               source: 'vercel-labs/skills',
@@ -51,7 +51,7 @@ describe('local-lock', () => {
         await writeFile(join(dir, 'skills-lock.json'), JSON.stringify(content), 'utf-8');
 
         const lock = await readLocalLock(dir);
-        expect(lock.version).toBe(1);
+        expect(lock.version).toBe(2);
         expect(lock.skills['my-skill']).toEqual({
           source: 'vercel-labs/skills',
           sourceType: 'github',
@@ -66,7 +66,7 @@ describe('local-lock', () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
         const content = {
-          version: 1,
+          version: 2,
           skills: {
             'my-skill': {
               source: './skills',
@@ -89,7 +89,7 @@ describe('local-lock', () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
         const conflicted = `{
-  "version": 1,
+  "version": 2,
   "skills": {
 <<<<<<< HEAD
     "skill-a": { "source": "org/repo-a", "sourceType": "github", "computedHash": "aaa" }
@@ -112,7 +112,7 @@ describe('local-lock', () => {
     it('rejects an invalid structure (missing skills key)', async () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
-        await writeFile(join(dir, 'skills-lock.json'), '{"version": 1}', 'utf-8');
+        await writeFile(join(dir, 'skills-lock.json'), '{"version": 2}', 'utf-8');
         await expect(readLocalLock(dir)).rejects.toMatchObject({
           code: 'SKILLS_INVALID_LOCAL_LOCK',
         });
@@ -124,8 +124,8 @@ describe('local-lock', () => {
     it('rejects an unknown lock version', async () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
-        await writeFile(join(dir, 'skills-lock.json'), '{"version": 2, "skills": {}}', 'utf-8');
-        await expect(readLocalLock(dir)).rejects.toThrow('unsupported lock version 2');
+        await writeFile(join(dir, 'skills-lock.json'), '{"version": 99, "skills": {}}', 'utf-8');
+        await expect(readLocalLock(dir)).rejects.toThrow('unsupported lock version 99');
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
@@ -138,7 +138,7 @@ describe('local-lock', () => {
       try {
         await writeLocalLock(
           {
-            version: 1,
+            version: 2,
             skills: {
               'zebra-skill': {
                 source: 'org/z',
@@ -354,7 +354,7 @@ describe('local-lock', () => {
       try {
         expect(await removeSkillFromLocalLock('constructor', dir)).toBe(false);
         expect(await removeSkillFromLocalLock('__proto__', dir)).toBe(false);
-        expect(await readLocalLock(dir)).toEqual({ version: 1, skills: {} });
+        expect(await readLocalLock(dir)).toEqual({ version: 2, skills: {} });
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
@@ -468,6 +468,24 @@ describe('local-lock', () => {
       }
     });
 
+    it('distinguishes a filename change from an offsetting content change', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        const first = join(dir, 'first');
+        const second = join(dir, 'second');
+        await mkdir(first);
+        await mkdir(second);
+        await writeFile(join(first, 'SKILL.md'), 'same skill');
+        await writeFile(join(second, 'SKILL.md'), 'same skill');
+        await writeFile(join(first, 'a'), 'bc');
+        await writeFile(join(second, 'ab'), 'c');
+
+        expect(await computeSkillFolderHash(first)).not.toBe(await computeSkillFolderHash(second));
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
     it('includes nested files in subdirectories', async () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
@@ -488,7 +506,7 @@ describe('local-lock', () => {
       }
     });
 
-    it('ignores .git and node_modules directories', async () => {
+    it('ignores the files the installer leaves out', async () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
         const skillDir = join(dir, 'my-skill');
@@ -497,11 +515,12 @@ describe('local-lock', () => {
 
         const hash1 = await computeSkillFolderHash(skillDir);
 
-        // Adding files in .git and node_modules should NOT change hash
+        // The installer skips these, so they must not change the hash
         await mkdir(join(skillDir, '.git'), { recursive: true });
         await writeFile(join(skillDir, '.git', 'HEAD'), 'ref: refs/heads/main', 'utf-8');
-        await mkdir(join(skillDir, 'node_modules', 'foo'), { recursive: true });
-        await writeFile(join(skillDir, 'node_modules', 'foo', 'index.js'), 'noop', 'utf-8');
+        await mkdir(join(skillDir, '__pycache__'), { recursive: true });
+        await writeFile(join(skillDir, '__pycache__', 'x.pyc'), 'noop', 'utf-8');
+        await writeFile(join(skillDir, 'metadata.json'), '{}', 'utf-8');
 
         const hash2 = await computeSkillFolderHash(skillDir);
         expect(hash1).toBe(hash2);
@@ -524,7 +543,7 @@ describe('local-lock', () => {
         const branchA = await readFile(join(dir, 'skills-lock.json'), 'utf-8');
 
         // Reset to empty
-        await writeFile(join(dir, 'skills-lock.json'), '{"version":1,"skills":{}}', 'utf-8');
+        await writeFile(join(dir, 'skills-lock.json'), '{"version":2,"skills":{}}', 'utf-8');
 
         // Simulate branch B adding skill-b
         await addSkillToLocalLock(

@@ -88,7 +88,7 @@ describe('remove telemetry source masking (#2278)', () => {
       join(project, 'skills-lock.json'),
       JSON.stringify(
         {
-          version: 1,
+          version: 2,
           skills: {
             'local-skill': {
               source: absoluteLocalPath,
@@ -137,7 +137,7 @@ describe('remove telemetry source masking (#2278)', () => {
     await writeFile(
       join(project, 'skills-lock.json'),
       JSON.stringify({
-        version: 1,
+        version: 2,
         skills: {
           alpha: { source: url, sourceUrl: url, sourceType: 'download', computedHash: 'h' },
         },
