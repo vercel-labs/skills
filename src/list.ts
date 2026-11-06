@@ -1,6 +1,7 @@
 import { homedir } from 'os';
 import type { AgentType } from './types.ts';
 import { agents } from './agents.ts';
+import { diagnostics, formatError, isDiagnostic } from './diagnostics.ts';
 import { listInstalledSkills, sanitizeName, type InstalledSkill } from './installer.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { getAllLockedSkills } from './skill-lock.ts';
@@ -73,6 +74,17 @@ export function parseListOptions(args: string[]): ListOptions {
   return options;
 }
 
+/** Listing is read-only, so an unusable lock only costs source info. */
+async function readProjectLockOrWarn(cwd: string): Promise<Record<string, ListLockEntry>> {
+  try {
+    return (await readLocalLock(cwd)).skills;
+  } catch (error) {
+    if (!isDiagnostic(error, 'SKILLS_INVALID_LOCAL_LOCK')) throw error;
+    console.error(`${YELLOW}Warning: ${formatError(error)}${RESET}`);
+    return {};
+  }
+}
+
 export async function runList(args: string[]): Promise<void> {
   const options = parseListOptions(args);
 
@@ -86,8 +98,11 @@ export async function runList(args: string[]): Promise<void> {
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 
     if (invalidAgents.length > 0) {
-      console.log(`${YELLOW}Invalid agents: ${invalidAgents.join(', ')}${RESET}`);
-      console.log(`${DIM}Valid agents: ${validAgents.join(', ')}${RESET}`);
+      console.log(
+        formatError(
+          diagnostics.SKILLS_INVALID_AGENTS({ invalid: invalidAgents, valid: validAgents })
+        )
+      );
       process.exit(1);
     }
 
@@ -103,12 +118,19 @@ export async function runList(args: string[]): Promise<void> {
   // Fetch lock entries to get source and plugin grouping info for the selected scope.
   const lockedSkills: Record<string, ListLockEntry> = scope
     ? await getAllLockedSkills()
-    : (await readLocalLock(cwd)).skills;
+    : await readProjectLockOrWarn(cwd);
   const lockEntriesBySanitizedName = new Map(
     Object.entries(lockedSkills).map(([name, entry]) => [sanitizeName(name), entry])
   );
   const getLockEntry = (skillName: string): ListLockEntry | undefined =>
     lockedSkills[skillName] ?? lockEntriesBySanitizedName.get(sanitizeName(skillName));
+
+  // An agent filter hides skills that are on disk, so only an unfiltered listing can tell
+  // that a locked skill is missing.
+  const installedNames = new Set(installedSkills.map((skill) => sanitizeName(skill.name)));
+  const missingSkills = agentFilter
+    ? []
+    : Object.entries(lockedSkills).filter(([name]) => !installedNames.has(sanitizeName(name)));
 
   // JSON output mode: structured, no ANSI, untruncated agent lists
   if (options.json) {
@@ -122,15 +144,26 @@ export async function runList(args: string[]): Promise<void> {
         source: lockEntry?.source ?? null,
         sourceUrl: lockEntry?.sourceUrl ?? null,
         sourceType: lockEntry?.sourceType ?? null,
+        status: lockEntry ? 'tracked' : 'untracked',
       };
     });
-    console.log(JSON.stringify(jsonOutput, null, 2));
+    const missingOutput = missingSkills.map(([name, lockEntry]) => ({
+      name,
+      path: null,
+      scope: scope ? 'global' : 'project',
+      agents: [],
+      source: lockEntry.source,
+      sourceUrl: lockEntry.sourceUrl ?? null,
+      sourceType: lockEntry.sourceType,
+      status: 'missing',
+    }));
+    console.log(JSON.stringify([...jsonOutput, ...missingOutput], null, 2));
     return;
   }
 
   const scopeLabel = scope ? 'Global' : 'Project';
 
-  if (installedSkills.length === 0) {
+  if (installedSkills.length === 0 && missingSkills.length === 0) {
     if (options.json) {
       console.log('[]');
       return;
@@ -163,7 +196,7 @@ export async function runList(args: string[]): Promise<void> {
     // Determine source from lock file
     const lockEntry = getLockEntry(skill.name);
     const source = lockEntry?.source ?? null;
-    const sourceLabel = source ? sanitizeMetadata(source) : 'local';
+    const sourceLabel = source ? sanitizeMetadata(source) : `${YELLOW}untracked${RESET}`;
 
     console.log(`${prefix}${CYAN}${paddedName}${RESET} ${DIM}${paddedPath}${RESET}`);
     console.log(
@@ -252,6 +285,16 @@ export async function runList(args: string[]): Promise<void> {
     }
     for (const skill of installedSkills) {
       printSkill(skill, false, maxNameLength, maxPathLength);
+    }
+    console.log();
+  }
+
+  if (missingSkills.length > 0) {
+    console.log(`${BOLD}Missing${RESET} ${DIM}(in the lock file, not on disk)${RESET}`);
+    for (const [name, entry] of missingSkills) {
+      console.log(
+        `  ${CYAN}${sanitizeMetadata(name)}${RESET}  ${DIM}Source:${RESET} ${sanitizeMetadata(entry.source)}`
+      );
     }
     console.log();
   }

@@ -137,4 +137,17 @@ If `.claude-plugin/marketplace.json` or `.claude-plugin/plugin.json` exists, ski
 
 This enables compatibility with the [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-marketplaces) ecosystem. Skill paths declared in a manifest are searched at their declared depth and are not subject to the bounded depth-3 catalog walk described above.
 
+### Custom Discovery Paths
+
+If your skills live somewhere else, list those directories in the `paths` field of a `skills.sh.json` file at the repository root:
+
+```json
+{
+  "$schema": "https://skills.sh/schemas/skills.sh.schema.json",
+  "paths": ["./tools/skills"]
+}
+```
+
+Each entry is a container directory. Its subdirectories are searched the same way as `skills/`, up to three levels deep. Entries must start with `./` and point to a subdirectory of the repository; any other entries, including the repository root itself, are ignored. The CLI searches these directories along with the standard locations above. If two skills have the same name, only the first one found is kept.
+
 If no skills are found in standard locations, a recursive search is performed.

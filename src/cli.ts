@@ -3,7 +3,9 @@
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { basename, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { stringify as stringifyYaml } from 'yaml';
 import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
+import { diagnostics, formatError, isDiagnostic } from './diagnostics.ts';
 import { runFind } from './find.ts';
 import { runInstallFromLock } from './install.ts';
 import { runList } from './list.ts';
@@ -171,6 +173,12 @@ ${BOLD}Project:${RESET}
   init [name]          Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)
   experimental_sync    Sync skills from node_modules into agent directories (alias: sync)
 
+${BOLD}Experimental Install Options:${RESET}
+  --dry-run              Show what would be restored without installing anything
+  --frozen-lockfile      Fail instead of changing skills-lock.json (default in CI)
+  --no-frozen-lockfile   Allow skills-lock.json to change in CI
+  --force                Reinstall skills that are already installed
+
 ${BOLD}Add Options:${RESET}
   -g, --global           Install skill globally (user-level) instead of project-level
   -a, --agent <agents>   Specify agents to install to (use '*' for all agents)
@@ -203,6 +211,8 @@ ${BOLD}Experimental Sync Options:${RESET}
   --dry-run              Show what would change without changing anything
   --no-cleanup           Keep skills whose package no longer ships them
   --no-remote            Skip git sources listed in package.json skills fields
+  --frozen-lockfile      Fail instead of changing skills-lock.json (default in CI)
+  --no-frozen-lockfile   Allow skills-lock.json to change in CI
   -r, --recursive        Also sync the dependencies of each workspace package
   --include <patterns>   Only sync matching packages (<pkg>) or skills (<pkg>#<skill>)
   --exclude <patterns>   Skip matching packages (<pkg>) or skills (<pkg>#<skill>)
@@ -273,7 +283,7 @@ function runInit(args: string[]): void {
   }
 
   const skillContent = `---
-name: ${skillName}
+name: ${stringifyYaml(skillName).trimEnd()}
 description: A brief description of what this skill does
 ---
 
@@ -332,7 +342,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const command = args[0];
+  const command = args[0]!;
   const restArgs = args.slice(1);
 
   // Subcommand --help / -h must short-circuit before dispatch so that running
@@ -381,7 +391,7 @@ async function main(): Promise<void> {
       // JSON mode must keep stdout parseable — no logo
       if (!inAgent && !addOpts.json) showLogo();
       if (errors.length > 0) {
-        for (const error of errors) console.error(`Error: ${error}`);
+        for (const error of errors) console.error(`Error: ${formatError(error)}`);
         // JSON mode promises exactly one JSON value on stdout, even here
         if (addOpts.json) console.log('[]');
         process.exitCode = 1;
@@ -418,6 +428,8 @@ async function main(): Promise<void> {
       await runList(restArgs);
       break;
     case 'check':
+      await runUpdate(restArgs, 'check');
+      break;
     case 'update':
     case 'upgrade':
       await runUpdate(restArgs);
@@ -432,10 +444,15 @@ async function main(): Promise<void> {
       break;
 
     default:
-      console.log(`Unknown command: ${command}`);
-      console.log(`Run ${BOLD}skills --help${RESET} for usage.`);
+      console.log(formatError(diagnostics.SKILLS_UNKNOWN_COMMAND({ command })));
       process.exitCode = 1;
   }
 }
 
-main().finally(() => flushTelemetry().then(() => process.exit(process.exitCode ?? 0)));
+main()
+  .catch((error: unknown) => {
+    if (!isDiagnostic(error, 'SKILLS_INVALID_LOCAL_LOCK')) throw error;
+    console.error(`Error: ${formatError(error)}`);
+    process.exitCode = 1;
+  })
+  .finally(() => flushTelemetry().then(() => process.exit(process.exitCode ?? 0)));

@@ -27,9 +27,11 @@ import {
   EVE_SUBAGENTS_DIR,
 } from './agents.ts';
 import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
+import { diagnostics } from './diagnostics.ts';
 import { parseFrontmatter } from './frontmatter.ts';
 import { stringify } from 'yaml';
 import { parseSkillMd } from './skills.ts';
+import { warn } from './warnings.ts';
 
 /**
  * - `symlink`: copy into the canonical dir, symlink agent dirs to it
@@ -482,6 +484,16 @@ const isExcluded = (name: string, isDirectory: boolean = false): boolean => {
   return false;
 };
 
+/**
+ * isExcluded() for a snapshot's relative file path, so blob installs drop the same
+ * files copyDirectory() skips when installing from a clone. Snapshot hashes still
+ * cover the full file set; this only decides what is written to disk.
+ */
+const isExcludedPath = (relativePath: string): boolean => {
+  const parts = relativePath.split(/[\\/]/).filter(Boolean);
+  return parts.some((part, index) => isExcluded(part, index < parts.length - 1));
+};
+
 function stripIgnoredEveFrontmatter(raw: string): string {
   const { data, content } = parseFrontmatter(raw);
   const eveData: Record<string, unknown> = {};
@@ -515,9 +527,46 @@ function stripIgnoredEveFrontmatter(raw: string): string {
   return `---\n${frontmatter}\n---\n${content.replace(/^\r?\n/u, '')}`;
 }
 
-async function copyDirectory(src: string, dest: string, agentType?: AgentType): Promise<void> {
-  await mkdir(dest, { recursive: true });
+/**
+ * Whether `target` (an absolute, symlink-resolved path) is the skill root itself
+ * or lives inside it. Both arguments must already be realpath-resolved so the
+ * prefix comparison is not defeated by `..` segments or intermediate symlinks.
+ */
+function isWithinRoot(root: string, target: string): boolean {
+  return target === root || target.startsWith(root + sep);
+}
 
+/**
+ * Recursively copy a skill directory, dereferencing symlinks so the installed
+ * skill is self-contained after the temporary clone is cleaned up.
+ *
+ * A symlink can point anywhere, so a malicious skill could use one to copy
+ * arbitrary host files (e.g. `../../../.env`, `/etc/passwd`, `~/.ssh`) into the
+ * install tree, where a later deploy/push/publish would expose them. Every
+ * entry is therefore checked individually: links whose real target escapes the
+ * skill root are skipped, and directory links are walked here (never handed to
+ * a recursive dereferencing `cp`) so links nested inside them get the same
+ * check. Directories already on the current path are skipped to break cycles.
+ * The archive/tar installer already rejects symlinks outright.
+ */
+export async function copyDirectory(
+  src: string,
+  dest: string,
+  agentType?: AgentType,
+  // Threaded through recursion: realpath of the skill root, and realpaths of
+  // the directories on the current branch (for cycle detection).
+  ctx?: { root: string; ancestors: ReadonlySet<string> }
+): Promise<void> {
+  const realSrc = await realpath(src);
+  const root = ctx?.root ?? realSrc;
+  if (ctx?.ancestors.has(realSrc)) {
+    warn(diagnostics.SKILLS_SYMLINK_CYCLE({ path: src }));
+    return;
+  }
+  const ancestors = new Set(ctx?.ancestors);
+  ancestors.add(realSrc);
+
+  await mkdir(dest, { recursive: true });
   const entries = await readdir(src, { withFileTypes: true });
 
   // Copy files and directories in parallel
@@ -527,44 +576,40 @@ async function copyDirectory(src: string, dest: string, agentType?: AgentType): 
       .map(async (entry) => {
         const srcPath = join(src, entry.name);
         const destPath = join(dest, entry.name);
+        let isDirectory = entry.isDirectory();
 
-        if (entry.isDirectory()) {
-          await copyDirectory(srcPath, destPath, agentType);
-        } else {
+        if (entry.isSymbolicLink()) {
+          let realTarget: string;
           try {
-            if (agentType === 'eve' && entry.name.toLowerCase() === 'skill.md') {
-              await writeFile(
-                destPath,
-                stripIgnoredEveFrontmatter(await readFile(srcPath, 'utf-8'))
-              );
-              return;
-            }
-
-            await cp(srcPath, destPath, {
-              // If the file is a symlink to elsewhere in a remote skill, it may not
-              // resolve correctly once it has been copied to the local location.
-              // `dereference: true` tells Node to copy the file instead of copying
-              // the symlink. `recursive: true` handles symlinks pointing to directories.
-              dereference: true,
-              recursive: true,
-            });
-            const sourceStats = await stat(srcPath);
-            await chmod(destPath, sourceStats.mode & 0o777);
-          } catch (err: unknown) {
-            // Skip broken symlinks (e.g., pointing to absolute paths on another machine)
-            // instead of aborting the entire install.
-            if (
-              err instanceof Error &&
-              'code' in err &&
-              (err as NodeJS.ErrnoException).code === 'ENOENT' &&
-              entry.isSymbolicLink()
-            ) {
-              console.warn(`Skipping broken symlink: ${srcPath}`);
-            } else {
-              throw err;
-            }
+            realTarget = await realpath(srcPath);
+          } catch {
+            // Broken/dangling symlink (target does not exist, or a link loop).
+            warn(diagnostics.SKILLS_BROKEN_SYMLINK({ path: srcPath }));
+            return;
           }
+          if (!isWithinRoot(root, realTarget)) {
+            warn(diagnostics.SKILLS_SYMLINK_OUTSIDE_SKILL({ path: srcPath }));
+            return;
+          }
+          isDirectory = (await stat(realTarget)).isDirectory();
+          if (isDirectory && isExcluded(entry.name, true)) return;
         }
+
+        if (isDirectory) {
+          await copyDirectory(srcPath, destPath, agentType, { root, ancestors });
+          return;
+        }
+
+        if (agentType === 'eve' && entry.name.toLowerCase() === 'skill.md') {
+          await writeFile(destPath, stripIgnoredEveFrontmatter(await readFile(srcPath, 'utf-8')));
+          return;
+        }
+
+        // Regular file, or a symlink to a file inside the skill (checked above):
+        // copy its contents rather than the link itself.
+        await cp(srcPath, destPath, { dereference: true });
+        const sourceStats = await stat(srcPath);
+        await chmod(destPath, sourceStats.mode & 0o777);
       })
   );
 }
@@ -636,7 +681,7 @@ export function getInstallPath(
   const installPath = join(targetBase, sanitized);
 
   if (!isPathSafe(targetBase, installPath)) {
-    throw new Error('Invalid skill name: potential path traversal detected');
+    throw diagnostics.SKILLS_UNSAFE_SKILL_NAME();
   }
 
   return installPath;
@@ -657,7 +702,7 @@ export function getCanonicalPath(
   const canonicalPath = join(canonicalBase, sanitized);
 
   if (!isPathSafe(canonicalBase, canonicalPath)) {
-    throw new Error('Invalid skill name: potential path traversal detected');
+    throw diagnostics.SKILLS_UNSAFE_SKILL_NAME();
   }
 
   return canonicalPath;
@@ -1032,6 +1077,7 @@ export async function installBlobSkillForAgent(
 
   async function writeSkillFiles(targetDir: string): Promise<void> {
     for (const file of skill.files) {
+      if (isExcludedPath(file.path)) continue;
       const fullPath = join(targetDir, file.path);
       if (!isPathSafe(targetDir, fullPath)) continue;
 
@@ -1148,7 +1194,7 @@ export async function listInstalledSkills(
   const scopes: Array<{ global: boolean; path: string; agentType?: AgentType }> = [];
 
   // Detect which agents are actually installed
-  const detectedAgents = await detectInstalledAgents();
+  const detectedAgents = await detectInstalledAgents(cwd);
   const agentFilter = options.agentFilter;
   const agentsToCheck = agentFilter
     ? detectedAgents.filter((a) => agentFilter.includes(a))
@@ -1215,6 +1261,7 @@ export async function listInstalledSkills(
     // exist on disk to avoid unnecessary readdir errors.
     const allAgentTypes = Object.keys(agents) as AgentType[];
     for (const agentType of allAgentTypes) {
+      if (agentFilter && !agentFilter.includes(agentType)) continue;
       if (agentsToCheck.includes(agentType)) continue;
       const agent = agents[agentType];
       if (isGlobal && agent.globalSkillsDir === undefined) continue;

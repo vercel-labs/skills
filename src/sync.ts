@@ -25,17 +25,22 @@ import { searchMultiselect } from './prompts/search-multiselect.ts';
 import {
   addSkillToLocalLock,
   computeSkillFolderHash,
+  frozenLockfileError,
+  lockChangeReason,
   readLocalLock,
   writeLocalLock,
   type LocalSkillLockEntry,
   type LocalSkillLockFile,
 } from './local-lock.ts';
 import type { Skill, AgentType } from './types.ts';
+import type { Diagnostic } from 'nostics';
+import { diagnostics, formatError } from './diagnostics.ts';
 import { track } from './telemetry.ts';
+import { isCI } from './ci.ts';
 import { detectAgent, getAgentType } from './detect-agent.ts';
 import { getLastSelectedAgents, saveSelectedAgents } from './skill-lock.ts';
 import { parseSkillsField, type RemoteSkillsRequest } from './skills-field.ts';
-import { getProjectLockSource, installFromSource } from './add.ts';
+import { fetchSources, getProjectLockSource, installFromSource } from './add.ts';
 
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
 
@@ -49,6 +54,8 @@ export interface SyncOptions {
   exclude?: string[];
   remote?: boolean;
   recursive?: boolean;
+  /** Fail instead of changing skills-lock.json. Defaults to isCI(). */
+  frozenLockfile?: boolean;
 }
 
 /**
@@ -270,11 +277,11 @@ async function discoverNodeModuleSkills(
 ): Promise<{
   skills: PackageSkill[];
   remote: FieldRemoteRequest[];
-  warnings: string[];
-  errors: string[];
+  warnings: Diagnostic[];
+  errors: Diagnostic[];
 }> {
-  const warnings: string[] = [];
-  const errors: string[] = [];
+  const warnings: Diagnostic[] = [];
+  const errors: Diagnostic[] = [];
   // identical requests from several packages are one
   const remote = new Map<string, FieldRemoteRequest>();
   const pkg = await readPackageJson(cwd);
@@ -330,7 +337,7 @@ async function discoverNodeModuleSkills(
     if (field === undefined) continue;
     if (!Array.isArray(field)) {
       // a dependency may use the key for something else
-      if (problems === errors) errors.push('package.json: "skills" must be an array');
+      if (problems === errors) errors.push(diagnostics.SKILLS_PACKAGE_SKILLS_NOT_ARRAY());
       continue;
     }
 
@@ -350,7 +357,10 @@ async function discoverNodeModuleSkills(
       const target = findInstalledPackage(dir, request.package);
       if (!target) {
         problems.push(
-          `${declarer.name}: cannot resolve "npm:${request.package}"; is it a dependency?`
+          diagnostics.SKILLS_PACKAGE_SKILLS_UNRESOLVED_NPM({
+            declarer: declarer.name,
+            pkg: request.package,
+          })
         );
         continue;
       }
@@ -583,6 +593,14 @@ async function promptForAgentChoice(
   return selected as AgentType[] | symbol;
 }
 
+/** Under --frozen-lockfile, report `changes` and mark the run failed; true when there were any. */
+function failOnLockChanges(changes: string[]): boolean {
+  if (changes.length === 0) return false;
+  p.log.error(frozenLockfileError(changes));
+  process.exitCode = 1;
+  return true;
+}
+
 /** `entry` was installed by sync for the remote `skills` entry `request`. */
 function isFromRequest(entry: LocalSkillLockEntry, request: FieldRemoteRequest): boolean {
   return (
@@ -648,7 +666,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   const discovery = await discoverNodeModuleSkills(cwd, options.recursive ?? false);
   if (discovery.errors.length > 0) {
     spinner.stop(pc.red('Invalid skills field'));
-    for (const error of discovery.errors) p.log.error(error);
+    for (const error of discovery.errors) p.log.error(formatError(error));
     p.outro(pc.red('Fix the "skills" field in package.json and run sync again.'));
     process.exitCode = 1;
     return;
@@ -660,9 +678,10 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
       ? pc.yellow('No skills found')
       : `Found ${pc.green(String(discoveredSkills.length))} skill${discoveredSkills.length > 1 ? 's' : ''} in node_modules`
   );
-  for (const warning of discovery.warnings) p.log.warn(warning);
+  for (const warning of discovery.warnings) p.log.warn(formatError(warning));
 
   const localLock = await readLocalLock(cwd);
+  const frozen = options.frozenLockfile ?? isCI();
   if (options.cleanup !== false) {
     const keep = new Set(discoveredSkills.map((skill) => sanitizeName(skill.name)));
     // --no-remote leaves remote skills alone, both installing and removing
@@ -671,11 +690,22 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
       remote.some(
         (r) => requestsLockedSkill(r, name, entry) && remoteAllowsSkill(r, name, options)
       );
-    const stale = await pruneStaleSkills(cwd, keep, keepRemote, localLock, options.dryRun ?? false);
-    for (const name of stale) {
-      p.log.info(
-        `${options.dryRun ? 'Would remove' : 'Removed'} ${pc.cyan(name)} ${pc.dim('(no longer provided by a dependency)')}`
-      );
+    const stale = await pruneStaleSkills(
+      cwd,
+      keep,
+      keepRemote,
+      localLock,
+      frozen || (options.dryRun ?? false)
+    );
+    if (frozen) {
+      if (failOnLockChanges(stale.map((name) => `${name} is no longer provided by a dependency`)))
+        return;
+    } else {
+      for (const name of stale) {
+        p.log.info(
+          `${options.dryRun ? 'Would remove' : 'Removed'} ${pc.cyan(name)} ${pc.dim('(no longer provided by a dependency)')}`
+        );
+      }
     }
   }
 
@@ -729,8 +759,11 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   } else if (options.agent && options.agent.length > 0) {
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
     if (invalidAgents.length > 0) {
-      p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
-      p.log.info(`Valid agents: ${validAgents.join(', ')}`);
+      p.log.error(
+        formatError(
+          diagnostics.SKILLS_INVALID_AGENTS({ invalid: invalidAgents, valid: validAgents })
+        )
+      );
       process.exit(1);
     }
     targetAgents = options.agent as AgentType[];
@@ -791,6 +824,17 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
     } else {
       cachedToInstall.push({ ...cached, agents: missing });
     }
+  }
+  if (frozen) {
+    const changes: string[] = [];
+    for (const skill of toInstall) {
+      const reason = lockChangeReason(localLock, skill.name, {
+        computedHash: await computeSkillFolderHash(skill.path),
+        version: skill.packageVersion,
+      });
+      if (reason) changes.push(reason);
+    }
+    if (failOnLockChanges(changes)) return;
   }
   if (toInstall.length === 0 && remoteRequests.length === 0 && cachedToInstall.length === 0) {
     console.log();
@@ -897,7 +941,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   const successfulSkillNames = new Set(successful.map((r) => r.skill));
 
   for (const skill of toInstall) {
-    if (successfulSkillNames.has(skill.name)) {
+    if (!frozen && successfulSkillNames.has(skill.name)) {
       try {
         const computedHash = await computeSkillFolderHash(skill.path);
         await addSkillToLocalLock(
@@ -922,12 +966,14 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   const claimed = new Set(discoveredSkills.map((skill) => sanitizeName(skill.name)));
   const lockEntryFor = (name: string) =>
     Object.entries(localLock.skills).find(([key]) => sanitizeName(key) === name)?.[1];
-  for (const request of remoteRequests) {
+  const fetched = await fetchSources(remoteRequests);
+  for (const [index, request] of remoteRequests.entries()) {
     const label = getProjectLockSource(request.parsed);
-    const result = await installFromSource(request.parsed, {
+    const result = await installFromSource(fetched[index]!, {
       skills: request.skills,
       agents: targetAgents,
       via: request.via,
+      ...(frozen && { frozenLock: localLock }),
       select: async (skills) => {
         const selected: Skill[] = [];
         for (const skill of skills) {
@@ -1035,6 +1081,10 @@ export function parseSyncOptions(args: string[]): { options: SyncOptions } {
       options.cleanup = false;
     } else if (arg === '--no-remote') {
       options.remote = false;
+    } else if (arg === '--frozen-lockfile') {
+      options.frozenLockfile = true;
+    } else if (arg === '--no-frozen-lockfile') {
+      options.frozenLockfile = false;
     } else if (arg === '-r' || arg === '--recursive') {
       options.recursive = true;
     } else if (arg === '-a' || arg === '--agent') {

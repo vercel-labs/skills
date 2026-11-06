@@ -65,11 +65,10 @@ pending; record that status only in internal output.
 
 ## Find unlinked matching issues
 
-After the fix qualifies, use related board findings to identify potentially matching issues
-not already referenced by this PR. The current runtime has no general repository issue-search
-action for this workflow. Do not call `search_repository_issues` or the support-only
-`search_issues` tool, invent candidates, or claim to have searched the GitHub backlog.
-If the board has no relevant issue references, continue without issue suggestions.
+After the fix qualifies, use `search_repository_issues` with up to three short, specific
+queries based on the actual symptom or error. This tool searches only open issues in this
+repository. If a search is incomplete, narrow the query within that limit; if it still fails,
+record the limitation internally and continue without issue suggestions.
 
 Read promising candidates with `read_issue` (at most five issues). Suggest an issue only when
 its reported failure, affected behavior, and expected result match the defect this patch
@@ -101,7 +100,7 @@ code-fence or blockquote markers in the published comment:
 - **Fix:** <corrected behavior in plain language>.
 ```
 
-When the issue reads confirmed unlinked matches, append one bullet:
+When the issue search found confident unlinked matches, append one bullet:
 `- **Issues:** Possible matches: #123, #456.` Otherwise publish only Bug and Fix.
 
 The entire comment must be at most 500 characters and 75 words, including Markdown. Check
