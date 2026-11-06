@@ -351,6 +351,13 @@ export declare const diagnostics: import("nostics").Diagnostics<{
   readonly SKILLS_DOWNLOAD_NOT_A_SKILL: {
     readonly why: "Downloaded URL is not a valid SKILL.md file or supported archive";
   };
+  readonly SKILLS_DOWNLOAD_NOT_LOCKED: {
+    readonly why: (p: {
+      url: string;
+      skills: string[];
+    }) => string;
+    readonly fix: "To let `skills update` fetch it again, serve it from a URL without them.";
+  };
   readonly SKILLS_ARCHIVE_INVALID: {
     readonly why: (p: {
       reason: string;

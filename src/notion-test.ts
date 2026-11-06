@@ -39,16 +39,25 @@ interface NotionDirectory {
   url: string;
 }
 
+/** A directory a Notion install was downloaded into, and the URL that downloads it again. */
+export interface NotionDownloadRoot {
+  url: string;
+  rootDir: string;
+}
+
 export interface PreparedNotionPackSource {
   rootDir: string;
   tempDir: string;
   packCount: number;
   skillCount: number;
+  /** One per selected pack, so each skill can be locked to its pack. */
+  downloads: NotionDownloadRoot[];
 }
 
 export interface PreparedNotionSkillSource {
   rootDir: string;
   tempDir: string;
+  downloads: NotionDownloadRoot[];
 }
 
 export interface NotionPackSelectorOptions {
@@ -350,6 +359,56 @@ export function parseNotionSkillUrl(source: string): string | null {
   return match ? formatPageId(match[1]!) : null;
 }
 
+const NOTION_PACK_URL_PREFIX = 'notion://packs/';
+
+/**
+ * The lock URL of a Notion pack. ntn hands out a temporary download URL, so
+ * the lock records the pack id and `update` asks ntn for a fresh one.
+ */
+export function notionPackUrl(packId: string): string {
+  return NOTION_PACK_URL_PREFIX + encodeURIComponent(packId);
+}
+
+function parseNotionPackUrl(url: string): string | null {
+  if (!url.startsWith(NOTION_PACK_URL_PREFIX)) return null;
+  const id = decodeURIComponent(url.slice(NOTION_PACK_URL_PREFIX.length));
+  return id || null;
+}
+
+/** The lock URL of a Notion skill page: its id only, without the title slug or query. */
+export function notionPageUrl(pageId: string): string {
+  return `https://www.notion.so/${pageId.replace(/-/g, '')}`;
+}
+
+export function isNotionPackUrl(url: string): boolean {
+  return parseNotionPackUrl(url) !== null;
+}
+
+/**
+ * Download a Notion pack or skill page recorded in a lock file, without
+ * terminal output. Null when `url` is not a Notion lock URL.
+ */
+export async function downloadNotionUrl(
+  url: string,
+  options: PrepareNotionSkillSourceOptions = {}
+): Promise<DownloadedSource | null> {
+  const download = options.download ?? downloadNotionDirectory;
+  const packId = parseNotionPackUrl(url);
+  if (packId) {
+    const packs = await fetchNotionPacks({ runNtn: options.runNtn });
+    const pack = packs.find((candidate) => candidate.id === packId);
+    if (!pack) throw diagnostics.SKILLS_NOTION_NO_MATCHING_PACKS({ requested: [packId] });
+    const directory = await fetchNotionPackDirectory(pack, { runNtn: options.runNtn });
+    return download(directory.url);
+  }
+  const pageId = parseNotionSkillUrl(url);
+  if (pageId) {
+    const directory = await fetchNotionSkillDirectory(pageId, { runNtn: options.runNtn });
+    return download(directory.url);
+  }
+  return null;
+}
+
 export async function fetchNotionSkillDirectory(
   pageId: string,
   options: FetchNotionPacksOptions = {}
@@ -380,7 +439,11 @@ export async function prepareNotionSkillSource(
     ]);
     const downloaded = await download(directory.url);
     spinner.stop(`Downloaded skill from Notion${inWorkspace(workspace)}`);
-    return { rootDir: downloaded.rootDir, tempDir: downloaded.tempDir };
+    return {
+      rootDir: downloaded.rootDir,
+      tempDir: downloaded.tempDir,
+      downloads: [{ url: notionPageUrl(pageId), rootDir: downloaded.rootDir }],
+    };
   } catch (error) {
     spinner.stop(pc.red('Failed to prepare Notion skill'));
     throw error;
@@ -484,6 +547,7 @@ export async function prepareNotionPackSource(
   const stagingDir = await mkdtemp(join(tmpdir(), 'skills-notion-'));
   const packsDir = join(stagingDir, 'packs');
   const manifestPlugins: Array<{ name: string; source: string; skills: string[] }> = [];
+  const downloads: NotionDownloadRoot[] = [];
   const download = options.download ?? downloadNotionDirectory;
   const discover = options.discover ?? discoverSkills;
   let skillCount = 0;
@@ -513,6 +577,7 @@ export async function prepareNotionPackSource(
           errorOnExist: true,
         });
 
+        downloads.push({ url: notionPackUrl(pack.id), rootDir: targetDir });
         manifestPlugins.push({
           name: pack.name,
           source: `./${directoryName}`,
@@ -557,6 +622,7 @@ export async function prepareNotionPackSource(
       tempDir: stagingDir,
       packCount: selectedPacks.length,
       skillCount,
+      downloads,
     };
   } catch (error) {
     spinner.stop(pc.red('Failed to prepare Notion packs'));

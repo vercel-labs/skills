@@ -1,6 +1,6 @@
 import { createServer, type Server } from 'node:http';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { delimiter, dirname, join } from 'node:path';
 import * as tar from 'tar';
@@ -194,6 +194,43 @@ describe.skipIf(process.platform === 'win32')('notion', () => {
     expect(readSkill(dir).name).toBe('release-notes');
     expect(existsSync(join(dir, 'examples', 'sample.md'))).toBe(true);
     expect(calls().map((args) => args[1])).toContain(`/v1/ai/skills/${PAGE_UUID}`);
+  });
+
+  it('locks Notion installs so update and restore fetch them through ntn again', async () => {
+    const { sandbox, env, calls } = await notionSandbox();
+    await sandbox.skills(['add', 'notion', '--skill', 'team-pack', '-a', 'codex', '-y'], { env });
+    await sandbox.skills(['add', PAGE_URL, '-a', 'codex', '-y'], { env });
+
+    const lock = JSON.parse(readFileSync(sandbox.path('skills-lock.json'), 'utf8'));
+    expect(lock.skills['notion-alpha']).toMatchObject({
+      source: 'notion',
+      sourceType: 'download',
+      sourceUrl: 'notion://packs/pack-team',
+      skillPath: 'skills/notion-alpha/SKILL.md',
+    });
+    expect(lock.skills['release-notes']).toMatchObject({
+      sourceType: 'download',
+      sourceUrl: `https://www.notion.so/${PAGE_ID}`,
+      skillPath: 'SKILL.md',
+    });
+
+    const update = await sandbox.skills(['update', '-p', '-y'], { env });
+    expect(update.output).toContain('All project skills are up to date');
+
+    // Delete the folders but keep the lock, as after a fresh clone.
+    const before = calls().length;
+    rmSync(sandbox.path('.agents', 'skills', 'notion-beta'), { recursive: true, force: true });
+    rmSync(sandbox.path('.agents', 'skills', 'release-notes'), { recursive: true, force: true });
+    await sandbox.skills(['experimental_install'], { env });
+    expect(readSkill(sandbox.path('.agents', 'skills', 'notion-beta')).name).toBe('notion-beta');
+    expect(readSkill(sandbox.path('.agents', 'skills', 'release-notes')).name).toBe(
+      'release-notes'
+    );
+    const restoreRoutes = calls()
+      .slice(before)
+      .map((args) => args[1]);
+    expect(restoreRoutes).toContain('/v1/ai/plugins/pack-team');
+    expect(restoreRoutes).toContain(`/v1/ai/skills/${PAGE_UUID}`);
   });
 
   it('surfaces ntn failures without installing anything', async () => {

@@ -131,4 +131,23 @@ describe('remove telemetry source masking (#2278)', () => {
       expect(data.source).not.toBe(absoluteLocalPath);
     }
   });
+
+  it('reports a download entry as "download", never its URL', async () => {
+    const url = 'https://skills.internal.example/alpha.md';
+    await writeFile(
+      join(project, 'skills-lock.json'),
+      JSON.stringify({
+        version: 1,
+        skills: {
+          alpha: { source: url, sourceUrl: url, sourceType: 'download', computedHash: 'h' },
+        },
+      })
+    );
+
+    await removeCommand(['alpha'], { yes: true });
+
+    expect(track).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'remove', source: 'download', sourceType: 'download' })
+    );
+  });
 });

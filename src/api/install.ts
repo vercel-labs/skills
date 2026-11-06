@@ -266,8 +266,6 @@ async function recordLock(
   const lockedInstallMode = explicitCopy ? { installMode: 'copy' as const } : {};
   try {
     if (config.scope === 'project') {
-      // Direct downloads cannot be fetched again, so they are not locked (as in `add`).
-      if (fetched.parsed.type === 'download') return;
       await recordProjectLock(fetched, installed, undefined, {
         cwd: config.cwd,
         ...lockedInstallMode,

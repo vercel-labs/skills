@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  downloadNotionUrl,
   fetchNotionPackDirectory,
   fetchNotionPacks,
   fetchNotionWorkspaceName,
@@ -209,6 +210,12 @@ describe('Notion pack prototype', () => {
       stagedSkills.map((skill) => ({ name: skill.name, pluginName: skill.pluginName }))
     ).toEqual([{ name: 'write-update', pluginName: 'Company-wide' }]);
     expect(prepared).toMatchObject({ packCount: 1, skillCount: 1 });
+    expect(prepared!.downloads).toEqual([
+      {
+        url: 'notion://packs/%3EtO%3F',
+        rootDir: join(prepared!.rootDir, 'packs', 'pack-1-company-wide'),
+      },
+    ]);
     // list + workspace probe, then the pack directory lookup
     expect(runNtn).toHaveBeenCalledTimes(3);
   });
@@ -305,7 +312,14 @@ describe('Notion single skill', () => {
 
     const prepared = await prepareNotionSkillSource(pageId, { runNtn, download });
 
-    expect(prepared).toEqual({ rootDir: downloadRoot, tempDir: downloadTemp });
+    expect(prepared).toEqual({
+      rootDir: downloadRoot,
+      tempDir: downloadTemp,
+      // The lock keeps the page id only, not the temporary download URL.
+      downloads: [
+        { url: 'https://www.notion.so/c169bd0a546a45d48344ffacad25d763', rootDir: downloadRoot },
+      ],
+    });
     expect(runNtn).toHaveBeenCalledWith([
       'api',
       `/v1/ai/skills/${pageId}`,
@@ -378,6 +392,53 @@ describe('Notion workspace reporting', () => {
           kind: 'archive' as const,
         })),
       })
-    ).resolves.toEqual({ rootDir: downloadRoot, tempDir: downloadTemp });
+    ).resolves.toMatchObject({ rootDir: downloadRoot, tempDir: downloadTemp });
+  });
+});
+
+describe('Notion lock URLs', () => {
+  const download = vi.fn(async (url: string) => ({
+    rootDir: url,
+    tempDir: url,
+    kind: 'archive' as const,
+  }));
+
+  it('downloads a locked pack through a fresh ntn directory URL', async () => {
+    const pack = { id: 'pack-team', name: 'Team', description: '', version_id: 'v2' };
+    const runNtn = vi.fn<NtnRunner>(async (args) =>
+      args[1] === '/v1/ai/plugins'
+        ? listResponse([pack])
+        : JSON.stringify({ id: pack.id, version_id: 'v2', url: 'https://dl.example/team.tgz' })
+    );
+
+    const downloaded = await downloadNotionUrl('notion://packs/pack-team', { runNtn, download });
+
+    expect(downloaded?.rootDir).toBe('https://dl.example/team.tgz');
+  });
+
+  it('fails when the locked pack is no longer in the workspace', async () => {
+    const runNtn = vi.fn<NtnRunner>(async () => listResponse([]));
+
+    await expect(
+      downloadNotionUrl('notion://packs/pack-gone', { runNtn, download })
+    ).rejects.toThrow('No matching Notion packs found for: pack-gone');
+  });
+
+  it('downloads a locked skill page', async () => {
+    const runNtn = vi.fn<NtnRunner>(async () =>
+      JSON.stringify({ id: 'x', version_id: 'p2', url: 'https://dl.example/page.tgz' })
+    );
+
+    const downloaded = await downloadNotionUrl(
+      'https://www.notion.so/c169bd0a546a45d48344ffacad25d763',
+      { runNtn, download }
+    );
+
+    expect(downloaded?.rootDir).toBe('https://dl.example/page.tgz');
+    expect(runNtn.mock.calls[0]![0][1]).toBe('/v1/ai/skills/c169bd0a-546a-45d4-8344-ffacad25d763');
+  });
+
+  it('leaves other URLs to a plain download', async () => {
+    await expect(downloadNotionUrl('https://example.com/skill.md')).resolves.toBeNull();
   });
 });

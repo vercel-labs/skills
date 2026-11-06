@@ -169,6 +169,11 @@ export const diagnostics = defineDiagnostics({
     SKILLS_DOWNLOAD_NOT_A_SKILL: {
       why: 'Downloaded URL is not a valid SKILL.md file or supported archive',
     },
+    SKILLS_DOWNLOAD_NOT_LOCKED: {
+      why: (p: { url: string; skills: string[] }) =>
+        `Not recording ${p.skills.join(', ')} in the lock file: ${p.url} has a query string or credentials, which may be secret`,
+      fix: 'To let `skills update` fetch it again, serve it from a URL without them.',
+    },
 
     // Never shown: callers treat an unreadable archive as "not an archive".
     SKILLS_ARCHIVE_INVALID: {

@@ -2,7 +2,7 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
-import { sep, join, dirname } from 'path';
+import { sep, join, dirname, relative, isAbsolute } from 'path';
 import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
 import { stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
@@ -42,6 +42,7 @@ import {
   type WellKnownSkill,
 } from './providers/index.ts';
 import { downloadSource } from './download-source.ts';
+import { warn } from './warnings.ts';
 import { mapConcurrent } from './concurrency.ts';
 import {
   addSkillToLock,
@@ -74,6 +75,8 @@ import {
 import { collectSkillsShFiles, computeSkillsShTreeHash } from './skills-sh-hash.ts';
 import packageJson from '../package.json' with { type: 'json' };
 import {
+  downloadNotionUrl,
+  isNotionPackUrl,
   isNotionSource,
   parseNotionSkillUrl,
   prepareNotionPackSource,
@@ -1409,6 +1412,96 @@ export interface ResolvedSkills {
   blobResult: BlobInstallResult | null;
   /** Directory skills were discovered in (the source root); unset for blob and well-known. */
   rootDir?: string;
+  /**
+   * Set for direct downloads (raw SKILL.md, archive, Notion): each directory a
+   * download was unpacked into and the URL that fetches it again. The lock
+   * records a downloaded skill against the root that holds it.
+   */
+  downloads?: DownloadRoot[];
+}
+
+export interface DownloadRoot {
+  url: string;
+  rootDir: string;
+}
+
+/** Lock fields that locate a downloaded skill: its URL and SKILL.md within the download. */
+interface DownloadLockFields {
+  source: string;
+  sourceUrl: string;
+  sourceType: 'download';
+  skillPath: string;
+}
+
+/**
+ * Whether a download URL can go in a lock file, which is usually committed. A
+ * query string or user info often carries a signature or token, so those
+ * URLs are left out rather than published.
+ */
+function isLockableDownloadUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return !parsed.search && !parsed.username && !parsed.password;
+  } catch {
+    return false;
+  }
+}
+
+/** Path of a skill's SKILL.md within the download unpacked at `rootDir`, with `/` separators. */
+export function downloadSkillPath(rootDir: string, skillDir: string): string {
+  const folder = relative(rootDir, skillDir).split(sep).join('/');
+  return folder ? `${folder}/SKILL.md` : 'SKILL.md';
+}
+
+/** The download root holding `skill`, or undefined when it was not downloaded. */
+function findDownloadRoot(roots: DownloadRoot[], skill: Skill): DownloadRoot | undefined {
+  let found: DownloadRoot | undefined;
+  for (const root of roots) {
+    const rel = relative(root.rootDir, skill.path);
+    if (rel.startsWith('..') || isAbsolute(rel)) continue;
+    if (!found || root.rootDir.length > found.rootDir.length) found = root;
+  }
+  return found;
+}
+
+/**
+ * Lock fields per downloaded skill. Skills whose URL cannot be locked are left
+ * out, and each such URL is reported once with warn().
+ */
+function downloadLockFields<T extends Skill>(
+  roots: DownloadRoot[],
+  skills: T[]
+): Map<T, DownloadLockFields> {
+  const fields = new Map<T, DownloadLockFields>();
+  const unlockable = new Map<string, string[]>();
+  for (const skill of skills) {
+    const root = findDownloadRoot(roots, skill);
+    if (!root) continue;
+    if (!isLockableDownloadUrl(root.url)) {
+      unlockable.set(root.url, [...(unlockable.get(root.url) ?? []), skill.name]);
+      continue;
+    }
+    fields.set(skill, {
+      source: isNotionPackUrl(root.url) ? 'notion' : root.url,
+      sourceUrl: root.url,
+      sourceType: 'download',
+      skillPath: downloadSkillPath(root.rootDir, skill.path),
+    });
+  }
+  for (const [url, names] of unlockable) {
+    warn(diagnostics.SKILLS_DOWNLOAD_NOT_LOCKED({ url: redactUrl(url), skills: names }));
+  }
+  return fields;
+}
+
+/** `url` without its query string, fragment, or user info, for display. */
+function redactUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return url;
+  }
 }
 
 /**
@@ -1430,6 +1523,7 @@ async function resolveSkills(
   let blobResult: BlobInstallResult | null = null;
   let tempDir: string | null = null;
   let discoveredRoot: string | undefined;
+  let downloads: DownloadRoot[] | undefined;
 
   const missingRequestedSkill = (found: Skill[]): boolean =>
     !!options.requestedSkills?.some(
@@ -1450,8 +1544,12 @@ async function resolveSkills(
       skills = await discover(parsed.localPath!);
     } else if (parsed.type === 'well-known' || parsed.type === 'download') {
       spinner.start('Downloading source...');
-      const downloaded = await downloadSource(parsed.url);
+      // A locked Notion URL is fetched through ntn; anything else is a plain download.
+      const downloaded =
+        (parsed.type === 'download' && (await downloadNotionUrl(parsed.url))) ||
+        (await downloadSource(parsed.url));
       tempDir = downloaded.tempDir;
+      downloads = [{ url: parsed.url, rootDir: downloaded.rootDir }];
       spinner.stop(`Downloaded ${downloaded.kind === 'skill-md' ? 'SKILL.md file' : 'archive'}`);
 
       spinner.start('Discovering skills...');
@@ -1511,7 +1609,13 @@ async function resolveSkills(
     throw error;
   }
 
-  return { skills, tempDir, blobResult, ...(discoveredRoot && { rootDir: discoveredRoot }) };
+  return {
+    skills,
+    tempDir,
+    blobResult,
+    ...(discoveredRoot && { rootDir: discoveredRoot }),
+    ...(downloads && { downloads }),
+  };
 }
 
 /** A well-known skill shaped as a Skill so it flows through installToTargets and the lock. */
@@ -1916,14 +2020,20 @@ export async function recordProjectLock(
   { cwd, installMode }: { cwd?: string; installMode?: 'copy' } = {}
 ): Promise<void> {
   if (!resolved) return;
-  const repoPaths = getSkillRepoPaths(
-    resolved,
-    installed.map(({ skill }) => skill)
-  );
+  const skills = installed.map(({ skill }) => skill);
+  const repoPaths = getSkillRepoPaths(resolved, skills);
+  const downloaded = resolved.downloads && downloadLockFields(resolved.downloads, skills);
   for (const { skill, hash } of installed) {
-    const entry = isWellKnownSourceSkill(skill)
-      ? wellKnownLockEntry(parsed.url, skill.wellKnown, hash)
-      : projectLockEntry(parsed, repoPaths[skill.name], hash);
+    let entry: LocalSkillLockEntry;
+    if (downloaded) {
+      const fields = downloaded.get(skill);
+      if (!fields) continue;
+      entry = { ...fields, computedHash: hash };
+    } else if (isWellKnownSourceSkill(skill)) {
+      entry = wellKnownLockEntry(parsed.url, skill.wellKnown, hash);
+    } else {
+      entry = projectLockEntry(parsed, repoPaths[skill.name], hash);
+    }
     await addSkillToLocalLock(
       skill.name,
       { ...entry, ...(via && { via }), ...(installMode && { installMode }) },
@@ -1952,17 +2062,35 @@ export async function recordGlobalLock(
   { parsed, resolved }: FetchedSource,
   skills: Skill[],
   options: {
-    directDownload?: boolean;
     installMode?: 'copy';
     onWriteFailure: (skillName: string, error: unknown) => void;
   }
 ): Promise<void> {
   if (!resolved || skills.length === 0) return;
-  const directDownload = options.directDownload ?? parsed.type === 'download';
-  const normalizedSource = directDownload ? null : getOwnerRepo(parsed);
+  const installMode = options.installMode && { installMode: options.installMode };
+  if (resolved.downloads) {
+    // Downloads have no upstream tree, so the folder hash is the version.
+    const downloaded = downloadLockFields(resolved.downloads, skills);
+    for (const skill of skills) {
+      const fields = downloaded.get(skill);
+      if (!fields) continue;
+      try {
+        await addSkillToLock(skill.name, {
+          ...fields,
+          skillFolderHash: await computeSkillFolderHash(skill.path),
+          pluginName: skill.pluginName,
+          ...installMode,
+        });
+      } catch (error) {
+        options.onWriteFailure(skill.name, error);
+      }
+    }
+    return;
+  }
+  const normalizedSource = getOwnerRepo(parsed);
   // Only a remote source or a real local path can be re-fetched by `update`.
-  if (!normalizedSource && !(parsed.type === 'local' && !directDownload)) return;
-  const lockSource = directDownload ? null : getLockSource(parsed.url, normalizedSource);
+  if (!normalizedSource && parsed.type !== 'local') return;
+  const lockSource = getLockSource(parsed.url, normalizedSource);
   const { blobResult, tempDir } = resolved;
   const skillFiles = getSkillRepoPaths(resolved, skills);
 
@@ -2003,7 +2131,7 @@ export async function recordGlobalLock(
         skillPath: skillPathValue,
         skillFolderHash,
         pluginName: skill.pluginName,
-        ...(options.installMode && { installMode: options.installMode }),
+        ...installMode,
       });
     } catch (error) {
       options.onWriteFailure(skill.name, error);
@@ -2228,6 +2356,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
   try {
     let effectiveSource = source;
     let notionSourceLabel: string | null = null;
+    let notionDownloads: DownloadRoot[] | undefined;
     const notionSkillPageId = parseNotionSkillUrl(source);
     if (isNotionSource(source) || notionSkillPageId) {
       const prepared = notionSkillPageId
@@ -2237,6 +2366,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
       effectiveSource = prepared.rootDir;
       tempDir = prepared.tempDir;
+      notionDownloads = prepared.downloads;
       notionSourceLabel =
         'packCount' in prepared
           ? `${prepared.packCount} selected Notion pack${prepared.packCount === 1 ? '' : 's'}`
@@ -2319,6 +2449,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       { includeInternal, fullDepth: options.fullDepth, requestedSkills: options.skill },
       spinner
     );
+    // Notion is staged as a local dir; lock each skill to the page or pack it came from.
+    if (notionDownloads) resolved.downloads = notionDownloads;
     const { skills, blobResult } = resolved;
     // a Notion source already owns tempDir; a local resolve has none of its own
     tempDir = resolved.tempDir ?? tempDir;
@@ -2847,8 +2979,6 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Normalize source to owner/repo format for telemetry
     const normalizedSource = directDownload ? null : getOwnerRepo(parsed);
 
-    const lockSource = directDownload ? null : getLockSource(parsed.url, normalizedSource);
-
     // Only track if we have a valid remote source and it's not a private repo.
     // repoPrivacyPromise was started early (right after parsing) so it has
     // already been running in parallel with the entire install — no stall here.
@@ -2899,19 +3029,17 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
-    // Add to skill lock file for update tracking (only for global installs)
-    // Notion installs are downloaded to a temp dir that parses as `local` and is deleted in the
-    // finally block below, so only a real local path is recorded (same guard as the project lock).
+    // Add to skill lock file for update tracking (only for global installs).
+    // Downloads (raw URL, archive, Notion) are locked by the URL that fetches them again.
     if (
       successful.length > 0 &&
       installGlobally &&
-      (normalizedSource || (parsed.type === 'local' && !directDownload))
+      (normalizedSource || parsed.type === 'local' || resolved.downloads)
     ) {
       await recordGlobalLock(
         { parsed, resolved },
         selectedSkills.filter((skill) => successfulSkillNames.has(getSkillDisplayName(skill))),
         {
-          directDownload,
           ...lockedInstallMode,
           onWriteFailure: (skillName, error) =>
             reportLockWriteFailure(skillName, getSkillLockPath(), error),
@@ -2920,7 +3048,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
 
     // Add to local lock file for project-scoped installs
-    if (successful.length > 0 && !installGlobally && !directDownload) {
+    if (successful.length > 0 && !installGlobally) {
       // Record Eve subagent placement (root = '') so `update` can restore it.
       // Only meaningful when Eve is among the targets and a non-root subagent
       // was selected; otherwise omit for a clean, minimal lock entry.
@@ -2929,6 +3057,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         : undefined;
       const recordSubagents =
         eveSubagents && (eveSubagents.length > 1 || eveSubagents.some((s) => s !== ''));
+      const downloaded =
+        resolved.downloads &&
+        downloadLockFields(
+          resolved.downloads,
+          selectedSkills.filter((skill) => successfulSkillNames.has(getSkillDisplayName(skill)))
+        );
       for (const skill of selectedSkills) {
         const skillDisplayName = getSkillDisplayName(skill);
         if (successfulSkillNames.has(skillDisplayName)) {
@@ -2936,11 +3070,18 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             // Reuse the hash computed above (blob snapshot or folder hash)
             const computedHash = installedSkillHashes.get(skillDisplayName);
             if (computedHash === undefined) continue;
-            const skillPathValue = skillFiles[skill.name];
+            let entry: LocalSkillLockEntry;
+            if (downloaded) {
+              const fields = downloaded.get(skill);
+              if (!fields) continue;
+              entry = { ...fields, computedHash };
+            } else {
+              entry = projectLockEntry(parsed, skillFiles[skill.name], computedHash);
+            }
             await addSkillToLocalLock(
               skill.name,
               {
-                ...projectLockEntry(parsed, skillPathValue, computedHash),
+                ...entry,
                 ...(recordSubagents && { subagents: eveSubagents }),
                 ...lockedInstallMode,
               },
