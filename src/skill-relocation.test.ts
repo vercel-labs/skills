@@ -90,7 +90,7 @@ describe('resolveSkillLocations', () => {
     expect(result.resolvedPaths.size).toBe(0);
   });
 
-  it('fails closed on duplicate names even when one path matches exactly', () => {
+  it('uses an exact locked path when a same-name mirror exists', () => {
     const result = resolveSkillLocations(
       ['swiftui-expert-skill'],
       lock('skills/swiftui-expert-skill/SKILL.md'),
@@ -104,28 +104,6 @@ describe('resolveSkillLocations', () => {
           skillPath: 'plugins/swiftui-expert-skill/SKILL.md',
         },
       ]
-    );
-
-    expect(result.ambiguousSkills).toEqual(['swiftui-expert-skill']);
-    expect(result.deletedSkills).toEqual([]);
-    expect(result.resolvedPaths.size).toBe(0);
-  });
-
-  it('uses an exact locked path when the installer can target it directly', () => {
-    const result = resolveSkillLocations(
-      ['swiftui-expert-skill'],
-      lock('skills/swiftui-expert-skill/SKILL.md'),
-      [
-        {
-          name: 'swiftui-expert-skill',
-          skillPath: 'skills/swiftui-expert-skill/SKILL.md',
-        },
-        {
-          name: 'swiftui-expert-skill',
-          skillPath: 'plugins/swiftui-expert-skill/SKILL.md',
-        },
-      ],
-      { exactPathDisambiguates: true }
     );
 
     expect(result.resolvedPaths.get('swiftui-expert-skill')).toBe(

@@ -99,6 +99,17 @@ export function shouldUseFullDepthForUpdate(entry: LocalUpdateSourceEntry): bool
   return source !== null && !supportsAppendedSubpath(source);
 }
 
+/**
+ * The locked skill folder to discover from when the install source cannot
+ * carry it (generic Git and SSH URLs). The whole repository is cloned, so the
+ * folder is applied after cloning instead, and a same-name mirror elsewhere in
+ * the repository is never picked up.
+ */
+export function lockedSubpathForUpdate(entry: LocalUpdateSourceEntry): string | undefined {
+  if (!entry.skillPath || !shouldUseFullDepthForUpdate(entry)) return undefined;
+  return deriveSkillFolder(entry.skillPath) || undefined;
+}
+
 function appendFolderAndRef(source: string, skillPath: string, ref?: string): string {
   if (!supportsAppendedSubpath(source)) {
     return formatSourceInput(source, ref);
