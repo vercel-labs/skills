@@ -808,7 +808,7 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'promptscript',
     displayName: 'PromptScript',
     skillsDir: '.agents/skills',
-    globalSkillsDir: undefined,
+    globalSkillsDir: join(home, '.agents', 'skills'),
     showInUniversalPrompt: false,
     detectInstalled: async (cwd = process.cwd()) => {
       return existsSync(join(cwd, '.promptscript')) || existsSync(join(cwd, 'promptscript.yaml'));
