@@ -82,15 +82,34 @@ describe('experimental_install', () => {
     expect(result.stdout).toContain('alpha');
   });
 
-  it('keeps restoring after a source fails', () => {
+  it('keeps restoring after a source fails, leaving its lock entry as it was', () => {
     writeSkill(join(testDir, 'src-b', 'beta'), 'beta');
     writeLock({ alpha: './missing', beta: './src-b' });
+    const before = JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8'));
 
     const result = runCli(['experimental_install'], testDir);
 
     expect(result.exitCode).toBe(1);
-    expect(result.stdout).toContain('Failed to install from');
+    expect(result.stdout).toMatch(/Failed to restore alpha from \S*missing/);
+    expect(result.stdout).toContain('Restored 1 skill; failed to restore 1 skill');
     expect(installed('beta')).toBe(true);
+    const lock = JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8'));
+    expect(lock.skills.alpha).toEqual(before.skills.alpha);
+  });
+
+  it('fails an entry whose skill is no longer in its source', () => {
+    writeSkill(join(testDir, 'src-a', 'alpha'), 'alpha');
+    writeLock({ alpha: './src-a', renamed: './src-a' });
+    const before = JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8'));
+
+    const result = runCli(['experimental_install'], testDir);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toMatch(/renamed not found in \S*src-a/);
+    expect(result.stdout).toContain('failed to restore 1 skill from skills-lock.json: renamed');
+    expect(installed('alpha')).toBe(true);
+    const lock = JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8'));
+    expect(lock.skills.renamed).toEqual(before.skills.renamed);
   });
 
   describe('already installed skills', () => {
