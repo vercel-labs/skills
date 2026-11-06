@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from '../src/test-utils.ts';
@@ -124,6 +124,104 @@ describe('experimental_install', () => {
 
       expect(result.exitCode).toBe(0);
       expect(installedContent()).toContain('name: alpha');
+    });
+  });
+
+  describe('agent links', () => {
+    let home: string;
+    const linkOf = (dir: string) => lstatSync(join(testDir, dir, 'skills', 'alpha'));
+    const restore = (args: string[] = []) =>
+      runCli(['experimental_install', ...args], testDir, { HOME: home });
+
+    function writeLastSelectedAgents(agentList: string[]): void {
+      const dir = join(home, '.local', 'state', 'skills');
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, '.skill-lock.json'),
+        JSON.stringify({ version: 3, skills: {}, lastSelectedAgents: agentList })
+      );
+    }
+
+    beforeEach(() => {
+      home = join(testDir, 'home');
+      mkdirSync(home, { recursive: true });
+      writeSkill(join(testDir, 'src-a', 'alpha'), 'alpha');
+      writeLock({ alpha: './src-a' });
+    });
+
+    it('fill only .agents/skills when no agent is selected or detected', () => {
+      const result = restore();
+
+      expect(result.exitCode).toBe(0);
+      expect(installed('alpha')).toBe(true);
+      expect(existsSync(join(testDir, '.claude'))).toBe(false);
+    });
+
+    it('go to the agents detected on the machine', () => {
+      mkdirSync(join(home, '.claude'));
+
+      expect(restore().exitCode).toBe(0);
+      expect(linkOf('.claude').isSymbolicLink()).toBe(true);
+    });
+
+    it('prefer the agents last selected with skills add', () => {
+      mkdirSync(join(home, '.claude'));
+      writeLastSelectedAgents(['windsurf', 'not-an-agent']);
+
+      expect(restore().exitCode).toBe(0);
+      expect(linkOf('.windsurf').isSymbolicLink()).toBe(true);
+      expect(existsSync(join(testDir, '.claude'))).toBe(false);
+    });
+
+    it('prefer --agent over everything else', () => {
+      writeLastSelectedAgents(['windsurf']);
+
+      expect(restore(['--agent', 'claude-code']).exitCode).toBe(0);
+      expect(linkOf('.claude').isSymbolicLink()).toBe(true);
+      expect(existsSync(join(testDir, '.windsurf'))).toBe(false);
+      expect(installed('alpha')).toBe(true);
+    });
+
+    it('reject an unknown --agent', () => {
+      const result = restore(['--agent', 'not-an-agent']);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('Invalid agents: not-an-agent');
+      expect(installed('alpha')).toBe(false);
+    });
+
+    it('are copies when the lock entry was installed with --copy', () => {
+      const lock = JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8'));
+      lock.skills.alpha.installMode = 'copy';
+      writeFileSync(join(testDir, 'skills-lock.json'), JSON.stringify(lock));
+
+      expect(restore(['--agent', 'claude-code']).exitCode).toBe(0);
+      expect(linkOf('.claude').isDirectory()).toBe(true);
+      expect(linkOf('.agents').isDirectory()).toBe(true);
+      const after = JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8'));
+      expect(after.skills.alpha.installMode).toBe('copy');
+    });
+
+    it('are added to skills that are already installed', () => {
+      expect(restore().exitCode).toBe(0);
+      writeFileSync(join(testDir, '.agents', 'skills', 'alpha', 'SKILL.md'), 'edited');
+
+      const result = restore(['--agent', 'claude-code']);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('1 skill already installed');
+      expect(linkOf('.claude').isSymbolicLink()).toBe(true);
+      expect(readFileSync(join(testDir, '.claude', 'skills', 'alpha', 'SKILL.md'), 'utf-8')).toBe(
+        'edited'
+      );
+    });
+
+    it('are only planned with --dry-run', () => {
+      const result = restore(['--agent', 'claude-code', '--dry-run']);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Would link to Claude Code');
+      expect(existsSync(join(testDir, '.claude'))).toBe(false);
     });
   });
 
