@@ -73,7 +73,12 @@ describe('check', () => {
 
   it('does not report line-ending changes', () => {
     const skillMd = join(project, '.claude', 'skills', 'alpha', 'SKILL.md');
-    writeFileSync(skillMd, readFileSync(skillMd, 'utf-8').replaceAll('\n', '\r\n'));
+    // Flip the line endings: the clone is already CRLF where git uses core.autocrlf (Windows)
+    const content = readFileSync(skillMd, 'utf-8');
+    writeFileSync(
+      skillMd,
+      content.includes('\r\n') ? content.replaceAll('\r\n', '\n') : content.replaceAll('\n', '\r\n')
+    );
 
     expect(runCli(['check'], project).exitCode).toBe(0);
   });
