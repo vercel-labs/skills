@@ -405,7 +405,7 @@ description: Shared install path regression test
     mkdirSync(projectDir, { recursive: true });
 
     const result = runCli(
-      ['add', sourceDir, '-y', '--agent', 'codex', 'cursor', 'cline'],
+      ['add', sourceDir, '-y', '--agent', 'codex', 'antigravity', 'cline'],
       projectDir
     );
 
@@ -434,7 +434,7 @@ description: Mixed copied destination regression test
     mkdirSync(projectDir, { recursive: true });
 
     const result = runCli(
-      ['add', sourceDir, '-y', '--copy', '--agent', 'codex', 'cursor', 'openclaw'],
+      ['add', sourceDir, '-y', '--copy', '--agent', 'codex', 'antigravity', 'openclaw'],
       projectDir
     );
 
