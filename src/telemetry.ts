@@ -125,9 +125,14 @@ export async function fetchAuditData(
   }
 }
 
-// Pending telemetry promises — awaited before CLI exit so we don't lose data,
+interface PendingTelemetryItem {
+  promise: Promise<void>;
+  controller: AbortController;
+}
+
+// Pending telemetry requests — awaited before CLI exit so we don't lose data,
 // but never block the main workflow.
-const pendingTelemetry: Promise<void>[] = [];
+const pendingTelemetry: PendingTelemetryItem[] = [];
 
 export function track(data: TelemetryData): void {
   if (!isEnabled()) return;
@@ -157,12 +162,15 @@ export function track(data: TelemetryData): void {
       }
     }
 
-    // Fire and forget during the workflow, but track the promise so
-    // flushTelemetry() can await it before the process exits.
-    const p = fetch(`${TELEMETRY_URL}?${params.toString()}`)
+    // Fire and forget during the workflow, but track the promise and controller so
+    // flushTelemetry() can await it before the process exits and abort hanging sockets.
+    const controller = new AbortController();
+    const p = fetch(`${TELEMETRY_URL}?${params.toString()}`, {
+      signal: controller.signal,
+    })
       .catch(() => {})
       .then(() => {});
-    pendingTelemetry.push(p);
+    pendingTelemetry.push({ promise: p, controller });
   } catch {
     // Silently fail - telemetry should never break the CLI
   }
@@ -175,6 +183,17 @@ export function track(data: TelemetryData): void {
  */
 export async function flushTelemetry(timeoutMs = 5000): Promise<void> {
   if (pendingTelemetry.length === 0) return;
-  const timeout = new Promise<void>((resolve) => setTimeout(resolve, timeoutMs));
-  await Promise.race([Promise.all(pendingTelemetry), timeout]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, timeoutMs);
+  });
+  try {
+    await Promise.race([Promise.all(pendingTelemetry.map((item) => item.promise)), timeout]);
+  } finally {
+    clearTimeout(timer);
+    for (const item of pendingTelemetry) {
+      item.controller.abort();
+    }
+    pendingTelemetry.length = 0;
+  }
 }
