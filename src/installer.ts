@@ -100,6 +100,34 @@ function pathsOverlap(pathA: string, pathB: string): boolean {
   return isPathSafe(pathA, pathB) || isPathSafe(pathB, pathA);
 }
 
+/** Agents that load a folder containing `.claude-plugin/plugin.json` as a skills-dir plugin. */
+const SKILLS_DIR_PLUGIN_AGENTS: ReadonlySet<AgentType> = new Set<AgentType>(['claude-code']);
+
+export interface SkillInstallUnit {
+  /** Directory to copy or link. */
+  sourceDir: string;
+  /** Directory name to install under. */
+  name: string;
+  /** True when the whole skills-dir plugin is the unit, not one skill folder. */
+  plugin: boolean;
+}
+
+/**
+ * The unit to install for `skill` on `agentType`.
+ *
+ * A skill inside a skills-dir plugin installs the whole plugin folder under the
+ * plugin name, so `.claude-plugin/`, `hooks/` and sibling skills survive. Other
+ * agents keep installing the skill folder itself.
+ */
+export function getSkillInstallUnit(skill: Skill, agentType: AgentType): SkillInstallUnit {
+  const pluginName = skill.pluginName?.trim();
+  if (skill.pluginRoot && pluginName && SKILLS_DIR_PLUGIN_AGENTS.has(agentType)) {
+    return { sourceDir: skill.pluginRoot, name: pluginName, plugin: true };
+  }
+
+  return { sourceDir: skill.path, name: skill.name || basename(skill.path), plugin: false };
+}
+
 function shouldSkipProjectAgentSymlink(
   agentType: AgentType,
   isGlobal: boolean,
@@ -320,9 +348,10 @@ export async function installSkillForAgent(
     };
   }
 
-  // Sanitize skill name to prevent directory traversal
-  const rawSkillName = skill.name || basename(skill.path);
-  const skillName = sanitizeName(rawSkillName);
+  // Sanitize the install directory name to prevent directory traversal
+  const unit = getSkillInstallUnit(skill, agentType);
+  const skillName = sanitizeName(unit.name);
+  const sourceDir = unit.sourceDir;
 
   const installMode = options.mode ?? 'symlink';
 
@@ -362,7 +391,7 @@ export async function installSkillForAgent(
     // `skills add ./skills --all`: the source `./skills/<name>` and destination
     // `./skills/<name>` are the same path. Cleaning the destination would delete
     // the user's source skill before we can link or copy it.
-    if (pathsOverlap(skill.path, agentDir)) {
+    if (pathsOverlap(sourceDir, agentDir)) {
       return {
         success: true,
         path: agentDir,
@@ -374,7 +403,7 @@ export async function installSkillForAgent(
     // For copy mode, skip canonical directory and copy directly to agent location
     if (installMode === 'copy') {
       await cleanAndCreateDirectory(agentDir);
-      await copyDirectory(skill.path, agentDir, agentType);
+      await copyDirectory(sourceDir, agentDir, agentType);
 
       return {
         success: true,
@@ -383,8 +412,8 @@ export async function installSkillForAgent(
       };
     }
 
-    const sourceIsCanonical = resolve(skill.path) === resolve(canonicalDir);
-    if (!sourceIsCanonical && pathsOverlap(skill.path, canonicalDir)) {
+    const sourceIsCanonical = resolve(sourceDir) === resolve(canonicalDir);
+    if (!sourceIsCanonical && pathsOverlap(sourceDir, canonicalDir)) {
       return {
         success: true,
         path: canonicalDir,
@@ -398,14 +427,14 @@ export async function installSkillForAgent(
     if (!sourceIsCanonical) {
       if (installMode === 'link') {
         // Link mode: the canonical dir itself points at the source, nothing is copied.
-        if (!(await createSymlink(skill.path, canonicalDir))) {
+        if (!(await createSymlink(sourceDir, canonicalDir))) {
           await cleanAndCreateDirectory(canonicalDir);
-          await copyDirectory(skill.path, canonicalDir, agentType);
+          await copyDirectory(sourceDir, canonicalDir, agentType);
         }
       } else {
         // Symlink mode: copy to canonical location and symlink to agent location
         await cleanAndCreateDirectory(canonicalDir);
-        await copyDirectory(skill.path, canonicalDir, agentType);
+        await copyDirectory(sourceDir, canonicalDir, agentType);
       }
     }
 
@@ -448,7 +477,7 @@ export async function installSkillForAgent(
     if (!symlinkCreated) {
       // Symlink failed, fall back to copy
       await cleanAndCreateDirectory(agentDir);
-      await copyDirectory(skill.path, agentDir, agentType);
+      await copyDirectory(sourceDir, agentDir, agentType);
 
       return {
         success: true,

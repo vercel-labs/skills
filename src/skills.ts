@@ -4,7 +4,7 @@ import { parseFrontmatter } from './frontmatter.ts';
 import { diagnostics, isDiagnostic } from './diagnostics.ts';
 import { sanitizeMetadata, stripTerminalEscapes } from './sanitize.ts';
 import type { Skill } from './types.ts';
-import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
+import { findSkillsDirPlugin, getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
 import { getSkillsShSearchDirs } from './skills-sh-config.ts';
 import { readLocalLock } from './local-lock.ts';
 import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
@@ -231,11 +231,17 @@ export async function discoverSkills(
   // We search for plugin definitions from the base search path
   const pluginGroupings = await getPluginGroupings(searchPath);
 
-  // Helper to assign plugin name if available
-  const enhanceSkill = (skill: Skill) => {
+  // Helper to assign plugin name and the skills-dir plugin root if available
+  const enhanceSkill = async (skill: Skill): Promise<Skill> => {
     const resolvedPath = resolve(skill.path);
     if (pluginGroupings.has(resolvedPath)) {
       skill.pluginName = pluginGroupings.get(resolvedPath);
+    }
+
+    const skillsDirPlugin = await findSkillsDirPlugin(skill.path, basePath);
+    if (skillsDirPlugin) {
+      skill.pluginName = skillsDirPlugin.name;
+      skill.pluginRoot = skillsDirPlugin.root;
     }
     return skill;
   };
@@ -268,7 +274,7 @@ export async function discoverSkills(
     let skill = await parseSkillAt(searchPath);
     if (skill) {
       if (!isInstalledProjectSkill(skill)) {
-        skill = enhanceSkill(skill);
+        skill = await enhanceSkill(skill);
         skills.push(skill);
         seenNames.add(skill.name);
         // Only return early if fullDepth is not set
@@ -308,7 +314,7 @@ export async function discoverSkills(
     let skill = await parseSkillAt(skillDir);
     if (!skill || (!options?.includeDuplicateNames && seenNames.has(skill.name))) return true;
     if (isInstalledProjectSkill(skill)) return true;
-    skill = enhanceSkill(skill);
+    skill = await enhanceSkill(skill);
     skills.push(skill);
     seenNames.add(skill.name);
     return true;
@@ -351,7 +357,7 @@ export async function discoverSkills(
         (options?.includeDuplicateNames || !seenNames.has(skill.name)) &&
         !isInstalledProjectSkill(skill)
       ) {
-        skill = enhanceSkill(skill);
+        skill = await enhanceSkill(skill);
         skills.push(skill);
         seenNames.add(skill.name);
       }

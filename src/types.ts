@@ -87,6 +87,12 @@ export interface Skill {
   rawContent?: string;
   /** Name of the plugin this skill belongs to (if any) */
   pluginName?: string;
+  /**
+   * Root folder of the skills-dir plugin that contains this skill (a folder with
+   * `.claude-plugin/plugin.json` and no `SKILL.md` of its own). Installed as one
+   * unit so the plugin manifest, hooks and sibling skills survive.
+   */
+  pluginRoot?: string;
   metadata?: Record<string, unknown>;
 }
 

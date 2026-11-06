@@ -15,6 +15,7 @@ import {
   installBlobSkillForAgent,
   isSkillInstalled,
   getCanonicalPath,
+  getSkillInstallUnit,
   installWellKnownSkillForAgent,
   type InstallMode,
 } from './installer.ts';
@@ -1672,9 +1673,24 @@ export async function installToTargets(
   placement: InstallPlacement
 ): Promise<TargetInstallResult[]> {
   const results: TargetInstallResult[] = [];
+  // A skills-dir plugin is one unit: install it once per target even when
+  // several of its skills are selected.
+  const installedPluginUnits = new Map<string, TargetInstallResult>();
   for (const skill of skills) {
     for (const target of placement.targets) {
       const { agent, subagent } = target;
+      const unit = getSkillInstallUnit(skill, agent);
+      const unitKey = unit.plugin ? `${agent}:${subagent ?? ''}:${unit.sourceDir}` : null;
+      const installedUnit = unitKey ? installedPluginUnits.get(unitKey) : undefined;
+      if (installedUnit) {
+        results.push({
+          ...installedUnit,
+          skill: getSkillDisplayName(skill),
+          pluginName: skill.pluginName,
+        });
+        continue;
+      }
+
       const installOptions = {
         global: placement.global,
         cwd: placement.cwd,
@@ -1701,13 +1717,15 @@ export async function installToTargets(
         // assets/, etc. are installed too. See issue #1603.
         result = await installSkillForAgent(skill, agent, installOptions);
       }
-      results.push({
+      const targetResult: TargetInstallResult = {
         skill: getSkillDisplayName(skill),
         agent: targetDisplayName(target),
         agentType: agent,
         pluginName: skill.pluginName,
         ...result,
-      });
+      };
+      results.push(targetResult);
+      if (unitKey) installedPluginUnits.set(unitKey, targetResult);
     }
   }
   return results;

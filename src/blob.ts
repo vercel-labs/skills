@@ -571,6 +571,24 @@ function hasCompleteNestedSnapshot(
 }
 
 /**
+ * Whether a discovered SKILL.md lives inside a skills-dir plugin folder (a
+ * folder with `.claude-plugin/plugin.json` and no `SKILL.md` of its own).
+ *
+ * Blob snapshots are per skill folder and cannot carry the plugin manifest or
+ * hooks, so those trees use the clone path, which installs the plugin whole.
+ */
+function isInsideSkillsDirPlugin(blobPaths: Set<string>, skillMdPath: string): boolean {
+  const segments = skillMdPath.split('/').slice(0, -1);
+  // Start above the skill's own folder: its SKILL.md is not a second skill.
+  for (let depth = segments.length - 1; depth > 0; depth--) {
+    const dir = segments.slice(0, depth).join('/');
+    if (blobPaths.has(`${dir}/SKILL.md`)) return false;
+    if (blobPaths.has(`${dir}/.claude-plugin/plugin.json`)) return true;
+  }
+  return false;
+}
+
+/**
  * Attempt to resolve skills from blob storage instead of cloning.
  *
  * Steps:
@@ -612,6 +630,13 @@ export async function tryBlobInstall(
   const extraContainers = await fetchSkillsShPaths(ownerRepo, tree, options.subpath);
   let skillMdPaths = findSkillMdPaths(tree, options.subpath, extraContainers);
   if (skillMdPaths.length === 0) return null;
+
+  // A skills-dir plugin must install as one folder; per-skill snapshots cannot
+  // represent that, so let the caller clone and install the plugin whole.
+  const blobPaths = new Set(
+    tree.tree.filter((entry) => entry.type === 'blob').map((entry) => entry.path)
+  );
+  if (skillMdPaths.some((path) => isInsideSkillsDirPlugin(blobPaths, path))) return null;
 
   // 3. If a skill filter is set (owner/repo@skill-name), try to narrow down
   if (options.skillFilter) {
