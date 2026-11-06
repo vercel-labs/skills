@@ -1813,12 +1813,15 @@ export async function installFetched(
   }
 }
 
-/** Project placement for restores and syncs: symlinked into `agents`, creating their roots. */
-export function projectPlacement(agents: AgentType[]): InstallPlacement {
+/** Project placement for restores and syncs: into `agents` (symlinked by default), creating their roots. */
+export function projectPlacement(
+  agents: AgentType[],
+  mode: InstallMode = 'symlink'
+): InstallPlacement {
   return {
     global: false,
     targets: agents.map((agent) => ({ agent })),
-    mode: 'symlink',
+    mode,
     createMissingAgentRoot: () => true,
   };
 }
@@ -1836,12 +1839,14 @@ export async function installFromSource(
     via?: string;
     select?: (skills: Skill[]) => Promise<Skill[]>;
     frozenLock?: LocalSkillLockFile;
+    /** Copy into each agent dir instead of symlinking, and keep that in the lock. */
+    installMode?: 'copy';
   }
 ): Promise<SourceInstallResult> {
-  const { frozenLock } = options;
+  const { frozenLock, installMode } = options;
   const outcome = await installFetched(fetched, {
     skills: options.skills,
-    placement: projectPlacement(options.agents),
+    placement: projectPlacement(options.agents, installMode),
     select: async (skills) => {
       const selected = options.select ? await options.select(skills) : skills;
       if (!frozenLock) return selected;
@@ -1869,7 +1874,7 @@ export async function installFromSource(
       );
       if (changes.length > 0) result.error = frozenLockfileError(changes);
     } else {
-      await recordProjectLock(fetched, outcome.installed, options.via);
+      await recordProjectLock(fetched, outcome.installed, options.via, { installMode });
     }
   } catch (error) {
     result.error = error instanceof Error ? error.message : String(error);
