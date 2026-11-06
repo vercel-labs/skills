@@ -120,7 +120,7 @@ function shouldSkipProjectAgentSymlink(
 }
 
 // Dirent.isDirectory() is false for symlinks; follow and verify the target is a directory.
-async function isDirEntryOrSymlinkToDir(
+export async function isDirEntryOrSymlinkToDir(
   entry: { isDirectory(): boolean; isSymbolicLink(): boolean },
   entryPath: string
 ): Promise<boolean> {
