@@ -1,0 +1,133 @@
+{
+  "version": 1,
+  "redirects": [
+    {
+      "from": "dpearson2699/swift-ios-skills/ios-security",
+      "to": "dpearson2699/swift-ios-skills/swift-security",
+      "reason": "The source repository replaced the deleted ios-security skill with swift-security.",
+      "evidence": [
+        "https://github.com/dpearson2699/swift-ios-skills/issues/7",
+        "https://github.com/dpearson2699/swift-ios-skills/commit/942d416238a5e9e14358667878350dbdfdb1517f"
+      ],
+      "verifiedAt": "2026-06-20"
+    },
+    {
+      "from": "dpearson2699/swift-ios-skills/live-activities",
+      "to": "dpearson2699/swift-ios-skills/activitykit",
+      "reason": "The source repository renamed this skill to the Apple framework name.",
+      "evidence": [
+        "https://github.com/dpearson2699/swift-ios-skills/commit/94744bd85b368a4f28cce4c5b5b4bb6c8e6b79ef"
+      ],
+      "verifiedAt": "2026-06-20"
+    },
+    {
+      "from": "dpearson2699/swift-ios-skills/mapkit-location",
+      "to": "dpearson2699/swift-ios-skills/mapkit",
+      "reason": "The source repository renamed this skill to the Apple framework name.",
+      "evidence": [
+        "https://github.com/dpearson2699/swift-ios-skills/commit/94744bd85b368a4f28cce4c5b5b4bb6c8e6b79ef"
+      ],
+      "verifiedAt": "2026-06-20"
+    },
+    {
+      "from": "dpearson2699/swift-ios-skills/photos-camera-media",
+      "to": "dpearson2699/swift-ios-skills/photokit",
+      "reason": "The source repository renamed this skill to the Apple framework name.",
+      "evidence": [
+        "https://github.com/dpearson2699/swift-ios-skills/commit/94744bd85b368a4f28cce4c5b5b4bb6c8e6b79ef"
+      ],
+      "verifiedAt": "2026-06-20"
+    },
+    {
+      "from": "dpearson2699/swift-ios-skills/eventkit-calendar",
+      "to": "dpearson2699/swift-ios-skills/eventkit",
+      "reason": "The source repository renamed this skill to the Apple framework name.",
+      "evidence": [
+        "https://github.com/dpearson2699/swift-ios-skills/commit/94744bd85b368a4f28cce4c5b5b4bb6c8e6b79ef"
+      ],
+      "verifiedAt": "2026-06-20"
+    },
+    {
+      "from": "dpearson2699/swift-ios-skills/cloudkit-sync",
+      "to": "dpearson2699/swift-ios-skills/cloudkit",
+      "reason": "The source repository renamed this skill to the Apple framework name.",
+      "evidence": [
+        "https://github.com/dpearson2699/swift-ios-skills/commit/94744bd85b368a4f28cce4c5b5b4bb6c8e6b79ef"
+      ],
+      "verifiedAt": "2026-06-20"
+    },
+    {
+      "from": "dpearson2699/swift-ios-skills/metrickit-diagnostics",
+      "to": "dpearson2699/swift-ios-skills/metrickit",
+      "reason": "The source repository renamed this skill to the Apple framework name.",
+      "evidence": [
+        "https://github.com/dpearson2699/swift-ios-skills/commit/94744bd85b368a4f28cce4c5b5b4bb6c8e6b79ef"
+      ],
+      "verifiedAt": "2026-06-20"
+    },
+    {
+      "from": "dpearson2699/swift-ios-skills/musickit-audio",
+      "to": "dpearson2699/swift-ios-skills/musickit",
+      "reason": "The source repository renamed this skill to the Apple framework name.",
+      "evidence": [
+        "https://github.com/dpearson2699/swift-ios-skills/commit/94744bd85b368a4f28cce4c5b5b4bb6c8e6b79ef"
+      ],
+      "verifiedAt": "2026-06-20"
+    },
+    {
+      "from": "dpearson2699/swift-ios-skills/realitykit-ar",
+      "to": "dpearson2699/swift-ios-skills/realitykit",
+      "reason": "The source repository renamed this skill to the Apple framework name.",
+      "evidence": [
+        "https://github.com/dpearson2699/swift-ios-skills/commit/94744bd85b368a4f28cce4c5b5b4bb6c8e6b79ef"
+      ],
+      "verifiedAt": "2026-06-20"
+    },
+    {
+      "from": "dpearson2699/swift-ios-skills/callkit-voip",
+      "to": "dpearson2699/swift-ios-skills/callkit",
+      "reason": "The source repository renamed this skill to the Apple framework name.",
+      "evidence": [
+        "https://github.com/dpearson2699/swift-ios-skills/commit/94744bd85b368a4f28cce4c5b5b4bb6c8e6b79ef"
+      ],
+      "verifiedAt": "2026-06-20"
+    },
+    {
+      "from": "dpearson2699/swift-ios-skills/pencilkit-drawing",
+      "to": "dpearson2699/swift-ios-skills/pencilkit",
+      "reason": "The source repository renamed this skill to the Apple framework name.",
+      "evidence": [
+        "https://github.com/dpearson2699/swift-ios-skills/commit/94744bd85b368a4f28cce4c5b5b4bb6c8e6b79ef"
+      ],
+      "verifiedAt": "2026-06-20"
+    },
+    {
+      "from": "dpearson2699/swift-ios-skills/homekit-matter",
+      "to": "dpearson2699/swift-ios-skills/homekit",
+      "reason": "The source repository renamed this skill to the Apple framework name.",
+      "evidence": [
+        "https://github.com/dpearson2699/swift-ios-skills/commit/94744bd85b368a4f28cce4c5b5b4bb6c8e6b79ef"
+      ],
+      "verifiedAt": "2026-06-20"
+    },
+    {
+      "from": "dpearson2699/swift-ios-skills/passkit-wallet",
+      "to": "dpearson2699/swift-ios-skills/passkit",
+      "reason": "The source repository renamed this skill to the Apple framework name.",
+      "evidence": [
+        "https://github.com/dpearson2699/swift-ios-skills/commit/94744bd85b368a4f28cce4c5b5b4bb6c8e6b79ef"
+      ],
+      "verifiedAt": "2026-06-20"
+    },
+    {
+      "from": "dpearson2699/swift-ios-skills/codable-patterns",
+      "to": "dpearson2699/swift-ios-skills/swift-codable",
+      "reason": "The source repository renamed this skill to swift-codable.",
+      "evidence": [
+        "https://github.com/dpearson2699/swift-ios-skills/commit/bb2755141ad81bf8ccd9839eaa430b82da01512a"
+      ],
+      "verifiedAt": "2026-06-20"
+    }
+  ],
+  "hidden": []
+}
