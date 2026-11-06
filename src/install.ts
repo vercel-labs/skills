@@ -45,8 +45,10 @@ export async function resolveRestoreAgents(
  * .agents/skills/ (all of them with --force) into the agents picked by
  * `resolveRestoreAgents`, honouring each entry's recorded `installMode`.
  * Skills already installed only get the agent links they are missing.
- * Groups skills by source and installs each group; a failing source does not
- * stop the others.
+ * Groups skills by source and installs each group. A source that cannot be
+ * fetched, or no longer has a locked skill, fails only its own entries: the
+ * rest are restored, failed entries keep their lock entries unchanged, and the
+ * command ends with a summary and exit code 1.
  *
  * node_modules skills are handled via sync.
  */
@@ -86,6 +88,8 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
   // Separate node_modules skills from remote skills
   const nodeModuleSkills: string[] = [];
   const alreadyInstalled: string[] = [];
+  // Lock entries that could not be restored; their lock entries are left untouched
+  const failedSkills: string[] = [];
   // Keyed by source, install mode, and download, so copied skills stay copies
   const bySource = new Map<
     string,
@@ -110,6 +114,7 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
       p.log.error(
         formatError(diagnostics.SKILLS_LOCK_MISSING_SOURCE_URL({ skill: pc.cyan(skillName) }))
       );
+      failedSkills.push(skillName);
       continue;
     }
     const copy = entry.installMode === 'copy';
@@ -159,6 +164,7 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
     ...(download && { fullDepth: true }),
   }));
   const fetched = await fetchSources(requests);
+  let restoredCount = 0;
   for (const [index, { source, copy, skills }] of requests.entries()) {
     const result = await installFromSource(fetched[index]!, {
       skills,
@@ -167,11 +173,23 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
       ...(frozen && { frozenLock: lock }),
     });
     if (result.error) {
-      p.log.error(`Failed to install from ${pc.cyan(source)}: ${result.error}`);
-      process.exitCode = 1;
+      p.log.error(
+        `Failed to restore ${skills.map((name) => pc.cyan(name)).join(', ')} from ${pc.cyan(source)}: ${result.error}`
+      );
+      failedSkills.push(...skills);
       continue;
     }
+    restoredCount += result.installed.length;
     p.log.success(`Restored ${result.installed.map((name) => pc.cyan(name)).join(', ')}`);
+    // A skill renamed or removed upstream is missing from the source
+    const installedNames = new Set(result.installed.map((name) => name.toLowerCase()));
+    const notFound = skills.filter((name) => !installedNames.has(name.toLowerCase()));
+    if (notFound.length > 0) {
+      p.log.error(
+        `${notFound.map((name) => pc.cyan(name)).join(', ')} not found in ${pc.cyan(source)}`
+      );
+      failedSkills.push(...notFound);
+    }
     for (const failure of result.failed) p.log.error(failure);
     if (result.failed.length > 0) process.exitCode = 1;
   }
@@ -192,7 +210,19 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
       p.log.error(
         `Failed to sync node_modules skills: ${error instanceof Error ? formatError(error) : 'Unknown error'}`
       );
+      failedSkills.push(...nodeModuleSkills);
     }
+  }
+
+  if (failedSkills.length > 0) {
+    const restored =
+      restoredCount > 0
+        ? `Restored ${restoredCount} skill${restoredCount !== 1 ? 's' : ''}; failed`
+        : 'Failed';
+    p.log.error(
+      `${restored} to restore ${failedSkills.length} skill${failedSkills.length !== 1 ? 's' : ''} from skills-lock.json: ${failedSkills.map((name) => pc.cyan(name)).join(', ')}`
+    );
+    process.exitCode = 1;
   }
 }
 
