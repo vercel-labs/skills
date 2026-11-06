@@ -84,6 +84,28 @@ See the [experimental commands reference](docs/commands.md#experimental-commands
 
 </details>
 
+## Request skills.sh Listing Changes
+
+If you publish skills and need a skills.sh listing corrected, hidden, or redirected because a source or skill was
+deprecated, renamed, moved, or deleted, open an issue or pull request against this repository with the requested change.
+
+Keep each pull request focused on one kind of change. Do not combine a concrete listing cleanup with README, schema, or
+format changes.
+
+For a redirect, include:
+
+- the old skills.sh URL or slug
+- the replacement skills.sh URL or slug
+- evidence for the rename or move, such as a source repository commit, pull request, issue, or current file path
+- the date you verified the stale and replacement listings
+
+For a hidden or removed listing, include:
+
+- the skills.sh URL or slug that should be hidden or removed
+- whether the source repository, skill directory, or `SKILL.md` no longer exists
+- evidence for the deletion, deprecation, or invalid listing
+- the date you verified the stale listing
+
 ## Supported Agents
 
 The CLI detects installed agents and lets you choose where skills are installed.
