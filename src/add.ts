@@ -557,24 +557,31 @@ export async function promptForAgents(
  */
 export function skipAgentsWithoutGlobalDir(
   targetAgents: AgentType[],
-  options: { global: boolean; explicit: boolean }
+  options: { global: boolean; explicit: boolean; explicitlySelected?: ReadonlySet<AgentType> }
 ): AgentType[] {
   if (!options.global || options.explicit) return targetAgents;
-  const skipped = targetAgents.filter((a) => agents[a].globalSkillsDir === undefined);
-  if (skipped.length === 0 || skipped.length === targetAgents.length) return targetAgents;
+  const skipped = targetAgents.filter(
+    (a) => agents[a].globalSkillsDir === undefined && !options.explicitlySelected?.has(a)
+  );
+  if (skipped.length === 0 || !targetAgents.some((a) => agents[a].globalSkillsDir !== undefined)) {
+    return targetAgents;
+  }
   p.log.info(
     `Skipping ${skipped.map((a) => agents[a].displayName).join(', ')}: no global skills directory`
   );
-  return targetAgents.filter((a) => agents[a].globalSkillsDir !== undefined);
+  return targetAgents.filter(
+    (a) => agents[a].globalSkillsDir !== undefined || options.explicitlySelected?.has(a)
+  );
 }
 
 /**
  * Interactive agent selection using fuzzy search.
  * Shows universal agents as locked (always selected), and other agents as selectable.
  */
-async function selectAgentsInteractive(options: {
-  global?: boolean;
-}): Promise<AgentType[] | symbol> {
+async function selectAgentsInteractive(
+  options: { global?: boolean },
+  explicitlySelected: Set<AgentType>
+): Promise<AgentType[] | symbol> {
   // Filter out agents that don't support global installation when --global is used
   const supportsGlobalFilter = (a: AgentType) => !options.global || agents[a].globalSkillsDir;
 
@@ -623,6 +630,11 @@ async function selectAgentsInteractive(options: {
   });
 
   if (!isCancelled(selected)) {
+    // Universal agents are locked in the picker, so only selectable agents
+    // represent an explicit choice for global-install error reporting.
+    for (const agent of selected as AgentType[]) {
+      if (otherAgents.includes(agent)) explicitlySelected.add(agent);
+    }
     // Save selection (all agents including universal)
     try {
       await saveSelectedAgents(selected as string[]);
@@ -899,7 +911,8 @@ async function handleWellKnownSkills(
   source: string,
   url: string,
   options: AddOptions,
-  spinner: ReturnType<typeof p.spinner>
+  spinner: ReturnType<typeof p.spinner>,
+  explicitlySelected: Set<AgentType>
 ): Promise<boolean> {
   spinner.start('Discovering skills from well-known endpoint...');
 
@@ -1015,12 +1028,13 @@ async function handleWellKnownSkills(
 
   // Detect agents
   let targetAgents: AgentType[];
+  let selectionMode: 'all' | 'detected' | undefined;
   const validAgents = Object.keys(agents);
 
   if (options.agent?.includes('*')) {
     // --agent '*' selects all agents
     targetAgents = validAgents as AgentType[];
-    p.log.info(`Installing to all ${targetAgents.length} agents`);
+    selectionMode = 'all';
   } else if (options.agent && options.agent.length > 0) {
     // Already validated by runAdd, the only caller.
     targetAgents = options.agent as AgentType[];
@@ -1033,7 +1047,7 @@ async function handleWellKnownSkills(
     if (installedAgents.length === 0) {
       if (options.yes) {
         targetAgents = validAgents as AgentType[];
-        p.log.info('Installing to all agents');
+        selectionMode = 'all';
       } else {
         p.log.info('Select agents to install skills to');
 
@@ -1053,20 +1067,17 @@ async function handleWellKnownSkills(
         }
 
         targetAgents = selected as AgentType[];
+        for (const agent of targetAgents) explicitlySelected.add(agent);
       }
     } else if (installedAgents.length === 1 || options.yes) {
       // Auto-select detected agents + ensure universal agents are included
       targetAgents = ensureUniversalAgents(installedAgents);
-      if (installedAgents.length === 1) {
-        const firstAgent = installedAgents[0]!;
-        p.log.info(`Installing to: ${pc.cyan(agents[firstAgent].displayName)}`);
-      } else {
-        p.log.info(
-          `Installing to: ${installedAgents.map((a) => pc.cyan(agents[a].displayName)).join(', ')}`
-        );
-      }
+      selectionMode = 'detected';
     } else {
-      const selected = await selectAgentsInteractive({ global: options.global });
+      const selected = await selectAgentsInteractive(
+        { global: options.global },
+        explicitlySelected
+      );
 
       if (isCancelled(selected)) {
         exitInstallationCancelled();
@@ -1107,8 +1118,17 @@ async function handleWellKnownSkills(
 
   targetAgents = skipAgentsWithoutGlobalDir(targetAgents, {
     global: installGlobally,
-    explicit: options.agent !== undefined,
+    explicit: false,
+    explicitlySelected,
   });
+
+  if (selectionMode === 'all') {
+    p.log.info(`Installing to all ${targetAgents.length} agents`);
+  } else if (selectionMode === 'detected') {
+    p.log.info(
+      `Installing to: ${targetAgents.map((a) => pc.cyan(agents[a].displayName)).join(', ')}`
+    );
+  }
 
   // Surface an unusable lock before touching disk rather than after installing.
   if (!installGlobally) await readLocalLock();
@@ -2289,6 +2309,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
   const explicitlySelectedAgents = new Set<AgentType>(
     options.agent?.includes('*') ? [] : ((options.agent as AgentType[] | undefined) ?? [])
   );
+  // --all overrides named agents; detected agent defaults are also implicit.
+  const explicitlySelectedForGlobal = new Set<AgentType>(
+    options.all ? [] : explicitlySelectedAgents
+  );
 
   // --all implies --skill '*' and --agent '*' and -y
   if (options.all) {
@@ -2409,7 +2433,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         // feed the JSON accumulator yet.
         emitJsonAndExit(1, '--json is not yet supported for well-known skill sources.');
       }
-      const handled = await handleWellKnownSkills(source, parsed.url, options, spinner);
+      const handled = await handleWellKnownSkills(
+        source,
+        parsed.url,
+        options,
+        spinner,
+        explicitlySelectedForGlobal
+      );
       if (handled) return;
       directDownload = true;
     }
@@ -2624,12 +2654,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       : Promise.resolve(null);
 
     let targetAgents: AgentType[];
+    let selectionMode: 'all' | 'detected' | undefined;
     const validAgents = Object.keys(agents);
 
     if (options.agent?.includes('*')) {
       // --agent '*' selects all agents
       targetAgents = validAgents as AgentType[];
-      p.log.info(`Installing to all ${targetAgents.length} agents`);
+      selectionMode = 'all';
     } else if (options.agent && options.agent.length > 0) {
       // Already validated at the start of runAdd.
       targetAgents = options.agent as AgentType[];
@@ -2639,7 +2670,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       const totalAgents = Object.keys(agents).length;
       spinner.stop(`${totalAgents} agents`);
 
-      if (installedAgents.includes('eve') && (options.yes || !agentResult.isAgent)) {
+      if (
+        !options.global &&
+        installedAgents.includes('eve') &&
+        (options.yes || !agentResult.isAgent)
+      ) {
         const useEve = options.yes
           ? true
           : await p.confirm({
@@ -2657,7 +2692,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           if (!options.yes) explicitlySelectedAgents.add('eve');
           p.log.info(`Installing to: ${pc.cyan(EVE_AGENT_LABEL)}`);
         } else {
-          const selected = await selectAgentsInteractive({ global: options.global });
+          const selected = await selectAgentsInteractive(
+            { global: options.global },
+            explicitlySelectedForGlobal
+          );
 
           if (isCancelled(selected)) {
             await cleanup(tempDir);
@@ -2670,7 +2708,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       } else if (installedAgents.length === 0) {
         if (options.yes) {
           targetAgents = validAgents as AgentType[];
-          p.log.info('Installing to all agents');
+          selectionMode = 'all';
         } else {
           p.log.info('Select agents to install skills to');
 
@@ -2694,20 +2732,17 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
           targetAgents = selected as AgentType[];
           for (const agent of targetAgents) explicitlySelectedAgents.add(agent);
+          for (const agent of targetAgents) explicitlySelectedForGlobal.add(agent);
         }
       } else if (installedAgents.length === 1 || options.yes) {
         // Auto-select detected agents + ensure universal agents are included
         targetAgents = ensureUniversalAgents(installedAgents);
-        if (installedAgents.length === 1) {
-          const firstAgent = installedAgents[0]!;
-          p.log.info(`Installing to: ${pc.cyan(agents[firstAgent].displayName)}`);
-        } else {
-          p.log.info(
-            `Installing to: ${installedAgents.map((a) => pc.cyan(agents[a].displayName)).join(', ')}`
-          );
-        }
+        selectionMode = 'detected';
       } else {
-        const selected = await selectAgentsInteractive({ global: options.global });
+        const selected = await selectAgentsInteractive(
+          { global: options.global },
+          explicitlySelectedForGlobal
+        );
 
         if (isCancelled(selected)) {
           await cleanup(tempDir);
@@ -2722,6 +2757,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // An explicit --subagent flag implies the user wants to target Eve.
     if (options.subagent && options.subagent.length > 0) {
       explicitlySelectedAgents.add('eve');
+      explicitlySelectedForGlobal.add('eve');
       if (!targetAgents.includes('eve')) targetAgents = [...targetAgents, 'eve'];
     }
 
@@ -2760,6 +2796,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         }
 
         eveSubagentTargets = (selectedSubagents as string[]).map((s) => (s === '' ? undefined : s));
+        explicitlySelectedForGlobal.add('eve');
       }
     }
 
@@ -2795,8 +2832,18 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     targetAgents = skipAgentsWithoutGlobalDir(targetAgents, {
       global: installGlobally,
-      explicit: options.agent !== undefined,
+      explicit: false,
+      explicitlySelected: explicitlySelectedForGlobal,
     });
+
+    if (selectionMode === 'all') {
+      p.log.info(`Installing to all ${targetAgents.length} agents`);
+    } else if (selectionMode === 'detected') {
+      p.log.info(
+        `Installing to: ${targetAgents.map((a) => pc.cyan(agents[a].displayName)).join(', ')}`
+      );
+    }
+
     const installTargets = buildInstallTargets(targetAgents, eveSubagentTargets);
 
     // Surface an unusable lock before touching disk rather than after installing.

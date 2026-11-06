@@ -43,10 +43,33 @@ describe('skipAgentsWithoutGlobalDir', () => {
     expect(info).not.toHaveBeenCalled();
   });
 
+  it('keeps only explicitly selected unsupported agents in a mixed global selection', () => {
+    expect(
+      skipAgentsWithoutGlobalDir(['claude-code', 'promptscript', 'eve'], {
+        global: true,
+        explicit: false,
+        explicitlySelected: new Set(['promptscript']),
+      })
+    ).toEqual(['claude-code', 'promptscript']);
+    expect(info).toHaveBeenCalledOnce();
+    expect(info).toHaveBeenCalledWith('Skipping Eve: no global skills directory');
+  });
+
   it('keeps the selection when no agent supports a global install', () => {
     expect(skipAgentsWithoutGlobalDir(['promptscript'], { global: true, explicit: false })).toEqual(
       ['promptscript']
     );
+    expect(info).not.toHaveBeenCalled();
+  });
+
+  it('retains the no-compatible-target fallback with a mixed explicit selection', () => {
+    expect(
+      skipAgentsWithoutGlobalDir(['promptscript', 'eve'], {
+        global: true,
+        explicit: false,
+        explicitlySelected: new Set(['promptscript']),
+      })
+    ).toEqual(['promptscript', 'eve']);
     expect(info).not.toHaveBeenCalled();
   });
 });
