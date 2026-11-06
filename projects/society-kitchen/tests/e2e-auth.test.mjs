@@ -55,7 +55,7 @@ async function enter(page, code) { await page.locator('#code').fill(code); await
 test('signed-out visitor sees the phone screen, not the dev picker', async () => {
   const { page } = await open();
   await see(page, 'Sign in with your mobile number');
-  assert.equal(await page.getByText('Maple Residency').count(), 0);
+  assert.equal(await page.getByText('Harmony Residency').count(), 0);
   await shot(page, '1-phone');
 });
 
@@ -111,7 +111,7 @@ test('new number: join screen rejects a wrong invite code, accepts the right one
   await shot(page, '6-bad-invite');
   await page.reload(); // still routed to join, not into the app
   await see(page, 'Join your society');
-  await page.locator('#invite').fill('maple-123'); await page.locator('#name').fill('Neha Gupta'); await page.locator('#flat').fill('A-12');
+  await page.locator('#invite').fill('harmony-123'); await page.locator('#name').fill('Neha Gupta'); await page.locator('#flat').fill('A-12');
   await page.locator('#go').click();
   await page.getByText('Creamy pasta Alfredo').first().waitFor();
   assert.equal(await page.getByText('Lakeview poha').count(), 0); // only her society's offers
@@ -137,7 +137,7 @@ test('server-side guards', async () => {
   assert.equal((await fetch(`${BASE}/api/dev/users`)).status, 404);
   assert.equal((await fetch(`${BASE}/api/listings`)).status, 401);
   assert.equal((await fetch(`${BASE}/api/listings`, { headers: { cookie: 'sk_session=' + 'a'.repeat(43) } })).status, 401);
-  assert.equal((await post('/api/auth/join', { invite_code: 'MAPLE-123', display_name: 'x', flat_label: 'y' }, { 'x-sk': '1' })).status, 401);
+  assert.equal((await post('/api/auth/join', { invite_code: 'HARMONY-123', display_name: 'x', flat_label: 'y' }, { 'x-sk': '1' })).status, 401);
   assert.equal((await post('/api/auth/verify-otp', { phone: '+919000000001', code: '123456' }, { 'x-sk': '1' })).status, 401);
   const cfg = await (await fetch(`${BASE}/api/config`)).json(); assert.equal(cfg.authMode, 'otp');
 });

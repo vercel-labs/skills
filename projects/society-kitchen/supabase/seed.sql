@@ -11,7 +11,7 @@ create function pg_temp.as_user(u uuid) returns text language sql as $$
 $$;
 
 insert into societies (id, name, invite_code) values
-  ('11111111-1111-1111-1111-111111111111', 'Maple Residency',  'MAPLE-123'),
+  ('11111111-1111-1111-1111-111111111111', 'Harmony Residency',  'HARMONY-123'),
   ('22222222-2222-2222-2222-222222222222', 'Lakeview Heights', 'LAKE-456');
 
 -- Sign-in accounts for the demo residents (phone +91 90000 0000N, N = 1..8)

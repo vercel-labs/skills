@@ -18,7 +18,7 @@ ADMIN_URL=postgres://YOUR_USER@127.0.0.1:5432/postgres DB=society_kitchen script
 
 # 2. Start the app (demo mode: pick any resident, no password)
 AUTH_MODE=dev DATABASE_URL=postgres://YOUR_USER@127.0.0.1:5432/society_kitchen node server/server.mjs
-#    Real sign-in locally: omit AUTH_MODE, then open http://localhost:4173/?join=MAPLE-123 (demo society code).
+#    Real sign-in locally: omit AUTH_MODE, then open http://localhost:4173/?join=HARMONY-123 (demo society code).
 
 # 3. Open http://localhost:4173 on your computer, or on your phone on the same Wi-Fi
 #    (use your computer's address instead of localhost)

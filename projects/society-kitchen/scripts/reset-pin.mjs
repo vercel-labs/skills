@@ -1,5 +1,5 @@
 // Sets a new PIN for a resident who forgot theirs (also clears any lockout).
-//   DATABASE_URL=... node scripts/reset-pin.mjs MAPLE-7QX4K "Meera Iyer" B-402 123456
+//   DATABASE_URL=... node scripts/reset-pin.mjs HARMONY-7QX4K "Meera Iyer" B-402 123456
 // Give the resident the new PIN privately; they can sign in with it right away.
 import { hashPin, loginKey } from '../server/pinauth.mjs';
 let Pool;

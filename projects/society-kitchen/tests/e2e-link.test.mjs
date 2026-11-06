@@ -51,16 +51,16 @@ async function fill(page, { invite, name, flat, pin }) {
 }
 
 test('the invite link prefills the code and is tidied out of the address bar', async () => {
-  const page = await open('/?join=MAPLE-123');
+  const page = await open('/?join=HARMONY-123');
   await see(page, 'Society invite code');
-  assert.equal(await page.locator('#invite').inputValue(), 'MAPLE-123');
+  assert.equal(await page.locator('#invite').inputValue(), 'HARMONY-123');
   assert.equal(new URL(page.url()).search, '');
-  assert.equal(await page.getByText('Maple Residency').count(), 0); // no resident list leaks
+  assert.equal(await page.getByText('Harmony Residency').count(), 0); // no resident list leaks
   await shot(page, '1-signup');
 });
 
 test('a neighbour signs up with the link, lands in the app, stays signed in on reload', async () => {
-  const page = await open('/?join=maple-123');
+  const page = await open('/?join=harmony-123');
   await fill(page, { name: 'Test Neighbour', flat: 'E-707', pin: '135790' });
   await page.getByText('Creamy pasta Alfredo').first().waitFor();
   assert.equal(await page.getByText('Lakeview poha').count(), 0);
@@ -69,31 +69,31 @@ test('a neighbour signs up with the link, lands in the app, stays signed in on r
   const c = (await page.context().cookies()).find((x) => x.name === 'sk_session');
   assert.ok(c.httpOnly && c.sameSite === 'Lax');
   await page.goto(`${BASE}/#/account`);
-  await see(page, 'Test Neighbour'); await see(page, 'Code MAPLE-123');
+  await see(page, 'Test Neighbour'); await see(page, 'Code HARMONY-123');
   await shot(page, '2-account');
   await page.getByRole('button', { name: 'Share invite link' }).click();
   await see(page, 'Invite copied');
   const clip = await page.evaluate(() => navigator.clipboard.readText());
-  assert.match(clip, new RegExp(`${BASE.replace(/[.]/g, '\\.')}/\\?join=MAPLE-123`)); assert.match(clip, /Maple Residency/);
+  assert.match(clip, new RegExp(`${BASE.replace(/[.]/g, '\\.')}/\\?join=HARMONY-123`)); assert.match(clip, /Harmony Residency/);
 });
 
 test('wrong invite code and bad PIN are refused with clear messages', async () => {
   const page = await open('/');
   await fill(page, { invite: 'WRONG-1', name: 'Someone', flat: 'A-1', pin: '123456' });
   await see(page, "invite code isn't right");
-  await fill(page, { invite: 'MAPLE-123', name: 'Someone', flat: 'A-1', pin: '12' });
+  await fill(page, { invite: 'HARMONY-123', name: 'Someone', flat: 'A-1', pin: '12' });
   await see(page, 'exactly 6 digits');
   await shot(page, '3-errors');
 });
 
 test('same name and flat cannot sign up twice', async () => {
-  const page = await open('/?join=MAPLE-123');
+  const page = await open('/?join=HARMONY-123');
   await fill(page, { name: 'test neighbour', flat: 'e707', pin: '222222' });
   await see(page, 'already registered');
 });
 
 test('sign back in on a new phone: wrong PIN counts down, right PIN works; log out ends the session', async () => {
-  const page = await open('/?join=MAPLE-123');
+  const page = await open('/?join=HARMONY-123');
   await signinTab(page);
   await fill(page, { name: 'Test Neighbour', flat: 'E-707', pin: '000000' });
   await see(page, '4 tries left');
@@ -108,7 +108,7 @@ test('sign back in on a new phone: wrong PIN counts down, right PIN works; log o
 });
 
 test('five wrong PINs lock the account (even the right PIN is refused)', async () => {
-  const page = await open('/?join=MAPLE-123');
+  const page = await open('/?join=HARMONY-123');
   await signinTab(page);
   for (let i = 0; i < 5; i++) await fill(page, { name: 'Test Neighbour', flat: 'E-707', pin: '999999' });
   await see(page, 'Try again in 15 minutes').catch(async (e) => { throw new Error('screen said: ' + await page.locator('#err').textContent()); });
@@ -118,7 +118,7 @@ test('five wrong PINs lock the account (even the right PIN is refused)', async (
 });
 
 test('a signed-in neighbour can book, and the app has no JS errors', async () => {
-  const page = await open('/?join=MAPLE-123');
+  const page = await open('/?join=HARMONY-123');
   await fill(page, { name: 'Booker Bee', flat: 'F-808', pin: '314159' });
   await page.getByText('Evening samosas').first().waitFor();
   await page.getByText('Creamy pasta Alfredo').first().click();

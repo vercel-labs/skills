@@ -221,7 +221,7 @@ async function linkLogin() {
         <button role="tab" aria-selected="${signup}" class="${signup ? 'on' : ''}" data-action="mode" data-m="signup">New here</button>
         <button role="tab" aria-selected="${!signup}" class="${!signup ? 'on' : ''}" data-action="mode" data-m="signin">I have an account</button></div>
       <form class="stack" id="f" novalidate>
-        <div><label class="lab" for="invite">Society invite code</label><input class="field" id="invite" autocapitalize="characters" autocomplete="off" placeholder="e.g. MAPLE-123" value="${esc(invite)}"></div>
+        <div><label class="lab" for="invite">Society invite code</label><input class="field" id="invite" autocapitalize="characters" autocomplete="off" placeholder="e.g. HARMONY-123" value="${esc(invite)}"></div>
         <div><label class="lab" for="name">Your name</label><input class="field" id="name" autocomplete="name" maxlength="60"></div>
         <div><label class="lab" for="flat">Flat / unit</label><input class="field" id="flat" autocomplete="off" maxlength="20" placeholder="e.g. B-402"></div>
         <div><label class="lab" for="pin">${signup ? 'Choose a 6-digit PIN' : 'Your 6-digit PIN'}</label><input class="field" id="pin" type="password" inputmode="numeric" autocomplete="${signup ? 'new-password' : 'current-password'}" maxlength="6"></div>
@@ -262,7 +262,7 @@ async function join() {
   return {
     html: `<div class="page-head"><h1 class="h1">Join your society</h1><p class="sub">Only residents can buy and sell here. Ask your society committee for the invite code.</p></div>
       <form class="stack" id="f" novalidate>
-        <div><label class="lab" for="invite">Invite code</label><input class="field" id="invite" autocapitalize="characters" autocomplete="off" placeholder="e.g. MAPLE-123"></div>
+        <div><label class="lab" for="invite">Invite code</label><input class="field" id="invite" autocapitalize="characters" autocomplete="off" placeholder="e.g. HARMONY-123"></div>
         <div><label class="lab" for="name">Your name</label><input class="field" id="name" autocomplete="name" maxlength="60"></div>
         <div><label class="lab" for="flat">Flat / unit</label><input class="field" id="flat" autocomplete="off" maxlength="20" placeholder="e.g. B-402"></div>
         <p class="small">Neighbours see your name and flat on listings and bookings.</p>

@@ -8,9 +8,9 @@ Free-plan trade-offs: Render's free app goes to sleep after ~15 minutes of no vi
 
 1. Sign up at neon.com, create a project (pick the region nearest you, e.g. Mumbai if offered).
 2. Open **SQL Editor**. Paste the whole of `deploy/setup.sql` and run it once. It should finish with no errors.
-3. Run this in the same editor, with **your** society name and a **hard-to-guess** invite code (it is the only thing keeping outsiders out; at least 8 characters, e.g. `MAPLE-7QX4K`):
+3. Run this in the same editor, with **your** society name and a **hard-to-guess** invite code (it is the only thing keeping outsiders out; at least 8 characters, e.g. `HARMONY-7QX4K`):
    ```sql
-   insert into societies (name, invite_code) values ('Maple Residency', 'MAPLE-7QX4K');
+   insert into societies (name, invite_code) values ('Harmony Residency', 'HARMONY-7QX4K');
    ```
 4. On the project dashboard click **Connect** and copy the connection string (starts with `postgres://`). Keep it private: it is a password.
 
@@ -37,7 +37,7 @@ Free-plan trade-offs: Render's free app goes to sleep after ~15 minutes of no vi
 
 Your invite link is the app address plus `/?join=` and your code:
 
-`https://society-kitchen-xxxx.onrender.com/?join=MAPLE-7QX4K`
+`https://society-kitchen-xxxx.onrender.com/?join=HARMONY-7QX4K`
 
 Post it in the society WhatsApp group. Each neighbour opens it, enters their name, flat and a 6-digit PIN, and is in. Later, anyone signed in can press **Share invite link** on the Account screen.
 
@@ -51,9 +51,9 @@ It then opens full screen with its own icon.
 ## Safety notes
 
 - **Anyone with the link can join.** If it leaks outside the society, change the code in the Neon SQL editor, then share the new link:
-  `update societies set invite_code = 'NEW-CODE-123' where invite_code = 'MAPLE-7QX4K';`
+  `update societies set invite_code = 'NEW-CODE-123' where invite_code = 'HARMONY-7QX4K';`
   People already signed in stay signed in.
-- **Forgotten PIN:** a neighbour who forgets their PIN can't recover it themselves yet. You (the admin) can set a new one from any computer with Node 22: `DATABASE_URL='...' node scripts/reset-pin.mjs MAPLE-7QX4K "Meera Iyer" B-402 123456`, then tell them the new PIN privately.
+- **Forgotten PIN:** a neighbour who forgets their PIN can't recover it themselves yet. You (the admin) can set a new one from any computer with Node 22: `DATABASE_URL='...' node scripts/reset-pin.mjs HARMONY-7QX4K "Meera Iyer" B-402 123456`, then tell them the new PIN privately.
 - **Nobody is verified.** The app trusts that a neighbour is who they say. Fine for a group that knows each other; add phone verification (the SMS sign-in is already built: `AUTH_MODE=otp`) if that stops being true.
 - Keep the Neon connection string out of chat groups and screenshots. Never use `AUTH_MODE=dev` on the internet.
 - Money is settled offline, outside the app, as designed.

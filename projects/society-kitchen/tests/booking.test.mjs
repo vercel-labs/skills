@@ -91,7 +91,7 @@ before(async () => {
     await pool.query(fs.readFileSync(f, 'utf8'));
   }
 
-  S1 = (await pool.query(`insert into societies (name, invite_code) values ('Maple Residency', 'MAPLE-123') returning id`)).rows[0].id;
+  S1 = (await pool.query(`insert into societies (name, invite_code) values ('Harmony Residency', 'HARMONY-123') returning id`)).rows[0].id;
   S2 = (await pool.query(`insert into societies (name, invite_code) values ('Other Society', 'OTHER-999') returning id`)).rows[0].id;
   seller = await mkUser(S1, 'Meera Iyer', 'B-402');
   outsider = await mkUser(S2, 'Outsider', 'Z-1');
@@ -349,9 +349,9 @@ test('a listing past its pickup time cannot be closed (that would cancel finishe
 test('joining a society works with an invite code, and not with a wrong one', async () => {
   const uid = crypto.randomUUID();
   await expectErr(call(uid, `select join_society('nope', 'New Person', 'D-9')`), 'invalid_invite_code');
-  const [p] = await call(uid, `select * from join_society(' maple-123 ', 'New Person', 'D-9')`);
+  const [p] = await call(uid, `select * from join_society(' harmony-123 ', 'New Person', 'D-9')`);
   assert.equal(p.society_id, S1);
-  await expectErr(call(uid, `select join_society('MAPLE-123', 'New Person', 'D-9')`), 'already_member');
+  await expectErr(call(uid, `select join_society('HARMONY-123', 'New Person', 'D-9')`), 'already_member');
 });
 
 // ---------- security ----------

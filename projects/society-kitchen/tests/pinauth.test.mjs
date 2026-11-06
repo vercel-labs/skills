@@ -25,7 +25,7 @@ async function withUser(uid, fn) {
   } catch (e) { try { await c.query('rollback'); } catch {} throw e; } finally { c.release(); }
 }
 const fails = (p, code, status) => assert.rejects(p, (e) => e instanceof AuthError && e.code === code && (!status || e.status === status), `expected ${code}`);
-const who = (o = {}) => ({ invite_code: 'MAPLE-123', display_name: 'Priya Nair', flat_label: 'D-501', pin: '482916', ...o });
+const who = (o = {}) => ({ invite_code: 'HARMONY-123', display_name: 'Priya Nair', flat_label: 'D-501', pin: '482916', ...o });
 
 before(async () => {
   execFileSync('bash', [path.join(ROOT, 'scripts/setup.sh')], { env: { ...process.env, DB, ADMIN_URL }, stdio: 'pipe' });
@@ -39,7 +39,7 @@ test('sign up creates an account, a profile in the right society and a session',
   const { accountId, token } = await pa.signup(who(), '1.1.1.1', 'ua');
   assert.equal(await auth.sessionAccount(token), accountId);
   const [p] = (await pool.query('select p.display_name, p.flat_label, s.name from profiles p join societies s on s.id = p.society_id where p.id = $1', [accountId])).rows;
-  assert.deepEqual([p.display_name, p.flat_label, p.name], ['Priya Nair', 'D-501', 'Maple Residency']);
+  assert.deepEqual([p.display_name, p.flat_label, p.name], ['Priya Nair', 'D-501', 'Harmony Residency']);
 });
 
 test('invite code is case-insensitive; a wrong one creates nothing', async () => {

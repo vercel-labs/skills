@@ -72,7 +72,7 @@ const toastText = async (page) => { await page.locator('#toast.show').waitFor();
 test('sign-in screen lists residents grouped by society', async () => {
   const page = await open(null, '#/');
   await see(page, 'Society Kitchen');
-  await see(page, 'Maple Residency'); await see(page, 'Lakeview Heights');
+  await see(page, 'Harmony Residency'); await see(page, 'Lakeview Heights');
   await shot(page, '00-login');
   await page.getByRole('button', { name: /Anita Desai/ }).click();
   await see(page, "What's cooking");
@@ -259,7 +259,7 @@ test('seller: the form route works too', async () => {
   await see(page, 'Masala chai flask');
 });
 
-test('privacy: residents of another society cannot see or book Maple listings', async () => {
+test('privacy: residents of another society cannot see or book Harmony listings', async () => {
   const page = await open('vikram');
   await see(page, 'Lakeview poha');
   assert.equal(await page.locator('a.card.link').count(), 1);
