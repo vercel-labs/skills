@@ -35,6 +35,7 @@ import {
 import type { Skill, AgentType } from './types.ts';
 import type { Diagnostic } from 'nostics';
 import { diagnostics, formatError } from './diagnostics.ts';
+import { matchesGlob } from './glob.ts';
 import { track } from './telemetry.ts';
 import { isCI } from './ci.ts';
 import { detectAgent, getAgentType } from './detect-agent.ts';
@@ -71,8 +72,8 @@ function matchesSkill(
     const packagePattern = hash === -1 ? pattern : pattern.slice(0, hash);
     const skillPattern = hash === -1 ? '**' : pattern.slice(hash + 1);
     return (
-      posix.matchesGlob(skill.packageName, packagePattern) &&
-      posix.matchesGlob(sanitizeName(skill.name), skillPattern)
+      matchesGlob(skill.packageName, packagePattern) &&
+      matchesGlob(sanitizeName(skill.name), skillPattern)
     );
   });
 }
@@ -200,8 +201,8 @@ function filterRemoteRequests(
     const declarers = request.declarers.filter(
       (name) =>
         (!options.include?.length ||
-          options.include.some((p) => posix.matchesGlob(name, p.split('#')[0]!))) &&
-        !options.exclude?.some((p) => !p.includes('#') && posix.matchesGlob(name, p))
+          options.include.some((p) => matchesGlob(name, p.split('#')[0]!))) &&
+        !options.exclude?.some((p) => !p.includes('#') && matchesGlob(name, p))
     );
     if (declarers.length === 0) return [];
     const filtered = { ...request, via: declarers[0]!, declarers };
@@ -266,7 +267,7 @@ async function findWorkspacePackages(cwd: string, pkg: PackageJson): Promise<str
     { cwd, exclude: (path) => basename(path) === 'node_modules' }
   )) {
     const dir = dirname(file).split(sep).join('/');
-    if (dir !== '.' && !negated.some((n) => posix.matchesGlob(dir, n))) dirs.add(join(cwd, dir));
+    if (dir !== '.' && !negated.some((n) => matchesGlob(dir, n))) dirs.add(join(cwd, dir));
   }
   return [...dirs].sort();
 }
