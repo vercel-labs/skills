@@ -366,6 +366,9 @@ pass `--no-frozen-lockfile` to update the lock from CI.
 npx skills experimental_install
 ```
 
+`skills install` and `skills i` without a source are aliases for this command. With
+a source, they behave like `skills add`.
+
 Restore supported sources recorded in `skills-lock.json` into `.agents/skills/` and
 link them into agent directories. Skills already in `.agents/skills/` are left as they
 are and only get the agent links they are missing; pass `--force` to reinstall them.
