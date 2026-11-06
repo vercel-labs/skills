@@ -109,6 +109,8 @@ npx skills add https://example.com/download/my-skill
 
 Direct download URLs are tried after well-known discovery. They may point to a single valid `SKILL.md` file or a `.zip`, `.tar`, `.tar.gz`, or `.tgz` archive; the URL does not need to include a file extension. Downloads are limited to 10 MiB, extracted content to 25 MiB, and archives to 1000 files by default. Override with `SKILLS_DOWNLOAD_MAX_BYTES`, `SKILLS_EXTRACT_MAX_BYTES`, and `SKILLS_EXTRACT_MAX_FILES` when you trust the source.
 
+The lock file records a direct download as `sourceType: "download"` with its URL and the skill's path inside the download, so `skills update`, `skills check`, and restore can fetch it again. Notion installs are recorded the same way: a skill page by its page URL, and a pack as `notion://packs/<id>`, because the download URL from `ntn` expires. A URL with a query string or user info, such as a signed URL, is not recorded, because the lock is usually committed and those parts often hold credentials. To update such a skill, run `skills add` with a new URL.
+
 ### Installation Scope
 
 | Scope       | Flag      | Location            | Use Case                                      |
@@ -202,6 +204,8 @@ npx skills update -y
 | `-p, --project` | Only update project skills                                                |
 | `-y, --yes`     | Skip scope prompt (auto-detect: project if in a project dir, else global) |
 | `[skills...]`   | Update specific skills by name instead of all                             |
+
+A skill installed from a direct download is downloaded again and reinstalled when its content hash differs from the lock, or when its folder is missing.
 
 ## `skills init`
 

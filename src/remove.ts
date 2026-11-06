@@ -490,9 +490,10 @@ export function trackRemovals(
   const bySource = new Map<string, { skills: string[]; sourceType?: string }>();
 
   for (const r of successful) {
-    // A local lock entry's source is an absolute path on the user's machine; telemetry only
-    // ever receives the generic 'local' for it.
-    const source = r.sourceType === 'local' ? 'local' : r.source || 'local';
+    // A local lock entry's source is an absolute path on the user's machine, and a download's
+    // is a URL that may be private; telemetry only ever receives the generic source type.
+    const source =
+      r.sourceType === 'local' || r.sourceType === 'download' ? r.sourceType : r.source || 'local';
     const existing = bySource.get(source) || { skills: [] };
     existing.skills.push(r.skill);
     existing.sourceType = r.sourceType;

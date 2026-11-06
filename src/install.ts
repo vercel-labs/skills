@@ -86,8 +86,11 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
   // Separate node_modules skills from remote skills
   const nodeModuleSkills: string[] = [];
   const alreadyInstalled: string[] = [];
-  // Keyed by source and install mode, so copied skills stay copies
-  const bySource = new Map<string, { source: string; copy: boolean; skills: string[] }>();
+  // Keyed by source, install mode, and download, so copied skills stay copies
+  const bySource = new Map<
+    string,
+    { source: string; copy: boolean; download: boolean; skills: string[] }
+  >();
 
   for (const [skillName, entry] of skillEntries) {
     if (entry.sourceType === 'node_modules') {
@@ -100,7 +103,9 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
       continue;
     }
 
-    const installSource = buildLocalUpdateSource(entry);
+    // A download is fetched again from its URL as-is; it has no folder or ref to append.
+    const installSource =
+      entry.sourceType === 'download' ? (entry.sourceUrl ?? null) : buildLocalUpdateSource(entry);
     if (!installSource) {
       p.log.error(
         formatError(diagnostics.SKILLS_LOCK_MISSING_SOURCE_URL({ skill: pc.cyan(skillName) }))
@@ -108,8 +113,9 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
       continue;
     }
     const copy = entry.installMode === 'copy';
-    const key = `${copy ? 'copy' : 'symlink'}:${installSource}`;
-    const group = bySource.get(key) ?? { source: installSource, copy, skills: [] };
+    const download = entry.sourceType === 'download';
+    const key = `${copy ? 'copy' : 'symlink'}:${download ? 'download' : 'source'}:${installSource}`;
+    const group = bySource.get(key) ?? { source: installSource, copy, download, skills: [] };
     group.skills.push(skillName);
     bySource.set(key, group);
   }
@@ -144,11 +150,13 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
   }
 
   // Download every source at once, then install them in order
-  const requests = [...bySource.values()].map(({ source, copy, skills }) => ({
+  const requests = [...bySource.values()].map(({ source, copy, download, skills }) => ({
     source,
     copy,
-    parsed: parseSource(source),
+    parsed: download ? { type: 'download' as const, url: source } : parseSource(source),
     skills,
+    // A pack or archive can hold its skills at any depth.
+    ...(download && { fullDepth: true }),
   }));
   const fetched = await fetchSources(requests);
   for (const [index, { source, copy, skills }] of requests.entries()) {

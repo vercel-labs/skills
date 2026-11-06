@@ -111,6 +111,7 @@ __snapshots__/tsnapi/          # Public API snapshot, checked by every build
 4. `fetchSkillFolderHash` calls the GitHub Trees API (`/git/trees/<branch>?recursive=1` for `main`, then `master` fallback); update checks fall back to an authenticated Git clone when API access is unavailable.
 5. Compare latest folder tree SHA with lock file `skillFolderHash`; mismatch means update available
 6. `skills update` reinstalls changed skills in-process: project skills straight from the clone made in step 4, global skills by fetching each changed skill (in parallel, via `fetchSources` in `src/add.ts`) and writing it with `installFetched`. Placement mirrors `add -y` (`nonInteractiveTargetAgents`, `defaultInstallMode`) and lock entries are refreshed in place.
+7. Direct downloads (raw `SKILL.md`, archives, Notion) are locked as `sourceType: 'download'` with a `sourceUrl` that fetches them again (`notion://packs/<id>` for Notion packs). Update downloads each URL again and compares the content hash. URLs with a query string or user info are never locked, because they may carry credentials.
 
 ### Lock File Compatibility
 

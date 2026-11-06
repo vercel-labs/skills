@@ -509,6 +509,28 @@ describe('download sources', () => {
       fetchSpy.mockRestore();
     }
   });
+
+  it('locks a direct download by its URL', async () => {
+    const url = 'https://downloads.example.com/skills/locked-skill';
+    const skillMd = '---\nname: locked-skill\ndescription: Locked skill\n---\n';
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input) =>
+        String(input) === url ? new Response(skillMd) : new Response('not found', { status: 404 })
+      );
+    try {
+      await api.installSkills(url, { cwd, agents: ['cursor'] });
+      const lock = JSON.parse(readFileSync(join(cwd, 'skills-lock.json'), 'utf-8'));
+      expect(lock.skills['locked-skill']).toMatchObject({
+        source: url,
+        sourceUrl: url,
+        sourceType: 'download',
+        skillPath: 'SKILL.md',
+      });
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
 });
 
 describe('git sources', () => {
