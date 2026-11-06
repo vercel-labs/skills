@@ -78,6 +78,7 @@ discover `SKILL.md` files outside these container directories (e.g. under
 - `.continue/skills/`
 - `.cortex/skills/`
 - `.crush/skills/`
+- `.dsh/skills/`
 - `.devin/skills/`
 - `agent/skills/`
 - `.forge/skills/`
