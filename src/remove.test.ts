@@ -1,5 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, rmSync, mkdirSync, writeFileSync, readdirSync, readFileSync } from 'fs';
+import {
+  existsSync,
+  lstatSync,
+  rmSync,
+  mkdirSync,
+  writeFileSync,
+  readdirSync,
+  readFileSync,
+  symlinkSync,
+} from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli, runCliWithInput } from './test-utils.js';
@@ -206,6 +215,39 @@ This is a test skill.
       expect(existsSync(join(skillsDir, 'skill-one'))).toBe(true);
       expect(existsSync(join(skillsDir, 'skill-two'))).toBe(false);
       expect(existsSync(join(skillsDir, 'skill-three'))).toBe(true);
+    });
+
+    it('should remove a skill directory that is a symlinked directory (#2679)', () => {
+      const sourceDir = join(testDir, 'linked-source', 'linked-pet');
+      mkdirSync(sourceDir, { recursive: true });
+      writeFileSync(
+        join(sourceDir, 'SKILL.md'),
+        `---
+name: linked-pet
+description: A skill installed as a directory symlink
+---
+
+# linked-pet
+`
+      );
+      const skillLink = join(skillsDir, 'linked-pet');
+      symlinkSync(sourceDir, skillLink, 'dir');
+      const claudeLink = join(createAgentSkillsDir('.claude'), 'linked-pet');
+      symlinkSync(join('..', '..', '.agents', 'skills', 'linked-pet'), claudeLink);
+
+      const before = runCli(['list', '--json'], testDir);
+      expect(before.stdout).toContain('linked-pet');
+
+      const result = runCli(['remove', 'linked-pet', '-y'], testDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Successfully removed');
+      expect(lstatSync(skillLink, { throwIfNoEntry: false })).toBeUndefined();
+      expect(lstatSync(claudeLink, { throwIfNoEntry: false })).toBeUndefined();
+      expect(existsSync(join(sourceDir, 'SKILL.md'))).toBe(true);
+
+      const after = runCli(['list', '--json'], testDir);
+      expect(after.stdout).not.toContain('linked-pet');
     });
 
     it('should show error for non-existent skill name when skills exist', () => {
