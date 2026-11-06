@@ -1,4 +1,5 @@
-import { readFile, writeFile } from 'fs/promises';
+import { readFile, readdir, writeFile } from 'fs/promises';
+import { createHash } from 'crypto';
 import { existsSync } from 'fs';
 import { isAbsolute, join, relative, resolve, sep } from 'path';
 import { diagnostics } from './diagnostics.ts';
@@ -43,7 +44,8 @@ export interface LocalSkillLockEntry {
   /**
    * SHA-256 of the files the installer writes for the skill (see
    * `computeSkillFolderHash`), so it can be checked against `.agents/skills/<name>`.
-   * Empty when a v1 lock was migrated without the skill on disk: nothing to verify against.
+   * Empty when a v1 lock was migrated and the installed skill was absent or no
+   * longer matched the v1 hash: there is nothing trusted to verify against.
    */
   computedHash: string;
   /**
@@ -143,10 +145,10 @@ export async function readLocalLock(
   if (parsed.version === 1) {
     await Promise.all(
       Object.entries(parsed.skills).map(async ([name, entry]) => {
-        const dir = getInstalledSkillDir(name, lockDir);
-        entry.computedHash = existsSync(join(dir, 'SKILL.md'))
-          ? await computeSkillFolderHash(dir).catch(() => '')
-          : '';
+        entry.computedHash = await migrateComputedHash(
+          getInstalledSkillDir(name, lockDir),
+          entry.computedHash
+        );
       })
     );
     parsed.version = CURRENT_VERSION;
@@ -157,9 +159,56 @@ export async function readLocalLock(
 }
 
 /**
+ * The v2 hash for a v1 entry. Disk is trusted only when it still matches the
+ * locked v1 hash; otherwise the entry gets no hash, so a frozen install fails
+ * and a normal install fetches the skill again instead of trusting edited files.
+ */
+async function migrateComputedHash(dir: string, v1Hash: string): Promise<string> {
+  if (!v1Hash || !existsSync(join(dir, 'SKILL.md'))) return '';
+  try {
+    if ((await computeLegacySkillFolderHash(dir)) !== v1Hash) return '';
+    return await computeSkillFolderHash(dir);
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * The v1 computedHash, kept only to verify entries when migrating a v1 lock:
+ * regular files except under .git/ and node_modules/, sorted with
+ * localeCompare, each as path then content with no framing.
+ */
+export async function computeLegacySkillFolderHash(skillDir: string): Promise<string> {
+  const files: Array<{ relativePath: string; content: Buffer }> = [];
+  const collect = async (currentDir: string): Promise<void> => {
+    const entries = await readdir(currentDir, { withFileTypes: true });
+    await Promise.all(
+      entries.map(async (entry) => {
+        const fullPath = join(currentDir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name === '.git' || entry.name === 'node_modules') return;
+          await collect(fullPath);
+        } else if (entry.isFile()) {
+          const relativePath = relative(skillDir, fullPath).split('\\').join('/');
+          files.push({ relativePath, content: await readFile(fullPath) });
+        }
+      })
+    );
+  };
+  await collect(skillDir);
+  files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+  const hash = createHash('sha256');
+  for (const file of files) {
+    hash.update(file.relativePath);
+    hash.update(file.content);
+  }
+  return hash.digest('hex');
+}
+
+/**
  * How the installed copy of a locked skill compares with its lock entry:
  * `missing` without a SKILL.md, `modified` when the files no longer hash to
- * computedHash, otherwise `tracked`. An entry with no hash cannot be modified.
+ * computedHash or there is no hash to check them against, otherwise `tracked`.
  */
 export async function getLockedSkillState(
   skillName: string,
@@ -169,7 +218,8 @@ export async function getLockedSkillState(
   dir: string = getInstalledSkillDir(skillName, cwd)
 ): Promise<'tracked' | 'missing' | 'modified'> {
   if (!existsSync(join(dir, 'SKILL.md'))) return 'missing';
-  if (!entry.computedHash) return 'tracked';
+  // No hash means the files could not be verified when a v1 lock was migrated
+  if (!entry.computedHash) return 'modified';
   const hash = await computeSkillFolderHash(dir).catch(() => null);
   return hash === entry.computedHash ? 'tracked' : 'modified';
 }
@@ -254,7 +304,7 @@ export function lockChangeReason(
   const locked = lock.skills[skillName];
   if (!locked) return `${skillName} is not in skills-lock.json`;
   if (!locked.computedHash) {
-    return `${skillName} has no content hash in skills-lock.json (migrated from version 1 without the skill installed)`;
+    return `${skillName} has no content hash in skills-lock.json (migrated from version 1, and the installed skill was missing or did not match)`;
   }
   if (locked.computedHash !== entry.computedHash) {
     return `${skillName} has changed since skills-lock.json was written`;

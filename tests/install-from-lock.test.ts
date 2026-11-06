@@ -3,7 +3,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from '../src/test-utils.ts';
-import { computeSkillFolderHash } from '../src/local-lock.ts';
+import { computeLegacySkillFolderHash, computeSkillFolderHash } from '../src/local-lock.ts';
 
 describe('experimental_install', () => {
   let testDir: string;
@@ -54,16 +54,20 @@ describe('experimental_install', () => {
     rmSync(testDir, { recursive: true, force: true });
   });
 
-  it('upgrades a v1 lock in place, keeping installed skills', async () => {
-    writeSkill(join(testDir, 'src-a', 'alpha'), 'alpha');
-    writeSkill(join(testDir, '.agents', 'skills', 'alpha'), 'alpha');
+  function writeV1Lock(computedHash: string): void {
     writeFileSync(
       join(testDir, 'skills-lock.json'),
       JSON.stringify({
         version: 1,
-        skills: { alpha: { source: './src-a', sourceType: 'local', computedHash: 'v1' } },
+        skills: { alpha: { source: './src-a', sourceType: 'local', computedHash } },
       })
     );
+  }
+
+  it('upgrades a v1 lock in place, keeping installed skills that match it', async () => {
+    writeSkill(join(testDir, 'src-a', 'alpha'), 'alpha');
+    writeSkill(join(testDir, '.agents', 'skills', 'alpha'), 'alpha');
+    writeV1Lock(await computeLegacySkillFolderHash(join(testDir, '.agents', 'skills', 'alpha')));
 
     const result = runCli(['experimental_install'], testDir);
 
@@ -74,6 +78,20 @@ describe('experimental_install', () => {
     expect(lock.skills.alpha.computedHash).toBe(
       await computeSkillFolderHash(join(testDir, '.agents', 'skills', 'alpha'))
     );
+  });
+
+  it('restores an installed skill that no longer matches its v1 hash', () => {
+    writeSkill(join(testDir, 'src-a', 'alpha'), 'alpha');
+    mkdirSync(join(testDir, '.agents', 'skills', 'alpha'), { recursive: true });
+    writeFileSync(join(testDir, '.agents', 'skills', 'alpha', 'SKILL.md'), 'edited');
+    writeV1Lock('v1');
+
+    const result = runCli(['experimental_install'], testDir);
+
+    expect(result.exitCode).toBe(0);
+    expect(
+      readFileSync(join(testDir, '.agents', 'skills', 'alpha', 'SKILL.md'), 'utf-8')
+    ).toContain('name: alpha');
   });
 
   it('restores every source in the lock', () => {

@@ -397,8 +397,8 @@ machine. With none of these, only `.agents/skills/` is filled. Skills recorded w
 
 With `--frozen-lockfile`, every restored skill must match the content hash recorded
 in `skills-lock.json`, and so must every skill that is skipped because it is already
-installed. An entry with no hash (migrated from a version 1 lock while the skill was
-not installed) is an error. A source whose skills differ is skipped entirely, the lock is
+installed. An entry with no hash is an error. A version 1 lock produces one when the skill was
+not installed, or when its files did not match the version 1 hash. A source whose skills differ is skipped entirely, the lock is
 left untouched, and the command exits with code 1. A missing or empty lock is also
 an error. This is the default in CI; pass `--no-frozen-lockfile` to refresh the lock
 from CI instead.

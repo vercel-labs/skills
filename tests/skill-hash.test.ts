@@ -4,7 +4,11 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { computeSkillFolderHash, hashSkillFiles } from '../src/skill-hash.ts';
 import { copyDirectory } from '../src/installer.ts';
-import { getLockedSkillState, readLocalLock } from '../src/local-lock.ts';
+import {
+  computeLegacySkillFolderHash,
+  getLockedSkillState,
+  readLocalLock,
+} from '../src/local-lock.ts';
 
 describe('hashSkillFiles', () => {
   // The vectors documented in README.md ("Lock file content hash")
@@ -153,10 +157,20 @@ describe('lock v2', () => {
     dir = await mkdtemp(join(tmpdir(), 'lock-v2-'));
     await mkdir(skillDir('alpha'), { recursive: true });
     await writeFile(join(skillDir('alpha'), 'SKILL.md'), 'a\n');
-    const entry = { source: 'owner/repo', sourceType: 'github', computedHash: 'v1-hash' };
+    await mkdir(skillDir('gamma'), { recursive: true });
+    await writeFile(join(skillDir('gamma'), 'SKILL.md'), 'g\n');
+    const entry = { source: 'owner/repo', sourceType: 'github' };
     await writeFile(
       join(dir, 'skills-lock.json'),
-      JSON.stringify({ version: 1, skills: { alpha: entry, beta: entry } })
+      JSON.stringify({
+        version: 1,
+        skills: {
+          alpha: { ...entry, computedHash: await computeLegacySkillFolderHash(skillDir('alpha')) },
+          beta: { ...entry, computedHash: 'v1-hash' },
+          // Installed, but edited since the v1 lock was written
+          gamma: { ...entry, computedHash: 'v1-hash' },
+        },
+      })
     );
   });
 
@@ -164,12 +178,13 @@ describe('lock v2', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it('migrates a v1 lock from the installed skills without writing it', async () => {
+  it('migrates a v1 lock from the installed skills that match it, without writing it', async () => {
     const lock = await readLocalLock(dir);
 
     expect(lock.version).toBe(2);
     expect(lock.skills.alpha!.computedHash).toBe(await computeSkillFolderHash(skillDir('alpha')));
     expect(lock.skills.beta!.computedHash).toBe('');
+    expect(lock.skills.gamma!.computedHash).toBe('');
     expect(JSON.parse(await readFile(join(dir, 'skills-lock.json'), 'utf-8')).version).toBe(1);
   });
 
@@ -186,6 +201,7 @@ describe('lock v2', () => {
     const lock = await readLocalLock(dir);
     expect(await getLockedSkillState('alpha', lock.skills.alpha!, dir)).toBe('tracked');
     expect(await getLockedSkillState('beta', lock.skills.beta!, dir)).toBe('missing');
+    expect(await getLockedSkillState('gamma', lock.skills.gamma!, dir)).toBe('modified');
 
     await writeFile(join(skillDir('alpha'), 'SKILL.md'), 'a\r\n');
     expect(await getLockedSkillState('alpha', lock.skills.alpha!, dir)).toBe('tracked');

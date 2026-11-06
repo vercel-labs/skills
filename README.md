@@ -105,7 +105,7 @@ Test vectors:
 
 The last vector equals `printf 'SKILL.md\0002\000a\ndocs/b.md\0002\000b\n' | sha256sum`.
 
-A version 1 lock is upgraded when it is read. Each hash is recomputed from the installed skill, without network access. When a skill is not installed, its hash is left empty. `skills install` restores the skill and records a new hash, but `--frozen-lockfile` fails until that is done.
+A version 1 lock is upgraded when it is read, without network access. An installed skill whose files still match its version 1 hash gets a new hash computed from those files. Any other entry gets an empty hash, because there is nothing trusted to check it against. `skills install` fetches those skills again and records new hashes, and `--frozen-lockfile` fails until that is done.
 
 ## Supported Agents
 
