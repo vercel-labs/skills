@@ -110,6 +110,7 @@ discover `SKILL.md` files outside these container directories (e.g. under
 - `.tinycloud/skills/`
 - `.trae/skills/`
 - `.windsurf/skills/`
+- `.workbuddy/skills/`
 - `.zcode/skills/`
 - `.zencoder/skills/`
 - `.neovate/skills/`
