@@ -1,12 +1,14 @@
 import { spawn } from 'child_process';
 import { existsSync } from 'fs';
-import { cp, mkdir, mkdtemp, readdir, readFile, writeFile } from 'fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'fs/promises';
 import { dirname, join, normalize, relative, resolve, sep } from 'path';
 import { tmpdir } from 'os';
 import { agents } from './agents.ts';
 import { tryBlobInstall, type BlobInstallResult, type BlobSkill } from './blob.ts';
-import { cloneRepo, cleanupTempDir, GitCloneError } from './git.ts';
-import { sanitizeName } from './installer.ts';
+import type { Diagnostic } from 'nostics';
+import { diagnostics, formatError, isDiagnostic } from './diagnostics.ts';
+import { cloneRepo, cleanupTempDir } from './git.ts';
+import { copyDirectory, sanitizeName } from './installer.ts';
 import { getGitHubToken } from './skill-lock.ts';
 import { discoverSkills, filterSkills, getSkillDisplayName } from './skills.ts';
 import { getOwnerRepo, parseSource } from './source-parser.ts';
@@ -14,7 +16,6 @@ import type { AgentType, Skill } from './types.ts';
 import { downloadSource } from './download-source.ts';
 import {
   wellKnownProvider,
-  WellKnownScopeNotFoundError,
   type WellKnownSkill,
   type WellKnownFileContent,
 } from './providers/wellknown.ts';
@@ -29,7 +30,7 @@ export interface UseOptions {
 export interface ParseUseOptionsResult {
   source: string[];
   options: UseOptions;
-  errors: string[];
+  errors: Diagnostic[];
 }
 
 export type UseSkill =
@@ -78,8 +79,6 @@ interface UseAgentConfig {
 }
 
 const BLOB_ALLOWED_OWNERS = ['vercel', 'vercel-labs', 'heygen-com', 'remotion-dev'];
-const EXCLUDE_FILES = new Set(['metadata.json']);
-const EXCLUDE_DIRS = new Set(['.git', '__pycache__', '__pypackages__']);
 const USE_AGENT_CONFIGS: Partial<Record<AgentType, UseAgentConfig>> = {
   'claude-code': { command: 'claude', args: [] },
   codex: { command: 'codex', args: [] },
@@ -90,7 +89,7 @@ const SUPPORTED_USE_AGENTS = Object.keys(USE_AGENT_CONFIGS) as AgentType[];
 export function parseUseOptions(args: string[]): ParseUseOptionsResult {
   const source: string[] = [];
   const options: UseOptions = {};
-  const errors: string[] = [];
+  const errors: Diagnostic[] = [];
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -103,9 +102,11 @@ export function parseUseOptions(args: string[]): ParseUseOptionsResult {
     } else if (arg === '--skill' || arg === '-s') {
       const value = args[i + 1];
       if (!value || value.startsWith('-')) {
-        errors.push(`${arg} requires a skill name`);
+        errors.push(
+          diagnostics.SKILLS_OPTION_REQUIRES_VALUE({ option: arg, value: 'a skill name' })
+        );
       } else if (options.skill) {
-        errors.push('Only one --skill value can be provided');
+        errors.push(diagnostics.SKILLS_DUPLICATE_OPTION({ option: '--skill' }));
         i++;
       } else {
         options.skill = value;
@@ -122,11 +123,13 @@ export function parseUseOptions(args: string[]): ParseUseOptionsResult {
         nextArg = args[i];
       }
       if (options.agent.length === startCount) {
-        errors.push(`${arg} requires an agent name`);
+        errors.push(
+          diagnostics.SKILLS_OPTION_REQUIRES_VALUE({ option: arg, value: 'an agent name' })
+        );
       }
       i--;
     } else if (arg.startsWith('-')) {
-      errors.push(`Unknown option: ${arg}`);
+      errors.push(diagnostics.SKILLS_UNKNOWN_OPTION({ option: arg }));
     } else {
       source.push(arg);
     }
@@ -162,7 +165,7 @@ export async function materializeUseSkill(skill: UseSkill): Promise<Materialized
   const skillDir = join(tempRoot, sanitizeName(skill.directoryName || skill.name));
 
   if (!isPathSafe(tempRoot, skillDir)) {
-    throw new Error('Invalid skill name: potential path traversal detected');
+    throw diagnostics.SKILLS_UNSAFE_SKILL_NAME();
   }
 
   await mkdir(skillDir, { recursive: true });
@@ -172,7 +175,7 @@ export async function materializeUseSkill(skill: UseSkill): Promise<Materialized
   } else if (skill.kind === 'well-known') {
     await writeMapFiles(skillDir, skill.files);
   } else {
-    await copySkillDirectory(skill.path, skillDir);
+    await copyDirectory(skill.path, skillDir);
   }
 
   const skillMd = skill.rawContent ?? (await readFile(join(skillDir, 'SKILL.md'), 'utf-8'));
@@ -184,7 +187,7 @@ export async function materializeUseSkill(skill: UseSkill): Promise<Materialized
 export async function runUse(
   sourceArgs: string[],
   options: UseOptions = {},
-  parseErrors: string[] = []
+  parseErrors: Diagnostic[] = []
 ): Promise<void> {
   let cloneTempDir: string | null = null;
 
@@ -195,20 +198,20 @@ export async function runUse(
     }
 
     if (parseErrors.length > 0) {
-      fail(parseErrors.join('\n'));
+      fail(...parseErrors);
     }
 
     if (sourceArgs.length === 0) {
-      fail(`Missing required argument: source\n\n${getUseHelp()}`);
+      fail(diagnostics.SKILLS_MISSING_ARGUMENT({ name: 'source' }), `\n${getUseHelp()}`);
     }
 
     if (sourceArgs.length > 1) {
-      fail(`Expected one source, received ${sourceArgs.length}: ${sourceArgs.join(', ')}`);
+      fail(diagnostics.SKILLS_MULTIPLE_SOURCES({ received: sourceArgs }));
     }
 
     const useAgent = options.agent?.[0] as AgentType | undefined;
     if (useAgent && !USE_AGENT_CONFIGS[useAgent]) {
-      fail(formatUnsupportedAgentError(useAgent));
+      fail(unsupportedAgent(useAgent));
     }
 
     const source = sourceArgs[0]!;
@@ -225,7 +228,12 @@ export async function runUse(
           includeInternal,
         })
         .catch((error) => {
-          if (error instanceof WellKnownScopeNotFoundError) fail(error.message);
+          if (
+            isDiagnostic(error, 'SKILLS_WELLKNOWN_SCOPE_NOT_FOUND') ||
+            isDiagnostic(error, 'SKILLS_WELLKNOWN_DIGEST_MISMATCH')
+          ) {
+            fail(error);
+          }
           return [] as WellKnownSkill[];
         });
       if (skills.length > 0) {
@@ -259,7 +267,7 @@ export async function runUse(
         });
       } else if (parsed.type === 'local') {
         if (!existsSync(parsed.localPath!)) {
-          fail(`Local path does not exist: ${parsed.localPath}`);
+          fail(diagnostics.SKILLS_LOCAL_PATH_NOT_FOUND({ path: parsed.localPath! }));
         }
         skills = await discoverSkills(parsed.localPath!, parsed.subpath, {
           includeInternal,
@@ -336,13 +344,7 @@ export async function runUse(
     process.stdout.write(prompt);
   } catch (error) {
     await cleanupClone(cloneTempDir);
-    if (error instanceof GitCloneError) {
-      fail(error.message);
-    }
-    if (error instanceof UseCommandError) {
-      fail(error.message);
-    }
-    fail(error instanceof Error ? error.message : 'Unknown error');
+    fail(error instanceof Error ? error : 'Unknown error');
   }
 }
 
@@ -353,7 +355,7 @@ export async function launchAgentInteractively(
 ): Promise<number> {
   const config = USE_AGENT_CONFIGS[agent];
   if (!config) {
-    throw new UseCommandError(formatUnsupportedAgentError(agent));
+    throw unsupportedAgent(agent);
   }
 
   return new Promise((resolve, reject) => {
@@ -367,9 +369,10 @@ export async function launchAgentInteractively(
       settled = true;
       if (error.code === 'ENOENT') {
         reject(
-          new UseCommandError(
-            `Could not launch ${agents[agent].displayName}: command not found: ${config.command}`
-          )
+          diagnostics.SKILLS_USE_AGENT_COMMAND_NOT_FOUND({
+            agent: agents[agent].displayName,
+            command: config.command,
+          })
         );
         return;
       }
@@ -408,9 +411,10 @@ Examples:
 function resolveSelector(sourceSelector?: string, optionSelector?: string): string | undefined {
   if (sourceSelector && optionSelector) {
     if (sourceSelector.toLowerCase() !== optionSelector.toLowerCase()) {
-      throw new UseCommandError(
-        `Conflicting skill selectors: source selects "${sourceSelector}" but --skill selects "${optionSelector}". Provide one selector.`
-      );
+      throw diagnostics.SKILLS_CONFLICTING_SKILL_SELECTORS({
+        fromSource: sourceSelector,
+        fromOption: optionSelector,
+      });
     }
     return optionSelector;
   }
@@ -420,22 +424,26 @@ function resolveSelector(sourceSelector?: string, optionSelector?: string): stri
 
 function selectSkill(skills: Skill[], selector: string | undefined, source: string): Skill {
   if (skills.length === 0) {
-    throw new UseCommandError(
-      'No valid skills found. Skills require a SKILL.md with name and description.'
-    );
+    throw diagnostics.SKILLS_NO_VALID_SKILLS();
   }
 
   if (!selector) {
     if (skills.length === 1) return skills[0]!;
-    throw new UseCommandError(formatMultipleSkillsError(source, skills.map(getSkillDisplayName)));
+    throw diagnostics.SKILLS_MULTIPLE_SKILLS_IN_SOURCE({
+      source,
+      names: skills.map(getSkillDisplayName),
+    });
   }
 
   const selected = filterSkills(skills, [selector]);
   if (selected.length === 0) {
-    throw new UseCommandError(formatNoMatchError(selector, skills.map(getSkillDisplayName)));
+    throw diagnostics.SKILLS_USE_NO_MATCHING_SKILL({
+      selector,
+      available: skills.map(getSkillDisplayName),
+    });
   }
   if (selected.length > 1) {
-    throw new UseCommandError(`Skill selector "${selector}" matched multiple skills.`);
+    throw diagnostics.SKILLS_AMBIGUOUS_SKILL_SELECTOR({ selector });
   }
 
   return selected[0]!;
@@ -447,20 +455,16 @@ function selectWellKnownSkill(
   source: string
 ): UseSkill {
   if (skills.length === 0) {
-    throw new UseCommandError(
-      'No skills found at this URL. Make sure the server has a /.well-known/agent-skills/index.json or /.well-known/skills/index.json file.'
-    );
+    throw diagnostics.SKILLS_WELLKNOWN_INDEX_NOT_FOUND();
   }
 
   let selected: WellKnownSkill[];
   if (!selector) {
     if (skills.length !== 1) {
-      throw new UseCommandError(
-        formatMultipleSkillsError(
-          source,
-          skills.map((s) => s.installName)
-        )
-      );
+      throw diagnostics.SKILLS_MULTIPLE_SKILLS_IN_SOURCE({
+        source,
+        names: skills.map((s) => s.installName),
+      });
     }
     selected = skills;
   } else {
@@ -470,15 +474,13 @@ function selectWellKnownSkill(
         skill.name.toLowerCase() === selector.toLowerCase()
     );
     if (selected.length === 0) {
-      throw new UseCommandError(
-        formatNoMatchError(
-          selector,
-          skills.map((s) => s.installName)
-        )
-      );
+      throw diagnostics.SKILLS_USE_NO_MATCHING_SKILL({
+        selector,
+        available: skills.map((s) => s.installName),
+      });
     }
     if (selected.length > 1) {
-      throw new UseCommandError(`Skill selector "${selector}" matched multiple skills.`);
+      throw diagnostics.SKILLS_AMBIGUOUS_SKILL_SELECTOR({ selector });
     }
   }
 
@@ -492,52 +494,33 @@ function selectWellKnownSkill(
   };
 }
 
-function formatMultipleSkillsError(source: string, names: string[]): string {
-  return [
-    'This source contains multiple skills. Specify exactly one skill:',
-    ...names.map((name) => `  - ${name}`),
-    '',
-    `Examples:\n  skills use ${source}@${names[0] ?? '<skill>'}\n  skills use ${source} --skill ${names[0] ?? '<skill>'}`,
-  ].join('\n');
-}
-
-function formatNoMatchError(selector: string, names: string[]): string {
-  return [
-    `No matching skill found for: ${selector}`,
-    'Available skills:',
-    ...names.map((name) => `  - ${name}`),
-  ].join('\n');
-}
-
-function validateUseAgentOption(agentValues: string[] | undefined): string[] {
+function validateUseAgentOption(agentValues: string[] | undefined): Diagnostic[] {
   if (!agentValues || agentValues.length === 0) return [];
 
-  const errors: string[] = [];
+  const errors: Diagnostic[] = [];
   const validAgents = Object.keys(agents);
   const invalidAgents = agentValues.filter(
     (agent) => agent !== '*' && !validAgents.includes(agent)
   );
 
   if (agentValues.includes('*')) {
-    errors.push("skills use --agent does not support '*'; specify exactly one agent.");
+    errors.push(diagnostics.SKILLS_USE_AGENT_WILDCARD());
   }
   if (agentValues.length > 1) {
-    errors.push('skills use --agent accepts exactly one agent.');
+    errors.push(diagnostics.SKILLS_USE_MULTIPLE_AGENTS());
   }
   if (invalidAgents.length > 0) {
-    errors.push(
-      `Invalid agents: ${invalidAgents.join(', ')}\nValid agents: ${validAgents.join(', ')}`
-    );
+    errors.push(diagnostics.SKILLS_INVALID_AGENTS({ invalid: invalidAgents, valid: validAgents }));
   }
 
   return errors;
 }
 
-function formatUnsupportedAgentError(agent: AgentType): string {
-  return [
-    `Running ${agents[agent].displayName} is not supported yet.`,
-    `Supported agents for skills use --agent: ${SUPPORTED_USE_AGENTS.join(', ')}`,
-  ].join('\n');
+function unsupportedAgent(agent: AgentType): Diagnostic {
+  return diagnostics.SKILLS_USE_AGENT_UNSUPPORTED({
+    agent: agents[agent].displayName,
+    supported: SUPPORTED_USE_AGENTS,
+  });
 }
 
 async function writeSnapshotFiles(
@@ -574,41 +557,6 @@ async function writeSafeFile(
   }
 }
 
-async function copySkillDirectory(src: string, dest: string): Promise<void> {
-  await mkdir(dest, { recursive: true });
-  const entries = await readdir(src, { withFileTypes: true });
-
-  await Promise.all(
-    entries
-      .filter((entry) => !isExcluded(entry.name, entry.isDirectory()))
-      .map(async (entry) => {
-        const srcPath = join(src, entry.name);
-        const destPath = join(dest, entry.name);
-        if (!isPathSafe(dest, destPath)) return;
-
-        if (entry.isDirectory()) {
-          await copySkillDirectory(srcPath, destPath);
-          return;
-        }
-
-        try {
-          await cp(srcPath, destPath, { dereference: true, recursive: true });
-        } catch (err) {
-          if (
-            err instanceof Error &&
-            'code' in err &&
-            (err as NodeJS.ErrnoException).code === 'ENOENT' &&
-            entry.isSymbolicLink()
-          ) {
-            console.error(`Skipping broken symlink: ${srcPath}`);
-            return;
-          }
-          throw err;
-        }
-      })
-  );
-}
-
 async function containsSupportingFiles(rootDir: string, currentDir: string): Promise<boolean> {
   const entries = await readdir(currentDir, { withFileTypes: true });
 
@@ -634,10 +582,6 @@ function getSkillMdFromSnapshot(files: Array<{ path: string; contents: string }>
   return skillMd?.contents ?? '';
 }
 
-function isExcluded(name: string, isDirectory: boolean): boolean {
-  return EXCLUDE_FILES.has(name) || (isDirectory && EXCLUDE_DIRS.has(name));
-}
-
 function isPathSafe(basePath: string, targetPath: string): boolean {
   const normalizedBase = normalize(resolve(basePath));
   const normalizedTarget = normalize(resolve(targetPath));
@@ -651,9 +595,9 @@ async function cleanupClone(tempDir: string | null): Promise<void> {
   }
 }
 
-function fail(message: string): never {
-  console.error(message);
+function fail(...errors: unknown[]): never {
+  for (const error of errors) {
+    console.error(error instanceof Error ? formatError(error) : String(error));
+  }
   process.exit(1);
 }
-
-class UseCommandError extends Error {}

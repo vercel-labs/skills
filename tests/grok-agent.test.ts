@@ -14,6 +14,7 @@ describe('Grok Build agent support', () => {
   it('uses .grok/skills and respects GROK_HOME for global skills', async () => {
     const grokHome = join(tmpdir(), 'custom-grok-home');
     vi.stubEnv('GROK_HOME', grokHome);
+    vi.resetModules();
 
     const { agents } = await import('../src/agents.ts');
 

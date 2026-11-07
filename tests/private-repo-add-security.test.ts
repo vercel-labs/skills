@@ -32,7 +32,7 @@ vi.mock('@clack/prompts', () => {
       step: noop,
       success: noop,
     },
-    spinner: () => ({ start: noop, stop: noop }),
+    spinner: () => ({ start: noop, stop: noop, message: noop }),
   };
 });
 
@@ -42,10 +42,14 @@ vi.mock('../src/detect-agent.ts', () => ({
   ensureUniversalAgents: vi.fn((agents: string[]) => agents),
 }));
 
-vi.mock('../src/git.ts', () => ({
-  cloneRepo: vi.fn(),
-  cleanupTempDir: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock('../src/git.ts', async (importActual) => {
+  const actual = await importActual<typeof import('../src/git.ts')>();
+  return {
+    ...actual,
+    cloneRepo: vi.fn(),
+    cleanupTempDir: vi.fn().mockResolvedValue(undefined),
+  };
+});
 
 import { runAdd } from '../src/add.ts';
 import { cloneRepo } from '../src/git.ts';
@@ -136,7 +140,7 @@ describe('private repository installs', () => {
     });
 
     const requestedUrls = vi.mocked(globalThis.fetch).mock.calls.map(([input]) => String(input));
-    expect(requestedUrls.some((url) => url.startsWith('https://add-skill.vercel.sh/'))).toBe(false);
+    expect(requestedUrls.some((url) => url.startsWith('https://www.skills.sh/tele/'))).toBe(false);
   });
 
   it('does not send identifiers for repositories whose visibility is unknown', async () => {
@@ -150,7 +154,7 @@ describe('private repository installs', () => {
     });
 
     const requestedUrls = vi.mocked(globalThis.fetch).mock.calls.map(([input]) => String(input));
-    expect(requestedUrls.some((url) => url.startsWith('https://add-skill.vercel.sh/'))).toBe(false);
+    expect(requestedUrls.some((url) => url.startsWith('https://www.skills.sh/tele/'))).toBe(false);
   });
 
   it('installs from another Git host and preserves opted-in non-GitHub telemetry', async () => {
@@ -170,10 +174,8 @@ describe('private repository installs', () => {
     ).resolves.toContain('private-skill');
 
     const requestedUrls = vi.mocked(globalThis.fetch).mock.calls.map(([input]) => String(input));
-    expect(requestedUrls.some((url) => url.startsWith('https://add-skill.vercel.sh/t?'))).toBe(
-      true
-    );
-    expect(requestedUrls.some((url) => url.startsWith('https://add-skill.vercel.sh/audit?'))).toBe(
+    expect(requestedUrls.some((url) => url.startsWith('https://www.skills.sh/tele/t?'))).toBe(true);
+    expect(requestedUrls.some((url) => url.startsWith('https://www.skills.sh/tele/audit?'))).toBe(
       false
     );
   });

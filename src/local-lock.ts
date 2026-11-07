@@ -1,6 +1,7 @@
 import { readFile, writeFile, readdir, stat } from 'fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'path';
 import { createHash } from 'crypto';
+import { diagnostics } from './diagnostics.ts';
 
 const LOCAL_LOCK_FILE = 'skills-lock.json';
 const CURRENT_VERSION = 1;
@@ -24,11 +25,15 @@ export interface LocalSkillLockEntry {
   /**
    * Path to the skill's SKILL.md within the source repo (e.g., "skills/pdf/SKILL.md").
    * Required to re-install only this skill on update — without it, an update would
-   * refetch every skill in the source repo. Optional for backward compatibility with
-   * lock files written before this field existed, and omitted for non-repo sources
-   * (node_modules, local paths) where there is no subfolder to target.
+   * refetch every skill in the source repo. For node_modules sources it is relative
+   * to the package root. Optional for backward compatibility with lock files written
+   * before this field existed, and omitted for local paths.
    */
   skillPath?: string;
+  /** Version of the npm package that shipped the skill (node_modules sources only). */
+  version?: string;
+  /** Package whose package.json `skills` field requested the skill; `.` is the project. */
+  via?: string;
   /**
    * SHA-256 hash computed from all files in the skill folder.
    * Unlike the global lock which uses GitHub tree SHA, the local lock
@@ -43,6 +48,8 @@ export interface LocalSkillLockEntry {
    */
   subagents?: string[];
   wellKnownDigest?: string;
+  /** Set when the user chose copies over symlinks, so `update` reinstalls copies. */
+  installMode?: 'copy';
 }
 
 /**
@@ -67,36 +74,70 @@ export function getLocalLockPath(cwd?: string): string {
 }
 
 /**
+ * Thrown when skills-lock.json exists but cannot be used, e.g. merge conflict
+ * markers, a missing `skills` map, or a schema version this CLI does not know.
+ * Treating such a file as empty would let the next write drop every entry.
+ */
+/**
  * Read the local skill lock file.
- * Returns an empty lock file structure if the file doesn't exist
- * or is corrupted (e.g., merge conflict markers).
+ * Returns an empty lock when the file does not exist; throws
+ * SKILLS_INVALID_LOCAL_LOCK when it exists but cannot be used.
  */
 export async function readLocalLock(cwd?: string): Promise<LocalSkillLockFile> {
   const lockDir = cwd || process.cwd();
   const lockPath = getLocalLockPath(lockDir);
 
+  let content: string;
   try {
-    const content = await readFile(lockPath, 'utf-8');
-    const parsed = JSON.parse(content) as LocalSkillLockFile;
-
-    if (typeof parsed.version !== 'number' || !parsed.skills) {
+    content = await readFile(lockPath, 'utf-8');
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
       return createEmptyLocalLock();
     }
-
-    if (parsed.version < CURRENT_VERSION) {
-      return createEmptyLocalLock();
-    }
-
-    for (const entry of Object.values(parsed.skills)) {
-      if (entry.sourceType === 'local' && !isAbsolute(entry.source)) {
-        entry.source = resolve(lockDir, entry.source);
-      }
-    }
-
-    return parsed;
-  } catch {
-    return createEmptyLocalLock();
+    throw error;
   }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : 'not valid JSON';
+    throw diagnostics.SKILLS_INVALID_LOCAL_LOCK({ path: lockPath, reason, cause: error });
+  }
+
+  if (!isLocalLockShape(parsed)) {
+    throw diagnostics.SKILLS_INVALID_LOCAL_LOCK({
+      path: lockPath,
+      reason: 'expected an object with "version" and "skills"',
+    });
+  }
+
+  if (parsed.version !== CURRENT_VERSION) {
+    throw diagnostics.SKILLS_INVALID_LOCAL_LOCK({
+      path: lockPath,
+      reason: `unsupported lock version ${parsed.version} (expected ${CURRENT_VERSION})`,
+    });
+  }
+
+  for (const entry of Object.values(parsed.skills)) {
+    if (entry.sourceType === 'local' && !isAbsolute(entry.source)) {
+      entry.source = resolve(lockDir, entry.source);
+    }
+  }
+
+  return parsed;
+}
+
+function isLocalLockShape(value: unknown): value is LocalSkillLockFile {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'version' in value &&
+    typeof value.version === 'number' &&
+    'skills' in value &&
+    typeof value.skills === 'object' &&
+    value.skills !== null
+  );
 }
 
 /**
@@ -108,14 +149,19 @@ export async function writeLocalLock(lock: LocalSkillLockFile, cwd?: string): Pr
   const lockPath = getLocalLockPath(lockDir);
 
   // Sort skills alphabetically for deterministic output / clean diffs
-  const sortedSkills: Record<string, LocalSkillLockEntry> = {};
-  for (const key of Object.keys(lock.skills).sort()) {
-    const entry = lock.skills[key]!;
-    sortedSkills[key] =
-      entry.sourceType === 'local'
-        ? { ...entry, source: getPortableLocalSource(entry.source, lockDir) }
-        : entry;
-  }
+  const sortedSkills = Object.fromEntries(
+    Object.keys(lock.skills)
+      .sort()
+      .map((key): [string, LocalSkillLockEntry] => {
+        const entry = lock.skills[key]!;
+        return [
+          key,
+          entry.sourceType === 'local'
+            ? { ...entry, source: getPortableLocalSource(entry.source, lockDir) }
+            : entry,
+        ];
+      })
+  );
 
   const sorted: LocalSkillLockFile = { version: lock.version, skills: sortedSkills };
   const content = JSON.stringify(sorted, null, 2) + '\n';
@@ -192,8 +238,36 @@ export async function addSkillToLocalLock(
   cwd?: string
 ): Promise<void> {
   const lock = await readLocalLock(cwd);
-  lock.skills[skillName] = entry;
+  lock.skills = { ...lock.skills, [skillName]: entry };
   await writeLocalLock(lock, cwd);
+}
+
+/**
+ * Why recording `entry` for `skillName` would change the lock, or null when
+ * it matches what is locked. Drives `--frozen-lockfile`.
+ */
+export function lockChangeReason(
+  lock: LocalSkillLockFile,
+  skillName: string,
+  entry: Pick<LocalSkillLockEntry, 'computedHash' | 'version'>
+): string | null {
+  const locked = lock.skills[skillName];
+  if (!locked) return `${skillName} is not in skills-lock.json`;
+  if (locked.computedHash !== entry.computedHash) {
+    return `${skillName} has changed since skills-lock.json was written`;
+  }
+  if (locked.version !== entry.version) {
+    return `${skillName} comes from version ${entry.version ?? 'unknown'}, skills-lock.json has ${locked.version ?? 'unknown'}`;
+  }
+  return null;
+}
+
+export function frozenLockfileError(changes: string[]): string {
+  return [
+    'Cannot install with --frozen-lockfile because skills-lock.json is not up to date:',
+    ...changes.map((change) => `  ${change}`),
+    'Run again with --no-frozen-lockfile to update it.',
+  ].join('\n');
 }
 
 /**
@@ -202,7 +276,7 @@ export async function addSkillToLocalLock(
 export async function removeSkillFromLocalLock(skillName: string, cwd?: string): Promise<boolean> {
   const lock = await readLocalLock(cwd);
 
-  if (!(skillName in lock.skills)) {
+  if (!Object.hasOwn(lock.skills, skillName)) {
     return false;
   }
 

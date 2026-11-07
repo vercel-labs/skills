@@ -33,10 +33,24 @@ const AGENT_DETECTION_ENV_VARS = new Set(
   ].map((name) => name.toUpperCase())
 );
 
+// Keep synchronized with isCI() in ci.ts, so tests behave the same locally and in CI
+const CI_DETECTION_ENV_VARS = new Set([
+  'CI',
+  'GITHUB_ACTIONS',
+  'GITLAB_CI',
+  'CIRCLECI',
+  'TRAVIS',
+  'BUILDKITE',
+  'JENKINS_URL',
+  'TEAMCITY_VERSION',
+]);
+
 function createCliTestEnvironment(overrides?: Record<string, string>): NodeJS.ProcessEnv {
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
-      ([name]) => !AGENT_DETECTION_ENV_VARS.has(name.toUpperCase())
+      ([name]) =>
+        !AGENT_DETECTION_ENV_VARS.has(name.toUpperCase()) &&
+        !CI_DETECTION_ENV_VARS.has(name.toUpperCase())
     )
   );
 
