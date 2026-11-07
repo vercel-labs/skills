@@ -745,6 +745,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.codeium/windsurf'));
     },
   },
+  workbuddy: {
+    name: 'workbuddy',
+    displayName: 'WorkBuddy',
+    skillsDir: '.workbuddy/skills',
+    globalSkillsDir: join(home, '.workbuddy/skills'),
+    detectInstalled: async (cwd = process.cwd()) => {
+      return existsSync(join(cwd, '.workbuddy')) || existsSync(join(home, '.workbuddy'));
+    },
+  },
   zed: {
     name: 'zed',
     displayName: 'Zed',
