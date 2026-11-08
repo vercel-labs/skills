@@ -34,6 +34,20 @@ export function shouldInstallInternalSkills(): boolean {
   return envValue === '1' || envValue === 'true';
 }
 
+/**
+ * Check if a skill's frontmatter metadata marks it as internal.
+ * Accepts boolean `true` as well as the strings `"true"` and `"1"`: the
+ * Agent Skills spec types metadata values as strings, and strict consumers
+ * (e.g. Rovo Dev) reject boolean values, so spec-compliant skills spell the
+ * flag as a string. Case-sensitive, no trimming — matching
+ * shouldInstallInternalSkills(). Anything else is not internal.
+ */
+export function isInternalSkill(metadata: unknown): boolean {
+  if (!isRecord(metadata)) return false;
+  const internal = metadata.internal;
+  return internal === true || internal === 'true' || internal === '1';
+}
+
 export async function hasSkillMd(dir: string): Promise<boolean> {
   try {
     const skillPath = join(dir, 'SKILL.md');
@@ -104,7 +118,7 @@ export async function parseSkillMd(
   // 1. INSTALL_INTERNAL_SKILLS=1 is set, OR
   // 2. includeInternal option is true (e.g., when user explicitly requests a skill)
   const metadata = isRecord(data.metadata) ? data.metadata : undefined;
-  const isInternal = metadata?.internal === true;
+  const isInternal = isInternalSkill(metadata);
   if (isInternal && !shouldInstallInternalSkills() && !options?.includeInternal) {
     return null;
   }

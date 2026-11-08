@@ -12,7 +12,7 @@ import {
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli, stripAnsi } from './test-utils.ts';
-import { shouldInstallInternalSkills } from './skills.ts';
+import { isInternalSkill, shouldInstallInternalSkills } from './skills.ts';
 import {
   parseAddOptions,
   getLockSource,
@@ -1043,6 +1043,217 @@ metadata:
       });
       expect(result.stdout).toContain('internal-skill');
     });
+
+    it('should skip string metadata.internal: "true" skills by default', () => {
+      const skillDir = join(testDir, 'string-internal-skill');
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---
+name: string-internal-skill
+description: A string-internal skill
+metadata:
+  internal: "true"
+---
+
+# String Internal Skill
+
+This is an internal skill.
+`
+      );
+
+      const result = runCli(['add', testDir, '--list'], testDir);
+      expect(result.stdout).not.toContain('string-internal-skill');
+    });
+
+    it('should skip string metadata.internal: "1" skills by default', () => {
+      const skillDir = join(testDir, 'string-internal-skill');
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---
+name: string-internal-skill
+description: A string-internal skill
+metadata:
+  internal: "1"
+---
+
+# String Internal Skill
+
+This is an internal skill.
+`
+      );
+
+      const result = runCli(['add', testDir, '--list'], testDir);
+      expect(result.stdout).not.toContain('string-internal-skill');
+    });
+
+    it('should not treat string metadata.internal: "false" as internal', () => {
+      const skillDir = join(testDir, 'not-internal-skill');
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---
+name: not-internal-skill
+description: Explicitly not internal
+metadata:
+  internal: "false"
+---
+# Not Internal
+`
+      );
+
+      const result = runCli(['add', testDir, '--list'], testDir);
+      expect(result.stdout).toContain('not-internal-skill');
+    });
+
+    it('should not treat string metadata.internal: "0" as internal', () => {
+      const skillDir = join(testDir, 'not-internal-skill');
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---
+name: not-internal-skill
+description: Explicitly not internal
+metadata:
+  internal: "0"
+---
+# Not Internal
+`
+      );
+
+      const result = runCli(['add', testDir, '--list'], testDir);
+      expect(result.stdout).toContain('not-internal-skill');
+    });
+
+    it('should not treat string metadata.internal: "True" as internal', () => {
+      const skillDir = join(testDir, 'not-internal-skill');
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---
+name: not-internal-skill
+description: Explicitly not internal
+metadata:
+  internal: "True"
+---
+# Not Internal
+`
+      );
+
+      const result = runCli(['add', testDir, '--list'], testDir);
+      expect(result.stdout).toContain('not-internal-skill');
+    });
+
+    it('should show string internal skills when INSTALL_INTERNAL_SKILLS=1', () => {
+      const skillDir = join(testDir, 'string-internal-skill');
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---
+name: string-internal-skill
+description: A string-internal skill
+metadata:
+  internal: "true"
+---
+
+# String Internal Skill
+
+This is an internal skill.
+`
+      );
+
+      const result = runCli(['add', testDir, '--list'], testDir, {
+        INSTALL_INTERNAL_SKILLS: '1',
+      });
+      expect(result.stdout).toContain('string-internal-skill');
+    });
+
+    it('should not include string internal skills for the --skill wildcard', () => {
+      const internalDir = join(testDir, 'skills', 'string-internal-skill');
+      const publicDir = join(testDir, 'skills', 'public-skill');
+      mkdirSync(internalDir, { recursive: true });
+      mkdirSync(publicDir, { recursive: true });
+
+      writeFileSync(
+        join(internalDir, 'SKILL.md'),
+        `---
+name: string-internal-skill
+description: A string-internal skill
+metadata:
+  internal: "true"
+---
+# String Internal Skill
+`
+      );
+      writeFileSync(
+        join(publicDir, 'SKILL.md'),
+        `---
+name: public-skill
+description: A public skill
+---
+# Public Skill
+`
+      );
+
+      const result = runCli(['add', testDir, '--skill', '*', '--list'], testDir);
+      expect(result.stdout).toContain('public-skill');
+      expect(result.stdout).not.toContain('string-internal-skill');
+    });
+
+    it('should not include string internal skills for --all', () => {
+      const internalDir = join(testDir, 'skills', 'string-internal-skill');
+      const publicDir = join(testDir, 'skills', 'public-skill');
+      mkdirSync(internalDir, { recursive: true });
+      mkdirSync(publicDir, { recursive: true });
+
+      writeFileSync(
+        join(internalDir, 'SKILL.md'),
+        `---
+name: string-internal-skill
+description: A string-internal skill
+metadata:
+  internal: "true"
+---
+# String Internal Skill
+`
+      );
+      writeFileSync(
+        join(publicDir, 'SKILL.md'),
+        `---
+name: public-skill
+description: A public skill
+---
+# Public Skill
+`
+      );
+
+      const result = runCli(['add', testDir, '--all', '--list'], testDir);
+      expect(result.stdout).toContain('public-skill');
+      expect(result.stdout).not.toContain('string-internal-skill');
+    });
+
+    it('should include string internal skills when explicitly requested by name', () => {
+      const internalDir = join(testDir, 'skills', 'string-internal-skill');
+      mkdirSync(internalDir, { recursive: true });
+      writeFileSync(
+        join(internalDir, 'SKILL.md'),
+        `---
+name: string-internal-skill
+description: A string-internal skill
+metadata:
+  internal: "true"
+---
+# String Internal Skill
+`
+      );
+
+      const result = runCli(
+        ['add', testDir, '--skill', 'string-internal-skill', '--list'],
+        testDir
+      );
+      expect(result.stdout).toContain('string-internal-skill');
+    });
   });
 });
 
@@ -1103,6 +1314,36 @@ describe('formatEveInstallPromptMessage', () => {
     expect(stripAnsi(message)).toBe(
       'Detected an eve project. Install eve-skill for your eve agent to use?'
     );
+  });
+});
+
+describe('isInternalSkill', () => {
+  it.each([
+    [true, true],
+    ['true', true],
+    ['1', true],
+    [false, false],
+    ['false', false],
+    ['0', false],
+    ['', false],
+    ['True', false],
+    ['TRUE', false],
+    [' true ', false],
+    [1, false],
+    [0, false],
+    [null, false],
+    [undefined, false],
+    [[], false],
+    [{}, false],
+  ])('treats metadata.internal=%s as internal=%s', (value, expected) => {
+    expect(isInternalSkill({ internal: value })).toBe(expected);
+  });
+
+  it('returns false for missing or non-record metadata', () => {
+    expect(isInternalSkill(undefined)).toBe(false);
+    expect(isInternalSkill(null)).toBe(false);
+    expect(isInternalSkill('internal')).toBe(false);
+    expect(isInternalSkill({})).toBe(false);
   });
 });
 

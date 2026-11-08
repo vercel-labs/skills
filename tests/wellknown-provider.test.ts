@@ -214,6 +214,86 @@ describe('WellKnownProvider', () => {
       ]);
     });
 
+    it('hides string metadata.internal skills unless explicitly enabled', async () => {
+      vi.stubEnv('INSTALL_INTERNAL_SKILLS', '');
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+          return response({
+            skills: [
+              {
+                name: 'public-skill',
+                description: 'Public skill.',
+                files: ['SKILL.md'],
+              },
+              {
+                name: 'string-true-skill',
+                description: 'String true skill.',
+                files: ['SKILL.md'],
+              },
+              {
+                name: 'string-one-skill',
+                description: 'String one skill.',
+                files: ['SKILL.md'],
+              },
+              {
+                name: 'string-false-skill',
+                description: 'String false skill.',
+                files: ['SKILL.md'],
+              },
+              {
+                name: 'string-cased-skill',
+                description: 'String cased skill.',
+                files: ['SKILL.md'],
+              },
+            ],
+          });
+        }
+        if (href.endsWith('/public-skill/SKILL.md')) {
+          return response('---\nname: public-skill\ndescription: Public skill.\n---\n# Public');
+        }
+        if (href.endsWith('/string-true-skill/SKILL.md')) {
+          return response(
+            '---\nname: string-true-skill\ndescription: String true skill.\nmetadata:\n  internal: "true"\n---\n# String true'
+          );
+        }
+        if (href.endsWith('/string-one-skill/SKILL.md')) {
+          return response(
+            '---\nname: string-one-skill\ndescription: String one skill.\nmetadata:\n  internal: "1"\n---\n# String one'
+          );
+        }
+        if (href.endsWith('/string-false-skill/SKILL.md')) {
+          return response(
+            '---\nname: string-false-skill\ndescription: String false skill.\nmetadata:\n  internal: "false"\n---\n# String false'
+          );
+        }
+        if (href.endsWith('/string-cased-skill/SKILL.md')) {
+          return response(
+            '---\nname: string-cased-skill\ndescription: String cased skill.\nmetadata:\n  internal: "True"\n---\n# String cased'
+          );
+        }
+        return response('not found', { status: 404 });
+      });
+
+      const defaultSkills = await provider.fetchAllSkills('https://example.com');
+      expect(defaultSkills.map((skill) => skill.installName)).toEqual([
+        'public-skill',
+        'string-false-skill',
+        'string-cased-skill',
+      ]);
+
+      const explicitlyIncludedSkills = await provider.fetchAllSkills('https://example.com', {
+        includeInternal: true,
+      });
+      expect(explicitlyIncludedSkills.map((skill) => skill.installName)).toEqual([
+        'public-skill',
+        'string-true-skill',
+        'string-one-skill',
+        'string-false-skill',
+        'string-cased-skill',
+      ]);
+    });
+
     it('bounds well-known discovery with a shared timeout signal', async () => {
       const signal = AbortSignal.abort(new DOMException('timed out', 'TimeoutError'));
       const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(signal);
