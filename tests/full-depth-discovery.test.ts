@@ -230,4 +230,45 @@ description: Second location
     expect(skills).toHaveLength(2);
     expect(skills.map((skill) => skill.name)).toEqual(['shared-name', 'shared-name']);
   });
+
+  it('also checks the known skill dirs the walk does not reach', async () => {
+    const deep = join(testDir, 'a', 'b', 'c', 'd', 'e', 'deep-skill');
+    mkdirSync(deep, { recursive: true });
+    writeFileSync(
+      join(deep, 'SKILL.md'),
+      `---
+name: deep-skill
+description: Six levels down
+---
+`
+    );
+    const outside = join(testDir, '..', `skills-full-depth-outside-${Date.now()}`);
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(
+      join(outside, 'SKILL.md'),
+      `---
+name: outside-skill
+description: Not in the repo
+---
+`
+    );
+
+    try {
+      const walked = await discoverSkills(testDir, undefined, { fullDepth: true });
+      expect(walked).toHaveLength(0);
+
+      const known = await discoverSkills(testDir, undefined, {
+        fullDepth: true,
+        knownSkillDirs: [
+          'a/b/c/d/e/deep-skill',
+          'a/b/c/d/e/deep-skill',
+          'missing',
+          '../' + outside.split('/').pop(),
+        ],
+      });
+      expect(known.map((skill) => skill.name)).toEqual(['deep-skill']);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
 });
