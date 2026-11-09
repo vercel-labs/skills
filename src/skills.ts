@@ -335,8 +335,15 @@ export function getSkillDisplayName(skill: Skill): string {
 
 /**
  * Filter skills by name, falling back to slug matching when no exact name matches.
+ *
+ * When `includeDescription` is true and no name matches are found,
+ * falls back to searching inside the skill description field.
  */
-export function filterSkills(skills: Skill[], inputNames: string[]): Skill[] {
+export function filterSkills(
+  skills: Skill[],
+  inputNames: string[],
+  options?: { includeDescription?: boolean }
+): Skill[] {
   const selected = new Set<Skill>();
   for (const input of inputNames) {
     const exact = skills.filter(
@@ -349,5 +356,16 @@ export function filterSkills(skills: Skill[], inputNames: string[]): Skill[] {
         );
     for (const skill of matches) selected.add(skill);
   }
-  return skills.filter((skill) => selected.has(skill));
+
+  // If we found name matches, return them immediately
+  if (selected.size > 0 || !options?.includeDescription) {
+    return skills.filter((skill) => selected.has(skill));
+  }
+
+  // No name matches found — search inside descriptions as fallback
+  const normalizedInputs = inputNames.map((n) => n.toLowerCase());
+  return skills.filter((skill) => {
+    const desc = (skill.description || '').toLowerCase();
+    return normalizedInputs.some((input) => desc.includes(input));
+  });
 }
