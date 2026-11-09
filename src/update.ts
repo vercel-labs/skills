@@ -123,6 +123,31 @@ async function installedSkillNames(global: boolean): Promise<Set<string>> {
   return new Set((await listInstalledSkills({ global })).map((skill) => skill.name));
 }
 
+/**
+ * The clone's skills with their repo-relative SKILL.md paths, for resolving
+ * locked paths against. Discovery walks a bounded depth, so each locked
+ * folder is checked as well: a skill still there is current, not relocated
+ * to a same-name folder discovery did reach.
+ */
+async function discoverCloneSkills(
+  tempDir: string,
+  lockedPaths: Array<string | undefined>
+): Promise<{ skills: Skill[]; locations: DiscoveredSkillLocation[] }> {
+  const skills = await discoverSkills(tempDir, undefined, {
+    fullDepth: true,
+    includeDuplicateNames: true,
+    knownSkillDirs: lockedPaths.flatMap((path) => (path ? [dirname(path)] : [])),
+  });
+  return { skills, locations: cloneSkillLocations(tempDir, skills) };
+}
+
+function cloneSkillLocations(tempDir: string, skills: Skill[]): DiscoveredSkillLocation[] {
+  return skills.map((skill) => ({
+    name: skill.name,
+    skillPath: join(relative(tempDir, skill.path), 'SKILL.md').split(sep).join('/'),
+  }));
+}
+
 function targetOutcome(results: TargetInstallResult[]): { ok: boolean; failed: string[] } {
   return {
     ok: results.some((r) => r.success),
@@ -858,14 +883,10 @@ export async function updateGlobalSkills(
     if (note) console.log(`  ${DIM}${note}${RESET}`);
 
     try {
-      const discovered = await discoverSkills(tempDir, undefined, {
-        fullDepth: true,
-        includeDuplicateNames: true,
-      });
-      const discoveredLocations = discovered.map((skill) => ({
-        name: skill.name,
-        skillPath: join(relative(tempDir, skill.path), 'SKILL.md').split(sep).join('/'),
-      }));
+      const { locations: discoveredLocations } = await discoverCloneSkills(
+        tempDir,
+        lockedNamesFor(firstEntry).map((name) => lock.skills[name]?.skillPath)
+      );
 
       const resolution = await checkAndPromptForDeletions(
         source,
@@ -1190,17 +1211,15 @@ export async function updateProjectSkills(
       // Generic Git sources reinstall by name, so they keep full discovery to
       // detect same-name mirrors.
       const reinstallsByName = shouldUseFullDepthForUpdate(firstEntry);
-      let discovered = reinstallsByName
+      const locked = reinstallsByName
         ? null
         : await readLockedSkills(tempDir, localLock.skills, allLockedForSource);
-      discovered ??= await discoverSkills(tempDir, undefined, {
-        fullDepth: true,
-        includeDuplicateNames: true,
-      });
-      const discoveredLocations = discovered.map((skill) => ({
-        name: skill.name,
-        skillPath: join(relative(tempDir, skill.path), 'SKILL.md').split(sep).join('/'),
-      }));
+      const { skills: discovered, locations: discoveredLocations } = locked
+        ? { skills: locked, locations: cloneSkillLocations(tempDir, locked) }
+        : await discoverCloneSkills(
+            tempDir,
+            allLockedForSource.map((name) => localLock.skills[name]?.skillPath)
+          );
 
       const resolution = await checkAndPromptForDeletions(
         source,

@@ -73,7 +73,7 @@ describe('a skill published as links to a deeper real folder', () => {
       skillPath: `${REAL_DIR}/SKILL.md`,
       computedHash,
     };
-    writeFileSync(lockPath(), JSON.stringify({ version: 1, skills: { alpha: entry } }));
+    writeFileSync(lockPath(), JSON.stringify({ version: 2, skills: { alpha: entry } }));
   }
 
   unixOnly('add refuses the link folder instead of installing an empty skill', () => {
