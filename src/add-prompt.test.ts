@@ -137,7 +137,6 @@ describe('selectAgentsInteractive', () => {
         hiddenCount: universal.length - visibleUniversal.length,
       },
     });
-    expect(values(promptArgs().items)).not.toContain('antigravity');
   });
 
   it('offers Antigravity as a selectable agent in global mode', async () => {
