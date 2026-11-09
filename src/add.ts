@@ -23,7 +23,6 @@ import {
   agents,
   getUniversalAgents,
   getVisibleUniversalAgents,
-  getNonUniversalAgents,
   isUniversalAgent,
   readsCanonicalGlobally,
   getEveSubagents,
@@ -571,17 +570,22 @@ export function skipAgentsWithoutGlobalDir(
 /**
  * Interactive agent selection using fuzzy search.
  * Shows universal agents as locked (always selected), and other agents as selectable.
+ * In global mode, universal agents that do not read ~/.agents/skills (e.g. Antigravity)
+ * need their own global directory, so they are offered as selectable agents instead.
  */
-async function selectAgentsInteractive(options: {
+export async function selectAgentsInteractive(options: {
   global?: boolean;
 }): Promise<AgentType[] | symbol> {
   // Filter out agents that don't support global installation when --global is used
   const supportsGlobalFilter = (a: AgentType) => !options.global || agents[a].globalSkillsDir;
+  const coveredByCanonical = (a: AgentType) =>
+    options.global ? readsCanonicalGlobally(a) : isUniversalAgent(a);
+  const isLocked = (a: AgentType) => supportsGlobalFilter(a) && coveredByCanonical(a);
 
-  const universalAgents = getUniversalAgents().filter(supportsGlobalFilter);
-  const visibleUniversalAgents = getVisibleUniversalAgents().filter(supportsGlobalFilter);
-  const otherAgents = getNonUniversalAgents().filter(
-    (agent) => agent !== 'eve' && supportsGlobalFilter(agent)
+  const universalAgents = getUniversalAgents().filter(isLocked);
+  const visibleUniversalAgents = getVisibleUniversalAgents().filter(isLocked);
+  const otherAgents = (Object.keys(agents) as AgentType[]).filter(
+    (agent) => agent !== 'eve' && supportsGlobalFilter(agent) && !coveredByCanonical(agent)
   );
 
   // Universal agents shown as locked section
@@ -601,7 +605,7 @@ async function selectAgentsInteractive(options: {
     hint: options.global ? agents[a].globalSkillsDir! : agents[a].skillsDir,
   }));
 
-  // Get last selected agents (filter to only non-universal ones for initial selection)
+  // Get last selected agents (filter to only selectable ones for initial selection)
   let lastSelected: string[] | undefined;
   try {
     lastSelected = await getLastSelectedAgents();
@@ -610,9 +614,7 @@ async function selectAgentsInteractive(options: {
   }
 
   const initialSelected = lastSelected
-    ? (lastSelected.filter(
-        (a) => otherAgents.includes(a as AgentType) && !universalAgents.includes(a as AgentType)
-      ) as AgentType[])
+    ? (lastSelected.filter((a) => otherAgents.includes(a as AgentType)) as AgentType[])
     : [];
 
   const selected = await searchMultiselect({

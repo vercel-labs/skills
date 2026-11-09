@@ -76,6 +76,19 @@ describe('Antigravity global install', () => {
     }
   });
 
+  it('installs both Antigravity agents into their shared directory beside a universal agent', () => {
+    const { root, home, result } = install(['codex', 'antigravity', 'antigravity-cli']);
+    try {
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(join(home, '.agents', 'skills', 'probe-skill', 'SKILL.md'))).toBe(true);
+      expect(existsSync(join(home, '.gemini', 'config', 'skills', 'probe-skill', 'SKILL.md'))).toBe(
+        true
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('does not install for Antigravity when it was neither requested nor detected', () => {
     const { root, home } = install([], ['.claude']);
     try {
