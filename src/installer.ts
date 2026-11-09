@@ -33,7 +33,7 @@ import { stringify } from 'yaml';
 import { parseSkillMd } from './skills.ts';
 import { warn } from './warnings.ts';
 import { isExcluded, isExcludedPath } from './skill-hash.ts';
-import { sanitizeName } from './sanitize.ts';
+import { sanitizeMetadata, sanitizeName } from './sanitize.ts';
 
 export { sanitizeName };
 
@@ -379,8 +379,7 @@ export async function installSkillForAgent(
 
     // For copy mode, skip canonical directory and copy directly to agent location
     if (installMode === 'copy') {
-      await cleanAndCreateDirectory(agentDir);
-      await copyDirectory(skill.path, agentDir, agentType);
+      await replaceWithSkillCopy(skill.path, agentDir, agentType);
 
       return {
         success: true,
@@ -417,13 +416,11 @@ export async function installSkillForAgent(
       if (installMode === 'link') {
         // Link mode: the canonical dir itself points at the source, nothing is copied.
         if (!(await createSymlink(skill.path, canonicalDir))) {
-          await cleanAndCreateDirectory(canonicalDir);
-          await copyDirectory(skill.path, canonicalDir, agentType);
+          await replaceWithSkillCopy(skill.path, canonicalDir, agentType);
         }
       } else {
         // Symlink mode: copy to canonical location and symlink to agent location
-        await cleanAndCreateDirectory(canonicalDir);
-        await copyDirectory(skill.path, canonicalDir, agentType);
+        await replaceWithSkillCopy(skill.path, canonicalDir, agentType);
       }
     }
 
@@ -465,8 +462,7 @@ export async function installSkillForAgent(
 
     if (!symlinkCreated) {
       // Symlink failed, fall back to copy
-      await cleanAndCreateDirectory(agentDir);
-      await copyDirectory(skill.path, agentDir, agentType);
+      await replaceWithSkillCopy(skill.path, agentDir, agentType);
 
       return {
         success: true,
@@ -536,6 +532,62 @@ function isWithinRoot(root: string, target: string): boolean {
 }
 
 /**
+ * What copyDirectory does with the symlink at `linkPath` under the skill root
+ * `root` (a realpath): copy its target, or skip a dangling link (`broken`) or
+ * one whose target leaves the root (`outside`).
+ */
+async function symlinkVerdict(
+  root: string,
+  linkPath: string
+): Promise<'copy' | 'broken' | 'outside'> {
+  let realTarget: string;
+  try {
+    realTarget = await realpath(linkPath);
+  } catch {
+    return 'broken';
+  }
+  return isWithinRoot(root, realTarget) ? 'copy' : 'outside';
+}
+
+const SKIPPED_SYMLINK = {
+  broken: diagnostics.SKILLS_BROKEN_SYMLINK,
+  outside: diagnostics.SKILLS_SYMLINK_OUTSIDE_SKILL,
+};
+
+/**
+ * Refuse a skill whose copy would hold no SKILL.md. Discovery reads SKILL.md
+ * through symlinks, but copyDirectory skips a link that leaves the skill
+ * directory, so a skill folder made of such links would otherwise install as
+ * an empty folder and be recorded as a success.
+ */
+async function assertSkillMdCopyable(skillDir: string): Promise<void> {
+  const skillMd = join(skillDir, 'SKILL.md');
+  const notCopyable = (reason: string) => diagnostics.SKILLS_SKILL_MD_NOT_COPYABLE({ reason });
+  const entry = await lstat(skillMd).catch(() => null);
+  if (!entry) throw notCopyable('SKILL.md is missing');
+  if (!entry.isSymbolicLink()) return;
+  switch (await symlinkVerdict(await realpath(skillDir), skillMd)) {
+    case 'broken':
+      throw notCopyable('SKILL.md is a broken symlink');
+    case 'outside':
+      throw notCopyable(
+        `SKILL.md is a symlink to ${sanitizeMetadata(await readlink(skillMd))} outside the skill directory`
+      );
+  }
+}
+
+/** Replace `dest` with a copy of the skill at `src`, leaving `dest` alone when the copy would have no SKILL.md. */
+async function replaceWithSkillCopy(
+  src: string,
+  dest: string,
+  agentType?: AgentType
+): Promise<void> {
+  await assertSkillMdCopyable(src);
+  await cleanAndCreateDirectory(dest);
+  await copyDirectory(src, dest, agentType);
+}
+
+/**
  * Recursively copy a skill directory, dereferencing symlinks so the installed
  * skill is self-contained after the temporary clone is cleaned up.
  *
@@ -578,19 +630,12 @@ export async function copyDirectory(
         let isDirectory = entry.isDirectory();
 
         if (entry.isSymbolicLink()) {
-          let realTarget: string;
-          try {
-            realTarget = await realpath(srcPath);
-          } catch {
-            // Broken/dangling symlink (target does not exist, or a link loop).
-            warn(diagnostics.SKILLS_BROKEN_SYMLINK({ path: srcPath }));
+          const verdict = await symlinkVerdict(root, srcPath);
+          if (verdict !== 'copy') {
+            warn(SKIPPED_SYMLINK[verdict]({ path: srcPath }));
             return;
           }
-          if (!isWithinRoot(root, realTarget)) {
-            warn(diagnostics.SKILLS_SYMLINK_OUTSIDE_SKILL({ path: srcPath }));
-            return;
-          }
-          isDirectory = (await stat(realTarget)).isDirectory();
+          isDirectory = (await stat(srcPath)).isDirectory();
           if (isDirectory && isExcluded(entry.name, true)) return;
         }
 
