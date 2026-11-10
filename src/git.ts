@@ -236,6 +236,18 @@ async function resetTempDir(dir: string): Promise<void> {
   await mkdir(dir, { recursive: true });
 }
 
+async function initializeSubmodules(repoDir: string, extraEnv?: NodeJS.ProcessEnv): Promise<void> {
+  try {
+    const git = createGitClient(extraEnv);
+    await git.cwd(repoDir);
+    await git.submoduleUpdate(['--init', '--recursive', '--depth', '1']);
+  } catch {
+    console.warn(
+      'Warning: failed to initialize Git submodules; installed skills may be incomplete.'
+    );
+  }
+}
+
 async function tryGhClone(repo: GitHubRepoInfo, tempDir: string, ref?: string): Promise<boolean> {
   let cloneTarget = repo.slug;
   const host = repo.sshUrl.match(/^git@([^:]+):/)?.[1] || 'github.com';
@@ -285,6 +297,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
 
   try {
     await createGitClient().clone(url, tempDir, cloneOptions);
+    await initializeSubmodules(tempDir);
     return tempDir;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -297,6 +310,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
       try {
         await resetTempDir(tempDir);
         await cloneAtSha(url, ref!, tempDir);
+        await initializeSubmodules(tempDir);
         return tempDir;
       } catch {
         // Fall through to the standard error handling below.
@@ -318,6 +332,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
       try {
         await resetTempDir(tempDir);
         if (await tryGhClone(repo, tempDir, ref)) {
+          await initializeSubmodules(tempDir);
           return tempDir;
         }
       } catch {
@@ -331,11 +346,13 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
         };
         try {
           await createGitClient(sshEnv).clone(repo.sshUrl, tempDir, cloneOptions);
+          await initializeSubmodules(tempDir, sshEnv);
         } catch (sshError) {
           const sshMessage = sshError instanceof Error ? sshError.message : String(sshError);
           if (refCanBeSha && isMissingRefError(sshMessage)) {
             await resetTempDir(tempDir);
             await cloneAtSha(repo.sshUrl, ref!, tempDir, sshEnv);
+            await initializeSubmodules(tempDir, sshEnv);
           } else {
             throw sshError;
           }
