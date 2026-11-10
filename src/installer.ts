@@ -96,7 +96,7 @@ function isPathSafe(basePath: string, targetPath: string): boolean {
   return normalizedTarget.startsWith(normalizedBase + sep) || normalizedTarget === normalizedBase;
 }
 
-function pathsOverlap(pathA: string, pathB: string): boolean {
+export function pathsOverlap(pathA: string, pathB: string): boolean {
   return isPathSafe(pathA, pathB) || isPathSafe(pathB, pathA);
 }
 

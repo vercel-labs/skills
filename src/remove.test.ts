@@ -681,6 +681,78 @@ This is a test skill.
     });
   });
 
+  // OpenClaw's project dir is a bare `skills/`, the natural home of a skills
+  // repo's own sources, so a real directory there is only deleted when it is
+  // provably a copy the CLI installed (#1771).
+  describe('plain agent dirs that double as source folders (#1771)', () => {
+    it("remove --all keeps the repo's own skills/<name> source after installing it", () => {
+      const sourceDir = createTestSkill('my-skill', 'repo-owned source', join(testDir, 'skills'));
+      writeFileSync(join(sourceDir, 'notes.md'), 'uncommitted work in progress');
+
+      const add = runCli(['add', '.', '-a', 'claude-code', '-y'], testDir);
+      expect(add.exitCode).toBe(0);
+      expect(readProjectLockKeys()).toEqual(['my-skill']);
+
+      const result = runCli(['remove', '--all', '-y'], testDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Successfully removed 1 skill(s)');
+      expect(result.stdout + result.stderr).toContain(`Kept ${sourceDir}`);
+      expect(readFileSync(join(sourceDir, 'notes.md'), 'utf-8')).toBe(
+        'uncommitted work in progress'
+      );
+      expect(
+        lstatSync(join(testDir, '.claude', 'skills', 'my-skill'), { throwIfNoEntry: false })
+      ).toBeUndefined();
+      expect(existsSync(join(skillsDir, 'my-skill'))).toBe(false);
+      expect(readProjectLockKeys()).toEqual([]);
+    });
+
+    it('keeps a user directory that shares its name with a lock-tracked skill', () => {
+      createTestSkill('shared-name');
+      writeProjectLock(['shared-name']);
+      const userDir = createTestSkill('shared-name', 'my own skill', join(testDir, 'skills'));
+
+      const result = runCli(['remove', 'shared-name', '-y'], testDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout + result.stderr).toContain(`Kept ${userDir}`);
+      expect(existsSync(join(userDir, 'SKILL.md'))).toBe(true);
+      expect(existsSync(join(skillsDir, 'shared-name'))).toBe(false);
+      expect(readProjectLockKeys()).toEqual([]);
+    });
+
+    it('removes an unmodified OpenClaw copy install', () => {
+      const sourceRoot = join(testDir, 'vendor');
+      createTestSkill('copied-skill', 'from elsewhere', sourceRoot);
+      const add = runCli(['add', sourceRoot, '-a', 'openclaw', '--copy', '-y'], testDir);
+      expect(add.exitCode).toBe(0);
+      const copyDir = join(testDir, 'skills', 'copied-skill');
+      expect(lstatSync(copyDir).isDirectory()).toBe(true);
+
+      const result = runCli(['remove', 'copied-skill', '-y'], testDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout + result.stderr).not.toContain('Kept');
+      expect(existsSync(copyDir)).toBe(false);
+      expect(existsSync(join(sourceRoot, 'copied-skill', 'SKILL.md'))).toBe(true);
+    });
+
+    it('keeps an OpenClaw copy install that was edited after install', () => {
+      const sourceRoot = join(testDir, 'vendor');
+      createTestSkill('copied-skill', 'from elsewhere', sourceRoot);
+      runCli(['add', sourceRoot, '-a', 'openclaw', '--copy', '-y'], testDir);
+      const copyDir = join(testDir, 'skills', 'copied-skill');
+      writeFileSync(join(copyDir, 'local-edit.md'), 'edited in place');
+
+      const result = runCli(['remove', 'copied-skill', '-y'], testDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout + result.stderr).toContain(`Kept ${copyDir}`);
+      expect(existsSync(join(copyDir, 'local-edit.md'))).toBe(true);
+    });
+  });
+
   describe('command aliases', () => {
     beforeEach(() => {
       createTestSkill('alias-test-skill');

@@ -68,6 +68,11 @@ export const diagnostics = defineDiagnostics({
         `Skipped ${p.skills.length} untracked skill(s) not recorded in the lock file: ${p.skills.join(', ')}`,
       fix: 'Remove them by name, e.g. skills remove <name>',
     },
+    SKILLS_REMOVE_UNMANAGED_DIR_KEPT: {
+      why: (p: { path: string }) =>
+        `Kept ${p.path}: it is not an unmodified copy installed by skills`,
+      fix: 'Delete it by hand if you no longer need it',
+    },
 
     SKILLS_UNSAFE_SUBPATH: {
       why: (p: { subpath: string }) =>

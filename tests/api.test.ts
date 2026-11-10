@@ -352,6 +352,24 @@ describe('listSkills and removeSkills', () => {
     expect(warnings).toEqual(['SKILLS_REMOVE_UNTRACKED_SKIPPED']);
   });
 
+  it("keeps a user's skills/<name> folder that is not an installed copy (#1771)", async () => {
+    await api.installSkills(source, { cwd, skills: ['alpha'], agents: ['claude-code'] });
+    const mine = join(cwd, 'skills/alpha');
+    mkdirSync(mine, { recursive: true });
+    writeFileSync(join(mine, 'SKILL.md'), '---\nname: alpha\ndescription: mine\n---\n');
+    const warnings: string[] = [];
+
+    const removed = await api.removeSkills(['alpha'], {
+      cwd,
+      onWarning: (warning) => warnings.push(warning.code),
+    });
+
+    expect(removed.removed).toEqual(['alpha']);
+    expect(existsSync(join(mine, 'SKILL.md'))).toBe(true);
+    expect(existsSync(join(cwd, '.agents/skills/alpha'))).toBe(false);
+    expect(warnings).toEqual(['SKILLS_REMOVE_UNMANAGED_DIR_KEPT']);
+  });
+
   it('removes a skill linked into .agents/skills and keeps the link target (#2679)', async () => {
     const skillLink = join(cwd, '.agents/skills/alpha');
     mkdirSync(join(cwd, '.agents/skills'), { recursive: true });

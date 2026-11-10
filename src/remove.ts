@@ -2,14 +2,20 @@ import * as p from '@clack/prompts';
 import { pc } from './color.ts';
 import { realpathSync } from 'fs';
 import { readdir, rm, lstat } from 'fs/promises';
-import { join } from 'path';
+import { join, relative, sep } from 'path';
 import { agents, detectInstalledAgents, getEveSubagents } from './agents.ts';
 import { diagnostics, formatError } from './diagnostics.ts';
 import { parseCliArgs, throwFirstError } from './cli-args.ts';
 import { track } from './telemetry.ts';
+import { warn } from './warnings.ts';
 import { detectAgent } from './detect-agent.ts';
 import { removeSkillFromLock, getSkillFromLock, readSkillLock } from './skill-lock.ts';
-import { readLocalLock, removeSkillFromLocalLock } from './local-lock.ts';
+import {
+  computeSkillFolderHash,
+  readLocalLock,
+  removeSkillFromLocalLock,
+  type LocalSkillLockEntry,
+} from './local-lock.ts';
 import { hasSkillMd } from './skills.ts';
 import type { AgentType } from './types.ts';
 import {
@@ -18,6 +24,7 @@ import {
   getCanonicalSkillsDir,
   getEveSubagentSkillsDir,
   isDirEntryOrSymlinkToDir,
+  pathsOverlap,
   sanitizeName,
 } from './installer.ts';
 
@@ -364,6 +371,26 @@ export async function findGloballyTrackedSkills(
   return selected.filter((s) => !lockEntries[s] && globalNames.has(sanitizeName(s)));
 }
 
+/**
+ * Whether the real (non-symlink) directory `path` must survive a project-scoped
+ * remove. Agent dirs outside a dot-directory (OpenClaw's `skills`, `data/skills`,
+ * `agent/skills`) are also ordinary repo folders, often holding the very sources
+ * a skill was installed from, so a matching name proves nothing (#1771). Only an
+ * unmodified copy of a lock-tracked skill, from outside its own source, goes.
+ */
+async function isUnmanagedProjectDir(
+  path: string,
+  cwd: string,
+  entry: LocalSkillLockEntry | undefined
+): Promise<boolean> {
+  const firstSegment = relative(cwd, path).split(sep)[0] ?? '';
+  if (firstSegment.startsWith('.')) return false;
+  if (!entry) return true;
+  if (entry.sourceType === 'local' && pathsOverlap(entry.source, path)) return true;
+  const hash = await computeSkillFolderHash(path).catch(() => undefined);
+  return hash !== entry.computedHash;
+}
+
 export interface RemoveSkillResult {
   skill: string;
   success: boolean;
@@ -389,6 +416,7 @@ export async function removeInstalledSkills(
 ): Promise<RemoveSkillResult[]> {
   const { global: isGlobal, cwd, targetAgents } = options;
   const results: RemoveSkillResult[] = [];
+  const projectLock = isGlobal ? undefined : (await readLocalLock(cwd)).skills;
 
   for (const skillName of skills) {
     try {
@@ -423,9 +451,16 @@ export async function removeInstalledSkills(
 
           try {
             const stats = await lstat(pathToCleanup).catch(() => null);
-            if (stats) {
-              await rm(pathToCleanup, { recursive: true, force: true });
+            if (!stats) continue;
+            if (
+              projectLock &&
+              !stats.isSymbolicLink() &&
+              (await isUnmanagedProjectDir(pathToCleanup, cwd, projectLock[skillName]))
+            ) {
+              warn(diagnostics.SKILLS_REMOVE_UNMANAGED_DIR_KEPT({ path: pathToCleanup }));
+              continue;
             }
+            await rm(pathToCleanup, { recursive: true, force: true });
           } catch (err) {
             options.onWarn?.(
               `Could not remove skill from ${agent.displayName}: ${
