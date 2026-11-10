@@ -30,6 +30,11 @@ export interface LocalSkillLockEntry {
    * before this field existed, and omitted for local paths.
    */
   skillPath?: string;
+  /**
+   * Name of the skill in its source, when it is installed under another name
+   * (`add --rename`); the lock key is the installed name. Omitted otherwise.
+   */
+  skillName?: string;
   /** Version of the npm package that shipped the skill (node_modules sources only). */
   version?: string;
   /** Package whose package.json `skills` field requested the skill; `.` is the project. */

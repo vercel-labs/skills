@@ -81,6 +81,21 @@ await installSkills(source, {
 });
 ```
 
+### Installing under another name
+
+`rename` installs the one selected skill under a new name: its folder, lock
+entry and SKILL.md `name`. The lock remembers the original name, so
+`skills update` and restores keep the new name, and `listSkills` reports it as
+`renamedFrom`:
+
+```ts
+await installSkills('shadcn/ui', { skills: ['shadcn'], rename: 'shadcn-ui' });
+```
+
+The call throws `SKILLS_RENAME_MULTIPLE_SKILLS` unless exactly one skill is
+selected, and `SKILLS_INVALID_OPTION_VALUE` for a name that is not a safe
+folder name (lowercase letters, digits, `.`, `_` and `-`).
+
 ## Behavior
 
 - **No terminal side effects.** API calls never prompt, print, show spinners,

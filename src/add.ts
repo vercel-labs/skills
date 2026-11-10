@@ -23,6 +23,8 @@ import {
   isSkillInstalled,
   getCanonicalPath,
   installWellKnownSkillForAgent,
+  sanitizeName,
+  setInstalledSkillName,
   type InstallMode,
 } from './installer.ts';
 import {
@@ -663,6 +665,8 @@ export interface AddOptions {
   subagent?: string[];
   /** Output results as a JSON array (machine-readable, no ANSI codes). */
   json?: boolean;
+  /** Install the one selected skill under this name instead of its own. */
+  rename?: string;
 }
 
 /** One entry per skill in `add --json` output. */
@@ -1021,6 +1025,24 @@ async function handleWellKnownSkills(
     selectedSkills = selected as WellKnownSkill[];
   }
 
+  // --rename: install the one selected skill under the new name; `renamedFrom`
+  // keeps the name the endpoint publishes it under.
+  let renamedFrom: string | undefined;
+  if (options.rename !== undefined) {
+    if (selectedSkills.length !== 1) {
+      p.log.error(
+        formatError(diagnostics.SKILLS_RENAME_MULTIPLE_SKILLS({ count: selectedSkills.length }))
+      );
+      process.exit(1);
+    }
+    const [only] = selectedSkills as [WellKnownSkill];
+    if (only.installName !== options.rename) {
+      renamedFrom = only.installName;
+      selectedSkills = [{ ...only, installName: options.rename }];
+    }
+  }
+  const sourceName = (skill: WellKnownSkill) => renamedFrom ?? skill.installName;
+
   // Detect agents
   let targetAgents: AgentType[];
   const validAgents = Object.keys(agents);
@@ -1211,8 +1233,9 @@ async function handleWellKnownSkills(
 
   // Public skills in skills.sh packs install from their original repo, so
   // updates, lock entries, and install counts follow the real skill. Anything
-  // that fails there still installs from the pack's own copy below.
-  if (isSkillsShPackUrl(url)) {
+  // that fails there still installs from the pack's own copy below. A renamed
+  // skill always installs from the pack's copy.
+  if (isSkillsShPackUrl(url) && renamedFrom === undefined) {
     const fromSource = await installPackPointerSkills(selectedSkills, {
       targetAgents,
       global: installGlobally,
@@ -1254,6 +1277,11 @@ async function handleWellKnownSkills(
         global: installGlobally,
         mode: installMode,
       });
+      if (renamedFrom !== undefined && result.success) {
+        for (const path of new Set([result.canonicalPath, result.path])) {
+          if (path) await setInstalledSkillName(path, skill.installName);
+        }
+      }
       results.push({
         skill: skill.installName,
         agent: agents[agent].displayName,
@@ -1272,7 +1300,7 @@ async function handleWellKnownSkills(
   // Build skillFiles map: { skillName: sourceUrl }
   const skillFiles: Record<string, string> = {};
   for (const skill of selectedSkills) {
-    skillFiles[skill.installName] = skill.sourceUrl;
+    skillFiles[sourceName(skill)] = skill.sourceUrl;
   }
 
   // Privacy promise was started before installation — should be resolved by now
@@ -1281,7 +1309,7 @@ async function handleWellKnownSkills(
     track({
       event: 'install',
       source: sourceIdentifier,
-      skills: selectedSkills.map((s) => s.installName).join(','),
+      skills: selectedSkills.map(sourceName).join(','),
       agents: targetAgents.join(','),
       ...(installGlobally && { global: '1' }),
       skillFiles: JSON.stringify(skillFiles),
@@ -1296,7 +1324,10 @@ async function handleWellKnownSkills(
     for (const skill of selectedSkills) {
       if (successfulSkillNames.has(skill.installName)) {
         try {
-          await addSkillToLock(skill.installName, globalWellKnownLockEntry(url, skill));
+          await addSkillToLock(skill.installName, {
+            ...globalWellKnownLockEntry(url, skill),
+            ...(renamedFrom !== undefined && { skillName: renamedFrom }),
+          });
         } catch (error) {
           reportLockWriteFailure(skill.installName, getSkillLockPath(), error);
         }
@@ -1319,6 +1350,7 @@ async function handleWellKnownSkills(
                 source: sourceIdentifier,
                 sourceUrl: url,
                 sourceType: 'well-known',
+                ...(renamedFrom !== undefined && { skillName: renamedFrom }),
                 computedHash,
                 wellKnownDigest: computeWellKnownSkillDigest(skill),
               },
@@ -1635,6 +1667,53 @@ function isWellKnownSourceSkill(skill: Skill): skill is WellKnownSourceSkill {
   return 'wellKnown' in skill;
 }
 
+/**
+ * `skill` installed as `name`: its folder, lock key and SKILL.md `name`
+ * become `name`, and `renamedFrom` keeps the name the source uses, so update
+ * and restore can find it again. Renaming back to the source name undoes it.
+ */
+export function renameSkill<T extends Skill>(skill: T, name: string): T {
+  const sourceName = skill.renamedFrom ?? skill.name;
+  if (name === skill.name) return skill;
+  const renamed: T = { ...skill, name };
+  if (name === sourceName) delete renamed.renamedFrom;
+  else renamed.renamedFrom = sourceName;
+  if (isWellKnownSourceSkill(renamed)) {
+    renamed.wellKnown = { ...renamed.wellKnown, installName: name };
+  }
+  return renamed;
+}
+
+/** The name a skill has in its source (before any `--rename`). */
+export function sourceSkillName(skill: Skill): string {
+  return skill.renamedFrom ?? getSkillDisplayName(skill);
+}
+
+/** The lock's `skillName` for a renamed skill; empty for one installed as-is. */
+function lockedSourceName(skill: Skill): { skillName?: string } {
+  return skill.renamedFrom ? { skillName: skill.renamedFrom } : {};
+}
+
+/**
+ * A valid `--rename` value is already a safe folder name, so the lock key,
+ * the folder and SKILL.md all carry exactly the name the user typed.
+ */
+export function validateRename(name: string, option = '--rename'): Diagnostic | null {
+  if (name !== '' && sanitizeName(name) === name) return null;
+  return diagnostics.SKILLS_INVALID_OPTION_VALUE({
+    option,
+    expected: `a skill name of lowercase letters, digits, ".", "_" and "-" (e.g. ${sanitizeName(name)})`,
+  });
+}
+
+/** `skills` renamed to `name` per `--rename`; throws unless exactly one skill was selected. */
+export function applyRename<T extends Skill>(skills: T[], name: string | undefined): T[] {
+  if (name === undefined) return skills;
+  if (skills.length !== 1)
+    throw diagnostics.SKILLS_RENAME_MULTIPLE_SKILLS({ count: skills.length });
+  return [renameSkill(skills[0]!, name)];
+}
+
 /** Skills published at `url`'s well-known endpoint; null when it publishes none. */
 async function resolveWellKnownSkills(
   url: string,
@@ -1709,6 +1788,13 @@ export async function installToTargets(
         // assets/, etc. are installed too. See issue #1603.
         result = await installSkillForAgent(skill, agent, installOptions);
       }
+      // A skipped result without a reason means the source is the destination;
+      // never rewrite the user's own copy.
+      if (skill.renamedFrom && result.success && !(result.skipped && !result.skipReason)) {
+        for (const path of new Set([result.canonicalPath, result.path])) {
+          if (path) await setInstalledSkillName(path, skill.name);
+        }
+      }
       results.push({
         skill: getSkillDisplayName(skill),
         agent: targetDisplayName(target),
@@ -1743,6 +1829,19 @@ function getSkillRepoPaths(resolved: ResolvedSkills, skills: Skill[]): Record<st
     }
   }
   return skillFiles;
+}
+
+/** `skillFiles` keyed by the names the source uses, which is what install counts track. */
+function telemetrySkillFiles(
+  skills: Skill[],
+  skillFiles: Record<string, string>
+): Record<string, string> {
+  return Object.fromEntries(
+    skills.flatMap((skill) => {
+      const file = skillFiles[skill.name];
+      return file ? [[sourceSkillName(skill), file]] : [];
+    })
+  );
 }
 
 /** The `source` a project lock entry records for `parsed`. */
@@ -2044,7 +2143,12 @@ export async function recordProjectLock(
     }
     await addSkillToLocalLock(
       skill.name,
-      { ...entry, ...(via && { via }), ...(installMode && { installMode }) },
+      {
+        ...entry,
+        ...lockedSourceName(skill),
+        ...(via && { via }),
+        ...(installMode && { installMode }),
+      },
       cwd
     );
   }
@@ -2057,7 +2161,10 @@ export async function recordGlobalWellKnownLock(
 ): Promise<void> {
   for (const { skill } of installed) {
     if (!isWellKnownSourceSkill(skill)) continue;
-    await addSkillToLock(skill.name, globalWellKnownLockEntry(baseUrl, skill.wellKnown));
+    await addSkillToLock(skill.name, {
+      ...globalWellKnownLockEntry(baseUrl, skill.wellKnown),
+      ...lockedSourceName(skill),
+    });
   }
 }
 
@@ -2085,6 +2192,7 @@ export async function recordGlobalLock(
       try {
         await addSkillToLock(skill.name, {
           ...fields,
+          ...lockedSourceName(skill),
           skillFolderHash: await computeSkillFolderHash(skill.path),
           pluginName: skill.pluginName,
           ...installMode,
@@ -2137,6 +2245,7 @@ export async function recordGlobalLock(
         sourceUrl: parsed.url,
         ref: parsed.ref,
         skillPath: skillPathValue,
+        ...lockedSourceName(skill),
         skillFolderHash,
         pluginName: skill.pluginName,
         ...installMode,
@@ -2172,9 +2281,9 @@ export async function trackSourceInstall(
     track({
       ...common,
       source: sourceIdentifier,
-      skills: wellKnown.map((s) => s.name).join(','),
+      skills: wellKnown.map(sourceSkillName).join(','),
       skillFiles: JSON.stringify(
-        Object.fromEntries(wellKnown.map((s) => [s.name, s.wellKnown.sourceUrl]))
+        Object.fromEntries(wellKnown.map((s) => [sourceSkillName(s), s.wellKnown.sourceUrl]))
       ),
       installUrl: parsed.url,
       sourceType: 'well-known',
@@ -2191,8 +2300,8 @@ export async function trackSourceInstall(
   track({
     ...common,
     source: normalizedSource,
-    skills: skills.map((s) => s.name).join(','),
-    skillFiles: JSON.stringify(getSkillRepoPaths(resolved, skills)),
+    skills: skills.map(sourceSkillName).join(','),
+    skillFiles: JSON.stringify(telemetrySkillFiles(skills, getSkillRepoPaths(resolved, skills))),
   });
 }
 
@@ -2637,6 +2746,14 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         )
       : Promise.resolve(null);
 
+    try {
+      selectedSkills = applyRename(selectedSkills, options.rename);
+    } catch (error) {
+      p.log.error(formatError(error));
+      await cleanup(tempDir);
+      emitJsonAndExit(1, error instanceof Error ? error.message : String(error));
+    }
+
     let targetAgents: AgentType[];
     const validAgents = Object.keys(agents);
 
@@ -2949,7 +3066,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         const securityLines = buildSecurityLines(
           auditData,
           selectedSkills.map((s) => ({
-            slug: getSkillDisplayName(s),
+            slug: sourceSkillName(s),
             displayName: getSkillDisplayName(s),
           })),
           ownerRepoForAudit
@@ -3006,10 +3123,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           track({
             event: 'install',
             source: normalizedSource,
-            skills: selectedSkills.map((s) => s.name).join(','),
+            skills: selectedSkills.map(sourceSkillName).join(','),
             agents: targetAgents.join(','),
             ...(installGlobally && { global: '1' }),
-            skillFiles: JSON.stringify(skillFiles),
+            skillFiles: JSON.stringify(telemetrySkillFiles(selectedSkills, skillFiles)),
             metadata: options.metadata,
           });
         }
@@ -3018,10 +3135,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         track({
           event: 'install',
           source: normalizedSource,
-          skills: selectedSkills.map((s) => s.name).join(','),
+          skills: selectedSkills.map(sourceSkillName).join(','),
           agents: targetAgents.join(','),
           ...(installGlobally && { global: '1' }),
-          skillFiles: JSON.stringify(skillFiles),
+          skillFiles: JSON.stringify(telemetrySkillFiles(selectedSkills, skillFiles)),
           metadata: options.metadata,
         });
       }
@@ -3096,6 +3213,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               skill.name,
               {
                 ...entry,
+                ...lockedSourceName(skill),
                 ...(recordSubagents && { subagents: eveSubagents }),
                 ...lockedInstallMode,
               },
@@ -3387,6 +3505,7 @@ const ADD_OPTIONS = {
   json: { type: 'boolean' },
   copy: { type: 'boolean' },
   subagent: { type: 'list', value: 'a subagent name' },
+  rename: { type: 'string', value: 'a skill name' },
 } as const;
 
 // Parse command line options from args array. Unknown options are ignored:
@@ -3409,6 +3528,13 @@ export function parseAddOptions(args: string[]): {
     copy: values.copy,
     subagent: values.subagent,
   };
+
+  const rename = values.rename?.at(-1);
+  if (rename !== undefined) {
+    const error = validateRename(rename);
+    if (error) errors.push(error);
+    else options.rename = rename;
+  }
 
   const metadata = values.metadata?.at(-1);
   if (metadata !== undefined) {

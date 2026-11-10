@@ -88,6 +88,11 @@ export interface Skill {
   /** Name of the plugin this skill belongs to (if any) */
   pluginName?: string;
   metadata?: Record<string, unknown>;
+  /**
+   * The name the source publishes this skill under, set when it is installed
+   * under another name (`add --rename`). `name` is then the installed name.
+   */
+  renamedFrom?: string;
 }
 
 export interface AgentConfig {

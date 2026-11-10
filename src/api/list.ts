@@ -30,9 +30,9 @@ async function list(options: ListOptions): Promise<ListResult> {
   });
   options.signal?.throwIfAborted();
 
-  const sources: Record<Scope, Record<string, string>> = {
-    project: scope === 'global' ? {} : await lockSources(() => readLocalLock(cwd)),
-    global: scope === 'project' ? {} : await lockSources(readSkillLock),
+  const locked: Record<Scope, Record<string, LockedSkill>> = {
+    project: scope === 'global' ? {} : await lockedSkills(() => readLocalLock(cwd)),
+    global: scope === 'project' ? {} : await lockedSkills(readSkillLock),
   };
 
   return Object.freeze({
@@ -44,20 +44,31 @@ async function list(options: ListOptions): Promise<ListResult> {
           scope: skill.scope,
           path: skill.canonicalPath || skill.path,
           agents: Object.freeze([...skill.agents]),
-          ...(sources[skill.scope][skill.name] && { source: sources[skill.scope][skill.name] }),
+          ...lockInfo(locked[skill.scope][skill.name]),
         })
       )
     ),
   });
 }
 
-/** Source per skill name from a lock file; an unreadable lock yields none. */
-async function lockSources(
-  read: () => Promise<{ skills: Record<string, { source: string }> }>
-): Promise<Record<string, string>> {
+interface LockedSkill {
+  source: string;
+  skillName?: string;
+}
+
+function lockInfo(
+  entry: LockedSkill | undefined
+): Pick<InstalledSkillInfo, 'source' | 'renamedFrom'> {
+  if (!entry) return {};
+  return { source: entry.source, ...(entry.skillName && { renamedFrom: entry.skillName }) };
+}
+
+/** Lock entry per skill name from a lock file; an unreadable lock yields none. */
+async function lockedSkills(
+  read: () => Promise<{ skills: Record<string, LockedSkill> }>
+): Promise<Record<string, LockedSkill>> {
   try {
-    const { skills } = await read();
-    return Object.fromEntries(Object.entries(skills).map(([name, entry]) => [name, entry.source]));
+    return (await read()).skills;
   } catch {
     return {};
   }

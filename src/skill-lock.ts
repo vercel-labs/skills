@@ -22,6 +22,11 @@ export interface SkillLockEntry {
   /** Subpath within the source repo, if applicable */
   skillPath?: string;
   /**
+   * Name of the skill in its source, when it is installed under another name
+   * (`add --rename`); the lock key is the installed name. Omitted otherwise.
+   */
+  skillName?: string;
+  /**
    * GitHub tree SHA for the entire skill folder.
    * This hash changes when ANY file in the skill folder changes.
    * Fetched via GitHub Trees API by the telemetry server.

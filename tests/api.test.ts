@@ -312,6 +312,38 @@ describe('telemetry', () => {
   });
 });
 
+describe('rename', () => {
+  it('installs one skill under a new name and lists where it came from', async () => {
+    const result = await api.installSkills(source, {
+      cwd,
+      skills: ['alpha'],
+      rename: 'gamma',
+      agents: ['claude-code'],
+    });
+
+    expect(result.installed.map((target) => target.skill)).toEqual(['gamma']);
+    expect(readFileSync(join(cwd, '.claude/skills/gamma/SKILL.md'), 'utf-8')).toContain(
+      'name: gamma\n'
+    );
+    const lock = JSON.parse(readFileSync(join(cwd, 'skills-lock.json'), 'utf-8'));
+    expect(lock.skills.gamma.skillName).toBe('alpha');
+    const listed = await api.listSkills({ cwd, scope: 'project' });
+    expect(listed.skills).toEqual([
+      expect.objectContaining({ name: 'gamma', source, renamedFrom: 'alpha' }),
+    ]);
+  });
+
+  it('throws unless exactly one skill is selected', async () => {
+    await expect(api.installSkills(source, { cwd, rename: 'gamma' })).rejects.toMatchObject({
+      code: 'SKILLS_RENAME_MULTIPLE_SKILLS',
+    });
+    await expect(
+      api.installSkills(source, { cwd, skills: ['alpha'], rename: '../gamma' })
+    ).rejects.toMatchObject({ code: 'SKILLS_INVALID_OPTION_VALUE' });
+    expect(existsSync(join(cwd, 'skills-lock.json'))).toBe(false);
+  });
+});
+
 describe('listSkills and removeSkills', () => {
   it('lists installed skills with their lock source, then removes them', async () => {
     await api.installSkills(source, { cwd, agents: ['claude-code'] });

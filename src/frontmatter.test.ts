@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { parseFrontmatter } from './frontmatter.ts';
+import { parseFrontmatter, setFrontmatterName } from './frontmatter.ts';
 import { parseSkillMd } from './skills.ts';
 
 describe('parseFrontmatter', () => {
@@ -51,5 +51,45 @@ describe('parseSkillMd', () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('setFrontmatterName', () => {
+  it('replaces the name and keeps everything else byte for byte', () => {
+    const raw = '---\nname: alpha\ndescription: d\nlicense: MIT\n---\n# Body\nname: alpha\n';
+    expect(setFrontmatterName(raw, 'beta')).toBe(
+      '---\nname: beta\ndescription: d\nlicense: MIT\n---\n# Body\nname: alpha\n'
+    );
+  });
+
+  it('keeps CRLF line endings and a BOM', () => {
+    const raw = '\uFEFF---\r\nname: alpha\r\ndescription: d\r\n---\r\n# Body\r\n';
+    expect(setFrontmatterName(raw, 'beta')).toBe(
+      '\uFEFF---\r\nname: beta\r\ndescription: d\r\n---\r\n# Body\r\n'
+    );
+  });
+
+  it('replaces a quoted or multi-line name', () => {
+    expect(setFrontmatterName('---\nname: "Alpha Skill"\ndescription: d\n---\n', 'beta')).toBe(
+      '---\nname: beta\ndescription: d\n---\n'
+    );
+    expect(
+      setFrontmatterName('---\nname: >\n  Alpha\n  Skill\ndescription: d\n---\n', 'beta')
+    ).toBe('---\nname: beta\ndescription: d\n---\n');
+  });
+
+  it('adds a missing name first', () => {
+    expect(setFrontmatterName('---\ndescription: d\n---\n', 'beta')).toBe(
+      '---\nname: beta\ndescription: d\n---\n'
+    );
+  });
+
+  it('quotes names YAML would read as another type', () => {
+    const renamed = setFrontmatterName('---\nname: alpha\n---\n', '123');
+    expect(parseFrontmatter(renamed).data.name).toBe('123');
+  });
+
+  it('leaves content without frontmatter unchanged', () => {
+    expect(setFrontmatterName('# Just markdown\n', 'beta')).toBe('# Just markdown\n');
   });
 });

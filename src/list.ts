@@ -20,6 +20,14 @@ interface ListLockEntry {
   sourceUrl?: string;
   sourceType: string;
   pluginName?: string;
+  skillName?: string;
+}
+
+/** ` (renamed from <name>)` for a skill installed under another name, else empty. */
+function renamedLabel(entry: ListLockEntry | undefined): string {
+  return entry?.skillName
+    ? ` ${DIM}(renamed from ${sanitizeMetadata(entry.skillName)})${RESET}`
+    : '';
 }
 
 /**
@@ -128,6 +136,7 @@ export async function runList(args: string[]): Promise<void> {
         source: lockEntry?.source ?? null,
         sourceUrl: lockEntry?.sourceUrl ?? null,
         sourceType: lockEntry?.sourceType ?? null,
+        renamedFrom: lockEntry?.skillName ?? null,
         status: lockEntry ? 'tracked' : 'untracked',
       };
     });
@@ -139,6 +148,7 @@ export async function runList(args: string[]): Promise<void> {
       source: lockEntry.source,
       sourceUrl: lockEntry.sourceUrl ?? null,
       sourceType: lockEntry.sourceType,
+      renamedFrom: lockEntry.skillName ?? null,
       status: 'missing',
     }));
     console.log(JSON.stringify([...jsonOutput, ...missingOutput], null, 2));
@@ -180,7 +190,9 @@ export async function runList(args: string[]): Promise<void> {
     // Determine source from lock file
     const lockEntry = getLockEntry(skill.name);
     const source = lockEntry?.source ?? null;
-    const sourceLabel = source ? sanitizeMetadata(source) : `${YELLOW}untracked${RESET}`;
+    const sourceLabel = source
+      ? sanitizeMetadata(source) + renamedLabel(lockEntry)
+      : `${YELLOW}untracked${RESET}`;
 
     console.log(`${prefix}${CYAN}${paddedName}${RESET} ${DIM}${paddedPath}${RESET}`);
     console.log(
@@ -277,7 +289,7 @@ export async function runList(args: string[]): Promise<void> {
     console.log(`${BOLD}Missing${RESET} ${DIM}(in the lock file, not on disk)${RESET}`);
     for (const [name, entry] of missingSkills) {
       console.log(
-        `  ${CYAN}${sanitizeMetadata(name)}${RESET}  ${DIM}Source:${RESET} ${sanitizeMetadata(entry.source)}`
+        `  ${CYAN}${sanitizeMetadata(name)}${RESET}  ${DIM}Source:${RESET} ${sanitizeMetadata(entry.source)}${renamedLabel(entry)}`
       );
     }
     console.log();

@@ -28,7 +28,7 @@ import {
 } from './agents.ts';
 import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
 import { diagnostics } from './diagnostics.ts';
-import { parseFrontmatter } from './frontmatter.ts';
+import { parseFrontmatter, setFrontmatterName } from './frontmatter.ts';
 import { stringify } from 'yaml';
 import { parseSkillMd } from './skills.ts';
 import { warn } from './warnings.ts';
@@ -473,6 +473,23 @@ export async function installSkillForAgent(
       error: error instanceof Error ? error.message : 'Unknown error',
     };
   }
+}
+
+/**
+ * Set the frontmatter `name` of an installed skill, so a renamed skill is
+ * invoked by its new name. `path` is a skill directory or Eve's flat
+ * `<name>.md`. Symlinks are left alone: they point at a copy that is
+ * rewritten on its own, or at the user's source (sync's link mode).
+ */
+export async function setInstalledSkillName(path: string, name: string): Promise<void> {
+  const stats = await lstat(path).catch(() => null);
+  if (!stats || stats.isSymbolicLink()) return;
+  const file = stats.isDirectory() ? join(path, 'SKILL.md') : path;
+  const fileStats = await lstat(file).catch(() => null);
+  if (!fileStats?.isFile()) return;
+  const raw = await readFile(file, 'utf-8');
+  const renamed = setFrontmatterName(raw, name);
+  if (renamed !== raw) await writeFile(file, renamed, 'utf-8');
 }
 
 const EXCLUDE_FILES = new Set(['metadata.json']);

@@ -190,6 +190,13 @@ export interface InstallOptions extends BaseOptions, InstallSettings {
   /** Skill names to install. @default all skills in the source */
   skills?: readonly string[];
   /**
+   * Install the one selected skill under this name: its folder, lock entry
+   * and SKILL.md `name`. The lock remembers the source name, so update and
+   * restore keep the new name. Throws `SKILLS_RENAME_MULTIPLE_SKILLS` unless
+   * exactly one skill is selected.
+   */
+  rename?: string;
+  /**
    * Agents to install into; each must be allowed by `config.agents`.
    * @default `config.agents.default`, else the agents `skills add -y` picks
    */
@@ -250,6 +257,8 @@ export interface InstalledSkillInfo {
   readonly agents: readonly string[];
   /** Source recorded in the lock file, when the skill is tracked there. */
   readonly source?: string;
+  /** The name the source publishes the skill under, when it was installed under another name. */
+  readonly renamedFrom?: string;
 }
 
 export interface ListResult {

@@ -1,6 +1,7 @@
 import { lstat, readdir } from 'fs/promises';
 import { join, posix } from 'path';
 import {
+  applyRename,
   defaultInstallMode,
   collectInstalled,
   installToTargets,
@@ -13,6 +14,7 @@ import {
   type InstalledSkill,
   type InstallPlacement,
   type TargetInstallResult,
+  validateRename,
 } from '../add.ts';
 import { agents as agentConfigs } from '../agents.ts';
 import type { Diagnostic } from 'nostics';
@@ -48,6 +50,13 @@ export async function installSkills(
 ): Promise<InstallResult> {
   const config = resolveConfig(options);
   const requested = validateNames(options.skills, 'skills');
+  if (options.rename !== undefined) {
+    const error =
+      typeof options.rename === 'string'
+        ? validateRename(options.rename, 'rename')
+        : diagnostics.SKILLS_INVALID_OPTION_VALUE({ option: 'rename', expected: 'a string' });
+    if (error) throw error;
+  }
   assertKnownAgents(validateNames(options.agents, 'agents'));
   if (typeof source !== 'string' && options.ref !== undefined) {
     throw diagnostics.SKILLS_INVALID_OPTION_VALUE({
@@ -71,7 +80,7 @@ async function install(
   const handle = owned ? await openSource(source, config, requested ?? [], options) : source;
   try {
     const fetched = getFetchedSource(handle);
-    const skills = selectSkills(fetched, requested);
+    const skills = applyRename(selectSkills(fetched, requested), options.rename);
     if (config.duplicates === 'error') rejectDuplicates(handle, skills);
     if (config.symlinks === 'reject') await rejectSymlinks(fetched, skills);
     const { targets, failures } = await resolveTargets(options.agents, config, skills);
