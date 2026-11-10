@@ -82,8 +82,8 @@ describe('commands with an invalid skills-lock.json', { timeout: 30000 }, () => 
 
   it.each([
     ['update', ['update', '--project', '-y']],
-    ['experimental_install', ['experimental_install']],
-    ['experimental_sync', ['experimental_sync', '-y']],
+    ['install', ['install']],
+    ['sync', ['sync', '-y']],
   ])('%s refuses', (_, args) => {
     const result = runCli(args, projectDir);
 

@@ -15,7 +15,7 @@ async function npmProject(name: string, pkg: Record<string, unknown> = {}): Prom
   return sandbox;
 }
 
-describe('npm packages (experimental_sync)', () => {
+describe('npm packages (sync)', () => {
   it('links skills shipped by a registry package and cleans up after uninstall', async () => {
     const sandbox = await npmProject('npm-registry');
     // agent-browser ships skills/agent-browser/SKILL.md; its postinstall downloads
@@ -25,7 +25,7 @@ describe('npm packages (experimental_sync)', () => {
       readFileSync(sandbox.path('node_modules', 'agent-browser', 'package.json'), 'utf8')
     ) as { version: string };
 
-    await sandbox.skills(['experimental_sync', '-a', 'claude-code', '-y']);
+    await sandbox.skills(['sync', '-a', 'claude-code', '-y']);
 
     const canonical = sandbox.path('.agents', 'skills', 'agent-browser');
     const link = sandbox.path('.claude', 'skills', 'agent-browser');
@@ -43,10 +43,10 @@ describe('npm packages (experimental_sync)', () => {
     });
 
     // Re-running with an unchanged tree is a no-op, so it passes frozen.
-    await sandbox.skills(['experimental_sync', '-a', 'claude-code', '-y', '--frozen-lockfile']);
+    await sandbox.skills(['sync', '-a', 'claude-code', '-y', '--frozen-lockfile']);
 
     await sandbox.run('npm', ['uninstall', ...NPM_FLAGS, 'agent-browser']);
-    await sandbox.skills(['experimental_sync', '-a', 'claude-code', '-y']);
+    await sandbox.skills(['sync', '-a', 'claude-code', '-y']);
     expect(existsSync(canonical)).toBe(false);
     expect(existsSync(link)).toBe(false);
     expect(sandbox.projectLock().skills['agent-browser']).toBeUndefined();
@@ -76,7 +76,7 @@ describe('npm packages (experimental_sync)', () => {
     await sandbox.run('npm', ['install', '-D', ...NPM_FLAGS, join(sandbox.root, tgz!)]);
 
     const sync = (...args: string[]) =>
-      sandbox.skills(['experimental_sync', '--copy', '-a', 'claude-code', '-y', ...args]);
+      sandbox.skills(['sync', '--copy', '-a', 'claude-code', '-y', ...args]);
 
     // --dry-run plans both skills but writes nothing.
     const dry = await sync('--dry-run');
@@ -108,7 +108,7 @@ describe('npm packages (experimental_sync)', () => {
 
   it('does nothing in a project without skill-shipping dependencies', async () => {
     const sandbox = await npmProject('npm-empty');
-    await sandbox.skills(['experimental_sync', '-a', 'claude-code', '-y']);
+    await sandbox.skills(['sync', '-a', 'claude-code', '-y']);
     expect(entries(sandbox.path('.agents', 'skills'))).toEqual([]);
     expect(entries(sandbox.path('.claude', 'skills'))).toEqual([]);
   });

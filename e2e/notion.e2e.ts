@@ -221,7 +221,7 @@ describe.skipIf(process.platform === 'win32')('notion', () => {
     const before = calls().length;
     rmSync(sandbox.path('.agents', 'skills', 'notion-beta'), { recursive: true, force: true });
     rmSync(sandbox.path('.agents', 'skills', 'release-notes'), { recursive: true, force: true });
-    await sandbox.skills(['experimental_install'], { env });
+    await sandbox.skills(['install'], { env });
     expect(readSkill(sandbox.path('.agents', 'skills', 'notion-beta')).name).toBe('notion-beta');
     expect(readSkill(sandbox.path('.agents', 'skills', 'release-notes')).name).toBe(
       'release-notes'

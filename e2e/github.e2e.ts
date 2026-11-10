@@ -147,7 +147,7 @@ describe.each(REPOS)('$source', (repo) => {
     const before = sandbox.projectLock();
     await rm(sandbox.path('.agents'), { recursive: true, force: true });
 
-    await sandbox.skills(['experimental_install', '--frozen-lockfile']);
+    await sandbox.skills(['install', '--frozen-lockfile']);
     for (const name of repo.two) {
       expect(readSkill(sandbox.path('.agents', 'skills', name)).name).toBe(name);
     }

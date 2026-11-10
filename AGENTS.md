@@ -13,13 +13,13 @@ This file provides guidance to AI coding agents working on the `skills` CLI code
 | `skills`                      | Show banner with available commands                 |
 | `skills add <pkg>`            | Install skills from git repos, URLs, or local paths |
 | `skills use <pkg>@<skill>`    | Use one skill without installing                    |
-| `skills experimental_install` | Restore skills from skills-lock.json                |
-| `skills experimental_sync`    | Sync skills from node_modules into agent dirs       |
+| `skills install`              | Restore skills from skills-lock.json                |
+| `skills sync`                 | Sync skills from node_modules into agent dirs       |
 | `skills list`                 | List installed skills (alias: `ls`)                 |
 | `skills update [skills...]`   | Update skills to latest versions                    |
 | `skills init [name]`          | Create a new SKILL.md template                      |
 
-Aliases: `skills a` works for `add`. `skills i`, `skills install` (no args) restore from `skills-lock.json`. `skills ls` works for `list`. `skills experimental_install` restores from `skills-lock.json`. `skills experimental_sync` reads skills from npm dependencies (`sync` remains a compatibility alias).
+Aliases: `skills a` works for `add`. `skills i` works for `install`; with a source, `install` behaves like `add`. `skills ls` works for `list`. The pre-1.9 names `experimental_install` and `experimental_sync` remain compatibility aliases for `install` and `sync`.
 
 ## Architecture
 
@@ -97,7 +97,7 @@ e2e/                 # Production e2e: packed tarball vs. live sources (`pnpm te
 ├── blob.e2e.ts      # skills.sh blob fast path, parity with a git clone
 ├── well-known.e2e.ts # https://vercel.com discovery index
 ├── notion.e2e.ts    # Stub `ntn` on PATH + local archive server
-└── npm.e2e.ts       # experimental_sync with registry and tarball packages
+└── npm.e2e.ts       # sync with registry and tarball packages
 
 __snapshots__/tsnapi/          # Public API snapshot, checked by every build
 ```
@@ -125,7 +125,7 @@ If reading an older lock file version, it's wiped. Users must reinstall skills t
 | Feature                    | Implementation                                                       |
 | -------------------------- | -------------------------------------------------------------------- |
 | `skills add`               | `src/add.ts` - full implementation                                   |
-| `skills experimental_sync` | `src/sync.ts` - crawl node_modules                                   |
+| `skills sync`              | `src/sync.ts` - crawl node_modules                                   |
 | `skills check`             | `src/cli.ts` + `fetchSkillFolderHash` in `src/skill-lock.ts`         |
 | `skills update`            | `src/update.ts` hash compare + in-process reinstall via `src/add.ts` |
 
@@ -176,7 +176,7 @@ pnpm build
 
 # Test locally
 pnpm dev add vercel-labs/agent-skills --list
-pnpm dev experimental_sync
+pnpm dev sync
 pnpm dev check
 pnpm dev update
 pnpm dev init my-skill

@@ -1267,17 +1267,17 @@ describe('sync command', () => {
   });
 
   describe('CLI routing', () => {
-    it('advertises experimental_sync in help output with sync as an alias', () => {
+    it('advertises sync in help output', () => {
       const result = runCli(['--help']);
-      expect(result.stdout).toMatch(/^\s+experimental_sync\s+.*\(alias: sync\)/m);
-      expect(result.stdout).toContain('Experimental Sync Options:');
-      expect(result.stdout).not.toMatch(/^\s+sync\s/m);
+      expect(result.stdout).toMatch(/^\s+sync\s+Sync skills from node_modules/m);
+      expect(result.stdout).toContain('Sync Options:');
+      expect(result.stdout).not.toContain('experimental_sync');
     });
 
-    it('advertises experimental_sync in banner', () => {
+    it('advertises sync in banner', () => {
       const result = runCli([]);
-      expect(result.stdout).toContain('npx skills experimental_sync');
-      expect(result.stdout).not.toContain('npx skills sync');
+      expect(result.stdout).toContain('npx skills sync');
+      expect(result.stdout).not.toContain('experimental_');
     });
   });
 });

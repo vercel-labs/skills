@@ -97,7 +97,7 @@ await installSkills(source, {
   different directories, and copied otherwise.
 - **Lock files.** Installs and removals update `skills-lock.json` (project) or
   the global lock unless `lockfile: false`, so `skills update` and
-  `skills experimental_install` keep working.
+  `skills install` keep working.
 - **Strict installs.** `duplicates: 'error'` refuses selected skills whose
   name several folders declare, and `symlinks: 'reject'` refuses selected
   skills that contain symlinks. Both throw before anything is written. A

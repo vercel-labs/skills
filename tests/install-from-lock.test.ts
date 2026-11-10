@@ -5,7 +5,7 @@ import { tmpdir } from 'os';
 import { runCli } from '../src/test-utils.ts';
 import { computeSkillFolderHash } from '../src/local-lock.ts';
 
-describe('experimental_install', () => {
+describe('install', () => {
   let testDir: string;
 
   function writeSkill(dir: string, name: string): void {
@@ -59,7 +59,7 @@ describe('experimental_install', () => {
     writeSkill(join(testDir, 'src-b', 'beta'), 'beta');
     writeLock({ alpha: './src-a', beta: './src-b' });
 
-    const result = runCli(['experimental_install'], testDir);
+    const result = runCli(['install'], testDir);
 
     expect(result.exitCode).toBe(0);
     expect(installed('alpha')).toBe(true);
@@ -73,7 +73,7 @@ describe('experimental_install', () => {
     writeLock({ alpha: './src-a' });
     const before = readFileSync(join(testDir, 'skills-lock.json'), 'utf-8');
 
-    const result = runCli(['experimental_install', '--dry-run'], testDir);
+    const result = runCli(['install', '--dry-run'], testDir);
 
     expect(result.exitCode).toBe(0);
     expect(installed('alpha')).toBe(false);
@@ -87,7 +87,7 @@ describe('experimental_install', () => {
     writeLock({ alpha: './missing', beta: './src-b' });
     const before = JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8'));
 
-    const result = runCli(['experimental_install'], testDir);
+    const result = runCli(['install'], testDir);
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toMatch(/Failed to restore alpha from \S*missing/);
@@ -102,7 +102,7 @@ describe('experimental_install', () => {
     writeLock({ alpha: './src-a', renamed: './src-a' });
     const before = JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8'));
 
-    const result = runCli(['experimental_install'], testDir);
+    const result = runCli(['install'], testDir);
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toMatch(/renamed not found in \S*src-a/);
@@ -124,7 +124,7 @@ describe('experimental_install', () => {
     });
 
     it('are left as they are', () => {
-      const result = runCli(['experimental_install'], testDir);
+      const result = runCli(['install'], testDir);
 
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('1 skill already installed');
@@ -134,12 +134,12 @@ describe('experimental_install', () => {
     it('are restored when the folder has no SKILL.md', () => {
       rmSync(join(testDir, '.agents', 'skills', 'alpha', 'SKILL.md'));
 
-      expect(runCli(['experimental_install'], testDir).exitCode).toBe(0);
+      expect(runCli(['install'], testDir).exitCode).toBe(0);
       expect(installedContent()).toContain('name: alpha');
     });
 
     it('are reinstalled with --force', () => {
-      const result = runCli(['experimental_install', '--force'], testDir);
+      const result = runCli(['install', '--force'], testDir);
 
       expect(result.exitCode).toBe(0);
       expect(installedContent()).toContain('name: alpha');
@@ -149,8 +149,7 @@ describe('experimental_install', () => {
   describe('agent links', () => {
     let home: string;
     const linkOf = (dir: string) => lstatSync(join(testDir, dir, 'skills', 'alpha'));
-    const restore = (args: string[] = []) =>
-      runCli(['experimental_install', ...args], testDir, { HOME: home });
+    const restore = (args: string[] = []) => runCli(['install', ...args], testDir, { HOME: home });
 
     function writeLastSelectedAgents(agentList: string[]): void {
       const dir = join(home, '.local', 'state', 'skills');
@@ -250,7 +249,7 @@ describe('experimental_install', () => {
     it('restores skills that match the lock without touching it', async () => {
       const before = await writeMatchingLock();
 
-      const result = runCli(['experimental_install', '--frozen-lockfile'], testDir);
+      const result = runCli(['install', '--frozen-lockfile'], testDir);
 
       expect(result.exitCode).toBe(0);
       expect(installed('alpha')).toBe(true);
@@ -262,7 +261,7 @@ describe('experimental_install', () => {
       writeLock({ alpha: './src-a' });
       const before = lockFile();
 
-      const result = runCli(['experimental_install', '--frozen-lockfile'], testDir);
+      const result = runCli(['install', '--frozen-lockfile'], testDir);
 
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toContain('skills-lock.json is not up to date');
@@ -272,7 +271,7 @@ describe('experimental_install', () => {
     });
 
     it('fails when the lock is absent', () => {
-      const result = runCli(['experimental_install', '--frozen-lockfile'], testDir);
+      const result = runCli(['install', '--frozen-lockfile'], testDir);
 
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toContain('skills-lock.json is absent');
@@ -282,11 +281,11 @@ describe('experimental_install', () => {
       writeSkill(join(testDir, 'src-a', 'alpha'), 'alpha');
       writeLock({ alpha: './src-a' });
 
-      const frozen = runCli(['experimental_install'], testDir, { CI: 'true' });
+      const frozen = runCli(['install'], testDir, { CI: 'true' });
       expect(frozen.exitCode).toBe(1);
       expect(installed('alpha')).toBe(false);
 
-      const thawed = runCli(['experimental_install', '--no-frozen-lockfile'], testDir, {
+      const thawed = runCli(['install', '--no-frozen-lockfile'], testDir, {
         CI: 'true',
       });
       expect(thawed.exitCode).toBe(0);
