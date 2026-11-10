@@ -96,6 +96,7 @@ e2e/                 # Production e2e: packed tarball vs. live sources (`pnpm te
 ├── github.e2e.ts    # anthropics/skills, mattpocock/skills, vercel-labs/agent-skills
 ├── blob.e2e.ts      # skills.sh blob fast path, parity with a git clone
 ├── well-known.e2e.ts # https://vercel.com discovery index
+├── rename.e2e.ts    # add --rename kept through update, restore, list, API
 ├── notion.e2e.ts    # Stub `ntn` on PATH + local archive server
 └── npm.e2e.ts       # experimental_sync with registry and tarball packages
 
