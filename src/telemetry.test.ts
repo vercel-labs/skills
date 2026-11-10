@@ -61,7 +61,6 @@ describe('fetchAuditData', () => {
     );
     expect(result?.warned?.socket).toMatchObject({
       provider: 'Socket',
-      providerSlug: 'socket',
       status: 'warn',
       summary: 'One actionable warning.',
       riskLevel: 'MEDIUM',

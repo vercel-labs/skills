@@ -29,6 +29,8 @@ import {
   track,
   setVersion,
   fetchAuditData,
+  AUDIT_PROVIDERS,
+  isFlaggedAudit,
   type AuditResponse,
   type PartnerAudit,
 } from './telemetry.ts';
@@ -129,24 +131,6 @@ function socketLabel(audit: PartnerAudit | undefined): string {
   return count > 0 ? pc.red(`${count} alert${count !== 1 ? 's' : ''}`) : pc.green('0 alerts');
 }
 
-const AUDIT_PROVIDERS = [
-  { key: 'ath', label: 'Gen Agent Trust Hub', slug: 'agent-trust-hub' },
-  { key: 'socket', label: 'Socket', slug: 'socket' },
-  { key: 'snyk', label: 'Snyk', slug: 'snyk' },
-] as const;
-
-function isAuditWarning(audit: PartnerAudit | undefined): audit is PartnerAudit {
-  if (!audit) return false;
-  return (
-    audit.status === 'warn' ||
-    audit.status === 'fail' ||
-    (audit.alerts ?? 0) > 0 ||
-    audit.risk === 'medium' ||
-    audit.risk === 'high' ||
-    audit.risk === 'critical'
-  );
-}
-
 function wrapText(text: string, width = 88): string[] {
   const words = stripTerminalEscapes(text).replace(/\s+/g, ' ').trim().split(' ');
   const lines: string[] = [];
@@ -238,7 +222,7 @@ export function buildSecurityLines(
     const data = auditData[skill.slug];
     return AUDIT_PROVIDERS.flatMap((provider) => {
       const audit = data?.[provider.key];
-      return isAuditWarning(audit) ? [{ skill, provider, audit }] : [];
+      return isFlaggedAudit(audit) ? [{ skill, provider, audit }] : [];
     });
   });
 
@@ -248,7 +232,6 @@ export function buildSecurityLines(
 
     for (const { skill, provider, audit } of warnings) {
       const providerName = sanitizeMetadata(audit.provider ?? provider.label);
-      const providerSlug = audit.providerSlug ?? provider.slug;
       const categories = audit.categories?.length
         ? ` · ${sanitizeMetadata(audit.categories.join(', ').replaceAll('_', ' '))}`
         : '';
@@ -263,7 +246,7 @@ export function buildSecurityLines(
       }
       lines.push(
         `  ${pc.dim('Review:')} ${pc.dim(
-          `https://skills.sh/${source}/${skill.slug}/security/${providerSlug}`
+          `https://skills.sh/${source}/${skill.slug}/security/${provider.slug}`
         )}`
       );
     }

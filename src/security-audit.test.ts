@@ -25,7 +25,6 @@ describe('security audit installation output', () => {
           alerts: 1,
           analyzedAt: '2026-08-31T00:00:00Z',
           provider: 'Socket',
-          providerSlug: 'socket',
           status: 'warn',
           summary: 'Broad scope permits high-impact external actions.',
           riskLevel: 'MEDIUM',

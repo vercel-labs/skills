@@ -99,7 +99,6 @@ export interface PartnerAudit {
   score?: number;
   analyzedAt: string;
   provider?: string;
-  providerSlug?: string;
   status?: string;
   summary?: string;
   riskLevel?: string;
@@ -109,27 +108,17 @@ export interface PartnerAudit {
 export type SkillAuditData = Record<string, PartnerAudit>;
 export type AuditResponse = Record<string, SkillAuditData>;
 
-interface DetailedPartnerAudit {
-  provider: string;
-  slug: string;
-  status: string;
-  summary: string;
-  riskLevel?: string;
-  categories?: string[];
-}
+export const AUDIT_PROVIDERS = [
+  { key: 'ath', label: 'Gen Agent Trust Hub', slug: 'agent-trust-hub' },
+  { key: 'socket', label: 'Socket', slug: 'socket' },
+  { key: 'snyk', label: 'Snyk', slug: 'snyk' },
+] as const;
 
-interface SkillAuditDetails {
-  audits: DetailedPartnerAudit[];
-}
-
-const DETAIL_PROVIDER_KEYS: Record<string, string> = {
-  'agent-trust-hub': 'ath',
-  socket: 'socket',
-  snyk: 'snyk',
-};
-
-function needsAuditDetails(audit: PartnerAudit): boolean {
+export function isFlaggedAudit(audit: PartnerAudit | undefined): audit is PartnerAudit {
+  if (!audit) return false;
   return (
+    audit.status === 'warn' ||
+    audit.status === 'fail' ||
     (audit.alerts ?? 0) > 0 ||
     audit.risk === 'medium' ||
     audit.risk === 'high' ||
@@ -137,23 +126,28 @@ function needsAuditDetails(audit: PartnerAudit): boolean {
   );
 }
 
+type AuditDetail = Pick<
+  PartnerAudit,
+  'provider' | 'status' | 'summary' | 'riskLevel' | 'categories'
+> & {
+  slug: string;
+};
+
 async function fetchSkillAuditDetails(
   source: string,
   skillSlug: string,
   timeoutMs: number
-): Promise<SkillAuditDetails | null> {
+): Promise<{ audits?: AuditDetail[] } | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const encodedSource = encodeURIComponent(source);
-    const encodedSkill = encodeURIComponent(skillSlug);
     const response = await fetch(
-      `https://skills.sh/api/v1/skills/audit/${encodedSource}/${encodedSkill}`,
+      `https://skills.sh/api/v1/skills/audit/${encodeURIComponent(source)}/${encodeURIComponent(skillSlug)}`,
       { signal: controller.signal }
     );
     if (!response.ok) return null;
-    return (await response.json()) as SkillAuditDetails;
+    return (await response.json()) as { audits?: AuditDetail[] };
   } catch {
     return null;
   } finally {
@@ -190,34 +184,23 @@ export async function fetchAuditData(
     if (!response.ok) return null;
     const auditData = (await response.json()) as AuditResponse;
 
-    // The compact endpoint only returns counts and risk levels. Enrich flagged
-    // skills with the provider's status and summary so users can review the
-    // finding before accepting the installation. Detail failures remain
-    // advisory: the compact result and a direct review URL are still shown.
-    const flaggedSkills = skillSlugs.filter((skillSlug) =>
-      Object.values(auditData[skillSlug] ?? {}).some(needsAuditDetails)
-    );
-
+    // The compact endpoint only returns counts and risk levels; enrich flagged
+    // skills with provider details. Failures stay advisory (compact result is kept).
     await Promise.all(
-      flaggedSkills.map(async (skillSlug) => {
-        const details = await fetchSkillAuditDetails(source, skillSlug, timeoutMs);
-        if (!details) return;
+      skillSlugs
+        .filter((slug) => Object.values(auditData[slug] ?? {}).some(isFlaggedAudit))
+        .map(async (skillSlug) => {
+          const details = await fetchSkillAuditDetails(source, skillSlug, timeoutMs);
+          if (!Array.isArray(details?.audits)) return;
 
-        if (!Array.isArray(details.audits)) return;
-
-        for (const detail of details.audits) {
-          const providerKey = DETAIL_PROVIDER_KEYS[detail.slug];
-          const partnerAudit = providerKey ? auditData[skillSlug]?.[providerKey] : undefined;
-          if (!partnerAudit) continue;
-
-          partnerAudit.provider = detail.provider;
-          partnerAudit.providerSlug = detail.slug;
-          partnerAudit.status = detail.status;
-          partnerAudit.summary = detail.summary;
-          partnerAudit.riskLevel = detail.riskLevel;
-          partnerAudit.categories = detail.categories;
-        }
-      })
+          for (const { slug, provider, status, summary, riskLevel, categories } of details.audits) {
+            const key = AUDIT_PROVIDERS.find((p) => p.slug === slug)?.key;
+            const partnerAudit = key && auditData[skillSlug]?.[key];
+            if (partnerAudit) {
+              Object.assign(partnerAudit, { provider, status, summary, riskLevel, categories });
+            }
+          }
+        })
     );
 
     return auditData;
