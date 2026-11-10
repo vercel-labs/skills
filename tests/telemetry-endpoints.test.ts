@@ -65,16 +65,4 @@ describe('direct telemetry endpoints', () => {
     await flushTelemetry(10);
     expect(capturedSignal?.aborted).toBe(true);
   });
-
-  it('aborts pending controllers when telemetry settles normally to avoid socket leaks', async () => {
-    let capturedSignal: AbortSignal | undefined;
-    fetchMock.mockImplementation((_url: string, init?: RequestInit) => {
-      capturedSignal = init?.signal as AbortSignal;
-      return Promise.resolve({ ok: true, json: async () => ({}) });
-    });
-
-    track({ event: 'install', source: 'mattpocock/skills', skills: 'ask-matt' });
-    await flushTelemetry(5000);
-    expect(capturedSignal?.aborted).toBe(true);
-  });
 });

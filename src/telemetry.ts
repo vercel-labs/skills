@@ -125,14 +125,9 @@ export async function fetchAuditData(
   }
 }
 
-interface PendingTelemetryItem {
-  promise: Promise<void>;
-  controller: AbortController;
-}
-
 // Pending telemetry requests — awaited before CLI exit so we don't lose data,
 // but never block the main workflow.
-const pendingTelemetry: PendingTelemetryItem[] = [];
+const pendingTelemetry: { promise: Promise<void>; controller: AbortController }[] = [];
 
 export function track(data: TelemetryData): void {
   if (!isEnabled()) return;
@@ -182,18 +177,15 @@ export function track(data: TelemetryData): void {
  * but also doesn't drop data by exiting too early.
  */
 export async function flushTelemetry(timeoutMs = 5000): Promise<void> {
-  if (pendingTelemetry.length === 0) return;
+  const pending = pendingTelemetry.splice(0);
+  if (pending.length === 0) return;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<void>((resolve) => {
     timer = setTimeout(resolve, timeoutMs);
   });
-  try {
-    await Promise.race([Promise.all(pendingTelemetry.map((item) => item.promise)), timeout]);
-  } finally {
-    clearTimeout(timer);
-    for (const item of pendingTelemetry) {
-      item.controller.abort();
-    }
-    pendingTelemetry.length = 0;
-  }
+  await Promise.race([Promise.all(pending.map((item) => item.promise)), timeout]);
+  // The CLI exits by draining the event loop, so neither the timer nor a hung
+  // request may outlive the flush.
+  clearTimeout(timer);
+  for (const item of pending) item.controller.abort();
 }
