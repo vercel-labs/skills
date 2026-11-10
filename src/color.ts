@@ -1,11 +1,15 @@
-import pc from 'picocolors';
+import { createColors } from 'picocolors';
 
 /**
  * The single place that decides whether the CLI emits terminal escape codes.
  *
- * Color follows picocolors (already used by `add`, `remove`, `sync` and clack),
- * so every command agrees: `NO_COLOR` / `--no-color` disable it; `FORCE_COLOR` /
- * `--color` / `CI` enable it; otherwise stdout must be a TTY with `TERM != dumb`.
+ * - `NO_COLOR` / `--no-color` disable color (https://no-color.org).
+ * - `FORCE_COLOR` / `--color` / `CI` enable it.
+ * - Otherwise stdout must be a TTY with `TERM != dumb`.
+ *
+ * This is picocolors' rule minus its "always on for win32" shortcut, which
+ * would leak escapes into pipes on Windows. Import `pc` from here instead of
+ * `picocolors` so every command follows it.
  *
  * Cursor/line control is separate: it only makes sense on a real terminal, so
  * it stays off in pipes even when color is forced.
@@ -13,8 +17,15 @@ import pc from 'picocolors';
  * Do not write raw `\x1b[` literals elsewhere; add them here instead
  * (enforced by color.test.ts).
  */
-export const colorEnabled = pc.isColorSupported;
+const env = process.env;
+const argv = process.argv;
 const isTTY = process.stdout.isTTY === true;
+
+export const colorEnabled =
+  !(env.NO_COLOR || argv.includes('--no-color')) &&
+  !!(env.FORCE_COLOR || argv.includes('--color') || env.CI || (isTTY && env.TERM !== 'dumb'));
+
+export const pc = createColors(colorEnabled);
 
 const sgr = (code: string): string => (colorEnabled ? `\x1b[${code}m` : '');
 

@@ -1,7 +1,6 @@
 import { existsSync, readdirSync } from 'fs';
 import { join, dirname, relative, sep } from 'path';
 import * as p from '@clack/prompts';
-import pc from 'picocolors';
 
 import {
   readSkillLock,
@@ -56,7 +55,7 @@ import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
 import { agents, isUniversalAgent } from './agents.ts';
 import type { AgentType } from './types.ts';
-import { BOLD, CLEAR_LINE, DIM, RESET, TEXT } from './color.ts';
+import { BOLD, CLEAR_LINE, DIM, RESET, TEXT, pc } from './color.ts';
 
 function printFetching(sourceCount: number): void {
   if (sourceCount === 0) return;

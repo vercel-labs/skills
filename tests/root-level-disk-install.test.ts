@@ -24,31 +24,10 @@ vi.mock('@clack/prompts', () => {
   };
 });
 
-vi.mock('picocolors', () => {
-  const id = (s: string) => s;
-  const colors = [
-    'red',
-    'green',
-    'blue',
-    'yellow',
-    'cyan',
-    'white',
-    'black',
-    'dim',
-    'bold',
-    'bgRed',
-    'bgCyan',
-    'bgBlack',
-    'bgWhite',
-    'underline',
-    'inverse',
-    'magenta',
-    'gray',
-    'reset',
-  ];
-  const obj: any = id;
-  for (const c of colors) obj[c] = id;
-  return { default: obj };
+vi.mock('picocolors', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('picocolors')>();
+  const plain = actual.createColors(false);
+  return { ...actual, default: plain, createColors: () => plain };
 });
 
 vi.mock('../src/telemetry.ts', () => ({

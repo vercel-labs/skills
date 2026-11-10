@@ -1,5 +1,5 @@
 import * as p from '@clack/prompts';
-import pc from 'picocolors';
+import { pc } from './color.ts';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { sep, join, dirname, relative, isAbsolute } from 'path';
