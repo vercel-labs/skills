@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from 'fs';
+import { existsSync, readdirSync, realpathSync } from 'fs';
 import { join, dirname, relative, sep } from 'path';
 import * as p from '@clack/prompts';
 
@@ -22,7 +22,7 @@ import {
   shouldUseFullDepthForUpdate,
 } from './update-source.ts';
 import { cloneRepo, cleanupTempDir, getGitTreeHash } from './git.ts';
-import { discoverSkills } from './skills.ts';
+import { discoverSkills, isSubpathSafe, parseSkillMd } from './skills.ts';
 import { fetchRepoTree, getSkillFolderHashFromTree, type RepoTree } from './blob.ts';
 import { mapConcurrent } from './concurrency.ts';
 import { parseSource } from './source-parser.ts';
@@ -1020,6 +1020,39 @@ export async function updateGlobalSkills(
   return { successCount, failCount, checkedCount };
 }
 
+function isRealpathWithin(realRoot: string, path: string): boolean {
+  try {
+    const real = realpathSync(path);
+    return real === realRoot || real.startsWith(realRoot + sep);
+  } catch {
+    return false;
+  }
+}
+
+async function readLockedSkills(
+  tempDir: string,
+  lockSkills: Record<string, { skillPath?: string }>,
+  names: string[]
+): Promise<Skill[] | null> {
+  const skills: Skill[] = [];
+  const realRoot = realpathSync(tempDir);
+  for (const name of names) {
+    const skillPath = lockSkills[name]?.skillPath;
+    if (!skillPath || !isSubpathSafe(tempDir, skillPath)) return null;
+    const skillMdPath = join(tempDir, skillPath);
+    if (!existsSync(skillMdPath)) return null;
+    // The lexical check above does not see symlinks; a linked skill directory
+    // or SKILL.md could point at host files outside the clone.
+    if (!isRealpathWithin(realRoot, dirname(skillMdPath))) return null;
+    if (!isRealpathWithin(realRoot, skillMdPath)) return null;
+    // An unparseable locked skill may have moved; let full discovery decide.
+    const skill = await parseSkillMd(skillMdPath);
+    if (!skill) return null;
+    skills.push(skill);
+  }
+  return skills;
+}
+
 export async function updateProjectSkills(
   options: UpdateCheckOptions = {}
 ): Promise<{ successCount: number; failCount: number; foundCount: number }> {
@@ -1183,11 +1216,18 @@ export async function updateProjectSkills(
 
     let checked = false;
     try {
-      const discovered = await discoverSkills(tempDir, undefined, {
+      // Every lock entry for the source must be path-addressable: deletion checks
+      // resolve all of them, including skills filtered out of this run.
+      // Generic Git sources reinstall by name, so they keep full discovery to
+      // detect same-name mirrors.
+      const reinstallsByName = shouldUseFullDepthForUpdate(firstEntry);
+      let discovered = reinstallsByName
+        ? null
+        : await readLockedSkills(tempDir, localLock.skills, allLockedForSource);
+      discovered ??= await discoverSkills(tempDir, undefined, {
         fullDepth: true,
         includeDuplicateNames: true,
       });
-
       const discoveredLocations = discovered.map((skill) => ({
         name: skill.name,
         skillPath: join(relative(tempDir, skill.path), 'SKILL.md').split(sep).join('/'),
@@ -1200,7 +1240,7 @@ export async function updateProjectSkills(
         false,
         options,
         discoveredLocations,
-        { exactPathDisambiguates: !shouldUseFullDepthForUpdate(firstEntry) }
+        { exactPathDisambiguates: !reinstallsByName }
       );
       checked = true;
       const deleted = new Set(resolution.deletedSkills);
