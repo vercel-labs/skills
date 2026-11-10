@@ -51,6 +51,7 @@ import {
 import { listInstalledSkills } from './installer.ts';
 import { parseCliArgs, throwFirstError } from './cli-args.ts';
 import { wellKnownProvider, computeWellKnownSkillDigest } from './providers/index.ts';
+import { isDiagnostic } from './diagnostics.ts';
 import { removeCommand } from './remove.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
@@ -476,11 +477,20 @@ export async function checkWellKnownForUpdates(
 
   if (needsContentCheck.length > 0) {
     const tracked = new Set(needsContentCheck.map(sourceNameOf));
+    // An incomplete download says nothing about upstream changes, so skip the skill.
+    const incomplete = new Set<string>();
     const skills = (
       await Promise.all(
         indexResult.entries
           .filter((entry) => tracked.has(entry.name))
-          .map((entry) => wellKnownProvider.fetchSkillByEntry(entry).catch(() => null))
+          .map((entry) =>
+            wellKnownProvider.fetchSkillByEntry(entry).catch((error) => {
+              if (isDiagnostic(error, 'SKILLS_WELLKNOWN_FILE_FETCH_FAILED')) {
+                incomplete.add(entry.name);
+              }
+              return null;
+            })
+          )
       )
     ).filter((skill): skill is NonNullable<typeof skill> => skill !== null);
     if (skills.length === 0) return { status: 'error' };
@@ -488,6 +498,7 @@ export async function checkWellKnownForUpdates(
       skills.map((skill) => [skill.installName, computeWellKnownSkillDigest(skill)])
     );
     for (const item of needsContentCheck) {
+      if (incomplete.has(sourceNameOf(item))) continue;
       const digest = digests.get(sourceNameOf(item));
       if (!digest || !item.digest || digest !== item.digest) {
         changedSkills.push(item.name);

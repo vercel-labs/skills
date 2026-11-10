@@ -17,7 +17,7 @@ import type { AgentType, Skill } from './types.ts';
 import { downloadSource } from './download-source.ts';
 import {
   wellKnownProvider,
-  type WellKnownSkill,
+  type DiscoveredWellKnownSkill,
   type WellKnownFileContent,
 } from './providers/wellknown.ts';
 
@@ -196,7 +196,7 @@ export async function runUse(
 
     if (parsed.type === 'well-known') {
       const skills = await wellKnownProvider
-        .fetchAllSkills(parsed.url, {
+        .discoverSkills(parsed.url, {
           includeInternal,
         })
         .catch((error) => {
@@ -206,10 +206,10 @@ export async function runUse(
           ) {
             fail(error);
           }
-          return [] as WellKnownSkill[];
+          return [] as DiscoveredWellKnownSkill[];
         });
       if (skills.length > 0) {
-        selectedSkill = selectWellKnownSkill(skills, selector, source);
+        selectedSkill = await selectWellKnownSkill(skills, selector, source);
       } else {
         const downloaded = await downloadSource(parsed.url);
         cloneTempDir = downloaded.tempDir;
@@ -421,16 +421,16 @@ function selectSkill(skills: Skill[], selector: string | undefined, source: stri
   return selected[0]!;
 }
 
-function selectWellKnownSkill(
-  skills: WellKnownSkill[],
+async function selectWellKnownSkill(
+  skills: DiscoveredWellKnownSkill[],
   selector: string | undefined,
   source: string
-): UseSkill {
+): Promise<UseSkill> {
   if (skills.length === 0) {
     throw diagnostics.SKILLS_WELLKNOWN_INDEX_NOT_FOUND();
   }
 
-  let selected: WellKnownSkill[];
+  let selected: DiscoveredWellKnownSkill[];
   if (!selector) {
     if (skills.length !== 1) {
       throw diagnostics.SKILLS_MULTIPLE_SKILLS_IN_SOURCE({
@@ -456,7 +456,7 @@ function selectWellKnownSkill(
     }
   }
 
-  const skill = selected[0]!;
+  const skill = await selected[0]!.load();
   return {
     kind: 'well-known',
     name: skill.name,

@@ -127,6 +127,12 @@ export const diagnostics = defineDiagnostics({
       why: (p: { skill: string; expected: string; actual: string }) =>
         `Digest mismatch for skill '${p.skill}': expected ${p.expected}, received ${p.actual}.`,
     },
+    SKILLS_WELLKNOWN_FILE_FETCH_FAILED: {
+      why: (p: { skill: string; path: string; status?: number }) =>
+        `Failed to download "${p.path}" for skill "${p.skill}"` +
+        (p.status === undefined ? '.' : ` (HTTP ${p.status}).`) +
+        ' The skill cannot be installed without all listed files.',
+    },
     SKILLS_WELLKNOWN_INDEX_NOT_FOUND: {
       why: 'No skills found at this URL. Make sure the server has a /.well-known/agent-skills/index.json or /.well-known/skills/index.json file.',
     },
