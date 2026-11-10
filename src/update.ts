@@ -1184,7 +1184,11 @@ export async function updateProjectSkills(
     try {
       // Every lock entry for the source must be path-addressable: deletion checks
       // resolve all of them, including skills filtered out of this run.
-      const locked = await discoverLockedSkills(tempDir, localLock.skills, allLockedForSource);
+      // Generic Git sources reinstall by name, so they keep full discovery to
+      // detect same-name mirrors.
+      const locked = shouldUseFullDepthForUpdate(firstEntry)
+        ? null
+        : await discoverLockedSkills(tempDir, localLock.skills, allLockedForSource);
       const discovered =
         locked?.discovered ??
         (await discoverSkills(tempDir, undefined, {
