@@ -118,7 +118,7 @@ describe('discoverSkills — bounded depth-3 inside skill container dirs', () =>
       writeFileSync(
         join(testDir, 'skills-lock.json'),
         JSON.stringify({
-          version: 1,
+          version: 2,
           skills: {
             'installed-skill': {
               source: 'owner/repo',

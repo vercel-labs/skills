@@ -33,7 +33,7 @@ describe('runInstallFromLock', () => {
 
   it('restores self-hosted GitLab project locks from sourceUrl', async () => {
     vi.mocked(localLock.readLocalLock).mockResolvedValue({
-      version: 1,
+      version: 2,
       skills: {
         'skill-a': {
           source: 'acme/skills',
@@ -57,7 +57,7 @@ describe('runInstallFromLock', () => {
 
   it('does not restore generic git shorthands as GitHub without sourceUrl', async () => {
     vi.mocked(localLock.readLocalLock).mockResolvedValue({
-      version: 1,
+      version: 2,
       skills: {
         'skill-a': {
           source: 'acme/skills',
