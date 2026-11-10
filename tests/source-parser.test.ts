@@ -243,24 +243,90 @@ describe('parseSource', () => {
       expect(result.url).toBe(url);
     });
 
-    it('does not rewrite proxy or mirror URLs whose path contains github.com or gitlab.com', () => {
-      const proxyUrl = 'https://gh-proxy.org/github.com/giikin/skills';
-      expect(parseSource(proxyUrl)).toEqual({
-        type: 'well-known',
-        url: proxyUrl,
-      });
+    // #2079: a proxy or mirror host must never be rewritten to github.com/gitlab.com.
+    it.each([
+      [
+        'https://gh-proxy.org/github.com/giikin/skills',
+        { type: 'git', url: 'https://gh-proxy.org/github.com/giikin/skills.git' },
+      ],
+      [
+        'https://gh-proxy.org/github.com/giikin/skills.git',
+        { type: 'git', url: 'https://gh-proxy.org/github.com/giikin/skills.git' },
+      ],
+      [
+        'https://gh-proxy.org/https://github.com/giikin/skills/',
+        { type: 'git', url: 'https://gh-proxy.org/https://github.com/giikin/skills.git' },
+      ],
+      [
+        'https://gh-proxy.org/github.com/owner/repo/tree/main/skills/my-skill',
+        {
+          type: 'git',
+          url: 'https://gh-proxy.org/github.com/owner/repo.git',
+          ref: 'main',
+          subpath: 'skills/my-skill',
+        },
+      ],
+      [
+        'https://gh-proxy.org/github.com/owner/repo#v1.0.0@my-skill',
+        {
+          type: 'git',
+          url: 'https://gh-proxy.org/github.com/owner/repo.git',
+          ref: 'v1.0.0',
+          skillFilter: 'my-skill',
+        },
+      ],
+      [
+        'https://mirror.example.com:8443/gitlab.com/group/sub/repo.git',
+        { type: 'git', url: 'https://mirror.example.com:8443/gitlab.com/group/sub/repo.git' },
+      ],
+    ])('keeps the proxy host for mirrored repo URL %s', (url, expected) => {
+      expect(parseSource(url)).toEqual(expected);
+    });
 
-      const gitProxyUrl = 'https://gh-proxy.org/github.com/giikin/skills.git';
-      expect(parseSource(gitProxyUrl)).toEqual({
-        type: 'git',
-        url: gitProxyUrl,
-      });
+    it.each([
+      'https://evilgithub.com/owner/repo',
+      'https://github.com.example.com/owner/repo',
+      'https://example.com/?next=github.com/owner/repo',
+    ])('does not treat a non-GitHub host as GitHub: %s', (url) => {
+      const result = parseSource(url);
+      expect(result.type).not.toBe('github');
+      expect(result.url).toBe(url);
+    });
 
-      const gitlabProxyUrl = 'https://mirror.example.com/gitlab.com/group/repo.git';
-      expect(parseSource(gitlabProxyUrl)).toEqual({
-        type: 'git',
-        url: gitlabProxyUrl,
+    it('treats a proxied archive URL as a download source, not a repo', () => {
+      const url = 'https://gh-proxy.org/https://github.com/owner/repo/archive/main.zip';
+      expect(parseSource(url)).toEqual({ type: 'well-known', url });
+    });
+  });
+
+  describe('GitHub.com host matching', () => {
+    it.each([
+      ['https://GitHub.com/owner/repo', 'https://github.com/owner/repo.git'],
+      ['https://www.github.com/owner/repo', 'https://github.com/owner/repo.git'],
+      ['github.com/owner/repo', 'https://github.com/owner/repo.git'],
+      ['https://github.com/owner/repo?tab=readme-ov-file', 'https://github.com/owner/repo.git'],
+      ['https://github.com/owner/repo.git/', 'https://github.com/owner/repo.git'],
+    ])('normalizes %s', (input, url) => {
+      expect(parseSource(input)).toEqual({ type: 'github', url });
+    });
+
+    it('keeps the ref for a tree URL with a trailing slash or query', () => {
+      expect(parseSource('https://github.com/owner/repo/tree/main/')).toEqual({
+        type: 'github',
+        url: 'https://github.com/owner/repo.git',
+        ref: 'main',
       });
+      expect(parseSource('https://github.com/owner/repo/tree/main/skills/x/?plain=1')).toEqual({
+        type: 'github',
+        url: 'https://github.com/owner/repo.git',
+        ref: 'main',
+        subpath: 'skills/x',
+      });
+    });
+
+    it('does not treat a non-GitLab host as gitlab.com', () => {
+      const url = 'https://notgitlab.com/group/repo';
+      expect(parseSource(url).type).not.toBe('gitlab');
     });
   });
 
