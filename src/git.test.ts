@@ -5,7 +5,7 @@ const simpleGitMock = vi.hoisted(() => vi.fn());
 const execFileMock = vi.hoisted(() => vi.fn());
 
 vi.mock('simple-git', () => ({
-  default: simpleGitMock,
+  simpleGit: simpleGitMock,
 }));
 
 vi.mock('child_process', async () => {
@@ -155,24 +155,36 @@ describe('git clone fallbacks', () => {
         unsafe: {
           allowUnsafeAlias: true,
           allowUnsafeAskPass: true,
+          allowUnsafeCommandBinaries: true,
           allowUnsafeConfigEnvCount: true,
           allowUnsafeConfigPaths: true,
           allowUnsafeCredentialHelper: true,
           allowUnsafeDiffExternal: true,
           allowUnsafeDiffTextConv: true,
           allowUnsafeEditor: true,
+          allowUnsafeExec: true,
           allowUnsafeFilter: true,
           allowUnsafeFsMonitor: true,
           allowUnsafeGpgProgram: true,
           allowUnsafeGitProxy: true,
           allowUnsafeHooksPath: true,
+          allowUnsafeInclude: true,
           allowUnsafeMergeDriver: true,
           allowUnsafePack: true,
           allowUnsafePager: true,
           allowUnsafeProtocolOverride: true,
           allowUnsafeSshCommand: true,
+          allowUnsafeSubmodule: true,
           allowUnsafeTemplateDir: true,
+          allowUnsafeUrlRewrite: true,
         },
+        allowEnvironment: expect.arrayContaining([
+          'EDITOR',
+          'GIT_ASKPASS',
+          'GIT_TERMINAL_PROMPT',
+          'GIT_LFS_SKIP_SMUDGE',
+          'PAGER',
+        ]),
       })
     );
     expect(simpleGitMock.mock.calls[0]![0]).not.toHaveProperty('env');
