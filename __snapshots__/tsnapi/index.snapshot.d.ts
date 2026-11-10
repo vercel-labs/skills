@@ -439,6 +439,20 @@ export declare const diagnostics: import("nostics").Diagnostics<{
   readonly SKILLS_UNSAFE_SKILL_NAME: {
     readonly why: "Invalid skill name: potential path traversal detected";
   };
+  readonly SKILLS_CATEGORY_DIR_CONFLICT: {
+    readonly why: (p: {
+      path: string;
+      skills: string[];
+    }) => string;
+    readonly fix: "Move or rename the category directory, then install again.";
+    readonly data: (p: {
+      path: string;
+      skills: string[];
+    }) => {
+      path: string;
+      skills: string[];
+    };
+  };
   readonly SKILLS_CLEANUP_OUTSIDE_TEMP_DIR: {
     readonly why: "Attempted to clean up directory outside of temp directory";
   };

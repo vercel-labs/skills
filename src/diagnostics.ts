@@ -242,6 +242,14 @@ export const diagnostics = defineDiagnostics({
     SKILLS_UNSAFE_SKILL_NAME: {
       why: 'Invalid skill name: potential path traversal detected',
     },
+    SKILLS_CATEGORY_DIR_CONFLICT: {
+      why: (p: { path: string; skills: string[] }) =>
+        `Refusing to replace ${p.path}: it is a category directory with nested skills ` +
+        `(${p.skills.slice(0, 8).join(', ')}${p.skills.length > 8 ? ', ...' : ''}). ` +
+        'Installing would delete them.',
+      fix: 'Move or rename the category directory, then install again.',
+      data: (p: { path: string; skills: string[] }) => ({ path: p.path, skills: p.skills }),
+    },
     SKILLS_CLEANUP_OUTSIDE_TEMP_DIR: {
       why: 'Attempted to clean up directory outside of temp directory',
     },

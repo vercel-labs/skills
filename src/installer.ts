@@ -27,7 +27,7 @@ import {
   EVE_SUBAGENTS_DIR,
 } from './agents.ts';
 import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
-import { diagnostics } from './diagnostics.ts';
+import { diagnostics, isDiagnostic } from './diagnostics.ts';
 import { parseFrontmatter } from './frontmatter.ts';
 import { stringify } from 'yaml';
 import { parseSkillMd } from './skills.ts';
@@ -191,6 +191,22 @@ function resolveSymlinkTarget(linkPath: string, linkTarget: string): string {
 }
 
 /**
+ * Throws if `path` is an agent category directory, e.g. Hermes
+ * `~/.hermes/skills/<category>/<skill>/SKILL.md` (#1723): a real directory with
+ * no root SKILL.md and at least one child directory with a SKILL.md. Deleting it
+ * would wipe unrelated skills. A skill that bundles child skills has a root
+ * SKILL.md, so it can still be replaced. Symlinks are not checked: removing a
+ * link leaves its target alone.
+ */
+async function assertNotCategoryDir(path: string): Promise<void> {
+  const stats = await lstat(path).catch(() => undefined);
+  if (!stats?.isDirectory() || existsSync(join(path, 'SKILL.md'))) return;
+  const entries = await readdir(path).catch(() => []);
+  const nested = entries.filter((name) => existsSync(join(path, name, 'SKILL.md')));
+  if (nested.length > 0) throw diagnostics.SKILLS_CATEGORY_DIR_CONFLICT({ path, skills: nested });
+}
+
+/**
  * Cleans and recreates a directory for skill installation.
  *
  * This ensures:
@@ -199,6 +215,7 @@ function resolveSymlinkTarget(linkPath: string, linkTarget: string): string {
  *    when canonical and agent paths resolve to the same location
  */
 async function cleanAndCreateDirectory(path: string): Promise<void> {
+  await assertNotCategoryDir(path);
   try {
     await rm(path, { recursive: true, force: true });
   } catch {
@@ -259,6 +276,9 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
       return true;
     }
 
+    // Throws past the catch below: falling back to copy would hit the same guard.
+    await assertNotCategoryDir(linkPath);
+
     try {
       const stats = await lstat(linkPath);
       if (stats.isSymbolicLink()) {
@@ -295,7 +315,8 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
 
     await symlink(symlinkTarget, linkPath, symlinkType);
     return true;
-  } catch {
+  } catch (error) {
+    if (isDiagnostic(error, 'SKILLS_CATEGORY_DIR_CONFLICT')) throw error;
     return false;
   }
 }
