@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from 'fs';
+import { existsSync, readdirSync, statSync } from 'fs';
 import { join, dirname, relative, sep } from 'path';
 import * as p from '@clack/prompts';
 
@@ -22,7 +22,7 @@ import {
   shouldUseFullDepthForUpdate,
 } from './update-source.ts';
 import { cloneRepo, cleanupTempDir, getGitTreeHash } from './git.ts';
-import { discoverSkills } from './skills.ts';
+import { discoverSkills, isSubpathSafe, parseSkillMd } from './skills.ts';
 import { fetchRepoTree, getSkillFolderHashFromTree, type RepoTree } from './blob.ts';
 import { mapConcurrent } from './concurrency.ts';
 import { parseSource } from './source-parser.ts';
@@ -55,7 +55,7 @@ import { removeCommand } from './remove.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
 import { agents, isUniversalAgent } from './agents.ts';
-import type { AgentType } from './types.ts';
+import type { AgentType, Skill } from './types.ts';
 import { BOLD, CLEAR_LINE, DIM, RESET, TEXT, pc } from './color.ts';
 
 function printFetching(sourceCount: number): void {
@@ -990,6 +990,37 @@ export async function updateGlobalSkills(
   return { successCount, failCount, checkedCount };
 }
 
+async function discoverLockedSkills(
+  tempDir: string,
+  lockSkills: Record<string, { skillPath?: string }>,
+  names: string[]
+): Promise<{
+  discovered: Skill[];
+  discoveredLocations: DiscoveredSkillLocation[];
+} | null> {
+  const discovered: Skill[] = [];
+  const discoveredLocations: DiscoveredSkillLocation[] = [];
+
+  for (const name of names) {
+    const skillPath = lockSkills[name]?.skillPath;
+    if (!skillPath || !isSubpathSafe(tempDir, skillPath)) return null;
+
+    const skillMdPath = join(tempDir, skillPath);
+    try {
+      if (!statSync(skillMdPath).isFile()) return null;
+    } catch {
+      return null;
+    }
+
+    const skill = await parseSkillMd(skillMdPath);
+    if (!skill) continue;
+    discovered.push(skill);
+    discoveredLocations.push({ name: skill.name, skillPath });
+  }
+
+  return { discovered, discoveredLocations };
+}
+
 export async function updateProjectSkills(
   options: UpdateCheckOptions = {}
 ): Promise<{ successCount: number; failCount: number; foundCount: number }> {
@@ -1151,15 +1182,21 @@ export async function updateProjectSkills(
 
     let checked = false;
     try {
-      const discovered = await discoverSkills(tempDir, undefined, {
-        fullDepth: true,
-        includeDuplicateNames: true,
-      });
-
-      const discoveredLocations = discovered.map((skill) => ({
-        name: skill.name,
-        skillPath: join(relative(tempDir, skill.path), 'SKILL.md').split(sep).join('/'),
-      }));
+      // Every lock entry for the source must be path-addressable: deletion checks
+      // resolve all of them, including skills filtered out of this run.
+      const locked = await discoverLockedSkills(tempDir, localLock.skills, allLockedForSource);
+      const discovered =
+        locked?.discovered ??
+        (await discoverSkills(tempDir, undefined, {
+          fullDepth: true,
+          includeDuplicateNames: true,
+        }));
+      const discoveredLocations =
+        locked?.discoveredLocations ??
+        discovered.map((skill) => ({
+          name: skill.name,
+          skillPath: join(relative(tempDir, skill.path), 'SKILL.md').split(sep).join('/'),
+        }));
 
       const resolution = await checkAndPromptForDeletions(
         source,
