@@ -1804,8 +1804,6 @@ export interface SourceRequest {
   includeInternal?: boolean;
   /** Keep skills that share a name instead of dropping all but the first. */
   includeDuplicateNames?: boolean;
-  /** Report a renamed or transferred GitHub repo under its current name. */
-  followRenames?: boolean;
 }
 
 /** A source after its network phase; `resolved` owns a temp dir until it is installed. */
@@ -1833,10 +1831,7 @@ export async function fetchSource({
   fullDepth,
   includeInternal = skills.length > 0,
   includeDuplicateNames,
-  followRenames,
 }: SourceRequest): Promise<FetchedSource> {
-  // Runs in parallel with the clone; a failed lookup keeps the name as given.
-  const repoInfo = followRenames ? lookupGitHubRepo(parsed) : null;
   try {
     // Arbitrary URLs: prefer the well-known endpoint, else a direct download.
     const resolved =
@@ -1847,7 +1842,7 @@ export async function fetchSource({
         { includeInternal, fullDepth, requestedSkills: skills, includeDuplicateNames },
         silentSpinner
       ));
-    return { parsed: withCanonicalGitHubRepo(parsed, await repoInfo), resolved };
+    return { parsed, resolved };
   } catch (error) {
     return {
       parsed,
@@ -2400,10 +2395,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     );
 
     // Kick off the GitHub repo lookup early so it runs in parallel with
-    // cloning/discovering/installing. It tells us whether the repo is public
-    // (telemetry and audit gating) and its canonical name after a rename. It
-    // should never block user-visible output. The endpoint is GitHub.com
-    // specific: lookupGitHubRepo never sends GitHub Enterprise names to it.
+    // cloning/discovering/installing. It gives privacy (telemetry and audit
+    // gating) and the canonical name after a rename.
     const repoInfoPromise = lookupGitHubRepo(parsed);
     const repoPrivacyPromise: Promise<boolean | null> = repoInfoPromise.then((info) =>
       info ? info.private : null
@@ -2475,10 +2468,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
     }
 
-    // A renamed or transferred GitHub repo still clones under its old name.
-    // Lock, telemetry, and audit use the current name, so the old one is not
-    // kept alive.
-    const canonical = withCanonicalGitHubRepo(parsed, await repoInfoPromise);
+    // A renamed repo still clones under its old name; record the current one
+    // so lock and telemetry do not keep the old name alive.
+    const canonical = withCanonicalGitHubRepo(parsed, (await repoInfoPromise)?.fullName);
     if (canonical !== parsed) {
       const from = getOwnerRepo(parsed)!;
       const to = getOwnerRepo(canonical)!;

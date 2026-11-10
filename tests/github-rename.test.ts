@@ -24,33 +24,6 @@ vi.mock('@clack/prompts', () => {
   };
 });
 
-vi.mock('picocolors', () => {
-  const id = (s: string) => s;
-  const colors = [
-    'red',
-    'green',
-    'blue',
-    'yellow',
-    'cyan',
-    'white',
-    'black',
-    'dim',
-    'bold',
-    'bgRed',
-    'bgCyan',
-    'bgBlack',
-    'bgWhite',
-    'underline',
-    'inverse',
-    'magenta',
-    'gray',
-    'reset',
-  ];
-  const obj: any = id;
-  for (const c of colors) obj[c] = id;
-  return { default: obj };
-});
-
 vi.mock('../src/telemetry.ts', () => ({
   track: vi.fn(),
   setVersion: vi.fn(),
@@ -68,7 +41,6 @@ vi.mock('../src/source-parser.ts', async (importActual) => {
   const actual = await importActual<typeof import('../src/source-parser.ts')>();
   return {
     ...actual,
-    isRepoPrivate: vi.fn().mockResolvedValue(false),
     lookupGitHubRepo: vi.fn(),
   };
 });
@@ -80,6 +52,7 @@ vi.mock('../src/git.ts', async (importActual) => ({
 }));
 
 import { runAdd } from '../src/add.ts';
+import { resolveSource } from '../src/api/resolve.ts';
 import { cloneRepo } from '../src/git.ts';
 import { track } from '../src/telemetry.ts';
 import {
@@ -94,7 +67,7 @@ const renamed = { private: false, fullName: 'new-owner/new-repo' };
 describe('withCanonicalGitHubRepo', () => {
   it('rewrites a renamed repo and keeps ref, subpath, and skill filter', () => {
     const parsed = parseSource('https://github.com/old-owner/old-repo/tree/v1/skills/a');
-    expect(withCanonicalGitHubRepo(parsed, renamed)).toEqual({
+    expect(withCanonicalGitHubRepo(parsed, renamed.fullName)).toEqual({
       type: 'github',
       url: 'https://github.com/new-owner/new-repo.git',
       ref: 'v1',
@@ -102,7 +75,7 @@ describe('withCanonicalGitHubRepo', () => {
     });
 
     const filtered = parseSource('old-owner/old-repo@my-skill');
-    expect(withCanonicalGitHubRepo(filtered, renamed)).toMatchObject({
+    expect(withCanonicalGitHubRepo(filtered, renamed.fullName)).toMatchObject({
       url: 'https://github.com/new-owner/new-repo.git',
       skillFilter: 'my-skill',
     });
@@ -110,16 +83,15 @@ describe('withCanonicalGitHubRepo', () => {
 
   it('keeps the source when the name is current or unknown', () => {
     const parsed = parseSource('new-owner/new-repo');
-    expect(withCanonicalGitHubRepo(parsed, renamed)).toBe(parsed);
+    expect(withCanonicalGitHubRepo(parsed, renamed.fullName)).toBe(parsed);
     expect(withCanonicalGitHubRepo(parsed, null)).toBe(parsed);
-    expect(withCanonicalGitHubRepo(parsed, { private: false, fullName: null })).toBe(parsed);
   });
 
   it('never rewrites non-GitHub.com sources', () => {
     const gitlab = parseSource('https://gitlab.com/old-owner/old-repo');
-    expect(withCanonicalGitHubRepo(gitlab, renamed)).toBe(gitlab);
+    expect(withCanonicalGitHubRepo(gitlab, renamed.fullName)).toBe(gitlab);
     const enterprise = parseSource('old-owner/old-repo', { githubHost: 'ghe.example.com' });
-    expect(withCanonicalGitHubRepo(enterprise, renamed)).toBe(enterprise);
+    expect(withCanonicalGitHubRepo(enterprise, renamed.fullName)).toBe(enterprise);
   });
 });
 
@@ -156,7 +128,7 @@ describe('fetchGitHubRepoInfo', () => {
   });
 });
 
-describe('runAdd follows a renamed GitHub repo', () => {
+describe('following a renamed GitHub repo', () => {
   let base: string;
   let origCwd: string;
 
@@ -168,6 +140,18 @@ describe('runAdd follows a renamed GitHub repo', () => {
     }) as never);
   });
 
+  async function makeRepo(): Promise<void> {
+    const repo = join(base, 'repo');
+    await mkdir(repo, { recursive: true });
+    await writeFile(
+      join(repo, 'SKILL.md'),
+      '---\nname: renamed-skill\ndescription: test\n---\n',
+      'utf-8'
+    );
+    vi.mocked(cloneRepo).mockResolvedValue(repo);
+    vi.mocked(lookupGitHubRepo).mockResolvedValue(renamed);
+  }
+
   afterEach(async () => {
     process.chdir(origCwd);
     await rm(base, { recursive: true, force: true });
@@ -176,19 +160,10 @@ describe('runAdd follows a renamed GitHub repo', () => {
   });
 
   it('locks and reports the canonical owner/repo', async () => {
-    const repo = join(base, 'repo');
-    await mkdir(repo, { recursive: true });
-    await writeFile(
-      join(repo, 'SKILL.md'),
-      '---\nname: renamed-skill\ndescription: test\n---\n',
-      'utf-8'
-    );
+    await makeRepo();
     const project = join(base, 'project');
     await mkdir(project, { recursive: true });
     process.chdir(project);
-    vi.mocked(cloneRepo).mockResolvedValue(repo);
-    vi.mocked(lookupGitHubRepo).mockResolvedValue(renamed);
-
     await runAdd(['old-owner/old-repo'], {
       yes: true,
       agent: ['codex'],
@@ -199,5 +174,12 @@ describe('runAdd follows a renamed GitHub repo', () => {
     const lock = JSON.parse(await readFile(join(project, 'skills-lock.json'), 'utf-8'));
     expect(lock.skills['renamed-skill'].source).toBe('new-owner/new-repo');
     expect(track).toHaveBeenCalledWith(expect.objectContaining({ source: 'new-owner/new-repo' }));
+  });
+
+  it('reports the canonical source from the API', async () => {
+    await makeRepo();
+    const handle = await resolveSource('old-owner/old-repo', { cwd: base });
+    expect(handle.source.url).toBe('https://github.com/new-owner/new-repo.git');
+    await handle.dispose();
   });
 });
