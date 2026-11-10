@@ -2750,15 +2750,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Kick off the security audit only after GitHub has positively confirmed
     // that this is a public repository. Private and unknown repositories must
     // not send their names or skill names to the audit service.
+    // Capture the upstream names now: `selectedSkills` is renamed below, before
+    // this callback runs, and a local --rename alias must not leave the machine.
     const ownerRepoForAudit = getOwnerRepo(parsed);
+    const auditSlugs = selectedSkills.map(sourceSkillName);
     const auditPromise = ownerRepoForAudit
       ? repoPrivacyPromise.then((isPrivate) =>
-          isPrivate === false
-            ? fetchAuditData(
-                ownerRepoForAudit,
-                selectedSkills.map((s) => getSkillDisplayName(s))
-              )
-            : null
+          isPrivate === false ? fetchAuditData(ownerRepoForAudit, auditSlugs) : null
         )
       : Promise.resolve(null);
 
