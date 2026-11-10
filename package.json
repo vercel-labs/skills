@@ -149,7 +149,7 @@
     "obuild": "^0.4.45",
     "picocolors": "^1.1.1",
     "prettier": "^3.9.10",
-    "simple-git": "^3.36.0",
+    "simple-git": "^4.0.2",
     "tsnapi": "^1.6.1",
     "typescript": "^6.0.3",
     "vitest": "^5.1.0",
