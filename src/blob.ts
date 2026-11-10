@@ -525,21 +525,34 @@ function isInstallableSnapshotPath(path: string): boolean {
   return parts.slice(0, -1).every((part) => !SNAPSHOT_EXCLUDED_DIRS.has(part));
 }
 
-function hasCompleteNestedSnapshot(
+function hasCurrentSnapshot(
   tree: RepoTree,
   skillMdPath: string,
   files: SkillSnapshotFile[]
 ): boolean {
   const folderPath = getSkillFolderPath(skillMdPath);
-  if (!folderPath) return true;
+  const folderPrefix = folderPath ? `${folderPath}/` : '';
+  const blobs = new Map(
+    tree.tree
+      .filter((entry) => entry.type === 'blob' && entry.path.startsWith(folderPrefix))
+      .map((entry) => [entry.path.slice(folderPrefix.length), entry.sha])
+  );
 
-  const folderPrefix = `${folderPath}/`;
+  // Root skills install only SKILL.md; nested skills need every installable blob.
+  const requiredPaths = folderPath
+    ? [...blobs.keys()].filter(isInstallableSnapshotPath)
+    : [skillMdPath];
   const snapshotPaths = new Set(files.map((file) => file.path));
+  if (!requiredPaths.every((path) => snapshotPaths.has(path))) return false;
 
-  return tree.tree.every((entry) => {
-    if (entry.type !== 'blob' || !entry.path.startsWith(folderPrefix)) return true;
-    const relativePath = entry.path.slice(folderPrefix.length);
-    return !isInstallableSnapshotPath(relativePath) || snapshotPaths.has(relativePath);
+  // A complete snapshot can still lag behind the tree used for update tracking.
+  // Compare every installed file's Git blob SHA, including files deleted upstream.
+  return files.every((file) => {
+    const sha = createHash('sha1')
+      .update(`blob ${Buffer.byteLength(file.contents, 'utf8')}\0`)
+      .update(file.contents, 'utf8')
+      .digest('hex');
+    return blobs.get(file.path) === sha;
   });
 }
 
@@ -671,14 +684,6 @@ export async function tryBlobInstall(
   const allSucceeded = downloads.every((d) => d.download !== null);
   if (!allSucceeded) return null;
 
-  // A successful response can still be incomplete (for example, when the
-  // snapshot service cannot represent a binary supporting file). In that case
-  // use the existing clone path instead of silently installing a partial skill.
-  const allComplete = downloads.every(({ skill, download }) =>
-    hasCompleteNestedSnapshot(tree, skill.mdPath, download!.files)
-  );
-  if (!allComplete) return null;
-
   // 6. Convert to BlobSkill objects
   const blobSkills: BlobSkill[] = downloads.map(({ skill, download }) => {
     // Compute the folder path from the SKILL.md path (e.g., "skills/react-best-practices")
@@ -710,6 +715,13 @@ export async function tryBlobInstall(
       repoPath: skill.mdPath,
     };
   });
+
+  // A successful response can still be incomplete or stale. Only install bytes
+  // that match the tree used for update tracking; otherwise use the clone path.
+  const allCurrent = blobSkills.every((skill) =>
+    hasCurrentSnapshot(tree, skill.repoPath, skill.files)
+  );
+  if (!allCurrent) return null;
 
   return { skills: blobSkills, tree };
 }
