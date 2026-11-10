@@ -13,4 +13,5 @@ export {
   type WellKnownIndex,
   type WellKnownSkillEntry,
   type WellKnownSkill,
+  type DiscoveredWellKnownSkill,
 } from './wellknown.ts';

@@ -305,6 +305,13 @@ export declare const diagnostics: import("nostics").Diagnostics<{
       actual: string;
     }) => string;
   };
+  readonly SKILLS_WELLKNOWN_FILE_FETCH_FAILED: {
+    readonly why: (p: {
+      skill: string;
+      path: string;
+      status?: number;
+    }) => string;
+  };
   readonly SKILLS_WELLKNOWN_INDEX_NOT_FOUND: {
     readonly why: "No skills found at this URL. Make sure the server has a /.well-known/agent-skills/index.json or /.well-known/skills/index.json file.";
   };
