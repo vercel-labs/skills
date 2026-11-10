@@ -60,6 +60,8 @@ describe('add --rename', () => {
   });
 
   const cli = (args: string[]) => runCli(args, project, { HOME: home });
+  // Git on Windows checks the clone out with CRLF; the rewrite keeps the file's line endings.
+  const readText = (path: string) => readFileSync(path, 'utf-8').replace(/\r\n/g, '\n');
   const readLock = () => JSON.parse(readFileSync(join(project, 'skills-lock.json'), 'utf-8'));
   // A single non-universal agent gets a copy in its own directory.
   const claudeSkill = (name: string) => join(project, '.claude', 'skills', name, 'SKILL.md');
@@ -86,7 +88,7 @@ describe('add --rename', () => {
 
     expect(result.exitCode).toBe(0);
     expect(existsSync(join(project, '.claude', 'skills', 'alpha'))).toBe(false);
-    expect(readFileSync(claudeSkill('beta'), 'utf-8')).toBe(
+    expect(readText(claudeSkill('beta'))).toBe(
       '---\nname: beta\ndescription: the alpha skill\nlicense: MIT\n---\n# alpha v1\n'
     );
     const lock = readLock();
@@ -114,13 +116,11 @@ describe('add --rename', () => {
 
     expect(result.exitCode).toBe(0);
     const canonical = join(project, '.agents', 'skills', 'beta', 'SKILL.md');
-    expect(readFileSync(canonical, 'utf-8')).toContain('name: beta\n');
+    expect(readText(canonical)).toContain('name: beta\n');
     expect(lstatSync(join(project, '.claude', 'skills', 'beta')).isSymbolicLink()).toBe(true);
-    expect(readFileSync(claudeSkill('beta'), 'utf-8')).toContain('name: beta\n');
+    expect(readText(claudeSkill('beta'))).toContain('name: beta\n');
     // The source repo is never touched
-    expect(readFileSync(join(repo, 'skills', 'alpha', 'SKILL.md'), 'utf-8')).toContain(
-      'name: alpha\n'
-    );
+    expect(readText(join(repo, 'skills', 'alpha', 'SKILL.md'))).toContain('name: alpha\n');
   });
 
   it('keeps the new name when the skill is updated', () => {
@@ -135,7 +135,7 @@ describe('add --rename', () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('Updated beta');
-    const installed = readFileSync(claudeSkill('beta'), 'utf-8');
+    const installed = readText(claudeSkill('beta'));
     expect(installed).toContain('name: beta\n');
     expect(installed).toContain('# alpha v2');
     expect(existsSync(join(project, '.claude', 'skills', 'alpha'))).toBe(false);
@@ -152,7 +152,7 @@ describe('add --rename', () => {
     const result = cli(['experimental_install', '--agent', 'claude-code']);
 
     expect(result.exitCode).toBe(0);
-    expect(readFileSync(claudeSkill('beta'), 'utf-8')).toContain('name: beta\n');
+    expect(readText(claudeSkill('beta'))).toContain('name: beta\n');
     expect(existsSync(join(project, '.claude', 'skills', 'alpha'))).toBe(false);
     expect(readLock()).toEqual(lockBefore);
   });
@@ -164,7 +164,7 @@ describe('add --rename', () => {
     const result = cli(['experimental_install', '--agent', 'claude-code', '--frozen-lockfile']);
 
     expect(result.exitCode).toBe(0);
-    expect(readFileSync(claudeSkill('beta'), 'utf-8')).toContain('name: beta\n');
+    expect(readText(claudeSkill('beta'))).toContain('name: beta\n');
   });
 
   it('can install the same skill both as-is and renamed', () => {
@@ -175,8 +175,8 @@ describe('add --rename', () => {
     const result = cli(['experimental_install', '--agent', 'claude-code']);
 
     expect(result.exitCode).toBe(0);
-    expect(readFileSync(claudeSkill('beta'), 'utf-8')).toContain('name: beta\n');
-    expect(readFileSync(claudeSkill('alpha'), 'utf-8')).toContain('name: alpha\n');
+    expect(readText(claudeSkill('beta'))).toContain('name: beta\n');
+    expect(readText(claudeSkill('alpha'))).toContain('name: alpha\n');
   });
 
   it('shows the source name in list', () => {
