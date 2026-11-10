@@ -62,10 +62,9 @@ For example:
 - User asks "can you help me with PR reviews?" → `npx skills find pr review`
 - User asks "I need to create a changelog" → `npx skills find changelog`
 
-Before recommending alternatives or concluding that no relevant skill was found,
-try a shorter query or synonyms if results are empty, weak matches, or omit a
-likely official source. For example, broaden `next bundle analyzer` to `next bundle`
-or try `next bundle optimizer`.
+If results are empty, weak matches, or omit a likely official source, try shorter
+queries or alternative terms before recommending alternatives or concluding that
+no relevant skill was found.
 
 ### Step 4: Verify Quality Before Recommending
 
