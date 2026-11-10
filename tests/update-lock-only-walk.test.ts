@@ -4,9 +4,11 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'fs';
 import { tmpdir } from 'os';
@@ -132,6 +134,33 @@ describe('project update reads locked skill paths', () => {
     expect(result.stdout).toContain('appear to have been deleted upstream');
     expect(result.stdout).not.toContain('Updated alpha');
     expect(lock().skills.alpha?.skillPath).toBe('skills/alpha/SKILL.md');
+  });
+
+  it.each([
+    ['skill directory', 'skills/alpha', (priv: string) => priv],
+    ['SKILL.md', 'skills/alpha/SKILL.md', (priv: string) => join(priv, 'SKILL.md')],
+  ])('does not follow a locked %s symlink outside the clone', (_, linkPath, target) => {
+    if (process.platform === 'win32') return;
+    expect(add().exitCode).toBe(0);
+    const priv = join(root, 'private');
+    mkdirSync(priv, { recursive: true });
+    writeFileSync(join(priv, 'SKILL.md'), '---\nname: private\ndescription: p\n---\n# private\n');
+    writeFileSync(join(priv, 'secret.txt'), 'secret');
+    rmSync(join(repo, linkPath), { recursive: true });
+    symlinkSync(target(priv), join(repo, linkPath));
+    commitRepo('redirect alpha');
+
+    update();
+
+    const leaked = readdirSync(project, { recursive: true, withFileTypes: true }).filter(
+      (entry) =>
+        entry.isFile() &&
+        /secret|# private/.test(readFileSync(join(entry.parentPath, entry.name), 'utf-8'))
+    );
+    expect(leaked.map((entry) => join(entry.parentPath, entry.name))).toEqual([]);
+    expect(
+      readFileSync(join(project, '.claude', 'skills', 'alpha', 'SKILL.md'), 'utf-8')
+    ).toContain('# alpha');
   });
 
   it('keeps full discovery for generic Git sources', () => {
