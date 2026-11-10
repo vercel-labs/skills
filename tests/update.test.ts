@@ -46,6 +46,7 @@ vi.mock('fs', async (importOriginal) => {
   return {
     ...actual,
     existsSync: vi.fn().mockReturnValue(true),
+    realpathSync: vi.fn((path: string) => path),
     readFileSync: vi.fn().mockImplementation((path, encoding) => {
       if (typeof path === 'string' && path.endsWith('.skill-lock.json')) {
         return JSON.stringify({

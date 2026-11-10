@@ -1,5 +1,5 @@
 import * as p from '@clack/prompts';
-import pc from 'picocolors';
+import { pc } from './color.ts';
 import { existsSync } from 'fs';
 import { glob, lstat, readdir, readFile, readlink, realpath, rm } from 'fs/promises';
 import { basename, dirname, join, posix, relative, resolve, sep } from 'path';
@@ -35,6 +35,7 @@ import {
 import type { Skill, AgentType } from './types.ts';
 import type { Diagnostic } from 'nostics';
 import { diagnostics, formatError } from './diagnostics.ts';
+import { parseCliArgs, throwFirstError } from './cli-args.ts';
 import { track } from './telemetry.ts';
 import { isCI } from './ci.ts';
 import { detectAgent, getAgentType } from './detect-agent.ts';
@@ -1059,42 +1060,32 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
 }
 
 export function parseSyncOptions(args: string[]): { options: SyncOptions } {
+  const { values, errors } = parseCliArgs(args, {
+    yes: { type: 'boolean', short: 'y' },
+    copy: { type: 'boolean' },
+    'dry-run': { type: 'boolean' },
+    'no-cleanup': { type: 'boolean' },
+    'no-remote': { type: 'boolean' },
+    'frozen-lockfile': { type: 'boolean' },
+    'no-frozen-lockfile': { type: 'boolean' },
+    recursive: { type: 'boolean', short: 'r' },
+    agent: { type: 'list', short: 'a', value: 'an agent name' },
+    include: { type: 'list', value: 'a pattern' },
+    exclude: { type: 'list', value: 'a pattern' },
+  });
+  throwFirstError(errors);
+
   const options: SyncOptions = {};
-  let i = 0;
-  /** Consume the values after a flag, up to the next flag. */
-  const takeValues = (): string[] => {
-    const values: string[] = [];
-    while (args[i + 1] !== undefined && !args[i + 1]!.startsWith('-')) values.push(args[++i]!);
-    return values;
-  };
-
-  for (; i < args.length; i++) {
-    const arg = args[i];
-
-    if (arg === '-y' || arg === '--yes') {
-      options.yes = true;
-    } else if (arg === '--copy') {
-      options.copy = true;
-    } else if (arg === '--dry-run') {
-      options.dryRun = true;
-    } else if (arg === '--no-cleanup') {
-      options.cleanup = false;
-    } else if (arg === '--no-remote') {
-      options.remote = false;
-    } else if (arg === '--frozen-lockfile') {
-      options.frozenLockfile = true;
-    } else if (arg === '--no-frozen-lockfile') {
-      options.frozenLockfile = false;
-    } else if (arg === '-r' || arg === '--recursive') {
-      options.recursive = true;
-    } else if (arg === '-a' || arg === '--agent') {
-      options.agent = [...(options.agent ?? []), ...takeValues()];
-    } else if (arg === '--include') {
-      options.include = [...(options.include ?? []), ...takeValues()];
-    } else if (arg === '--exclude') {
-      options.exclude = [...(options.exclude ?? []), ...takeValues()];
-    }
-  }
-
+  if (values.yes) options.yes = true;
+  if (values.copy) options.copy = true;
+  if (values['dry-run']) options.dryRun = true;
+  if (values['no-cleanup']) options.cleanup = false;
+  if (values['no-remote']) options.remote = false;
+  if (values['frozen-lockfile']) options.frozenLockfile = true;
+  if (values['no-frozen-lockfile']) options.frozenLockfile = false;
+  if (values.recursive) options.recursive = true;
+  if (values.agent) options.agent = values.agent;
+  if (values.include) options.include = values.include;
+  if (values.exclude) options.exclude = values.exclude;
   return { options };
 }

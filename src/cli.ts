@@ -15,6 +15,7 @@ import { flushTelemetry } from './telemetry.ts';
 import { isRunningInAgent } from './detect-agent.ts';
 import { runUpdate } from './update.ts';
 import { runUse, parseUseOptions } from './use.ts';
+import { BOLD, DIM, GRAYS, RESET, TEXT } from './color.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -31,12 +32,6 @@ function getVersion(): string {
 const VERSION = getVersion();
 initTelemetry(VERSION);
 
-const RESET = '\x1b[0m';
-const BOLD = '\x1b[1m';
-// 256-color grays - visible on both light and dark backgrounds
-const DIM = '\x1b[38;5;102m'; // darker gray for secondary text
-const TEXT = '\x1b[38;5;145m'; // lighter gray for primary text
-
 const LOGO_LINES = [
   '███████╗██╗  ██╗██╗██╗     ██╗     ███████╗',
   '██╔════╝██║ ██╔╝██║██║     ██║     ██╔════╝',
@@ -44,16 +39,6 @@ const LOGO_LINES = [
   '╚════██║██╔═██╗ ██║██║     ██║     ╚════██║',
   '███████║██║  ██╗██║███████╗███████╗███████║',
   '╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝╚══════╝',
-];
-
-// 256-color middle grays - visible on both light and dark backgrounds
-const GRAYS = [
-  '\x1b[38;5;250m', // lighter gray
-  '\x1b[38;5;248m',
-  '\x1b[38;5;245m', // mid gray
-  '\x1b[38;5;243m',
-  '\x1b[38;5;240m',
-  '\x1b[38;5;238m', // darker gray
 ];
 
 function showLogo(): void {
@@ -456,10 +441,22 @@ async function main(): Promise<void> {
   }
 }
 
+// Exit by draining the event loop rather than process.exit(): on Windows,
+// forcing exit while a telemetry fetch's socket teardown is still in flight
+// aborts the process with a libuv UV_HANDLE_CLOSING assertion.
 main()
   .catch((error: unknown) => {
-    if (!isDiagnostic(error, 'SKILLS_INVALID_LOCAL_LOCK')) throw error;
+    if (
+      !isDiagnostic(
+        error,
+        'SKILLS_INVALID_LOCAL_LOCK',
+        'SKILLS_OPTION_REQUIRES_VALUE',
+        'SKILLS_OPTION_TAKES_NO_VALUE'
+      )
+    ) {
+      throw error;
+    }
     console.error(`Error: ${formatError(error)}`);
     process.exitCode = 1;
   })
-  .finally(() => flushTelemetry().then(() => process.exit(process.exitCode ?? 0)));
+  .finally(() => flushTelemetry());

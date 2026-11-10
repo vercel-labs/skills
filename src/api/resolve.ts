@@ -5,7 +5,7 @@ import { Diagnostic } from 'nostics';
 import { diagnostics } from '../diagnostics.ts';
 import { getHeadCommit } from '../git.ts';
 import { getSkillDisplayName } from '../skills.ts';
-import { parseSource } from '../source-parser.ts';
+import { lookupGitHubRepo, parseSource, withCanonicalGitHubRepo } from '../source-parser.ts';
 import type { ParsedSource, Skill } from '../types.ts';
 import { resolveConfig, type ResolvedConfig } from './config.ts';
 import type { ResolveOptions, SkillInfo, SkillSource, SourceInfo } from './types.ts';
@@ -72,6 +72,7 @@ export async function openSource(
   const skills =
     requested.length > 0 ? [...requested] : parsed.skillFilter ? [parsed.skillFilter] : [];
   options.onProgress?.({ type: 'resolve:start', source: input });
+  const repoInfo = lookupGitHubRepo(parsed);
   const fetched = await fetchSource({
     parsed,
     skills,
@@ -81,6 +82,8 @@ export async function openSource(
     includeDuplicateNames: true,
   });
   if (!fetched.resolved) throw fetchError(input, fetched);
+  // Report a renamed GitHub repo under its current name.
+  fetched.parsed = withCanonicalGitHubRepo(parsed, (await repoInfo)?.fullName);
 
   const handle = await createSkillSource(input, fetched);
   if (options.signal?.aborted) {

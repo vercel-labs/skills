@@ -180,6 +180,11 @@ export declare const diagnostics: import("nostics").Diagnostics<{
       value: string;
     }) => string;
   };
+  readonly SKILLS_OPTION_TAKES_NO_VALUE: {
+    readonly why: (p: {
+      option: string;
+    }) => string;
+  };
   readonly SKILLS_UNKNOWN_OPTION: {
     readonly why: (p: {
       option: string;
@@ -228,6 +233,18 @@ export declare const diagnostics: import("nostics").Diagnostics<{
     readonly fix: (p: {
       skills: string[];
     }) => string;
+  };
+  readonly SKILLS_REMOVE_UNTRACKED_SKIPPED: {
+    readonly why: (p: {
+      skills: string[];
+    }) => string;
+    readonly fix: "Remove them by name, e.g. skills remove <name>";
+  };
+  readonly SKILLS_REMOVE_UNMANAGED_DIR_KEPT: {
+    readonly why: (p: {
+      path: string;
+    }) => string;
+    readonly fix: "Delete it by hand if you no longer need it";
   };
   readonly SKILLS_UNSAFE_SUBPATH: {
     readonly why: (p: {
@@ -286,6 +303,13 @@ export declare const diagnostics: import("nostics").Diagnostics<{
       skill: string;
       expected: string;
       actual: string;
+    }) => string;
+  };
+  readonly SKILLS_WELLKNOWN_FILE_FETCH_FAILED: {
+    readonly why: (p: {
+      skill: string;
+      path: string;
+      status?: number;
     }) => string;
   };
   readonly SKILLS_WELLKNOWN_INDEX_NOT_FOUND: {
@@ -414,6 +438,20 @@ export declare const diagnostics: import("nostics").Diagnostics<{
   };
   readonly SKILLS_UNSAFE_SKILL_NAME: {
     readonly why: "Invalid skill name: potential path traversal detected";
+  };
+  readonly SKILLS_CATEGORY_DIR_CONFLICT: {
+    readonly why: (p: {
+      path: string;
+      skills: string[];
+    }) => string;
+    readonly fix: "Move or rename the category directory, then install again.";
+    readonly data: (p: {
+      path: string;
+      skills: string[];
+    }) => {
+      path: string;
+      skills: string[];
+    };
   };
   readonly SKILLS_CLEANUP_OUTSIDE_TEMP_DIR: {
     readonly why: "Attempted to clean up directory outside of temp directory";

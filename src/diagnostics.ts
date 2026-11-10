@@ -1,6 +1,6 @@
 import { defineDiagnostics, Diagnostic } from 'nostics';
 import { ansiFormatter } from 'nostics/formatters/ansi';
-import pc from 'picocolors';
+import { pc } from './color.ts';
 
 // An empty fix is omitted from the output.
 const availableSkills = (names: string[]) =>
@@ -23,6 +23,9 @@ export const diagnostics = defineDiagnostics({
     },
     SKILLS_OPTION_REQUIRES_VALUE: {
       why: (p: { option: string; value: string }) => `${p.option} requires ${p.value}`,
+    },
+    SKILLS_OPTION_TAKES_NO_VALUE: {
+      why: (p: { option: string }) => `${p.option} does not take a value`,
     },
     SKILLS_UNKNOWN_OPTION: {
       why: (p: { option: string }) => `Unknown option: ${p.option}`,
@@ -59,6 +62,16 @@ export const diagnostics = defineDiagnostics({
       why: (p: { skills: string[] }) => `Tracked in the global lock: ${p.skills.join(', ')}`,
       fix: (p: { skills: string[] }) =>
         `Remove globally with: skills remove ${p.skills.join(' ')} -g`,
+    },
+    SKILLS_REMOVE_UNTRACKED_SKIPPED: {
+      why: (p: { skills: string[] }) =>
+        `Skipped ${p.skills.length} untracked skill(s) not recorded in the lock file: ${p.skills.join(', ')}`,
+      fix: 'Remove them by name, e.g. skills remove <name>',
+    },
+    SKILLS_REMOVE_UNMANAGED_DIR_KEPT: {
+      why: (p: { path: string }) =>
+        `Kept ${p.path}: it is not an unmodified copy installed by skills`,
+      fix: 'Delete it by hand if you no longer need it',
     },
 
     SKILLS_UNSAFE_SUBPATH: {
@@ -108,6 +121,12 @@ export const diagnostics = defineDiagnostics({
     SKILLS_WELLKNOWN_DIGEST_MISMATCH: {
       why: (p: { skill: string; expected: string; actual: string }) =>
         `Digest mismatch for skill '${p.skill}': expected ${p.expected}, received ${p.actual}.`,
+    },
+    SKILLS_WELLKNOWN_FILE_FETCH_FAILED: {
+      why: (p: { skill: string; path: string; status?: number }) =>
+        `Failed to download "${p.path}" for skill "${p.skill}"` +
+        (p.status === undefined ? '.' : ` (HTTP ${p.status}).`) +
+        ' The skill cannot be installed without all listed files.',
     },
     SKILLS_WELLKNOWN_INDEX_NOT_FOUND: {
       why: 'No skills found at this URL. Make sure the server has a /.well-known/agent-skills/index.json or /.well-known/skills/index.json file.',
@@ -222,6 +241,14 @@ export const diagnostics = defineDiagnostics({
 
     SKILLS_UNSAFE_SKILL_NAME: {
       why: 'Invalid skill name: potential path traversal detected',
+    },
+    SKILLS_CATEGORY_DIR_CONFLICT: {
+      why: (p: { path: string; skills: string[] }) =>
+        `Refusing to replace ${p.path}: it is a category directory with nested skills ` +
+        `(${p.skills.slice(0, 8).join(', ')}${p.skills.length > 8 ? ', ...' : ''}). ` +
+        'Installing would delete them.',
+      fix: 'Move or rename the category directory, then install again.',
+      data: (p: { path: string; skills: string[] }) => ({ path: p.path, skills: p.skills }),
     },
     SKILLS_CLEANUP_OUTSIDE_TEMP_DIR: {
       why: 'Attempted to clean up directory outside of temp directory',

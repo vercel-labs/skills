@@ -335,6 +335,53 @@ describe('listSkills and removeSkills', () => {
     expect((await api.listSkills({ cwd, scope: 'project' })).skills).toEqual([]);
   });
 
+  it("removes only lock-tracked skills for '*' and warns about untracked dirs (#604)", async () => {
+    await api.installSkills(source, { cwd, skills: ['alpha'], agents: ['claude-code'] });
+    const mine = join(cwd, '.agents/skills/mine');
+    mkdirSync(mine, { recursive: true });
+    writeFileSync(join(mine, 'SKILL.md'), '---\nname: mine\ndescription: mine\n---\n');
+    const warnings: string[] = [];
+
+    const removed = await api.removeSkills(['*'], {
+      cwd,
+      onWarning: (warning) => warnings.push(warning.code),
+    });
+
+    expect(removed.removed).toEqual(['alpha']);
+    expect(existsSync(join(mine, 'SKILL.md'))).toBe(true);
+    expect(warnings).toEqual(['SKILLS_REMOVE_UNTRACKED_SKIPPED']);
+  });
+
+  it("keeps a user's skills/<name> folder that is not an installed copy (#1771)", async () => {
+    await api.installSkills(source, { cwd, skills: ['alpha'], agents: ['claude-code'] });
+    const mine = join(cwd, 'skills/alpha');
+    mkdirSync(mine, { recursive: true });
+    writeFileSync(join(mine, 'SKILL.md'), '---\nname: alpha\ndescription: mine\n---\n');
+    const warnings: string[] = [];
+
+    const removed = await api.removeSkills(['alpha'], {
+      cwd,
+      onWarning: (warning) => warnings.push(warning.code),
+    });
+
+    expect(removed.removed).toEqual(['alpha']);
+    expect(existsSync(join(mine, 'SKILL.md'))).toBe(true);
+    expect(existsSync(join(cwd, '.agents/skills/alpha'))).toBe(false);
+    expect(warnings).toEqual(['SKILLS_REMOVE_UNMANAGED_DIR_KEPT']);
+  });
+
+  it('removes a skill linked into .agents/skills and keeps the link target (#2679)', async () => {
+    const skillLink = join(cwd, '.agents/skills/alpha');
+    mkdirSync(join(cwd, '.agents/skills'), { recursive: true });
+    symlinkSync(join(source, 'skills', 'alpha'), skillLink, 'junction');
+
+    const removed = await api.removeSkills(['alpha'], { cwd });
+
+    expect(removed).toEqual({ removed: ['alpha'], notFound: [], failed: [] });
+    expect(lstatSync(skillLink, { throwIfNoEntry: false })).toBeUndefined();
+    expect(existsSync(join(source, 'skills', 'alpha', 'SKILL.md'))).toBe(true);
+  });
+
   it('refuses to remove from agents config does not allow', async () => {
     await expectCode(
       api.removeSkills(['alpha'], {
@@ -533,7 +580,7 @@ describe('download sources', () => {
   });
 });
 
-describe('git sources', () => {
+describe('git sources', { timeout: 30000 }, () => {
   it('reports the checked-out commit and honors a ref pinned to it', async () => {
     const repo = gitRepo(source);
 

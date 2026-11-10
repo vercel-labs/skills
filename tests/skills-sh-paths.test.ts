@@ -6,6 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -219,6 +220,14 @@ describe('tryBlobInstall — skills.sh.json paths', () => {
       'skills/standard/SKILL.md',
       'tools/skills/opt-in/SKILL.md',
     ]);
+    // Snapshots must match the tree's Git blob SHAs to stay on the fast path.
+    for (const entry of tree.tree) {
+      if (!entry.path.endsWith('/SKILL.md')) continue;
+      const contents = skillMd(entry.path.split('/').at(-2)!);
+      entry.sha = createHash('sha1')
+        .update(`blob ${Buffer.byteLength(contents)}\0${contents}`)
+        .digest('hex');
+    }
 
     fetchMock.mockImplementation(async (input: string | URL) => {
       const url = String(input);

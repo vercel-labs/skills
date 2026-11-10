@@ -1,14 +1,21 @@
 import * as p from '@clack/prompts';
-import pc from 'picocolors';
+import { pc } from './color.ts';
 import { realpathSync } from 'fs';
 import { readdir, rm, lstat } from 'fs/promises';
-import { join } from 'path';
+import { join, relative, sep } from 'path';
 import { agents, detectInstalledAgents, getEveSubagents } from './agents.ts';
 import { diagnostics, formatError } from './diagnostics.ts';
+import { parseCliArgs, throwFirstError } from './cli-args.ts';
 import { track } from './telemetry.ts';
+import { warn } from './warnings.ts';
 import { detectAgent } from './detect-agent.ts';
 import { removeSkillFromLock, getSkillFromLock, readSkillLock } from './skill-lock.ts';
-import { readLocalLock, removeSkillFromLocalLock } from './local-lock.ts';
+import {
+  computeSkillFolderHash,
+  readLocalLock,
+  removeSkillFromLocalLock,
+  type LocalSkillLockEntry,
+} from './local-lock.ts';
 import { hasSkillMd } from './skills.ts';
 import type { AgentType } from './types.ts';
 import {
@@ -16,6 +23,8 @@ import {
   getCanonicalPath,
   getCanonicalSkillsDir,
   getEveSubagentSkillsDir,
+  isDirEntryOrSymlinkToDir,
+  pathsOverlap,
   sanitizeName,
 } from './installer.ts';
 
@@ -67,6 +76,15 @@ export function resolveSkillsToRemove(
     }
   }
   return Array.from(matched);
+}
+
+/**
+ * Installed skill folders no lock key maps to. `remove --all` only removes what
+ * the lock tracks; these are user-authored and are reported as skipped (#604).
+ */
+export function findUntrackedSkills(folderNames: string[], lockKeys: string[]): string[] {
+  const tracked = new Set(lockKeys.map(sanitizeName));
+  return folderNames.filter((folder) => !tracked.has(sanitizeName(folder)));
 }
 
 function isSameDir(a: string, b: string): boolean {
@@ -126,13 +144,9 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     lockSkillsKeys.map((key) => [key, lockEntries[key]?.source])
   );
 
-  // Global `--all` only removes skills this tool manages (tracked in the global lock);
-  // the shared global skills dir may also hold user-managed skills (#604).
-  const requestedSkills = options.all
-    ? isGlobal
-      ? lockSkillsKeys
-      : [...installedSkills, ...lockSkillsKeys]
-    : skillNames;
+  // `--all` only removes skills this tool manages (tracked in the lock); skills
+  // dirs may also hold user-authored skills, which must survive (#604).
+  const requestedSkills = options.all ? lockSkillsKeys : skillNames;
   const resolvedRequestedSkills =
     options.all || skillNames.length > 0
       ? resolveSkillsToRemove(requestedSkills, installedSkills, lockSkillsKeys, sourceByKey)
@@ -162,6 +176,10 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
   if (options.all) {
     selectedSkills = resolvedRequestedSkills;
+    const untracked = findUntrackedSkills(installedSkills, lockSkillsKeys);
+    if (untracked.length > 0) {
+      p.log.warn(formatError(diagnostics.SKILLS_REMOVE_UNTRACKED_SKIPPED({ skills: untracked })));
+    }
   } else if (skillNames.length > 0) {
     selectedSkills = resolvedRequestedSkills;
 
@@ -209,8 +227,10 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   }
 
   if (selectedSkills.length === 0) {
-    if (options.all && isGlobal) {
-      p.outro(pc.yellow('No globally managed skills found to remove.'));
+    if (options.all) {
+      p.outro(
+        pc.yellow(`No ${isGlobal ? 'globally managed' : 'lock-tracked'} skills found to remove.`)
+      );
     } else {
       p.outro(pc.yellow('No skills found to remove.'));
     }
@@ -292,7 +312,12 @@ export async function scanInstalledSkillNames(
         // leading dots, so a skill can never be installed under such a name and
         // removal could never address one either. Offering Codex's bundled
         // `$CODEX_HOME/skills/.system` was always a dead entry.
-        if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+        if (entry.name.startsWith('.')) continue;
+
+        // A skill dir may be a symlink to a real directory, e.g. a skill linked
+        // into .agents/skills by hand. listInstalledSkills() follows those, so
+        // removal must scan them the same way or the two commands disagree.
+        if (!(await isDirEntryOrSymlinkToDir(entry, join(dir, entry.name)))) continue;
 
         // A directory is only a skill if it holds a SKILL.md, which is what
         // listInstalledSkills() already requires. Without this, any directory
@@ -346,6 +371,26 @@ export async function findGloballyTrackedSkills(
   return selected.filter((s) => !lockEntries[s] && globalNames.has(sanitizeName(s)));
 }
 
+/**
+ * Whether the real (non-symlink) directory `path` must survive a project-scoped
+ * remove. Agent dirs outside a dot-directory (OpenClaw's `skills`, `data/skills`,
+ * `agent/skills`) are also ordinary repo folders, often holding the very sources
+ * a skill was installed from, so a matching name proves nothing (#1771). Only an
+ * unmodified copy of a lock-tracked skill, from outside its own source, goes.
+ */
+async function isUnmanagedProjectDir(
+  path: string,
+  cwd: string,
+  entry: LocalSkillLockEntry | undefined
+): Promise<boolean> {
+  const firstSegment = relative(cwd, path).split(sep)[0] ?? '';
+  if (firstSegment.startsWith('.')) return false;
+  if (!entry) return true;
+  if (entry.sourceType === 'local' && pathsOverlap(entry.source, path)) return true;
+  const hash = await computeSkillFolderHash(path).catch(() => undefined);
+  return hash !== entry.computedHash;
+}
+
 export interface RemoveSkillResult {
   skill: string;
   success: boolean;
@@ -371,6 +416,7 @@ export async function removeInstalledSkills(
 ): Promise<RemoveSkillResult[]> {
   const { global: isGlobal, cwd, targetAgents } = options;
   const results: RemoveSkillResult[] = [];
+  const projectLock = isGlobal ? undefined : (await readLocalLock(cwd)).skills;
 
   for (const skillName of skills) {
     try {
@@ -405,9 +451,16 @@ export async function removeInstalledSkills(
 
           try {
             const stats = await lstat(pathToCleanup).catch(() => null);
-            if (stats) {
-              await rm(pathToCleanup, { recursive: true, force: true });
+            if (!stats) continue;
+            if (
+              projectLock &&
+              !stats.isSymbolicLink() &&
+              (await isUnmanagedProjectDir(pathToCleanup, cwd, projectLock[skillName]))
+            ) {
+              warn(diagnostics.SKILLS_REMOVE_UNMANAGED_DIR_KEPT({ path: pathToCleanup }));
+              continue;
             }
+            await rm(pathToCleanup, { recursive: true, force: true });
           } catch (err) {
             options.onWarn?.(
               `Could not remove skill from ${agent.displayName}: ${
@@ -517,46 +570,21 @@ export function trackRemovals(
  * Separates skill names from options flags.
  *
  * Supports both positional names (`skills remove foo`) and `-s/--skill`
- * (documented in the CLI help). Unknown flags that start with `-` are ignored
- * so we do not treat `--skill` as a skill name when the flag is misspelled.
+ * (documented in the CLI help). Unknown options are ignored.
  */
 export function parseRemoveOptions(args: string[]): { skills: string[]; options: RemoveOptions } {
+  const { values, positionals, errors } = parseCliArgs(args, {
+    global: { type: 'boolean', short: 'g' },
+    yes: { type: 'boolean', short: 'y' },
+    all: { type: 'boolean' },
+    skill: { type: 'list', short: 's', value: 'a skill name' },
+    agent: { type: 'list', short: 'a', value: 'an agent name' },
+  });
+  throwFirstError(errors);
   const options: RemoveOptions = {};
-  const skills: string[] = [];
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-
-    if (arg === '-g' || arg === '--global') {
-      options.global = true;
-    } else if (arg === '-y' || arg === '--yes') {
-      options.yes = true;
-    } else if (arg === '--all') {
-      options.all = true;
-      options.yes = true;
-    } else if (arg === '-s' || arg === '--skill') {
-      i++;
-      let nextArg = args[i];
-      while (i < args.length && nextArg && !nextArg.startsWith('-')) {
-        skills.push(nextArg);
-        i++;
-        nextArg = args[i];
-      }
-      i--; // Back up one since the loop will increment
-    } else if (arg === '-a' || arg === '--agent') {
-      options.agent = options.agent || [];
-      i++;
-      let nextArg = args[i];
-      while (i < args.length && nextArg && !nextArg.startsWith('-')) {
-        options.agent.push(nextArg);
-        i++;
-        nextArg = args[i];
-      }
-      i--; // Back up one since the loop will increment
-    } else if (arg && !arg.startsWith('-')) {
-      skills.push(arg);
-    }
-  }
-
-  return { skills, options };
+  if (values.global) options.global = true;
+  if (values.yes || values.all) options.yes = true;
+  if (values.all) options.all = true;
+  if (values.agent) options.agent = values.agent;
+  return { skills: [...(values.skill ?? []), ...positionals], options };
 }

@@ -78,26 +78,63 @@ export function parseOwnerRepo(ownerRepo: string): { owner: string; repo: string
   return null;
 }
 
+/** A GitHub `owner/repo`: the characters GitHub allows, never a `.` or `..` repo. */
+const GITHUB_FULL_NAME = /^[A-Za-z0-9-]+\/(?!\.\.?$)[A-Za-z0-9._-]+$/;
+
+/**
+ * Look up a GitHub.com repository. `fullName` is its canonical `owner/repo`:
+ * GitHub follows renames and transfers. Returns null when the repo does not
+ * exist, is not visible anonymously, or the API is unreachable.
+ */
+export async function fetchGitHubRepoInfo(owner: string, repo: string) {
+  try {
+    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
+    if (!res.ok) {
+      return null;
+    }
+
+    const data = (await res.json()) as { private?: boolean; full_name?: unknown };
+    return {
+      private: data.private === true,
+      fullName:
+        typeof data.full_name === 'string' && GITHUB_FULL_NAME.test(data.full_name)
+          ? data.full_name
+          : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Check if a GitHub repository is private.
  * Returns true if private, false if public, null if unable to determine.
  * Only works for GitHub repositories (GitLab not supported).
  */
 export async function isRepoPrivate(owner: string, repo: string): Promise<boolean | null> {
-  try {
-    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
+  const info = await fetchGitHubRepoInfo(owner, repo);
+  // If repo doesn't exist or we don't have access, we can't tell
+  return info ? info.private : null;
+}
 
-    // If repo doesn't exist or we don't have access, assume private to be safe
-    if (!res.ok) {
-      return null; // Unable to determine
-    }
+/**
+ * Point a GitHub.com source at its canonical `owner/repo`, keeping ref, subpath,
+ * and skill filter. Returns `parsed` itself when there is nothing to change.
+ */
+export function withCanonicalGitHubRepo(
+  parsed: ParsedSource,
+  fullName: string | null | undefined
+): ParsedSource {
+  if (parsed.type !== 'github' || !fullName || getOwnerRepo(parsed) === fullName) return parsed;
+  return { ...parsed, url: `https://github.com/${fullName}.git` };
+}
 
-    const data = (await res.json()) as { private?: boolean };
-    return data.private === true;
-  } catch {
-    // On error, return null to indicate we couldn't determine
-    return null;
-  }
+/** The GitHub API lookup for a `github` source, or null for any other source. */
+export function lookupGitHubRepo(parsed: ParsedSource) {
+  if (parsed.type !== 'github') return Promise.resolve(null);
+  const ownerRepo = parseOwnerRepo(getOwnerRepo(parsed) ?? '');
+  if (!ownerRepo) return Promise.resolve(null);
+  return fetchGitHubRepoInfo(ownerRepo.owner, ownerRepo.repo);
 }
 
 /**
@@ -193,6 +230,96 @@ function parseAzureReposSource(
 }
 
 /**
+ * The path (without query) of `input` when its host is exactly `host` or
+ * `www.{host}`, with or without an http(s) scheme. Null for any other host.
+ */
+function pathOnHost(input: string, host: string): string | null {
+  // Always matches: every part is optional.
+  const match = input.match(/^(?:https?:\/\/)?([^/?#]*)([^?#]*)/i)!;
+  const hostname = match[1]!
+    .replace(/^[^@]*@/, '')
+    .replace(/:\d*$/, '')
+    .toLowerCase();
+  return hostname === host || hostname === `www.${host}` ? match[2]! : null;
+}
+
+/**
+ * A GitHub or GitLab repo path embedded in a proxy/mirror URL path, e.g.
+ * `/github.com/owner/repo` or `/https://github.com/owner/repo/tree/main/skill`.
+ * `base` is everything up to and including the repo path, without `.git`.
+ */
+function matchMirroredRepoPath(
+  pathname: string
+): { base: string; ref?: string; subpath?: string } | null {
+  const hostMatch = pathname.match(
+    /^(\/(?:.*?\/)?(?:https?:\/\/?)?(?:www\.)?(github|gitlab)\.com)(\/.*)$/i
+  );
+  if (!hostMatch) {
+    return null;
+  }
+  const [, prefix, kind, rest] = hostMatch;
+  const repoMatch =
+    kind!.toLowerCase() === 'github'
+      ? rest!.match(/^(\/[^/]+\/[^/]+?)(?:\.git)?(?:\/tree\/([^/]+)(?:\/(.+?))?)?\/?$/)
+      : rest!.match(
+          /^(\/[^/]+(?:\/[^/]+)*?\/[^/]+?)(?:\.git)?(?:\/-\/tree\/([^/]+)(?:\/(.+?))?)?\/?$/
+        );
+  if (!repoMatch) {
+    return null;
+  }
+  const [, repoPath, ref, subpath] = repoMatch;
+  return { base: `${prefix}${repoPath}`, ref, subpath };
+}
+
+function decodePathPart(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * Parse a proxy or mirror URL that embeds a GitHub/GitLab repo in its path.
+ * The result is a generic git source on the proxy host, never the upstream host.
+ */
+function parseMirroredRepoSource(
+  input: string,
+  fragmentRef?: string,
+  fragmentSkillFilter?: string
+): ParsedSource | null {
+  if (!/^https?:\/\//i.test(input)) {
+    return null;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(input);
+  } catch {
+    return null;
+  }
+
+  const mirrored = matchMirroredRepoPath(parsed.pathname);
+  if (!mirrored) {
+    return null;
+  }
+
+  parsed.pathname = `${mirrored.base}.git`;
+  parsed.search = '';
+  parsed.hash = '';
+  const ref = mirrored.ref ? decodePathPart(mirrored.ref) : fragmentRef;
+  const subpath = mirrored.subpath ? sanitizeSubpath(decodePathPart(mirrored.subpath)) : undefined;
+
+  return {
+    type: 'git',
+    url: parsed.toString(),
+    ...(ref ? { ref } : {}),
+    ...(subpath ? { subpath } : {}),
+    ...(fragmentSkillFilter ? { skillFilter: fragmentSkillFilter } : {}),
+  };
+}
+
+/**
  * Check if a string represents a local file system path
  */
 function isLocalPath(input: string): boolean {
@@ -254,6 +381,10 @@ function looksLikeGitSource(input: string): boolean {
       // Only treat gitlab.com fragments as refs for repo/tree URLs.
       if (parsed.hostname === 'gitlab.com') {
         return /^\/.+?\/[^/]+(?:\.git)?(?:\/-\/tree\/[^/]+(?:\/.*)?)?\/?$/.test(pathname);
+      }
+
+      if (matchMirroredRepoPath(pathname)) {
+        return true;
       }
 
       // Azure Repos clone and web URLs use /_git/{repo} on any host
@@ -460,39 +591,32 @@ export function parseSource(
     };
   }
 
-  // GitHub URL with path: https://github.com/owner/repo/tree/branch/path/to/skill
-  const githubTreeWithPathMatch = input.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/);
-  if (githubTreeWithPathMatch) {
-    const [, owner, repo, ref, subpath] = githubTreeWithPathMatch;
-    return {
-      type: 'github',
-      url: `https://github.com/${owner}/${repo}.git`,
-      ref: ref || fragmentRef,
-      subpath: subpath ? sanitizeSubpath(subpath) : subpath,
-    };
-  }
+  // GitHub.com URLs. Only match when github.com is the host, so proxy and
+  // mirror URLs that embed github.com in their path keep their own host (#2079).
+  const githubPath = pathOnHost(input, 'github.com');
+  if (githubPath !== null) {
+    // https://github.com/owner/repo/tree/branch[/path/to/skill]
+    const treeMatch = githubPath.match(/^\/([^/]+)\/([^/]+)\/tree\/([^/]+)(?:\/(.+?))?\/?$/);
+    if (treeMatch) {
+      const [, owner, repo, ref, subpath] = treeMatch;
+      return {
+        type: 'github',
+        url: `https://github.com/${owner}/${repo}.git`,
+        ref: ref || fragmentRef,
+        ...(subpath ? { subpath: sanitizeSubpath(subpath) } : {}),
+      };
+    }
 
-  // GitHub URL with branch only: https://github.com/owner/repo/tree/branch
-  const githubTreeMatch = input.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)$/);
-  if (githubTreeMatch) {
-    const [, owner, repo, ref] = githubTreeMatch;
-    return {
-      type: 'github',
-      url: `https://github.com/${owner}/${repo}.git`,
-      ref: ref || fragmentRef,
-    };
-  }
-
-  // GitHub URL: https://github.com/owner/repo
-  const githubRepoMatch = input.match(/github\.com\/([^/]+)\/([^/]+)/);
-  if (githubRepoMatch) {
-    const [, owner, repo] = githubRepoMatch;
-    const cleanRepo = repo!.replace(/\.git$/, '');
-    return {
-      type: 'github',
-      url: `https://github.com/${owner}/${cleanRepo}.git`,
-      ...(fragmentRef ? { ref: fragmentRef } : {}),
-    };
+    // https://github.com/owner/repo[.git][/anything]
+    const repoMatch = githubPath.match(/^\/([^/]+)\/([^/]+)/);
+    if (repoMatch) {
+      const [, owner, repo] = repoMatch;
+      return {
+        type: 'github',
+        url: `https://github.com/${owner}/${repo!.replace(/\.git$/, '')}.git`,
+        ...(fragmentRef ? { ref: fragmentRef } : {}),
+      };
+    }
   }
 
   // GitLab URL with path (any GitLab instance): https://gitlab.com/owner/repo/-/tree/branch/path
@@ -529,7 +653,7 @@ export function parseSource(
   // GitLab.com URL: https://gitlab.com/owner/repo or https://gitlab.com/group/subgroup/repo
   // Only for the official gitlab.com domain for user convenience.
   // Supports nested subgroups (e.g., gitlab.com/group/subgroup1/subgroup2/repo).
-  const gitlabRepoMatch = input.match(/gitlab\.com\/(.+?)(?:\.git)?\/?$/);
+  const gitlabRepoMatch = pathOnHost(input, 'gitlab.com')?.match(/^\/(.+?)(?:\.git)?\/?$/);
   if (gitlabRepoMatch) {
     const repoPath = gitlabRepoMatch[1]!;
     // Must have at least owner/repo (one slash)
@@ -540,6 +664,13 @@ export function parseSource(
         ...(fragmentRef ? { ref: fragmentRef } : {}),
       };
     }
+  }
+
+  // Proxy or mirror of a GitHub/GitLab repo, e.g. https://gh-proxy.org/github.com/owner/repo.
+  // Keep the proxy host so the clone goes through it (#2079).
+  const mirrored = parseMirroredRepoSource(input, fragmentRef, fragmentSkillFilter);
+  if (mirrored) {
+    return mirrored;
   }
 
   // Azure Repos (any host): https://dev.azure.com/org/project/_git/repo

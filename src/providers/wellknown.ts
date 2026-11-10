@@ -4,7 +4,7 @@ import { readZipArchive } from '../archive.ts';
 import { diagnostics, isDiagnostic } from '../diagnostics.ts';
 import { parseFrontmatter } from '../frontmatter.ts';
 import { sanitizeMetadata } from '../sanitize.ts';
-import { shouldInstallInternalSkills } from '../skills.ts';
+import { isInternalSkill, shouldInstallInternalSkills } from '../skills.ts';
 import type { HostProvider, ProviderMatch, RemoteSkill } from './types.ts';
 
 const DISCOVERY_SCHEMA_V2 = 'https://schemas.agentskills.io/discovery/0.2.0/schema.json';
@@ -83,6 +83,12 @@ export interface WellKnownSkill extends RemoteSkill {
   files: Map<string, WellKnownFileContent>;
   /** The entry from index.json */
   indexEntry: WellKnownSkillEntry;
+}
+
+/** Skill metadata available before downloading legacy supporting files. */
+export interface DiscoveredWellKnownSkill extends RemoteSkill {
+  filePaths: string[];
+  load(): Promise<WellKnownSkill>;
 }
 
 export interface FetchAllSkillsOptions {
@@ -393,7 +399,15 @@ export class WellKnownProvider implements HostProvider {
 
       return null;
     } catch (error) {
-      if (isDiagnostic(error, 'SKILLS_WELLKNOWN_DIGEST_MISMATCH')) throw error;
+      if (
+        isDiagnostic(
+          error,
+          'SKILLS_WELLKNOWN_DIGEST_MISMATCH',
+          'SKILLS_WELLKNOWN_FILE_FETCH_FAILED'
+        )
+      ) {
+        throw error;
+      }
       return null;
     }
   }
@@ -429,7 +443,14 @@ export class WellKnownProvider implements HostProvider {
 
   private async fetchLegacySkillByEntry(
     entry: Extract<NormalizedWellKnownEntry, { version: '0.1.0' }>
-  ) {
+  ): Promise<WellKnownSkill | null> {
+    const skill = await this.discoverLegacySkillByEntry(entry);
+    return skill ? skill.load() : null;
+  }
+
+  private async discoverLegacySkillByEntry(
+    entry: Extract<NormalizedWellKnownEntry, { version: '0.1.0' }>
+  ): Promise<DiscoveredWellKnownSkill | null> {
     try {
       const skillBaseUrl = `${entry.baseUrl.replace(/\/$/, '')}/${entry.wellKnownPath}/${entry.name}`;
       const skillMdUrl = `${skillBaseUrl}/SKILL.md`;
@@ -440,39 +461,44 @@ export class WellKnownProvider implements HostProvider {
       const { data } = parseFrontmatter(content);
       if (typeof data.name !== 'string' || typeof data.description !== 'string') return null;
 
-      const files = new Map<string, WellKnownFileContent>();
-      files.set('SKILL.md', content);
-
       const otherFiles = entry.files.filter((f) => f.toLowerCase() !== 'skill.md');
-      const filePromises = otherFiles.map(async (filePath) => {
-        try {
-          const fileUrl = `${skillBaseUrl}/${filePath}`;
-          const fileResponse = await fetch(fileUrl);
-          if (fileResponse.ok) {
-            const fileContent = await fileResponse.arrayBuffer();
-            return { path: filePath, content: new Uint8Array(fileContent) };
-          }
-        } catch {
-          // Ignore individual file fetch errors to preserve legacy behavior.
-        }
-        return null;
-      });
-
-      const fileResults = await Promise.all(filePromises);
-      for (const result of fileResults) {
-        if (result) files.set(result.path, result.content);
-      }
-
-      return this.createSkill({
+      const skill = this.createSkill({
         name: data.name,
         description: data.description,
         content,
         installName: entry.name,
         sourceUrl: skillMdUrl,
         metadata: data.metadata,
-        files,
+        files: new Map([['SKILL.md', content]]),
         indexEntry: entry.indexEntry,
       });
+
+      return {
+        ...skill,
+        filePaths: ['SKILL.md', ...otherFiles],
+        async load() {
+          const fileResults = await Promise.all(
+            otherFiles.map(async (filePath) => {
+              let status: number | undefined;
+              try {
+                const fileResponse = await fetch(`${skillBaseUrl}/${filePath}`);
+                if (fileResponse.ok) {
+                  return [filePath, new Uint8Array(await fileResponse.arrayBuffer())] as const;
+                }
+                status = fileResponse.status;
+              } catch {
+                // Network and body-read failures leave the skill just as incomplete.
+              }
+              throw diagnostics.SKILLS_WELLKNOWN_FILE_FETCH_FAILED({
+                skill: sanitizeMetadata(entry.name),
+                path: sanitizeMetadata(filePath),
+                status,
+              });
+            })
+          );
+          return { ...skill, files: new Map([...skill.files, ...fileResults]) };
+        },
+      };
     } catch {
       return null;
     }
@@ -584,7 +610,8 @@ export class WellKnownProvider implements HostProvider {
   }
 
   /**
-   * Fetch all skills from a well-known endpoint.
+   * Discover skills before downloading legacy supporting files. Call load()
+   * only after selection so unrelated download failures cannot block a skill.
    *
    * When the URL is scoped to a path, only path-relative indexes are used.
    * If the scope yields no skills but the host publishes a root index, this
@@ -593,10 +620,10 @@ export class WellKnownProvider implements HostProvider {
    * Digest mismatches throw SKILLS_WELLKNOWN_DIGEST_MISMATCH rather than downgrading to an
    * index or download without integrity verification.
    */
-  async fetchAllSkills(
+  async discoverSkills(
     url: string,
     options: FetchAllSkillsOptions = {}
-  ): Promise<WellKnownSkill[]> {
+  ): Promise<DiscoveredWellKnownSkill[]> {
     try {
       const candidates = await this.fetchIndexCandidates(url);
       const scope = this.getScope(url);
@@ -606,11 +633,18 @@ export class WellKnownProvider implements HostProvider {
       const includeInternal = options.includeInternal || shouldInstallInternalSkills();
 
       for (const result of scopedCandidates) {
-        const skillPromises = result.entries.map((entry) => this.fetchSkillByEntry(entry));
+        const skillPromises = result.entries.map(async (entry) => {
+          if (entry.version === '0.1.0') return this.discoverLegacySkillByEntry(entry);
+          // Artifact metadata lives inside the verified artifact, so it is fetched together.
+          const skill = await this.fetchArtifactSkillByEntry(entry);
+          return skill
+            ? { ...skill, filePaths: [...skill.files.keys()], load: async () => skill }
+            : null;
+        });
         const results = await Promise.all(skillPromises);
         const skills = results
-          .filter((s: WellKnownSkill | null): s is WellKnownSkill => s !== null)
-          .filter((skill) => includeInternal || skill.metadata?.internal !== true);
+          .filter((s): s is DiscoveredWellKnownSkill => s !== null)
+          .filter((skill) => includeInternal || !isInternalSkill(skill.metadata));
         if (skills.length > 0) return skills;
       }
 
@@ -631,6 +665,15 @@ export class WellKnownProvider implements HostProvider {
       }
       return [];
     }
+  }
+
+  /** Fetch every visible skill with all of its listed files. */
+  async fetchAllSkills(
+    url: string,
+    options: FetchAllSkillsOptions = {}
+  ): Promise<WellKnownSkill[]> {
+    const skills = await this.discoverSkills(url, options);
+    return Promise.all(skills.map((skill) => skill.load()));
   }
 
   private computeDigest(bytes: Uint8Array): string {

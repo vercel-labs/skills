@@ -1,6 +1,6 @@
 import { existsSync } from 'fs';
 import * as p from '@clack/prompts';
-import pc from 'picocolors';
+import { pc } from './color.ts';
 import { getLockedSkillState, readLocalLock } from './local-lock.ts';
 import { fetchSources, installFromSource } from './add.ts';
 import { runSync, parseSyncOptions } from './sync.ts';

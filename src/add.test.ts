@@ -12,7 +12,7 @@ import {
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli, stripAnsi } from './test-utils.ts';
-import { shouldInstallInternalSkills } from './skills.ts';
+import { isInternalSkill, shouldInstallInternalSkills } from './skills.ts';
 import {
   parseAddOptions,
   getLockSource,
@@ -234,6 +234,45 @@ description: A Kiro test skill
     );
     expect(existsSync(join(projectDir, '.agents', 'skills', 'kiro-skill'))).toBe(true);
     expect(result.stdout).toContain('symlinked: Kiro CLI');
+  });
+
+  it('skips an agent whose install path is a category directory (#1723)', () => {
+    const sourceDir = join(testDir, 'source');
+    mkdirSync(join(sourceDir, 'skills', 'research'), { recursive: true });
+    writeFileSync(
+      join(sourceDir, 'skills', 'research', 'SKILL.md'),
+      '---\nname: research\ndescription: A flat research skill\n---\n\n# Research\n'
+    );
+
+    const projectDir = join(testDir, 'project');
+    const category = join(projectDir, '.hermes', 'skills', 'research');
+    for (const nested of ['arxiv', 'polymarket']) {
+      mkdirSync(join(category, nested), { recursive: true });
+      writeFileSync(join(category, nested, 'SKILL.md'), `---\nname: ${nested}\n---\n`);
+    }
+
+    const result = runCli(
+      ['add', sourceDir, '-y', '--agent', 'hermes-agent', 'claude-code'],
+      projectDir,
+      noDetectedAgentEnv
+    );
+
+    expect(result.exitCode).toBe(0);
+    // clack wraps long note lines, so drop the box borders before matching.
+    expect(result.stdout.replace(/[\s│|]+/g, ' ')).toContain(
+      'conflicts with category: Hermes Agent (research/ contains arxiv, polymarket)'
+    );
+    expect(result.stdout).toMatch(/symlink → Claude Code\s/);
+    expect(result.stdout).not.toMatch(/(symlink|copy) →.*Hermes Agent/);
+    expect(result.stdout).not.toContain('overwrites:');
+    expect(result.stdout).not.toContain('Failed to install');
+    expect(result.stderr).toContain('Move or rename the category directory');
+
+    // The other agent still gets the skill.
+    expect(existsSync(join(projectDir, '.claude', 'skills', 'research', 'SKILL.md'))).toBe(true);
+    // The category and its nested skills are untouched.
+    expect(existsSync(join(category, 'arxiv', 'SKILL.md'))).toBe(true);
+    expect(existsSync(join(category, 'polymarket', 'SKILL.md'))).toBe(true);
   });
 
   it('does not dereference symlinks that escape the skill directory', () => {
@@ -1043,6 +1082,28 @@ metadata:
       });
       expect(result.stdout).toContain('internal-skill');
     });
+
+    it('should skip string metadata.internal: "true" skills by default', () => {
+      const skillDir = join(testDir, 'string-internal-skill');
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---
+name: string-internal-skill
+description: A string-internal skill
+metadata:
+  internal: "true"
+---
+
+# String Internal Skill
+
+This is an internal skill.
+`
+      );
+
+      const result = runCli(['add', testDir, '--list'], testDir);
+      expect(result.stdout).not.toContain('string-internal-skill');
+    });
   });
 });
 
@@ -1103,6 +1164,36 @@ describe('formatEveInstallPromptMessage', () => {
     expect(stripAnsi(message)).toBe(
       'Detected an eve project. Install eve-skill for your eve agent to use?'
     );
+  });
+});
+
+describe('isInternalSkill', () => {
+  it.each([
+    [true, true],
+    ['true', true],
+    ['1', true],
+    [false, false],
+    ['false', false],
+    ['0', false],
+    ['', false],
+    ['True', false],
+    ['TRUE', false],
+    [' true ', false],
+    [1, false],
+    [0, false],
+    [null, false],
+    [undefined, false],
+    [[], false],
+    [{}, false],
+  ])('treats metadata.internal=%s as internal=%s', (value, expected) => {
+    expect(isInternalSkill({ internal: value })).toBe(expected);
+  });
+
+  it('returns false for missing or non-record metadata', () => {
+    expect(isInternalSkill(undefined)).toBe(false);
+    expect(isInternalSkill(null)).toBe(false);
+    expect(isInternalSkill('internal')).toBe(false);
+    expect(isInternalSkill({})).toBe(false);
   });
 });
 
