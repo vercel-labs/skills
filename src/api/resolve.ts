@@ -79,6 +79,7 @@ export async function openSource(
     includeInternal: config.includeInternal || skills.length > 0,
     // Kept so duplicates can be reported; only the first of each name is installed.
     includeDuplicateNames: true,
+    followRenames: true,
   });
   if (!fetched.resolved) throw fetchError(input, fetched);
 

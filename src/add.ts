@@ -3,7 +3,14 @@ import pc from 'picocolors';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { sep, join, dirname, relative, isAbsolute } from 'path';
-import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
+import {
+  parseSource,
+  getOwnerRepo,
+  parseOwnerRepo,
+  isRepoPrivate,
+  lookupGitHubRepo,
+  withCanonicalGitHubRepo,
+} from './source-parser.ts';
 import { stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 import type { Diagnostic } from 'nostics';
@@ -1796,6 +1803,8 @@ export interface SourceRequest {
   includeInternal?: boolean;
   /** Keep skills that share a name instead of dropping all but the first. */
   includeDuplicateNames?: boolean;
+  /** Report a renamed or transferred GitHub repo under its current name. */
+  followRenames?: boolean;
 }
 
 /** A source after its network phase; `resolved` owns a temp dir until it is installed. */
@@ -1823,7 +1832,10 @@ export async function fetchSource({
   fullDepth,
   includeInternal = skills.length > 0,
   includeDuplicateNames,
+  followRenames,
 }: SourceRequest): Promise<FetchedSource> {
+  // Runs in parallel with the clone; a failed lookup keeps the name as given.
+  const repoInfo = followRenames ? lookupGitHubRepo(parsed) : null;
   try {
     // Arbitrary URLs: prefer the well-known endpoint, else a direct download.
     const resolved =
@@ -1834,7 +1846,7 @@ export async function fetchSource({
         { includeInternal, fullDepth, requestedSkills: skills, includeDuplicateNames },
         silentSpinner
       ));
-    return { parsed, resolved };
+    return { parsed: withCanonicalGitHubRepo(parsed, await repoInfo), resolved };
   } catch (error) {
     return {
       parsed,
@@ -2378,7 +2390,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     const spinner = jsonMode ? silentSpinner : p.spinner();
 
     spinner.start('Parsing source…');
-    const parsed = parseSource(effectiveSource);
+    let parsed = parseSource(effectiveSource);
     let directDownload = parsed.type === 'download' || notionSourceLabel !== null;
     spinner.stop(
       notionSourceLabel !== null
@@ -2386,20 +2398,15 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         : `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
     );
 
-    // Kick off the repo privacy check early so it runs in parallel with
-    // cloning/discovering/installing. The result is only needed later for
-    // telemetry gating — it should never block user-visible output.
-    const ownerRepoRaw =
-      parsed.type === 'well-known' || parsed.type === 'download' ? null : getOwnerRepo(parsed);
-    const repoPrivacyPromise: Promise<boolean | null> = (() => {
-      // The privacy endpoint below is GitHub.com-specific. In particular, do
-      // not send GitHub Enterprise repository names to the public API.
-      if (parsed.type !== 'github') return Promise.resolve(null);
-      if (!ownerRepoRaw) return Promise.resolve(null);
-      const ownerRepo = parseOwnerRepo(ownerRepoRaw);
-      if (!ownerRepo) return Promise.resolve(null);
-      return isRepoPrivate(ownerRepo.owner, ownerRepo.repo).catch(() => null);
-    })();
+    // Kick off the GitHub repo lookup early so it runs in parallel with
+    // cloning/discovering/installing. It tells us whether the repo is public
+    // (telemetry and audit gating) and its canonical name after a rename. It
+    // should never block user-visible output. The endpoint is GitHub.com
+    // specific: lookupGitHubRepo never sends GitHub Enterprise names to it.
+    const repoInfoPromise = lookupGitHubRepo(parsed);
+    const repoPrivacyPromise: Promise<boolean | null> = repoInfoPromise.then((info) =>
+      info ? info.private : null
+    );
 
     // Handle arbitrary URLs by trying well-known discovery first, then
     // falling back to a direct SKILL.md/archive download.
@@ -2465,6 +2472,20 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     if (!blobResult) {
       spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
+    }
+
+    // A renamed or transferred GitHub repo still clones under its old name.
+    // Lock, telemetry, and audit use the current name, so the old one is not
+    // kept alive.
+    const canonical = withCanonicalGitHubRepo(parsed, await repoInfoPromise);
+    if (canonical !== parsed) {
+      const from = getOwnerRepo(parsed)!;
+      const to = getOwnerRepo(canonical)!;
+      // A case-only difference is the same repo, not worth a message.
+      if (from.toLowerCase() !== to.toLowerCase()) {
+        p.log.info(`${pc.cyan(from)} has moved to ${pc.cyan(to)}`);
+      }
+      parsed = canonical;
     }
 
     if (options.list) {
