@@ -12,7 +12,7 @@ import {
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli, stripAnsi } from './test-utils.ts';
-import { shouldInstallInternalSkills } from './skills.ts';
+import { isInternalSkill, shouldInstallInternalSkills } from './skills.ts';
 import {
   parseAddOptions,
   getLockSource,
@@ -1043,6 +1043,28 @@ metadata:
       });
       expect(result.stdout).toContain('internal-skill');
     });
+
+    it('should skip string metadata.internal: "true" skills by default', () => {
+      const skillDir = join(testDir, 'string-internal-skill');
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---
+name: string-internal-skill
+description: A string-internal skill
+metadata:
+  internal: "true"
+---
+
+# String Internal Skill
+
+This is an internal skill.
+`
+      );
+
+      const result = runCli(['add', testDir, '--list'], testDir);
+      expect(result.stdout).not.toContain('string-internal-skill');
+    });
   });
 });
 
@@ -1103,6 +1125,36 @@ describe('formatEveInstallPromptMessage', () => {
     expect(stripAnsi(message)).toBe(
       'Detected an eve project. Install eve-skill for your eve agent to use?'
     );
+  });
+});
+
+describe('isInternalSkill', () => {
+  it.each([
+    [true, true],
+    ['true', true],
+    ['1', true],
+    [false, false],
+    ['false', false],
+    ['0', false],
+    ['', false],
+    ['True', false],
+    ['TRUE', false],
+    [' true ', false],
+    [1, false],
+    [0, false],
+    [null, false],
+    [undefined, false],
+    [[], false],
+    [{}, false],
+  ])('treats metadata.internal=%s as internal=%s', (value, expected) => {
+    expect(isInternalSkill({ internal: value })).toBe(expected);
+  });
+
+  it('returns false for missing or non-record metadata', () => {
+    expect(isInternalSkill(undefined)).toBe(false);
+    expect(isInternalSkill(null)).toBe(false);
+    expect(isInternalSkill('internal')).toBe(false);
+    expect(isInternalSkill({})).toBe(false);
   });
 });
 

@@ -4,7 +4,7 @@ import { readZipArchive } from '../archive.ts';
 import { diagnostics, isDiagnostic } from '../diagnostics.ts';
 import { parseFrontmatter } from '../frontmatter.ts';
 import { sanitizeMetadata } from '../sanitize.ts';
-import { shouldInstallInternalSkills } from '../skills.ts';
+import { isInternalSkill, shouldInstallInternalSkills } from '../skills.ts';
 import type { HostProvider, ProviderMatch, RemoteSkill } from './types.ts';
 
 const DISCOVERY_SCHEMA_V2 = 'https://schemas.agentskills.io/discovery/0.2.0/schema.json';
@@ -610,7 +610,7 @@ export class WellKnownProvider implements HostProvider {
         const results = await Promise.all(skillPromises);
         const skills = results
           .filter((s: WellKnownSkill | null): s is WellKnownSkill => s !== null)
-          .filter((skill) => includeInternal || skill.metadata?.internal !== true);
+          .filter((skill) => includeInternal || !isInternalSkill(skill.metadata));
         if (skills.length > 0) return skills;
       }
 

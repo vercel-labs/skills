@@ -19,6 +19,7 @@ import { getGitHubHost } from './github-host.ts';
 import type { Skill } from './types.ts';
 import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
 import { SKILLS_SH_CONFIG_FILE, parseSkillsShPaths } from './skills-sh-config.ts';
+import { isInternalSkill } from './skills.ts';
 
 // ─── Types ───
 
@@ -627,8 +628,7 @@ export async function tryBlobInstall(
     if (typeof data.name !== 'string' || typeof data.description !== 'string') continue;
 
     // Skip internal skills unless explicitly requested
-    const isInternal = (data.metadata as Record<string, unknown>)?.internal === true;
-    if (isInternal && !options.includeInternal) continue;
+    if (isInternalSkill(data.metadata) && !options.includeInternal) continue;
 
     const safeName = sanitizeMetadata(data.name);
     const safeDescription = sanitizeMetadata(data.description);

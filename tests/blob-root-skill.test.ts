@@ -198,4 +198,46 @@ description: Nested skill with excluded source metadata.
     expect(result).not.toBeNull();
     expect(result!.skills[0]!.files).toEqual([{ path: 'SKILL.md', contents: nestedSkillMd }]);
   });
+
+  it('skips boolean and string metadata.internal skills', async () => {
+    const skillMd = (name: string, internal: string) => `---
+name: ${name}
+description: ${name}.
+metadata:
+  internal: ${internal}
+---
+`;
+    const publicSkillMd = `---
+name: public-skill
+description: Public skill.
+---
+# Public
+`;
+
+    fetchMock
+      .mockResolvedValueOnce(
+        okResponse({
+          sha: 'root-tree-sha',
+          tree: [
+            { path: 'skills/bool-internal/SKILL.md', type: 'blob', sha: 'bool-sha' },
+            { path: 'skills/string-internal/SKILL.md', type: 'blob', sha: 'string-sha' },
+            { path: 'skills/public-skill/SKILL.md', type: 'blob', sha: 'public-sha' },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(textResponse(skillMd('bool-internal', 'true')))
+      .mockResolvedValueOnce(textResponse(skillMd('string-internal', '"true"')))
+      .mockResolvedValueOnce(textResponse(publicSkillMd))
+      .mockResolvedValueOnce(
+        okResponse({
+          hash: 'public-snapshot-hash',
+          files: [{ path: 'SKILL.md', contents: publicSkillMd }],
+        })
+      );
+
+    const result = await tryBlobInstall('vercel-labs/agent-skills');
+
+    expect(result).not.toBeNull();
+    expect(result!.skills.map((skill) => skill.name)).toEqual(['public-skill']);
+  });
 });
