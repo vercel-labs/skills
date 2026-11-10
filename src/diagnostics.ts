@@ -63,6 +63,11 @@ export const diagnostics = defineDiagnostics({
       fix: (p: { skills: string[] }) =>
         `Remove globally with: skills remove ${p.skills.join(' ')} -g`,
     },
+    SKILLS_REMOVE_UNTRACKED_SKIPPED: {
+      why: (p: { skills: string[] }) =>
+        `Skipped ${p.skills.length} untracked skill(s) not recorded in the lock file: ${p.skills.join(', ')}`,
+      fix: 'Remove them by name, e.g. skills remove <name>',
+    },
 
     SKILLS_UNSAFE_SUBPATH: {
       why: (p: { subpath: string }) =>

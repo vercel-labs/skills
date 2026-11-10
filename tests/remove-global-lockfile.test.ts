@@ -66,6 +66,9 @@ describe('remove --all --global lockfile ownership', { timeout: 30000 }, () => {
     });
 
     expect(result.exitCode).toBe(0);
+    expect(result.stdout + result.stderr).toContain(
+      'Skipped 1 untracked skill(s) not recorded in the lock file: manual-skill'
+    );
     expect(existsSync(managedDir)).toBe(false);
     expect(existsSync(manualDir)).toBe(true);
     expect(readLockSkills()['managed-skill']).toBeUndefined();
@@ -92,6 +95,7 @@ describe('remove --all --global lockfile ownership', { timeout: 30000 }, () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('No globally managed skills found to remove');
+    expect(result.stdout + result.stderr).toContain('Skipped 1 untracked skill(s)');
     expect(existsSync(manualDir)).toBe(true);
   });
 });
