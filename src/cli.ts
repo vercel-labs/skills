@@ -89,13 +89,13 @@ function showBanner(): void {
   );
   console.log();
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills experimental_install${RESET} ${DIM}Restore from skills-lock.json${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}npx skills install${RESET}              ${DIM}Restore from skills-lock.json${RESET}`
   );
   console.log(
     `  ${DIM}$${RESET} ${TEXT}npx skills init ${DIM}[name]${RESET}          ${DIM}Create a new skill${RESET}`
   );
   console.log(
-    `  ${DIM}$${RESET} ${TEXT}npx skills experimental_sync${RESET}    ${DIM}Sync skills from node_modules${RESET}`
+    `  ${DIM}$${RESET} ${TEXT}npx skills sync${RESET}                 ${DIM}Sync skills from node_modules${RESET}`
   );
   console.log();
   console.log(`${DIM}try:${RESET} npx skills add vercel-labs/agent-skills`);
@@ -126,10 +126,10 @@ function showHelp(): void {
     ['skills update'],
     ['skills update my-skill', 'update a single skill'],
     ['skills update -g', 'update global skills only'],
-    ['skills experimental_install', 'restore from skills-lock.json'],
+    ['skills install', 'restore from skills-lock.json'],
     ['skills init my-skill'],
-    ['skills experimental_sync', 'sync from node_modules (experimental)'],
-    ['skills experimental_sync -y', 'sync without prompts'],
+    ['skills sync', 'sync from node_modules'],
+    ['skills sync -y', 'sync without prompts'],
   ];
   const exampleWidth = Math.max(
     ...examples.filter(([, description]) => description).map(([command]) => command.length)
@@ -169,11 +169,12 @@ ${BOLD}Update Options:${RESET}
   -y, --yes              Skip scope prompt (auto-detect: project if in a project, else global)
 
 ${BOLD}Project:${RESET}
-  experimental_install Restore skills from skills-lock.json (alias: install, i)
+  install              Restore skills from skills-lock.json (alias: i)
+                       With a package, works like add
   init [name]          Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)
-  experimental_sync    Sync skills from node_modules into agent directories (alias: sync)
+  sync                 Sync skills from node_modules into agent directories
 
-${BOLD}Experimental Install Options:${RESET}
+${BOLD}Install Options:${RESET}
   -a, --agent <agents>   Link to these agents (default: last selected, else detected)
   --dry-run              Show what would be restored without installing anything
   --frozen-lockfile      Fail instead of changing skills-lock.json (default in CI)
@@ -205,7 +206,7 @@ ${BOLD}Remove Options:${RESET}
   -y, --yes              Skip confirmation prompts
   --all                  Remove every installed skill (-y implied). Do not combine with named skills.
   
-${BOLD}Experimental Sync Options:${RESET}
+${BOLD}Sync Options:${RESET}
   -a, --agent <agents>   Specify agents to install to (use '*' for all agents)
   -y, --yes              Skip confirmation prompts
   --copy                 Copy skills instead of linking them to node_modules
@@ -379,6 +380,7 @@ async function main(): Promise<void> {
       console.log();
       runInit(restArgs);
       break;
+    // Pre-1.9 name, kept as a compatibility alias
     case 'experimental_install': {
       if (!inAgent) showLogo();
       await runInstallFromLock(restArgs);
@@ -424,6 +426,7 @@ async function main(): Promise<void> {
       break;
     }
     case 'sync':
+    // Pre-1.9 name, kept as a compatibility alias
     case 'experimental_sync': {
       if (!inAgent) showLogo();
       const { options: syncOptions } = parseSyncOptions(restArgs);

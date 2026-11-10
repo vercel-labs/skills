@@ -261,22 +261,18 @@ npx skills rm my-skill
 | `-y, --yes`    | Skip confirmation prompts                        |
 | `--all`        | Shorthand for `--skill '*' --agent '*' -y`       |
 
-## Experimental commands
-
-These commands are still experimental. Their names, options, and behavior may change.
-
 <a id="skills-sync"></a>
 
-### `skills experimental_sync`
+## `skills sync`
 
-Sync skills from npm packages and `package.json` declarations. `sync` remains
-supported as a compatibility alias for users of skills@1.7.3.
+Sync skills from npm packages and `package.json` declarations. Before 1.9 this
+command was `skills experimental_sync`, which remains supported as an alias.
 
 Install a package that ships skills, then sync them into your project:
 
 ```bash
 npm install -D skills agent-browser
-npx skills experimental_sync -y
+npx skills sync -y
 ```
 
 Sync reads installed dependencies declared in your project's `package.json`, including
@@ -290,7 +286,7 @@ The `.agents/skills/` directory is the shared location. Selecting Claude Code al
 creates links under `.claude/skills/` pointing to the shared skills:
 
 ```bash
-npx skills experimental_sync -a claude-code -y
+npx skills sync -a claude-code -y
 ```
 
 Outside an agent, sync detects installed agents. When run inside a coding agent,
@@ -304,7 +300,7 @@ To run sync after dependency installation, add a `prepare` script:
 ```json
 {
   "scripts": {
-    "prepare": "skills experimental_sync -y"
+    "prepare": "skills sync -y"
   }
 }
 ```
@@ -360,14 +356,19 @@ by any dependency, or a remote `skills` entry resolves to different content. Thi
 the default when a CI environment variable such as `CI` or `GITHUB_ACTIONS` is set;
 pass `--no-frozen-lockfile` to update the lock from CI.
 
-### Restore skills from the project lock file
+<a id="skills-install"></a>
+
+## `skills install`
+
+Restore skills from the project lock file:
 
 ```bash
-npx skills experimental_install
+npx skills install
 ```
 
-`skills install` and `skills i` without a source are aliases for this command. With
-a source, they behave like `skills add`.
+`skills i` is an alias. With a source, `skills install` behaves like `skills add`.
+Before 1.9 this command was `skills experimental_install`, which remains supported
+as an alias.
 
 Restore supported sources recorded in `skills-lock.json` into `.agents/skills/` and
 link them into agent directories. Skills already in `.agents/skills/` are left as they

@@ -96,6 +96,7 @@ describe('skills CLI', () => {
       ['list --help routes to top-level help', 'list'],
       ['init --help routes to top-level help', 'init'],
       ['find --help routes to top-level help', 'find'],
+      ['install --help routes to top-level help', 'install'],
       ['experimental_install --help routes to top-level help', 'experimental_install'],
       ['sync --help routes to top-level help', 'sync'],
       ['experimental_sync --help routes to top-level help', 'experimental_sync'],
