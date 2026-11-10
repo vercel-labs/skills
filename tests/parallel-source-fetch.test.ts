@@ -69,7 +69,7 @@ describe('skills install fetches sources in parallel', () => {
     await writeFile(
       join(project, 'skills-lock.json'),
       JSON.stringify({
-        version: 1,
+        version: 2,
         skills: {
           alpha: {
             source: 'acme/alpha',

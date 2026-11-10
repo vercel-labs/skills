@@ -2,7 +2,7 @@ import * as p from '@clack/prompts';
 import { pc } from './color.ts';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
-import { sep, join, dirname, relative, isAbsolute } from 'path';
+import { sep, join, dirname, relative, isAbsolute, basename } from 'path';
 import {
   parseSource,
   getOwnerRepo,
@@ -22,6 +22,8 @@ import {
   installBlobSkillForAgent,
   isSkillInstalled,
   getCanonicalPath,
+  getInstallPath,
+  findCategoryDirSkills,
   installWellKnownSkillForAgent,
   sanitizeName,
   setInstalledSkillName,
@@ -73,6 +75,13 @@ import {
   type LocalSkillLockEntry,
   type LocalSkillLockFile,
 } from './local-lock.ts';
+import {
+  collectSkillFolderFiles,
+  hashSkillFiles,
+  isExcludedPath,
+  type HashedFile,
+} from './skill-hash.ts';
+import { setFrontmatterName } from './frontmatter.ts';
 import type { Skill, AgentType, ParsedSource } from './types.ts';
 import {
   tryBlobInstall,
@@ -338,6 +347,47 @@ function targetKey(target: InstallTarget): string {
   return target.subagent ? `${target.agent}:${target.subagent}` : target.agent;
 }
 
+/** An agent category directory (#1723) at a planned install path, with its nested skills. */
+interface CategoryConflict {
+  path: string;
+  skills: string[];
+}
+
+/**
+ * The category directory at `skillName`'s install path for `target`, if any.
+ * Installing there would delete its nested skills, so the plan skips that target.
+ */
+async function findCategoryConflict(
+  skillName: string,
+  target: InstallTarget,
+  global: boolean
+): Promise<CategoryConflict | undefined> {
+  let path: string;
+  try {
+    path = getInstallPath(skillName, target.agent, { global, eveSubagent: target.subagent });
+  } catch {
+    return undefined;
+  }
+  const skills = await findCategoryDirSkills(path);
+  return skills.length > 0 ? { path, skills } : undefined;
+}
+
+function categoryConflictLine(name: string, conflict: CategoryConflict): string {
+  const shown = conflict.skills.slice(0, 3).join(', ') + (conflict.skills.length > 3 ? ', …' : '');
+  const detail = `(${basename(conflict.path)}/ contains ${shown})`;
+  return `  ${pc.red('conflicts with category:')} ${name} ${pc.dim(detail)}`;
+}
+
+/** After install: one warning (with the fix) per category directory that was skipped. */
+function warnCategoryConflicts(bySkill: Map<string, Map<string, CategoryConflict>>): void {
+  const conflicts = [...bySkill.values()].flatMap((m) => [...m.values()]);
+  if (conflicts.length === 0) return;
+  console.log();
+  for (const conflict of new Map(conflicts.map((c) => [c.path, c])).values()) {
+    warn(diagnostics.SKILLS_CATEGORY_DIR_CONFLICT(conflict));
+  }
+}
+
 /**
  * Expand the selected agents into concrete install targets, fanning Eve out
  * across the chosen subagents (root and/or named subagents).
@@ -565,12 +615,14 @@ export async function promptForAgents(
  * global skills directory are skipped with one notice on a global install,
  * instead of failing once per skill. Agents named with --agent keep that error,
  * and so does a selection where no agent supports global installs.
+ * `--agent '*'` selects every agent like --yes does, so it is not named.
  */
 export function skipAgentsWithoutGlobalDir(
   targetAgents: AgentType[],
-  options: { global: boolean; explicit: boolean }
+  options: { global: boolean; agent?: string[] }
 ): AgentType[] {
-  if (!options.global || options.explicit) return targetAgents;
+  const named = options.agent !== undefined && !options.agent.includes('*');
+  if (!options.global || named) return targetAgents;
   const skipped = targetAgents.filter((a) => agents[a].globalSkillsDir === undefined);
   if (skipped.length === 0 || skipped.length === targetAgents.length) return targetAgents;
   p.log.info(
@@ -1153,7 +1205,7 @@ async function handleWellKnownSkills(
 
   targetAgents = skipAgentsWithoutGlobalDir(targetAgents, {
     global: installGlobally,
-    explicit: options.agent !== undefined,
+    agent: options.agent,
   });
 
   // Surface an unusable lock before touching disk rather than after installing.
@@ -1202,15 +1254,19 @@ async function handleWellKnownSkills(
         skillName: skill.installName,
         agent,
         installed: await isSkillInstalled(skill.installName, agent, { global: installGlobally }),
+        conflict: await findCategoryConflict(skill.installName, { agent }, installGlobally),
       }))
     )
   );
   const overwriteStatus = new Map<string, Map<string, boolean>>();
-  for (const { skillName, agent, installed } of overwriteChecks) {
+  const categoryConflicts = new Map<string, Map<string, CategoryConflict>>();
+  for (const { skillName, agent, installed, conflict } of overwriteChecks) {
     if (!overwriteStatus.has(skillName)) {
       overwriteStatus.set(skillName, new Map());
+      categoryConflicts.set(skillName, new Map());
     }
     overwriteStatus.get(skillName)!.set(agent, installed);
+    if (conflict) categoryConflicts.get(skillName)!.set(agent, conflict);
   }
 
   for (const skill of selectedSkills) {
@@ -1219,7 +1275,11 @@ async function handleWellKnownSkills(
     const canonicalPath = getCanonicalPath(skill.installName, { global: installGlobally });
     const shortCanonical = shortenPath(canonicalPath, cwd);
     summaryLines.push(`${pc.cyan(shortCanonical)}`);
-    summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode, installGlobally));
+    const skillConflicts = categoryConflicts.get(skill.installName);
+    const plannedAgents = targetAgents.filter((a) => !skillConflicts?.has(a));
+    if (plannedAgents.length > 0) {
+      summaryLines.push(...buildAgentSummaryLines(plannedAgents, installMode, installGlobally));
+    }
     const pointer = isSkillsShPackUrl(url) ? getPackSkillPointer(skill) : null;
     if (pointer) summaryLines.push(`  ${pc.dim('source:')} ${pointer.repo}`);
     if (skill.files.size > 1) {
@@ -1227,12 +1287,15 @@ async function handleWellKnownSkills(
     }
 
     const skillOverwrites = overwriteStatus.get(skill.installName);
-    const overwriteAgents = targetAgents
+    const overwriteAgents = plannedAgents
       .filter((a) => skillOverwrites?.get(a))
       .map((a) => agents[a].displayName);
 
     if (overwriteAgents.length > 0) {
       summaryLines.push(`  ${pc.yellow('overwrites:')} ${formatList(overwriteAgents)}`);
+    }
+    for (const [agent, conflict] of skillConflicts ?? []) {
+      summaryLines.push(categoryConflictLine(agents[agent as AgentType].displayName, conflict));
     }
   }
 
@@ -1289,6 +1352,7 @@ async function handleWellKnownSkills(
 
   for (const skill of selectedSkills) {
     for (const agent of targetAgents) {
+      if (categoryConflicts.get(skill.installName)?.has(agent)) continue;
       const result = await installWellKnownSkillForAgent(skill, agent, {
         global: installGlobally,
         mode: installMode,
@@ -1440,6 +1504,8 @@ async function handleWellKnownSkills(
       p.log.message(`  ${pc.red('✗')} ${r.skill} → ${r.agent}: ${pc.dim(r.error)}`);
     }
   }
+
+  warnCategoryConflicts(categoryConflicts);
 
   console.log();
   p.outro(
@@ -1766,6 +1832,8 @@ export interface InstallPlacement {
   createMissingAgentRoot?: (agent: AgentType) => boolean;
   /** Project directory; defaults to process.cwd(). */
   cwd?: string;
+  /** Leave out a skill × target pair, e.g. one that would replace a category dir. */
+  skip?: (skill: Skill, target: InstallTarget) => boolean;
 }
 
 /** Install every skill into every target. Failures are returned per skill × target. */
@@ -1777,6 +1845,7 @@ export async function installToTargets(
   const results: TargetInstallResult[] = [];
   for (const skill of skills) {
     for (const target of placement.targets) {
+      if (placement.skip?.(skill, target)) continue;
       const { agent, subagent } = target;
       const installOptions = {
         global: placement.global,
@@ -2209,7 +2278,7 @@ export async function recordGlobalLock(
         await addSkillToLock(skill.name, {
           ...fields,
           ...lockedSourceName(skill),
-          skillFolderHash: await computeSkillFolderHash(skill.path),
+          skillFolderHash: await sourceSkillHash(skill),
           pluginName: skill.pluginName,
           ...installMode,
         });
@@ -2321,12 +2390,30 @@ export async function trackSourceInstall(
   });
 }
 
-/** Content hash of a skill at its source: the blob snapshot, or the folder on disk. */
-function sourceSkillHash(skill: Skill): Promise<string> {
-  // snapshotHash is only present on BlobSkill
-  return 'snapshotHash' in skill
-    ? Promise.resolve((skill as BlobSkill).snapshotHash)
-    : computeSkillFolderHash(skill.path);
+/**
+ * The project lock's computedHash for `skill`: the hash of the files it is
+ * installed as (the blob snapshot, or the folder on disk). A renamed skill is
+ * hashed with the new name in its SKILL.md, as the installer writes it, so the
+ * installed copy verifies against the lock.
+ */
+export async function sourceSkillHash(skill: Skill): Promise<string> {
+  // snapshotHash and files are only present on BlobSkill
+  const blob = 'snapshotHash' in skill ? (skill as BlobSkill) : null;
+  if (!skill.renamedFrom) {
+    return blob ? blob.snapshotHash : computeSkillFolderHash(skill.path);
+  }
+  const files: HashedFile[] = blob
+    ? blob.files
+        .filter((file) => !isExcludedPath(file.path))
+        .map((file) => ({ path: file.path, content: file.contents }))
+    : await collectSkillFolderFiles(skill.path);
+  return hashSkillFiles(
+    files.map((file) =>
+      file.path === 'SKILL.md'
+        ? { ...file, content: setFrontmatterName(file.content.toString(), skill.name) }
+        : file
+    )
+  );
 }
 
 /** Well-known skills have no source folder, so hash the installed copy like runAdd does. */
@@ -2940,7 +3027,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     targetAgents = skipAgentsWithoutGlobalDir(targetAgents, {
       global: installGlobally,
-      explicit: options.agent !== undefined,
+      agent: options.agent,
     });
     const installTargets = buildInstallTargets(targetAgents, eveSubagentTargets);
 
@@ -2991,16 +3078,20 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             global: installGlobally,
             eveSubagent: target.subagent,
           }),
+          conflict: await findCategoryConflict(skill.name, target, installGlobally),
         }))
       )
     );
-    // Keyed by skill name → target key → installed?
+    // Keyed by skill name → target key → installed? / category conflict
     const overwriteStatus = new Map<string, Map<string, boolean>>();
-    for (const { skillName, target, installed } of overwriteChecks) {
+    const categoryConflicts = new Map<string, Map<string, CategoryConflict>>();
+    for (const { skillName, target, installed, conflict } of overwriteChecks) {
       if (!overwriteStatus.has(skillName)) {
         overwriteStatus.set(skillName, new Map());
+        categoryConflicts.set(skillName, new Map());
       }
       overwriteStatus.get(skillName)!.set(targetKey(target), installed);
+      if (conflict) categoryConflicts.get(skillName)!.set(targetKey(target), conflict);
     }
 
     // Group selected skills for summary
@@ -3032,15 +3123,22 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             : getCanonicalPath(skill.name, { global: installGlobally });
         const shortCanonical = shortenPath(canonicalPath, cwd);
         summaryLines.push(`${pc.cyan(shortCanonical)}`);
-        summaryLines.push(...buildTargetSummaryLines(installTargets, installMode, installGlobally));
+        const skillConflicts = categoryConflicts.get(skill.name);
+        const plannedTargets = installTargets.filter((t) => !skillConflicts?.has(targetKey(t)));
+        summaryLines.push(...buildTargetSummaryLines(plannedTargets, installMode, installGlobally));
 
         const skillOverwrites = overwriteStatus.get(skill.name);
-        const overwriteAgents = installTargets
+        const overwriteAgents = plannedTargets
           .filter((t) => skillOverwrites?.get(targetKey(t)))
           .map(targetDisplayName);
 
         if (overwriteAgents.length > 0) {
           summaryLines.push(`  ${pc.yellow('overwrites:')} ${formatList(overwriteAgents)}`);
+        }
+        for (const target of installTargets) {
+          const conflict = skillConflicts?.get(targetKey(target));
+          if (!conflict) continue;
+          summaryLines.push(categoryConflictLine(targetDisplayName(target), conflict));
         }
       }
     };
@@ -3109,6 +3207,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       targets: installTargets,
       mode: installMode,
       createMissingAgentRoot: (agent) => explicitlySelectedAgents.has(agent),
+      skip: (skill, target) => !!categoryConflicts.get(skill.name)?.has(targetKey(target)),
     });
 
     spinner.stop('Installation complete');
@@ -3248,6 +3347,14 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       for (const skill of selectedSkills) {
         const name = getSkillDisplayName(skill);
         const skillResults = results.filter((r) => r.skill === name);
+        if (skillResults.length === 0) {
+          jsonResults.push({
+            name,
+            status: 'skipped',
+            reason: 'Conflicts with a category directory',
+          });
+          continue;
+        }
         const failures = skillResults.filter((r) => !r.success);
         if (failures.length > 0) {
           jsonResults.push({
@@ -3379,6 +3486,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         p.log.message(`  ${pc.red('✗')} ${r.skill} → ${r.agent}: ${pc.dim(r.error)}`);
       }
     }
+
+    warnCategoryConflicts(categoryConflicts);
 
     console.log();
     p.outro(

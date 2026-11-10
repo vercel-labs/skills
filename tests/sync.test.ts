@@ -15,6 +15,7 @@ import { execFileSync } from 'child_process';
 import { pathToFileURL } from 'url';
 import { tmpdir } from 'os';
 import { runCli } from '../src/test-utils.ts';
+import { computeLegacySkillFolderHash } from '../src/local-lock.ts';
 
 function skillMd(name: string, description = `${name} description`): string {
   return `---
@@ -200,7 +201,7 @@ describe('sync command', () => {
       runCli(['sync', '-y', '-a', 'claude-code'], testDir);
 
       const lock = JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8'));
-      expect(lock.version).toBe(1);
+      expect(lock.version).toBe(2);
       expect(lock.skills['lock-test-skill']).toEqual({
         source: 'my-pkg',
         sourceType: 'node_modules',
@@ -307,6 +308,41 @@ describe('sync command', () => {
       expect(readFileSync(lockPath(), 'utf-8')).toBe(lock);
     });
 
+    describe('with a v1 lock', () => {
+      /** Synced and still linked, with the lock rewritten as v1 holding its trusted hash. */
+      async function v1Project(): Promise<{ skillDir: string; lock: string }> {
+        declareDeps(['my-pkg']);
+        const skillDir = join(createPackage('my-pkg', '1.0.0'), 'skills', 'helper');
+        writeSkill(skillDir, 'helper');
+        sync();
+        const lock = JSON.parse(readFileSync(lockPath(), 'utf-8'));
+        lock.version = 1;
+        lock.skills.helper.computedHash = await computeLegacySkillFolderHash(skillDir);
+        writeFileSync(lockPath(), JSON.stringify(lock, null, 2) + '\n');
+        return { skillDir, lock: readFileSync(lockPath(), 'utf-8') };
+      }
+
+      it('accepts installed skills that match the v1 hash', async () => {
+        const { lock } = await v1Project();
+
+        const result = sync('--frozen-lockfile');
+
+        expect(result.exitCode).toBe(0);
+        expect(readFileSync(lockPath(), 'utf-8')).toBe(lock);
+      });
+
+      it('rejects a packaged skill changed after the v1 lock was written', async () => {
+        const { skillDir, lock } = await v1Project();
+        writeFileSync(join(skillDir, 'SKILL.md'), skillMd('helper', 'tampered'));
+
+        const result = sync('--frozen-lockfile');
+
+        expect(result.exitCode).toBe(1);
+        expect(result.stdout).toContain('helper has no content hash');
+        expect(readFileSync(lockPath(), 'utf-8')).toBe(lock);
+      });
+    });
+
     it('is the default in CI and --no-frozen-lockfile turns it off', () => {
       declareDeps(['my-pkg']);
       writeSkill(join(createPackage('my-pkg'), 'skills', 'helper'), 'helper');
@@ -397,7 +433,7 @@ describe('sync command', () => {
       writeFileSync(
         join(testDir, 'skills-lock.json'),
         JSON.stringify({
-          version: 1,
+          version: 2,
           skills: {
             migrated: { source: 'my-lib', sourceType: 'node_modules', computedHash: 'stale' },
           },
@@ -434,7 +470,7 @@ describe('sync command', () => {
       writeFileSync(
         join(testDir, 'skills-lock.json'),
         JSON.stringify({
-          version: 1,
+          version: 2,
           skills: { shared: { source: 'owner/repo', sourceType: 'github', computedHash: 'x' } },
         })
       );
@@ -548,7 +584,7 @@ describe('sync command', () => {
       writeFileSync(
         join(testDir, 'skills-lock.json'),
         JSON.stringify({
-          version: 1,
+          version: 2,
           skills: { added: { source: 'owner/repo', sourceType: 'github', computedHash: 'x' } },
         })
       );
@@ -1117,7 +1153,7 @@ describe('sync command', () => {
       writeFileSync(
         join(testDir, 'skills-lock.json'),
         JSON.stringify({
-          version: 1,
+          version: 2,
           skills: { 'remote-a': { source: 'owner/repo', sourceType: 'github', computedHash: 'x' } },
         })
       );

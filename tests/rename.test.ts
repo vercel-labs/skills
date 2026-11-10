@@ -99,6 +99,22 @@ describe('add --rename', () => {
     });
   });
 
+  it('verifies the renamed copy against the lock hash', () => {
+    // The lock hashes the files as installed, so the rewritten SKILL.md must match it.
+    expect(
+      cli(['add', repoUrl, '--skill', 'alpha', '--rename', 'beta', '-a', 'codex', '-y']).exitCode
+    ).toBe(0);
+
+    const listed = JSON.parse(cli(['list', '--json']).stdout);
+    expect(listed).toEqual([expect.objectContaining({ name: 'beta', status: 'tracked' })]);
+    const check = cli(['check']);
+    expect(check.stdout).not.toContain('differ from skills-lock.json');
+    expect(check.exitCode).toBe(0);
+    const restore = cli(['experimental_install', '--frozen-lockfile']);
+    expect(restore.exitCode).toBe(0);
+    expect(restore.stdout + restore.stderr).toContain('1 skill already installed');
+  });
+
   it('rewrites the shared copy and links agents to it in symlink mode', () => {
     const result = cli([
       'add',

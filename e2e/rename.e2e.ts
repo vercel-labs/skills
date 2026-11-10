@@ -56,7 +56,13 @@ describe.each(REPOS)('$source', (repo) => {
       'ls',
     ]);
     expect(listed).toEqual([
-      expect.objectContaining({ name: repo.alias, source: repo.source, renamedFrom: repo.skill }),
+      expect.objectContaining({
+        name: repo.alias,
+        source: repo.source,
+        renamedFrom: repo.skill,
+        // The lock hashes the rewritten SKILL.md, so the installed copy verifies.
+        status: 'tracked',
+      }),
     ]);
     expect((await sandbox.skills(['ls'])).output).toContain(`(renamed from ${repo.skill})`);
 
