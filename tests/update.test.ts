@@ -1306,6 +1306,44 @@ describe('Update Cleanup Unit Tests', () => {
       expect(result.successCount).toBe(1);
     });
 
+    it('updates a renamed global skill by its source name and keeps the new name', async () => {
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          beta: {
+            source: 'owner/repo',
+            skillPath: 'skills/alpha/SKILL.md',
+            skillName: 'alpha',
+            sourceType: 'github',
+            skillFolderHash: 'old',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+      vi.mocked(blob.fetchRepoTree).mockResolvedValue({
+        sha: 'rootsha',
+        branch: 'main',
+        tree: [{ path: 'skills/alpha/SKILL.md', type: 'blob', sha: 'sha1' }],
+      });
+      vi.mocked(blob.getSkillFolderHashFromTree).mockReturnValue('new');
+
+      const result = await updateGlobalSkills({ yes: true });
+
+      expect(result.successCount).toBe(1);
+      expect(fetchedParsed()).toEqual([expect.objectContaining({ skills: ['alpha'] })]);
+      const options = vi.mocked(add.installFetched).mock.calls[0]![1];
+      expect(options.skills).toEqual(['alpha']);
+      const selected = await options.select!([
+        { name: 'alpha', description: '', path: '/tmp/repo/skills/alpha' },
+      ]);
+      expect(selected).toEqual([expect.objectContaining({ name: 'beta', renamedFrom: 'alpha' })]);
+      expect(skillLock.addSkillToLock).toHaveBeenCalledWith(
+        'beta',
+        expect.objectContaining({ skillName: 'alpha', skillFolderHash: 'new' })
+      );
+    });
+
     it('reinstalls a copied global skill as a copy', async () => {
       // Two target dirs, so the default would be a symlink.
       vi.mocked(add.nonInteractiveTargetAgents).mockResolvedValue(['cursor', 'claude-code']);

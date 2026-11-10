@@ -31,7 +31,7 @@ function normalizeSkillPath(path: string): string {
  */
 export function resolveSkillLocations(
   lockedSkillNames: string[],
-  lockSkills: Record<string, { skillPath?: string }>,
+  lockSkills: Record<string, { skillPath?: string; skillName?: string }>,
   discovered: DiscoveredSkillLocation[],
   options: SkillLocationResolutionOptions = {}
 ): SkillLocationResolution {
@@ -53,8 +53,10 @@ export function resolveSkillLocations(
     const lockedPath = lockSkills[name]?.skillPath;
     if (!lockedPath) continue;
 
+    // A renamed skill is found by the name its source uses.
+    const sourceName = lockSkills[name]?.skillName ?? name;
     const normalizedLockedPath = normalizeSkillPath(lockedPath);
-    const candidates = [...(pathsByName.get(normalizeSkillName(name)) ?? [])];
+    const candidates = [...(pathsByName.get(normalizeSkillName(sourceName)) ?? [])];
     const lockedPathStillExists = discoveredPaths.has(normalizedLockedPath);
 
     if (lockedPathStillExists && options.exactPathDisambiguates) {

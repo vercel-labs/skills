@@ -41,7 +41,7 @@ import { isCI } from './ci.ts';
 import { detectAgent, getAgentType } from './detect-agent.ts';
 import { getLastSelectedAgents, saveSelectedAgents } from './skill-lock.ts';
 import { parseSkillsField, type RemoteSkillsRequest } from './skills-field.ts';
-import { fetchSources, getProjectLockSource, installFromSource } from './add.ts';
+import { fetchSources, getProjectLockSource, installFromSource, renameSkill } from './add.ts';
 
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
 
@@ -217,12 +217,14 @@ function requestsLockedSkill(
   name: string,
   entry: LocalSkillLockEntry
 ) {
+  // A renamed skill is requested by the name its source uses
+  const sourceName = entry.skillName ?? name;
   return (
     isFromRequest(entry, request) &&
     (request.skills.length === 0 ||
       request.skills.some(
         (selected) =>
-          sanitizeName(selected) === sanitizeName(name) ||
+          sanitizeName(selected) === sanitizeName(sourceName) ||
           selected === posix.basename(posix.dirname(entry.skillPath ?? ''))
       ))
   );
@@ -622,7 +624,7 @@ function isRemoteInstalled(
       ([name, entry]) =>
         isFromRequest(entry, request) && existsSync(getCanonicalPath(name, { cwd }))
     )
-    .map(([name]) => sanitizeName(name));
+    .map(([name, entry]) => sanitizeName(entry.skillName ?? name));
   return request.skills.length === 0
     ? installed.length > 0
     : request.skills.every((name) => installed.includes(sanitizeName(name)));
@@ -967,6 +969,14 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   const claimed = new Set(discoveredSkills.map((skill) => sanitizeName(skill.name)));
   const lockEntryFor = (name: string) =>
     Object.entries(localLock.skills).find(([key]) => sanitizeName(key) === name)?.[1];
+  // A skill this request installed before under another name keeps that name
+  const renamedFor = (request: (typeof remoteRequests)[number], name: string) =>
+    Object.entries(localLock.skills).find(
+      ([, entry]) =>
+        entry.skillName !== undefined &&
+        sanitizeName(entry.skillName) === name &&
+        isFromRequest(entry, request)
+    )?.[0];
   const fetched = await fetchSources(remoteRequests);
   for (const [index, request] of remoteRequests.entries()) {
     const label = getProjectLockSource(request.parsed);
@@ -977,9 +987,11 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
       ...(frozen && { frozenLock: localLock }),
       select: async (skills) => {
         const selected: Skill[] = [];
-        for (const skill of skills) {
+        for (const found of skills) {
+          if (!remoteAllowsSkill(request, sanitizeName(found.name), options)) continue;
+          const renamed = renamedFor(request, sanitizeName(found.name));
+          const skill = renamed ? renameSkill(found, renamed) : found;
           const name = sanitizeName(skill.name);
-          if (!remoteAllowsSkill(request, name, options)) continue;
           const reason = claimed.has(name)
             ? 'another source in this sync provides it'
             : await blockedReason(name, targetAgents, lockEntryFor(name), cwd);
