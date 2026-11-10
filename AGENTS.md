@@ -36,6 +36,7 @@ src/
 │   └── remove.ts    # removeSkills
 ├── cli.ts           # Main entry point, command routing, init/check/update
 ├── cli.test.ts      # CLI tests
+├── cli-args.ts     # Shared subcommand option parsing (util.parseArgs)
 ├── add.ts           # Core add command logic
 ├── add-prompt.test.ts # Add prompt behavior tests
 ├── add.test.ts      # Add command tests

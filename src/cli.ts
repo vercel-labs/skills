@@ -458,7 +458,16 @@ async function main(): Promise<void> {
 
 main()
   .catch((error: unknown) => {
-    if (!isDiagnostic(error, 'SKILLS_INVALID_LOCAL_LOCK')) throw error;
+    if (
+      !isDiagnostic(
+        error,
+        'SKILLS_INVALID_LOCAL_LOCK',
+        'SKILLS_OPTION_REQUIRES_VALUE',
+        'SKILLS_OPTION_TAKES_NO_VALUE'
+      )
+    ) {
+      throw error;
+    }
     console.error(`Error: ${formatError(error)}`);
     process.exitCode = 1;
   })

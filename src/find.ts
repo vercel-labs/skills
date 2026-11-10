@@ -2,6 +2,7 @@ import * as readline from 'readline';
 import type { Diagnostic } from 'nostics';
 import { runAdd, parseAddOptions } from './add.ts';
 import { diagnostics, formatError } from './diagnostics.ts';
+import { parseCliArgs } from './cli-args.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
 import { isRepoPrivate } from './source-parser.ts';
@@ -45,52 +46,27 @@ export interface ParseFindOptionsResult {
 const GITHUB_OWNER_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38})$/i;
 
 export function parseFindOptions(args: string[]): ParseFindOptionsResult {
-  const queryParts: string[] = [];
+  const { values, positionals, errors } = parseCliArgs(args, {
+    owner: { type: 'string', value: 'a GitHub owner' },
+  });
   const options: FindOptions = {};
-  const errors: Diagnostic[] = [];
 
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (!arg) continue;
-
-    let ownerValue: string | undefined;
-    if (arg === '--owner') {
-      const value = args[i + 1];
-      if (!value || value.startsWith('-')) {
-        errors.push(
-          diagnostics.SKILLS_OPTION_REQUIRES_VALUE({ option: '--owner', value: 'a GitHub owner' })
-        );
-        continue;
-      }
-      ownerValue = value;
-      i++;
-    } else if (arg.startsWith('--owner=')) {
-      ownerValue = arg.slice('--owner='.length);
-      if (!ownerValue) {
-        errors.push(
-          diagnostics.SKILLS_OPTION_REQUIRES_VALUE({ option: '--owner', value: 'a GitHub owner' })
-        );
-        continue;
-      }
-    } else {
-      queryParts.push(arg);
-      continue;
-    }
-
+  const ownerValue = values.owner?.at(-1);
+  if (ownerValue !== undefined) {
     const owner = ownerValue.trim().toLowerCase();
-    if (!GITHUB_OWNER_PATTERN.test(owner)) {
+    if (GITHUB_OWNER_PATTERN.test(owner)) {
+      options.owner = owner;
+    } else {
       errors.push(
         diagnostics.SKILLS_INVALID_OPTION_VALUE({
           option: '--owner',
           expected: 'a valid GitHub owner',
         })
       );
-      continue;
     }
-    options.owner = owner;
   }
 
-  return { query: queryParts.join(' '), options, errors };
+  return { query: positionals.join(' '), options, errors };
 }
 
 // Search via API

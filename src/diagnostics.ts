@@ -24,6 +24,9 @@ export const diagnostics = defineDiagnostics({
     SKILLS_OPTION_REQUIRES_VALUE: {
       why: (p: { option: string; value: string }) => `${p.option} requires ${p.value}`,
     },
+    SKILLS_OPTION_TAKES_NO_VALUE: {
+      why: (p: { option: string }) => `${p.option} does not take a value`,
+    },
     SKILLS_UNKNOWN_OPTION: {
       why: (p: { option: string }) => `Unknown option: ${p.option}`,
     },

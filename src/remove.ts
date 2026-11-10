@@ -5,6 +5,7 @@ import { readdir, rm, lstat } from 'fs/promises';
 import { join } from 'path';
 import { agents, detectInstalledAgents, getEveSubagents } from './agents.ts';
 import { diagnostics, formatError } from './diagnostics.ts';
+import { parseCliArgs, throwFirstError } from './cli-args.ts';
 import { track } from './telemetry.ts';
 import { detectAgent } from './detect-agent.ts';
 import { removeSkillFromLock, getSkillFromLock, readSkillLock } from './skill-lock.ts';
@@ -517,46 +518,21 @@ export function trackRemovals(
  * Separates skill names from options flags.
  *
  * Supports both positional names (`skills remove foo`) and `-s/--skill`
- * (documented in the CLI help). Unknown flags that start with `-` are ignored
- * so we do not treat `--skill` as a skill name when the flag is misspelled.
+ * (documented in the CLI help). Unknown options are ignored.
  */
 export function parseRemoveOptions(args: string[]): { skills: string[]; options: RemoveOptions } {
+  const { values, positionals, errors } = parseCliArgs(args, {
+    global: { type: 'boolean', short: 'g' },
+    yes: { type: 'boolean', short: 'y' },
+    all: { type: 'boolean' },
+    skill: { type: 'list', short: 's', value: 'a skill name' },
+    agent: { type: 'list', short: 'a', value: 'an agent name' },
+  });
+  throwFirstError(errors);
   const options: RemoveOptions = {};
-  const skills: string[] = [];
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-
-    if (arg === '-g' || arg === '--global') {
-      options.global = true;
-    } else if (arg === '-y' || arg === '--yes') {
-      options.yes = true;
-    } else if (arg === '--all') {
-      options.all = true;
-      options.yes = true;
-    } else if (arg === '-s' || arg === '--skill') {
-      i++;
-      let nextArg = args[i];
-      while (i < args.length && nextArg && !nextArg.startsWith('-')) {
-        skills.push(nextArg);
-        i++;
-        nextArg = args[i];
-      }
-      i--; // Back up one since the loop will increment
-    } else if (arg === '-a' || arg === '--agent') {
-      options.agent = options.agent || [];
-      i++;
-      let nextArg = args[i];
-      while (i < args.length && nextArg && !nextArg.startsWith('-')) {
-        options.agent.push(nextArg);
-        i++;
-        nextArg = args[i];
-      }
-      i--; // Back up one since the loop will increment
-    } else if (arg && !arg.startsWith('-')) {
-      skills.push(arg);
-    }
-  }
-
-  return { skills, options };
+  if (values.global) options.global = true;
+  if (values.yes || values.all) options.yes = true;
+  if (values.all) options.all = true;
+  if (values.agent) options.agent = values.agent;
+  return { skills: [...(values.skill ?? []), ...positionals], options };
 }
