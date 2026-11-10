@@ -42,6 +42,10 @@ export const diagnostics = defineDiagnostics({
         'Use `skills remove --all` to remove every skill, or omit --all to remove only the named skills.' +
         `\n   Example: skills remove ${p.example} -y`,
     },
+    SKILLS_LOCAL_WITH_GLOBAL: {
+      why: 'Cannot combine --local with --global.',
+      fix: 'Local skills are recorded in the project skills-lock.local.json. Drop --global, or drop --local to install globally.',
+    },
     SKILLS_PROMPT_REQUIRES_TTY: {
       why:
         'Interactive prompt required but stdin is not a TTY. Nothing was installed. ' +
@@ -264,6 +268,13 @@ export const diagnostics = defineDiagnostics({
     SKILLS_INVALID_LOCAL_LOCK: {
       why: (p: { path: string; reason: string }) =>
         `Invalid ${p.path}: ${p.reason}. Fix or delete the file, then retry.`,
+    },
+    SKILLS_REMOVE_KEPT_SHARED_ENTRY: {
+      why: (p: { skill: string }) =>
+        `Removed your skills-lock.local.json entry for ${p.skill}. skills-lock.json still lists the team's ${p.skill}, so the next \`skills install\` restores it.`,
+    },
+    SKILLS_LOCAL_LOCK_IGNORED: {
+      why: (p: { detail: string }) => `${p.detail} Until then, its skills are left out.`,
     },
     SKILLS_SYMLINK_OUTSIDE_SKILL: {
       why: (p: { path: string }) =>

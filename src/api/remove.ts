@@ -1,6 +1,6 @@
 import { agents as agentConfigs } from '../agents.ts';
 import { diagnostics, type DiagnosticCode } from '../diagnostics.ts';
-import { readLocalLock } from '../local-lock.ts';
+import { readMergedLocalLock } from '../local-lock.ts';
 import {
   findGloballyTrackedSkills,
   findUntrackedSkills,
@@ -116,6 +116,6 @@ async function remove(names: readonly string[], options: RemoveOptions): Promise
 }
 
 /** Throws SKILLS_INVALID_LOCAL_LOCK when the project lock is unusable. */
-function readProjectLock(cwd: string) {
-  return readLocalLock(cwd);
+async function readProjectLock(cwd: string) {
+  return (await readMergedLocalLock(cwd)).lock;
 }

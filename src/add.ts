@@ -66,11 +66,13 @@ import {
 import {
   addSkillToLocalLock,
   getLocalLockPath,
+  PERSONAL_LOCK_FILE,
   readLocalLock,
   computeSkillFolderHash,
   frozenLockfileError,
   lockChangeReason,
   type LocalSkillLockEntry,
+  type LocalLockFileName,
   type LocalSkillLockFile,
 } from './local-lock.ts';
 import type { Skill, AgentType, ParsedSource } from './types.ts';
@@ -703,6 +705,11 @@ export interface AddOptions {
   fullDepth?: boolean;
   copy?: boolean;
   /**
+   * Record project installs in the personal skills-lock.local.json instead of
+   * skills-lock.json. Implies project scope.
+   */
+  local?: boolean;
+  /**
    * Eve subagent targets. Each value is a subagent name; `root` (or `.`)
    * selects the root agent. Implies installing for Eve.
    */
@@ -817,6 +824,7 @@ async function installPackPointerSkills(
     global: boolean;
     mode: InstallMode;
     metadata?: string;
+    lockFile?: LocalLockFileName;
   }
 ): Promise<Set<WellKnownSkill>> {
   interface PointerGroup {
@@ -922,7 +930,9 @@ async function installPackPointerSkills(
             });
           }
         } else {
-          await recordProjectLock(source, outcome.installed);
+          await recordProjectLock(source, outcome.installed, undefined, {
+            lockFile: options.lockFile,
+          });
         }
       } catch {
         // Don't fail installation if lock file update fails
@@ -1180,7 +1190,7 @@ async function handleWellKnownSkills(
   });
 
   // Surface an unusable lock before touching disk rather than after installing.
-  if (!installGlobally) await readLocalLock();
+  if (!installGlobally) await readLocalLock(undefined, { fileName: lockFileFor(options) });
 
   // Determine install mode (symlink vs copy)
   let installMode: InstallMode = options.copy ? 'copy' : 'symlink';
@@ -1290,6 +1300,7 @@ async function handleWellKnownSkills(
       global: installGlobally,
       mode: installMode,
       metadata: options.metadata,
+      lockFile: lockFileFor(options),
     });
     selectedSkills = selectedSkills.filter((skill) => !fromSource.has(skill));
     if (selectedSkills.length === 0) {
@@ -1395,11 +1406,16 @@ async function handleWellKnownSkills(
                 computedHash,
                 wellKnownDigest: computeWellKnownSkillDigest(skill),
               },
-              cwd
+              cwd,
+              lockFileFor(options)
             );
           }
         } catch (error) {
-          reportLockWriteFailure(skill.installName, getLocalLockPath(cwd), error);
+          reportLockWriteFailure(
+            skill.installName,
+            getLocalLockPath(cwd, lockFileFor(options)),
+            error
+          );
         }
       }
     }
@@ -2046,9 +2062,11 @@ export async function installFromSource(
     frozenLock?: LocalSkillLockFile;
     /** Copy into each agent dir instead of symlinking, and keep that in the lock. */
     installMode?: 'copy';
+    /** Project lock file to record the install in (default skills-lock.json). */
+    lockFile?: LocalLockFileName;
   }
 ): Promise<SourceInstallResult> {
-  const { frozenLock, installMode } = options;
+  const { frozenLock, installMode, lockFile } = options;
   const outcome = await installFetched(fetched, {
     skills: options.skills,
     placement: projectPlacement(options.agents, installMode),
@@ -2060,10 +2078,10 @@ export async function installFromSource(
       for (const skill of selected) {
         if (isWellKnownSourceSkill(skill)) continue;
         const hash = await sourceSkillHash(skill);
-        const reason = lockChangeReason(frozenLock, skill.name, { computedHash: hash });
+        const reason = lockChangeReason(frozenLock, skill.name, { computedHash: hash }, lockFile);
         if (reason) changes.push(reason);
       }
-      if (changes.length > 0) throw new Error(frozenLockfileError(changes));
+      if (changes.length > 0) throw new Error(frozenLockfileError(changes, lockFile));
       return selected;
     },
   });
@@ -2075,11 +2093,12 @@ export async function installFromSource(
   try {
     if (frozenLock) {
       const changes = outcome.installed.flatMap(
-        ({ skill, hash }) => lockChangeReason(frozenLock, skill.name, { computedHash: hash }) ?? []
+        ({ skill, hash }) =>
+          lockChangeReason(frozenLock, skill.name, { computedHash: hash }, lockFile) ?? []
       );
-      if (changes.length > 0) result.error = frozenLockfileError(changes);
+      if (changes.length > 0) result.error = frozenLockfileError(changes, lockFile);
     } else {
-      await recordProjectLock(fetched, outcome.installed, options.via, { installMode });
+      await recordProjectLock(fetched, outcome.installed, options.via, { installMode, lockFile });
     }
   } catch (error) {
     result.error = error instanceof Error ? error.message : String(error);
@@ -2089,7 +2108,11 @@ export async function installFromSource(
   return result;
 }
 
-/** Record `installed` in skills-lock.json as skills of `fetched` (with `via` when given). */
+/** The project lock file an add records into: skills-lock.local.json with --local. */
+function lockFileFor(options: AddOptions): LocalLockFileName | undefined {
+  return options.local ? PERSONAL_LOCK_FILE : undefined;
+}
+
 /** The skill is on disk but untracked, so `update` and restore will not see it. */
 function reportLockWriteFailure(skillName: string, lockPath: string, error: unknown): void {
   const reason = error instanceof Error ? error.message : String(error);
@@ -2099,11 +2122,19 @@ function reportLockWriteFailure(skillName: string, lockPath: string, error: unkn
   process.exitCode = 1;
 }
 
+/**
+ * Record `installed` in the project lock as skills of `fetched` (with `via`
+ * when given): skills-lock.json, or skills-lock.local.json with `lockFile`.
+ */
 export async function recordProjectLock(
   { parsed, resolved }: FetchedSource,
   installed: InstalledSkill[],
   via?: string,
-  { cwd, installMode }: { cwd?: string; installMode?: 'copy' } = {}
+  {
+    cwd,
+    installMode,
+    lockFile,
+  }: { cwd?: string; installMode?: 'copy'; lockFile?: LocalLockFileName } = {}
 ): Promise<void> {
   if (!resolved) return;
   const skills = installed.map(({ skill }) => skill);
@@ -2123,7 +2154,8 @@ export async function recordProjectLock(
     await addSkillToLocalLock(
       skill.name,
       { ...entry, ...(via && { via }), ...(installMode && { installMode }) },
-      cwd
+      cwd,
+      lockFile
     );
   }
 }
@@ -2892,7 +2924,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     const installTargets = buildInstallTargets(targetAgents, eveSubagentTargets);
 
     // Surface an unusable lock before touching disk rather than after installing.
-    if (!installGlobally) await readLocalLock();
+    if (!installGlobally) await readLocalLock(undefined, { fileName: lockFileFor(options) });
 
     // Only prompt for install mode when a symlink would actually mean something.
     let installMode: InstallMode = options.copy ? 'copy' : defaultInstallMode(installTargets);
@@ -3189,10 +3221,11 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
                 ...(recordSubagents && { subagents: eveSubagents }),
                 ...lockedInstallMode,
               },
-              cwd
+              cwd,
+              lockFileFor(options)
             );
           } catch (error) {
-            reportLockWriteFailure(skill.name, getLocalLockPath(cwd), error);
+            reportLockWriteFailure(skill.name, getLocalLockPath(cwd, lockFileFor(options)), error);
           }
         }
       }
@@ -3486,6 +3519,7 @@ const ADD_OPTIONS = {
   'full-depth': { type: 'boolean' },
   json: { type: 'boolean' },
   copy: { type: 'boolean' },
+  local: { type: 'boolean' },
   subagent: { type: 'list', value: 'a subagent name' },
 } as const;
 
@@ -3507,8 +3541,17 @@ export function parseAddOptions(args: string[]): {
     fullDepth: values['full-depth'],
     json: values.json,
     copy: values.copy,
+    local: values.local,
     subagent: values.subagent,
   };
+
+  if (options.local) {
+    if (options.global) {
+      errors.push(diagnostics.SKILLS_LOCAL_WITH_GLOBAL());
+    }
+    // Personal skills are project skills, so never ask for the scope.
+    options.global = false;
+  }
 
   const metadata = values.metadata?.at(-1);
   if (metadata !== undefined) {

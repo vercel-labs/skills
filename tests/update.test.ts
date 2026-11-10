@@ -110,6 +110,11 @@ describe('Update Cleanup Unit Tests', () => {
     vi.clearAllMocks();
     process.exitCode = undefined;
     process.env.DISABLE_TELEMETRY = '1';
+    // No personal skills-lock.local.json: the merged lock is the shared one.
+    vi.mocked(localLock.readMergedLocalLock).mockImplementation(async (cwd) => ({
+      lock: await localLock.readLocalLock(cwd),
+      personal: new Set(),
+    }));
     vi.mocked(add.nonInteractiveTargetAgents).mockResolvedValue(['cursor']);
     vi.mocked(add.fetchSources).mockImplementation(async (requests) =>
       requests.map(({ parsed }) => ({
@@ -329,7 +334,9 @@ describe('Update Cleanup Unit Tests', () => {
         expect.objectContaining({
           skillPath: 'skills/swiftui-expert-skill/SKILL.md',
           computedHash: 'same-hash',
-        })
+        }),
+        undefined,
+        undefined
       );
     });
 
@@ -398,7 +405,9 @@ describe('Update Cleanup Unit Tests', () => {
       );
       expect(localLock.addSkillToLocalLock).toHaveBeenCalledWith(
         'skill-b',
-        expect.objectContaining({ computedHash: 'hash-b-new' })
+        expect.objectContaining({ computedHash: 'hash-b-new' }),
+        undefined,
+        undefined
       );
       expect(result.successCount).toBe(1);
     });
@@ -637,7 +646,9 @@ describe('Update Cleanup Unit Tests', () => {
       );
       expect(localLock.addSkillToLocalLock).toHaveBeenCalledWith(
         'skill-a',
-        expect.objectContaining({ subagents: ['', 'research'], computedHash: 'new-hash' })
+        expect.objectContaining({ subagents: ['', 'research'], computedHash: 'new-hash' }),
+        undefined,
+        undefined
       );
     });
 

@@ -10,9 +10,12 @@ import {
 } from './skill-lock.ts';
 import {
   computeSkillFolderHash,
-  readLocalLock,
+  readMergedLocalLock,
   getLockedSkillState,
   addSkillToLocalLock,
+  getLocalLockPath,
+  PERSONAL_LOCK_FILE,
+  type LocalLockFileName,
   type LocalSkillLockEntry,
 } from './local-lock.ts';
 import {
@@ -173,15 +176,14 @@ export function parseUpdateOptions(args: string[]): UpdateCheckOptions {
 /**
  * Check whether the current working directory has project-level skills.
  * Returns true if either:
- * - skills-lock.json exists in cwd, OR
+ * - skills-lock.json or skills-lock.local.json exists in cwd, OR
  * - .agents/skills/ contains at least one subdirectory with a SKILL.md
  */
 export function hasProjectSkills(cwd?: string): boolean {
   const dir = cwd || process.cwd();
 
-  // Check 1: skills-lock.json exists
-  const lockPath = join(dir, 'skills-lock.json');
-  if (existsSync(lockPath)) {
+  // Check 1: a project lock exists
+  if (existsSync(getLocalLockPath(dir)) || existsSync(getLocalLockPath(dir, PERSONAL_LOCK_FILE))) {
     return true;
   }
 
@@ -329,18 +331,32 @@ export function printSkippedSkills(skipped: SkippedSkill[]): void {
   }
 }
 
+/** A project skill to update, with the lock file it is recorded back into. */
+interface ProjectUpdateSkill {
+  name: string;
+  source: string;
+  entry: LocalSkillLockEntry;
+  /** Set for skills tracked in skills-lock.local.json. */
+  lockFile?: LocalLockFileName;
+}
+
 export async function getProjectSkillsForUpdate(
   skillFilter?: string[]
-): Promise<Array<{ name: string; source: string; entry: LocalSkillLockEntry }>> {
-  const localLock = await readLocalLock();
-  const skills: Array<{ name: string; source: string; entry: LocalSkillLockEntry }> = [];
+): Promise<ProjectUpdateSkill[]> {
+  const { lock: localLock, personal } = await readMergedLocalLock();
+  const skills: ProjectUpdateSkill[] = [];
 
   for (const [name, entry] of Object.entries(localLock.skills)) {
     if (!matchesSkillFilter(name, skillFilter)) continue;
     if (entry.sourceType === 'node_modules' || entry.sourceType === 'local') {
       continue;
     }
-    skills.push({ name, source: entry.sourceUrl || entry.source, entry });
+    skills.push({
+      name,
+      source: entry.sourceUrl || entry.source,
+      entry,
+      ...(personal.has(name) && { lockFile: PERSONAL_LOCK_FILE }),
+    });
   }
 
   return skills;
@@ -415,6 +431,8 @@ export interface WellKnownUpdateItem {
   name: string;
   digest: string;
   subagents?: string[];
+  /** Project lock file to record the update in (default skills-lock.json). */
+  lockFile?: LocalLockFileName;
 }
 
 export type WellKnownCheckResult =
@@ -573,7 +591,10 @@ export async function processWellKnownUpdates(
         placement: await placementFor(isGlobal ? undefined : itemByName.get(name)?.subagents),
       });
       if (isGlobal) await recordGlobalWellKnownLock(baseUrl, outcome.installed);
-      else await recordProjectLock(source, outcome.installed);
+      else
+        await recordProjectLock(source, outcome.installed, undefined, {
+          lockFile: itemByName.get(name)?.lockFile,
+        });
       if (reportInstall(name, { ok: outcome.installed.length > 0, ...outcome })) successCount++;
       else failCount++;
     }
@@ -1061,6 +1082,7 @@ export async function updateProjectSkills(
         name: skill.name,
         digest: entry.wellKnownDigest,
         subagents: entry.subagents,
+        lockFile: skill.lockFile,
       });
       wellKnownGroups.set(entry.sourceUrl, group);
     } else {
@@ -1119,13 +1141,20 @@ export async function updateProjectSkills(
   successCount += wkSuccessCount;
   failCount += wkFailCount;
 
-  const entryOf = new Map(projectSkills.map((skill) => [skill.name, skill.entry]));
+  const skillOf = new Map(projectSkills.map((skill) => [skill.name, skill]));
   const downloads = await processDownloadUpdates(
     downloadItems,
     false,
     options,
-    (item, skillPath, computedHash) =>
-      addSkillToLocalLock(item.name, { ...entryOf.get(item.name)!, skillPath, computedHash })
+    (item, skillPath, computedHash) => {
+      const skill = skillOf.get(item.name)!;
+      return addSkillToLocalLock(
+        item.name,
+        { ...skill.entry, skillPath, computedHash },
+        undefined,
+        skill.lockFile
+      );
+    }
   );
   successCount += downloads.successCount;
   failCount += downloads.failCount;
@@ -1141,7 +1170,7 @@ export async function updateProjectSkills(
     bySource.set(key, existing);
   }
 
-  const localLock = await readLocalLock();
+  const { lock: localLock } = await readMergedLocalLock();
   const onDisk = await installedSkillNames(false);
   const placementFor = placementResolver(false);
   let upToDateCount = downloads.upToDateCount;
@@ -1246,7 +1275,12 @@ export async function updateProjectSkills(
         );
         const outcome = targetOutcome(results);
         if (outcome.ok && computedHash) {
-          await addSkillToLocalLock(skill.name, { ...skill.entry, skillPath, computedHash });
+          await addSkillToLocalLock(
+            skill.name,
+            { ...skill.entry, skillPath, computedHash },
+            undefined,
+            skill.lockFile
+          );
         }
         if (reportInstall(skill.name, outcome)) successCount++;
         else failCount++;
@@ -1281,7 +1315,7 @@ export async function updateProjectSkills(
  */
 async function reportModifiedProjectSkills(skillFilter?: string[]): Promise<number> {
   const cwd = process.cwd();
-  const lock = await readLocalLock(cwd).catch(() => null);
+  const lock = (await readMergedLocalLock(cwd).catch(() => null))?.lock;
   if (!lock) return 0;
   const entries = Object.entries(lock.skills).filter(([name]) =>
     matchesSkillFilter(name, skillFilter)
@@ -1397,7 +1431,7 @@ export async function runUpdate(
   }
   if (modifiedCount > 0) {
     console.log(
-      `${TEXT}${modifiedCount} skill(s) differ from skills-lock.json; run ${BOLD}npx skills install --force${RESET}${TEXT} to restore them${RESET}`
+      `${TEXT}${modifiedCount} skill(s) differ from their lock entry; run ${BOLD}npx skills install --force${RESET}${TEXT} to restore them${RESET}`
     );
     process.exitCode = 1;
   }

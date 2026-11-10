@@ -215,7 +215,10 @@ so handle unknown codes generically.
 `SKILL.md` was not discovered) and `SKILLS_BROKEN_SYMLINK`,
 `SKILLS_SYMLINK_OUTSIDE_SKILL`, `SKILLS_SYMLINK_CYCLE` (an unsafe symlink
 inside a skill was not copied). Their `data.path` is the file concerned, which
-may be inside a temporary clone.
+may be inside a temporary clone. `SKILLS_LOCAL_LOCK_IGNORED` means an unusable
+`skills-lock.local.json` was left out of a project lock read, and
+`SKILLS_REMOVE_KEPT_SHARED_ENTRY` that a removed personal skill still has a team
+entry in `skills-lock.json`.
 
 ## Stability
 

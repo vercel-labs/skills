@@ -6,7 +6,7 @@ import { parseCliArgs, throwFirstError } from './cli-args.ts';
 import { listInstalledSkills, sanitizeName, type InstalledSkill } from './installer.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { getAllLockedSkills } from './skill-lock.ts';
-import { getLockedSkillState, readLocalLock } from './local-lock.ts';
+import { getLockedSkillState, readMergedLocalLock } from './local-lock.ts';
 import { BOLD, CYAN, DIM, RESET, YELLOW } from './color.ts';
 
 interface ListOptions {
@@ -63,7 +63,7 @@ export function parseListOptions(args: string[]): ListOptions {
 /** Listing is read-only, so an unusable lock only costs source info. */
 async function readProjectLockOrWarn(cwd: string): Promise<Record<string, ListLockEntry>> {
   try {
-    return (await readLocalLock(cwd)).skills;
+    return (await readMergedLocalLock(cwd)).lock.skills;
   } catch (error) {
     if (!isDiagnostic(error, 'SKILLS_INVALID_LOCAL_LOCK')) throw error;
     console.error(`${YELLOW}Warning: ${formatError(error)}${RESET}`);

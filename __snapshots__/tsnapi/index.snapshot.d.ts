@@ -207,6 +207,10 @@ export declare const diagnostics: import("nostics").Diagnostics<{
       example: string;
     }) => string;
   };
+  readonly SKILLS_LOCAL_WITH_GLOBAL: {
+    readonly why: "Cannot combine --local with --global.";
+    readonly fix: "Local skills are recorded in the project skills-lock.local.json. Drop --global, or drop --local to install globally.";
+  };
   readonly SKILLS_PROMPT_REQUIRES_TTY: {
     readonly why: string;
   };
@@ -475,6 +479,16 @@ export declare const diagnostics: import("nostics").Diagnostics<{
     readonly why: (p: {
       path: string;
       reason: string;
+    }) => string;
+  };
+  readonly SKILLS_REMOVE_KEPT_SHARED_ENTRY: {
+    readonly why: (p: {
+      skill: string;
+    }) => string;
+  };
+  readonly SKILLS_LOCAL_LOCK_IGNORED: {
+    readonly why: (p: {
+      detail: string;
     }) => string;
   };
   readonly SKILLS_SYMLINK_OUTSIDE_SKILL: {

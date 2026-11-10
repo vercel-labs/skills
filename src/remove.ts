@@ -12,7 +12,9 @@ import { detectAgent } from './detect-agent.ts';
 import { removeSkillFromLock, getSkillFromLock, readSkillLock } from './skill-lock.ts';
 import {
   computeSkillFolderHash,
+  PERSONAL_LOCK_FILE,
   readLocalLock,
+  readMergedLocalLock,
   removeSkillFromLocalLock,
   type LocalSkillLockEntry,
 } from './local-lock.ts';
@@ -138,7 +140,9 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   // Read lock file keys up front. These are needed both to decide whether there is
   // anything to remove (a skill may be missing from disk but still leave a stale lock
   // entry) and to clean up those stale entries below.
-  const lockEntries = isGlobal ? (await readSkillLock()).skills : (await readLocalLock(cwd)).skills;
+  const lockEntries = isGlobal
+    ? (await readSkillLock()).skills
+    : (await readMergedLocalLock(cwd)).lock.skills;
   const lockSkillsKeys = Object.keys(lockEntries);
   const sourceByKey = Object.fromEntries(
     lockSkillsKeys.map((key) => [key, lockEntries[key]?.source])
@@ -366,7 +370,7 @@ export async function findGloballyTrackedSkills(
   cwd: string
 ): Promise<string[]> {
   if (!isSameDir(getCanonicalSkillsDir(false, cwd), getCanonicalSkillsDir(true))) return [];
-  const lockEntries = (await readLocalLock(cwd)).skills;
+  const lockEntries = (await readMergedLocalLock(cwd)).lock.skills;
   const globalNames = new Set(Object.keys((await readSkillLock()).skills).map(sanitizeName));
   return selected.filter((s) => !lockEntries[s] && globalNames.has(sanitizeName(s)));
 }
@@ -416,7 +420,7 @@ export async function removeInstalledSkills(
 ): Promise<RemoveSkillResult[]> {
   const { global: isGlobal, cwd, targetAgents } = options;
   const results: RemoveSkillResult[] = [];
-  const projectLock = isGlobal ? undefined : (await readLocalLock(cwd)).skills;
+  const projectLock = isGlobal ? undefined : (await readMergedLocalLock(cwd)).lock.skills;
 
   for (const skillName of skills) {
     try {
@@ -505,12 +509,21 @@ export async function removeInstalledSkills(
           await removeSkillFromLock(skillName);
         }
       } else {
-        const localLock = await readLocalLock(cwd);
+        const { lock: localLock, personal } = await readMergedLocalLock(cwd);
         const lockEntry = localLock.skills[skillName];
         effectiveSource = lockEntry?.source || 'local';
         effectiveSourceType = lockEntry?.sourceType || 'local';
         if (updateLock) {
-          await removeSkillFromLocalLock(skillName, cwd);
+          // A personal entry may override a team skill: drop only the override,
+          // so the shared lock (and its next restore) is left as committed
+          if (personal.has(skillName)) {
+            await removeSkillFromLocalLock(skillName, cwd, PERSONAL_LOCK_FILE);
+            if (Object.hasOwn((await readLocalLock(cwd)).skills, skillName)) {
+              warn(diagnostics.SKILLS_REMOVE_KEPT_SHARED_ENTRY({ skill: skillName }));
+            }
+          } else {
+            await removeSkillFromLocalLock(skillName, cwd);
+          }
         }
       }
 

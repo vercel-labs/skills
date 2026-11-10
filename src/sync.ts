@@ -27,7 +27,9 @@ import {
   computeSkillFolderHash,
   frozenLockfileError,
   lockChangeReason,
+  PERSONAL_LOCK_FILE,
   readLocalLock,
+  readPersonalLock,
   writeLocalLock,
   type LocalSkillLockEntry,
   type LocalSkillLockFile,
@@ -431,14 +433,17 @@ async function linksIntoNodeModules(path: string): Promise<boolean> {
  * Remove skills that sync installed earlier and nothing provides anymore.
  * A name is a candidate when its lock entry comes from node_modules, or from a
  * remote `skills` entry that `keepRemote` rejects, or when its canonical dir
- * links into node_modules. Only destinations sync owns are removed.
+ * links into node_modules. Only destinations sync owns are removed, and none
+ * for names in `personal`: those files belong to skills-lock.local.json, so
+ * only the stale shared entry goes.
  */
 async function pruneStaleSkills(
   cwd: string,
   keep: Set<string>,
   keepRemote: (entry: LocalSkillLockEntry, name: string) => boolean,
   lock: LocalSkillLockFile,
-  dryRun: boolean
+  dryRun: boolean,
+  personal: Set<string>
 ): Promise<string[]> {
   const canonicalBase = getCanonicalSkillsDir(false, cwd);
   const lockKeys = new Map<string, string>();
@@ -464,10 +469,9 @@ async function pruneStaleSkills(
     const canonicalDir = join(canonicalBase, name);
     const key = lockKeys.get(name);
     const lockEntry = key ? lock.skills[key] : undefined;
-    const destinations = new Set([
-      canonicalDir,
-      ...allAgents.map((agent) => getInstallPath(name, agent, { cwd })),
-    ]);
+    const destinations = personal.has(name)
+      ? new Set<string>()
+      : new Set([canonicalDir, ...allAgents.map((agent) => getInstallPath(name, agent, { cwd }))]);
     for (const dest of destinations) {
       if (!(await foreignDestination(dest, canonicalDir, lockEntry, cwd))) {
         await rm(dest, { recursive: true, force: true });
@@ -682,6 +686,12 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   for (const warning of discovery.warnings) p.log.warn(formatError(warning));
 
   const localLock = await readLocalLock(cwd);
+  // Skills in skills-lock.local.json belong to their owner: sync never removes,
+  // replaces, or records them
+  const personal = new Set(
+    Object.keys((await readPersonalLock(cwd)).skills).map((name) => sanitizeName(name))
+  );
+  const personalReason = `overridden in ${PERSONAL_LOCK_FILE}`;
   const frozen = options.frozenLockfile ?? isCI();
   if (options.cleanup !== false) {
     const keep = new Set(discoveredSkills.map((skill) => sanitizeName(skill.name)));
@@ -696,7 +706,8 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
       keep,
       keepRemote,
       localLock,
-      frozen || (options.dryRun ?? false)
+      frozen || (options.dryRun ?? false),
+      personal
     );
     if (frozen) {
       if (failOnLockChanges(stale.map((name) => `${name} is no longer provided by a dependency`)))
@@ -717,7 +728,7 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   if (options.remote !== false) {
     const shippedNames = new Set(discoveredSkills.map((skill) => sanitizeName(skill.name)));
     for (const [name, entry] of Object.entries(localLock.skills)) {
-      if (shippedNames.has(sanitizeName(name))) continue;
+      if (shippedNames.has(sanitizeName(name)) || personal.has(sanitizeName(name))) continue;
       if (
         !remote.some(
           (request) =>
@@ -803,12 +814,13 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   }
 
   // 3. Resolve conflicts
-  const { install: toInstall, skipped } = await resolveConflicts(
-    discoveredSkills,
-    targetAgents,
-    localLock.skills,
-    cwd
-  );
+  const resolved = await resolveConflicts(discoveredSkills, targetAgents, localLock.skills, cwd);
+  const isPersonal = (skill: PackageSkill) => personal.has(sanitizeName(skill.name));
+  const toInstall = resolved.install.filter((skill) => !isPersonal(skill));
+  const skipped = [
+    ...resolved.skipped,
+    ...resolved.install.filter(isPersonal).map((skill) => ({ skill, reason: personalReason })),
+  ];
   for (const { skill, reason } of skipped) {
     p.log.warn(`Skipped ${pc.cyan(skill.name)} ${pc.dim(`from ${skill.packageName}`)}: ${reason}`);
   }
@@ -982,7 +994,9 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
           if (!remoteAllowsSkill(request, name, options)) continue;
           const reason = claimed.has(name)
             ? 'another source in this sync provides it'
-            : await blockedReason(name, targetAgents, lockEntryFor(name), cwd);
+            : personal.has(name)
+              ? personalReason
+              : await blockedReason(name, targetAgents, lockEntryFor(name), cwd);
           if (reason) {
             p.log.warn(`Skipped ${pc.cyan(name)} from ${label}: ${reason}`);
             continue;

@@ -2,7 +2,8 @@ import { readFile, readdir, writeFile } from 'fs/promises';
 import { createHash } from 'crypto';
 import { existsSync } from 'fs';
 import { isAbsolute, join, relative, resolve, sep } from 'path';
-import { diagnostics } from './diagnostics.ts';
+import { diagnostics, isDiagnostic } from './diagnostics.ts';
+import { warn } from './warnings.ts';
 import { computeSkillFolderHash } from './skill-hash.ts';
 import { sanitizeName } from './sanitize.ts';
 import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
@@ -10,8 +11,17 @@ import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
 export { computeSkillFolderHash };
 
 const LOCAL_LOCK_FILE = 'skills-lock.json';
+/**
+ * Personal project skills, kept beside skills-lock.json and meant to be
+ * gitignored. Restores merge it over the shared lock, so each team member can
+ * add their own skills without changing what the team commits.
+ */
+export const PERSONAL_LOCK_FILE = 'skills-lock.local.json';
 /** v2: computedHash is the portable hash from skill-hash.ts. v1 used a locale-dependent one. */
 const CURRENT_VERSION = 2;
+
+/** Which project lock file to read or write. */
+export type LocalLockFileName = typeof LOCAL_LOCK_FILE | typeof PERSONAL_LOCK_FILE;
 
 /**
  * Represents a single skill entry in the local (project) lock file.
@@ -77,8 +87,11 @@ export interface LocalSkillLockFile {
 /**
  * Get the path to the local skill lock file for a project.
  */
-export function getLocalLockPath(cwd?: string): string {
-  return join(cwd || process.cwd(), LOCAL_LOCK_FILE);
+export function getLocalLockPath(
+  cwd?: string,
+  fileName: LocalLockFileName = LOCAL_LOCK_FILE
+): string {
+  return join(cwd || process.cwd(), fileName);
 }
 
 /** Where a project skill is installed: `.agents/skills/<name>`. */
@@ -99,10 +112,13 @@ export function getInstalledSkillDir(skillName: string, cwd?: string): string {
  */
 export async function readLocalLock(
   cwd?: string,
-  { persistMigration = false }: { persistMigration?: boolean } = {}
+  {
+    fileName = LOCAL_LOCK_FILE,
+    persistMigration = false,
+  }: { fileName?: LocalLockFileName; persistMigration?: boolean } = {}
 ): Promise<LocalSkillLockFile> {
   const lockDir = cwd || process.cwd();
-  const lockPath = getLocalLockPath(lockDir);
+  const lockPath = getLocalLockPath(lockDir, fileName);
 
   let content: string;
   try {
@@ -152,7 +168,7 @@ export async function readLocalLock(
       })
     );
     parsed.version = CURRENT_VERSION;
-    if (persistMigration) await writeLocalLock(parsed, lockDir);
+    if (persistMigration) await writeLocalLock(parsed, lockDir, fileName);
   }
 
   return parsed;
@@ -224,6 +240,51 @@ export async function getLockedSkillState(
   return hash === entry.computedHash ? 'tracked' : 'modified';
 }
 
+/** Personal lock paths already reported as unusable, so each is reported once per run. */
+const ignoredPersonalLocks = new Set<string>();
+
+/**
+ * Read skills-lock.local.json for a lookup. The file is gitignored and only
+ * its owner's, so an unusable one is reported once with
+ * SKILLS_LOCAL_LOCK_IGNORED and read as empty rather than blocking commands on
+ * shared skills. Writing to it (`addSkillToLocalLock`) still throws.
+ */
+export async function readPersonalLock(
+  cwd?: string,
+  { persistMigration = false }: { persistMigration?: boolean } = {}
+): Promise<LocalSkillLockFile> {
+  try {
+    return await readLocalLock(cwd, { fileName: PERSONAL_LOCK_FILE, persistMigration });
+  } catch (error) {
+    if (!isDiagnostic(error, 'SKILLS_INVALID_LOCAL_LOCK')) throw error;
+    const path = getLocalLockPath(cwd, PERSONAL_LOCK_FILE);
+    if (!ignoredPersonalLocks.has(path)) {
+      ignoredPersonalLocks.add(path);
+      warn(diagnostics.SKILLS_LOCAL_LOCK_IGNORED({ detail: error.message }));
+    }
+    return createEmptyLocalLock();
+  }
+}
+
+/**
+ * skills-lock.json with skills-lock.local.json (see `readPersonalLock`) merged
+ * over it, plus the names whose entry came from the personal file. A personal
+ * entry wins over a shared one with the same name.
+ */
+export async function readMergedLocalLock(
+  cwd?: string,
+  { persistMigration = false }: { persistMigration?: boolean } = {}
+): Promise<{ lock: LocalSkillLockFile; personal: Set<string> }> {
+  const [shared, personal] = await Promise.all([
+    readLocalLock(cwd, { persistMigration }),
+    readPersonalLock(cwd, { persistMigration }),
+  ]);
+  return {
+    lock: { version: shared.version, skills: { ...shared.skills, ...personal.skills } },
+    personal: new Set(Object.keys(personal.skills)),
+  };
+}
+
 function isLocalLockShape(value: unknown): value is LocalSkillLockFile {
   return (
     typeof value === 'object' &&
@@ -240,9 +301,13 @@ function isLocalLockShape(value: unknown): value is LocalSkillLockFile {
  * Write the local skill lock file.
  * Skills are sorted alphabetically by name for deterministic output.
  */
-export async function writeLocalLock(lock: LocalSkillLockFile, cwd?: string): Promise<void> {
+export async function writeLocalLock(
+  lock: LocalSkillLockFile,
+  cwd?: string,
+  fileName: LocalLockFileName = LOCAL_LOCK_FILE
+): Promise<void> {
   const lockDir = cwd || process.cwd();
-  const lockPath = getLocalLockPath(lockDir);
+  const lockPath = getLocalLockPath(lockDir, fileName);
 
   // Sort skills alphabetically for deterministic output / clean diffs
   const sortedSkills = Object.fromEntries(
@@ -280,16 +345,26 @@ function getPortableLocalSource(source: string, lockDir: string): string {
 }
 
 /**
- * Add or update a skill entry in the local lock file.
+ * Add or update a skill entry in the local lock file. Recording a skill in
+ * skills-lock.json also drops it from skills-lock.local.json, so a plain
+ * `skills add` of a personal skill moves it into the shared lock instead of
+ * being shadowed by the personal entry.
  */
 export async function addSkillToLocalLock(
   skillName: string,
   entry: LocalSkillLockEntry,
-  cwd?: string
+  cwd?: string,
+  fileName: LocalLockFileName = LOCAL_LOCK_FILE
 ): Promise<void> {
-  const lock = await readLocalLock(cwd);
+  const lock = await readLocalLock(cwd, { fileName });
   lock.skills = { ...lock.skills, [skillName]: entry };
-  await writeLocalLock(lock, cwd);
+  await writeLocalLock(lock, cwd, fileName);
+  if (fileName === LOCAL_LOCK_FILE) {
+    // An unusable personal lock is already left out of reads, so it cannot shadow the entry
+    await removeSkillFromLocalLock(skillName, cwd, PERSONAL_LOCK_FILE).catch((error) => {
+      if (!isDiagnostic(error, 'SKILLS_INVALID_LOCAL_LOCK')) throw error;
+    });
+  }
 }
 
 /**
@@ -299,25 +374,30 @@ export async function addSkillToLocalLock(
 export function lockChangeReason(
   lock: LocalSkillLockFile,
   skillName: string,
-  entry: Pick<LocalSkillLockEntry, 'computedHash' | 'version'>
+  entry: Pick<LocalSkillLockEntry, 'computedHash' | 'version'>,
+  /** The lock file the entry lives in, for the message. */
+  fileName: LocalLockFileName = LOCAL_LOCK_FILE
 ): string | null {
   const locked = lock.skills[skillName];
-  if (!locked) return `${skillName} is not in skills-lock.json`;
+  if (!locked) return `${skillName} is not in ${fileName}`;
   if (!locked.computedHash) {
-    return `${skillName} has no content hash in skills-lock.json (migrated from version 1, and the installed skill was missing or did not match)`;
+    return `${skillName} has no content hash in ${fileName} (migrated from version 1, and the installed skill was missing or did not match)`;
   }
   if (locked.computedHash !== entry.computedHash) {
-    return `${skillName} has changed since skills-lock.json was written`;
+    return `${skillName} has changed since ${fileName} was written`;
   }
   if (locked.version !== entry.version) {
-    return `${skillName} comes from version ${entry.version ?? 'unknown'}, skills-lock.json has ${locked.version ?? 'unknown'}`;
+    return `${skillName} comes from version ${entry.version ?? 'unknown'}, ${fileName} has ${locked.version ?? 'unknown'}`;
   }
   return null;
 }
 
-export function frozenLockfileError(changes: string[]): string {
+export function frozenLockfileError(
+  changes: string[],
+  fileName: LocalLockFileName = LOCAL_LOCK_FILE
+): string {
   return [
-    'Cannot install with --frozen-lockfile because skills-lock.json is not up to date:',
+    `Cannot install with --frozen-lockfile because ${fileName} is not up to date:`,
     ...changes.map((change) => `  ${change}`),
     'Run again with --no-frozen-lockfile to update it.',
   ].join('\n');
@@ -326,15 +406,19 @@ export function frozenLockfileError(changes: string[]): string {
 /**
  * Remove a skill from the local lock file.
  */
-export async function removeSkillFromLocalLock(skillName: string, cwd?: string): Promise<boolean> {
-  const lock = await readLocalLock(cwd);
+export async function removeSkillFromLocalLock(
+  skillName: string,
+  cwd?: string,
+  fileName: LocalLockFileName = LOCAL_LOCK_FILE
+): Promise<boolean> {
+  const lock = await readLocalLock(cwd, { fileName });
 
   if (!Object.hasOwn(lock.skills, skillName)) {
     return false;
   }
 
   delete lock.skills[skillName];
-  await writeLocalLock(lock, cwd);
+  await writeLocalLock(lock, cwd, fileName);
   return true;
 }
 

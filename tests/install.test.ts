@@ -25,6 +25,11 @@ vi.mock('../src/ci.ts', () => ({ isCI: () => false }));
 describe('runInstallFromLock', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // No personal skills-lock.local.json: the merged lock is the shared one.
+    vi.mocked(localLock.readMergedLocalLock).mockImplementation(async (cwd) => ({
+      lock: await localLock.readLocalLock(cwd),
+      personal: new Set(),
+    }));
     vi.mocked(add.fetchSources).mockImplementation(async (requests) =>
       requests.map(({ parsed }) => ({ parsed, resolved: null, error: 'not fetched' }))
     );

@@ -73,6 +73,7 @@ For GitHub tree lookups, `skills` first tries the API anonymously, then an expli
 | `-s, --skill <skills...>` | Install specific skills by name (use `'*'` for all skills)                                                                                                  |
 | `-l, --list`              | List available skills without installing                                                                                                                    |
 | `--copy`                  | Copy files instead of symlinking to agent directories                                                                                                       |
+| `--local`                 | Record the project install in `skills-lock.local.json` instead of `skills-lock.json` (see [Personal skills](#personal-skills))                             |
 | `-y, --yes`               | Skip all confirmation prompts                                                                                                                               |
 | `--all`                   | Install all skills to all agents without prompts                                                                                                            |
 
@@ -93,6 +94,9 @@ npx skills add vercel-labs/agent-skills -a claude-code -a opencode
 
 # Non-interactive installation (CI/CD friendly)
 npx skills add vercel-labs/agent-skills --skill frontend-design -g -a claude-code -y
+
+# Install a project skill just for yourself (recorded in skills-lock.local.json)
+npx skills add vercel-labs/agent-skills --skill frontend-design --local
 
 # Install all skills from a repo to all agents
 npx skills add vercel-labs/agent-skills --all
@@ -382,7 +386,8 @@ npx skills experimental_install
 `skills install` and `skills i` without a source are aliases for this command. With
 a source, they behave like `skills add`.
 
-Restore supported sources recorded in `skills-lock.json` into `.agents/skills/` and
+Restore supported sources recorded in `skills-lock.json` and the personal
+[`skills-lock.local.json`](#personal-skills) into `.agents/skills/` and
 link them into agent directories. Skills already in `.agents/skills/` whose files match
 the lock's content hash are left as they are and only get the agent links they are
 missing. Skills whose files differ are restored from their source. Pass `--force` to
@@ -404,10 +409,37 @@ machine. With none of these, only `.agents/skills/` is filled. Skills recorded w
 | `--no-frozen-lockfile` | Allow `skills-lock.json` to change in CI                    |
 | `--force`              | Reinstall skills that are already in `.agents/skills/`      |
 
+### Personal skills
+
+`skills-lock.local.json` sits next to `skills-lock.json` and has the same format. It
+holds project skills that are yours alone, so add it to `.gitignore`:
+
+```gitignore
+skills-lock.local.json
+```
+
+`skills add --local` records into it instead of `skills-lock.json`. Restore merges
+it over `skills-lock.json`, so a personal entry wins over a shared one with the same
+name, and each restored skill is recorded back into the file it came from. `list`
+shows skills from both files, and `check` reports local changes in both.
+
+- `update` keeps personal skills in the personal file.
+- `skills add` without `--local` moves a personal skill into `skills-lock.json`.
+- `remove` of a personal skill drops it only from the personal file. When it overrode a
+  team skill, the shared entry stays, `remove` says so, and the next restore installs
+  the team's version.
+- `experimental_sync` never removes or replaces the files of a skill that the personal
+  file lists. It still drops a shared `node_modules` entry of the same name once no
+  dependency provides it. Skills from npm packages come from `package.json`, so restore
+  skips `node_modules` entries in the personal file.
+- An unusable personal file (invalid JSON, unknown version) is reported once and left
+  out, so commands on shared skills keep working. `skills add --local` refuses to write it.
+
 With `--frozen-lockfile`, every restored skill must match the content hash recorded
-in `skills-lock.json`, and so must every skill that is skipped because it is already
-installed. An entry with no hash is an error. A version 1 lock produces one when the skill was
-not installed, or when its files did not match the version 1 hash. A source whose skills differ is skipped entirely, the lock is
+in `skills-lock.json` (or `skills-lock.local.json` for personal skills), and so must every
+skill that is skipped because it is already installed. An entry with no hash is an error. A
+version 1 lock produces one when the skill was not installed, or when its files did not match
+the version 1 hash. A source whose skills differ is skipped entirely, the lock is
 left untouched, and the command exits with code 1. A missing or empty lock is also
 an error. This is the default in CI; pass `--no-frozen-lockfile` to refresh the lock
 from CI instead.
