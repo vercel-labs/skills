@@ -236,6 +236,47 @@ description: A Kiro test skill
     expect(result.stdout).toContain('symlinked: Kiro CLI');
   });
 
+  it('skips an agent whose install path is a category directory (#1723)', () => {
+    const sourceDir = join(testDir, 'source');
+    mkdirSync(join(sourceDir, 'skills', 'research'), { recursive: true });
+    writeFileSync(
+      join(sourceDir, 'skills', 'research', 'SKILL.md'),
+      '---\nname: research\ndescription: A flat research skill\n---\n\n# Research\n'
+    );
+
+    const projectDir = join(testDir, 'project');
+    const category = join(projectDir, '.hermes', 'skills', 'research');
+    for (const nested of ['arxiv', 'polymarket']) {
+      mkdirSync(join(category, nested), { recursive: true });
+      writeFileSync(join(category, nested, 'SKILL.md'), `---\nname: ${nested}\n---\n`);
+    }
+
+    const result = runCli(
+      ['add', sourceDir, '-y', '--agent', 'hermes-agent', 'claude-code'],
+      projectDir,
+      noDetectedAgentEnv
+    );
+
+    expect(result.exitCode).toBe(0);
+    // clack wraps long note lines, so drop the box borders before matching.
+    expect(result.stdout.replace(/[\s│]+/g, ' ')).toContain(
+      'conflicts with category: Hermes Agent (research/ contains arxiv, polymarket)'
+    );
+    expect(result.stdout).toMatch(/symlink → Claude Code\s/);
+    expect(result.stdout).not.toMatch(/(symlink|copy) →.*Hermes Agent/);
+    expect(result.stdout).not.toContain('overwrites:');
+    expect(result.stdout).not.toContain('Failed to install');
+    expect(result.stderr).toContain('Move or rename the category directory');
+
+    // The other agent still gets the skill.
+    expect(existsSync(join(projectDir, '.claude', 'skills', 'research', 'SKILL.md'))).toBe(true);
+    // The category and its nested skills are untouched.
+    expect(lstatSync(category).isSymbolicLink()).toBe(false);
+    expect(existsSync(join(category, 'SKILL.md'))).toBe(false);
+    expect(readFileSync(join(category, 'arxiv', 'SKILL.md'), 'utf-8')).toContain('arxiv');
+    expect(existsSync(join(category, 'polymarket', 'SKILL.md'))).toBe(true);
+  });
+
   it('does not dereference symlinks that escape the skill directory', () => {
     const sourceDir = join(testDir, 'source');
     const skillDir = join(sourceDir, 'skills', 'evil-skill');
