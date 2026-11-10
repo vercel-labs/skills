@@ -563,12 +563,14 @@ export async function promptForAgents(
  * global skills directory are skipped with one notice on a global install,
  * instead of failing once per skill. Agents named with --agent keep that error,
  * and so does a selection where no agent supports global installs.
+ * `--agent '*'` selects every agent like --yes does, so it is not named.
  */
 export function skipAgentsWithoutGlobalDir(
   targetAgents: AgentType[],
-  options: { global: boolean; explicit: boolean }
+  options: { global: boolean; agent?: string[] }
 ): AgentType[] {
-  if (!options.global || options.explicit) return targetAgents;
+  const named = options.agent !== undefined && !options.agent.includes('*');
+  if (!options.global || named) return targetAgents;
   const skipped = targetAgents.filter((a) => agents[a].globalSkillsDir === undefined);
   if (skipped.length === 0 || skipped.length === targetAgents.length) return targetAgents;
   p.log.info(
@@ -1131,7 +1133,7 @@ async function handleWellKnownSkills(
 
   targetAgents = skipAgentsWithoutGlobalDir(targetAgents, {
     global: installGlobally,
-    explicit: options.agent !== undefined,
+    agent: options.agent,
   });
 
   // Surface an unusable lock before touching disk rather than after installing.
@@ -2825,7 +2827,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     targetAgents = skipAgentsWithoutGlobalDir(targetAgents, {
       global: installGlobally,
-      explicit: options.agent !== undefined,
+      agent: options.agent,
     });
     const installTargets = buildInstallTargets(targetAgents, eveSubagentTargets);
 
