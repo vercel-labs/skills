@@ -9,10 +9,6 @@ export interface SkillLocationResolution {
   resolvedPaths: Map<string, string>;
 }
 
-export interface SkillLocationResolutionOptions {
-  exactPathDisambiguates?: boolean;
-}
-
 function normalizeSkillName(name: string): string {
   return name.toLowerCase().replace(/[\s_]+/g, '-');
 }
@@ -24,16 +20,16 @@ function normalizeSkillPath(path: string): string {
 /**
  * Resolve locked skills against their currently discovered locations.
  *
- * An exact path wins when the installer can target that path directly. A
- * missing path is treated as a relocation only when exactly one discovered
- * skill has the same normalized name. Other ambiguous matches fail closed:
- * they are neither migrated nor offered for deletion.
+ * An exact locked path wins, even when same-name mirrors exist elsewhere in
+ * the repository: every update installs from the locked folder. A missing
+ * path is treated as a relocation only when exactly one discovered skill has
+ * the same normalized name. Other ambiguous matches fail closed: they are
+ * neither migrated nor offered for deletion.
  */
 export function resolveSkillLocations(
   lockedSkillNames: string[],
   lockSkills: Record<string, { skillPath?: string }>,
-  discovered: DiscoveredSkillLocation[],
-  options: SkillLocationResolutionOptions = {}
+  discovered: DiscoveredSkillLocation[]
 ): SkillLocationResolution {
   const discoveredPaths = new Set(discovered.map((skill) => normalizeSkillPath(skill.skillPath)));
   const pathsByName = new Map<string, Set<string>>();
@@ -54,23 +50,14 @@ export function resolveSkillLocations(
     if (!lockedPath) continue;
 
     const normalizedLockedPath = normalizeSkillPath(lockedPath);
-    const candidates = [...(pathsByName.get(normalizeSkillName(name)) ?? [])];
-    const lockedPathStillExists = discoveredPaths.has(normalizedLockedPath);
-
-    if (lockedPathStillExists && options.exactPathDisambiguates) {
+    if (discoveredPaths.has(normalizedLockedPath)) {
       resolvedPaths.set(name, normalizedLockedPath);
       continue;
     }
 
-    // Sources that cannot target a subpath reinstall by skill name. For those
-    // sources, even an exact locked path cannot guarantee which copy is used.
+    const candidates = [...(pathsByName.get(normalizeSkillName(name)) ?? [])];
     if (candidates.length > 1) {
       ambiguousSkills.push(name);
-      continue;
-    }
-
-    if (lockedPathStillExists) {
-      resolvedPaths.set(name, normalizedLockedPath);
       continue;
     }
 
