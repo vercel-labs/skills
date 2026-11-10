@@ -190,12 +190,13 @@ export interface InstallOptions extends BaseOptions, InstallSettings {
   /** Skill names to install. @default all skills in the source */
   skills?: readonly string[];
   /**
-   * Install the one selected skill under this name: its folder, lock entry
-   * and SKILL.md `name`. The lock remembers the source name, so update and
-   * restore keep the new name. Throws `SKILLS_RENAME_MULTIPLE_SKILLS` unless
-   * exactly one skill is selected.
+   * Install skills under new names, keyed by the name the source uses (matched
+   * like `skills`): `{ shadcn: 'shadcn-ui' }`. The new name is used for the
+   * folder, the lock entry and the SKILL.md `name`; the lock remembers the
+   * source name, so update and restore keep the new name. Each key must match
+   * one skill being installed, and no two skills may end up with one name.
    */
-  rename?: string;
+  rename?: Readonly<Record<string, string>>;
   /**
    * Agents to install into; each must be allowed by `config.agents`.
    * @default `config.agents.default`, else the agents `skills add -y` picks

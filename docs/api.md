@@ -83,18 +83,25 @@ await installSkills(source, {
 
 ### Installing under another name
 
-`rename` installs the one selected skill under a new name: its folder, lock
-entry and SKILL.md `name`. The lock remembers the original name, so
-`skills update` and restores keep the new name, and `listSkills` reports it as
-`renamedFrom`:
+`rename` installs skills under new names, keyed by the name the source uses.
+The new name is used for the folder, the lock entry and the SKILL.md `name`.
+The lock remembers the original name, so `skills update` and restores keep the
+new name, and `listSkills` reports it as `renamedFrom`. Skills not in the map
+install as-is:
 
 ```ts
-await installSkills('shadcn/ui', { skills: ['shadcn'], rename: 'shadcn-ui' });
+await installSkills('shadcn/ui', { skills: ['shadcn'], rename: { shadcn: 'shadcn-ui' } });
+
+await installSkills(source, {
+  rename: { 'frontend-design': 'acme-frontend', 'skill-creator': 'acme-skill-creator' },
+});
 ```
 
-The call throws `SKILLS_RENAME_MULTIPLE_SKILLS` unless exactly one skill is
-selected, and `SKILLS_INVALID_OPTION_VALUE` for a name that is not a safe
-folder name (lowercase letters, digits, `.`, `_` and `-`).
+The call throws before writing anything when a key matches no skill being
+installed (`SKILLS_NO_MATCHING_SKILLS`) or several (`SKILLS_AMBIGUOUS_SKILL_SELECTOR`),
+when a new name is not a safe folder name (lowercase letters, digits, `.`, `_`
+and `-`), or when two skills would end up with the same name
+(`SKILLS_INVALID_OPTION_VALUE`).
 
 ## Behavior
 

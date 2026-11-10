@@ -50,7 +50,7 @@ export interface InstallFailure {
 export interface InstallOptions extends BaseOptions, InstallSettings {
   ref?: string;
   skills?: readonly string[];
-  rename?: string;
+  rename?: Readonly<Record<string, string>>;
   agents?: readonly string[];
   telemetry?: boolean;
   metadata?: Readonly<Record<string, unknown>>;
