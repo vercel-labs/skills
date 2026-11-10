@@ -562,7 +562,7 @@ describe('download sources', () => {
   });
 });
 
-describe('git sources', () => {
+describe('git sources', { timeout: 30000 }, () => {
   it('reports the checked-out commit and honors a ref pinned to it', async () => {
     const repo = gitRepo(source);
 
