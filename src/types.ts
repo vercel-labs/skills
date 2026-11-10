@@ -50,6 +50,7 @@ export type AgentType =
   | 'moxby'
   | 'mux'
   | 'neovate'
+  | 'nexus'
   | 'opencode'
   | 'openhands'
   | 'ona'
