@@ -259,7 +259,7 @@ description: A Kiro test skill
 
     expect(result.exitCode).toBe(0);
     // clack wraps long note lines, so drop the box borders before matching.
-    expect(result.stdout.replace(/[\s│]+/g, ' ')).toContain(
+    expect(result.stdout.replace(/[\s│|]+/g, ' ')).toContain(
       'conflicts with category: Hermes Agent (research/ contains arxiv, polymarket)'
     );
     expect(result.stdout).toMatch(/symlink → Claude Code\s/);
