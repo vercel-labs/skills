@@ -335,6 +335,23 @@ describe('listSkills and removeSkills', () => {
     expect((await api.listSkills({ cwd, scope: 'project' })).skills).toEqual([]);
   });
 
+  it("removes only lock-tracked skills for '*' and warns about untracked dirs (#604)", async () => {
+    await api.installSkills(source, { cwd, skills: ['alpha'], agents: ['claude-code'] });
+    const mine = join(cwd, '.agents/skills/mine');
+    mkdirSync(mine, { recursive: true });
+    writeFileSync(join(mine, 'SKILL.md'), '---\nname: mine\ndescription: mine\n---\n');
+    const warnings: string[] = [];
+
+    const removed = await api.removeSkills(['*'], {
+      cwd,
+      onWarning: (warning) => warnings.push(warning.code),
+    });
+
+    expect(removed.removed).toEqual(['alpha']);
+    expect(existsSync(join(mine, 'SKILL.md'))).toBe(true);
+    expect(warnings).toEqual(['SKILLS_REMOVE_UNTRACKED_SKIPPED']);
+  });
+
   it('removes a skill linked into .agents/skills and keeps the link target (#2679)', async () => {
     const skillLink = join(cwd, '.agents/skills/alpha');
     mkdirSync(join(cwd, '.agents/skills'), { recursive: true });

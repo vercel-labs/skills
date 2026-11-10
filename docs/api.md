@@ -39,7 +39,7 @@ The package is ESM only and requires Node.js 22.20 or later.
 | `resolveSource(source, opts?)`  | Fetch a source and list its skills without installing. Returns a `SkillSource`.  |
 | `installSkills(source, opts?)`  | Install skills from a source string or a `SkillSource`.                          |
 | `listSkills(options?)`          | Skills installed in the project, globally, or both, with their lock-file source. |
-| `removeSkills(names, options?)` | Remove skills by name (or lock source; `*` for all) from the allowed agents.     |
+| `removeSkills(names, options?)` | Remove skills by name (or lock source; `*` for all lock-tracked skills).         |
 | `version`                       | The installed package version.                                                   |
 
 Sources take the same forms as `skills add`: GitHub shorthand (`owner/repo`,
@@ -203,6 +203,7 @@ Codes most API callers handle:
 | `SKILLS_NO_TARGET_AGENTS`                               | No allowed agent is left to install into or remove from.             |
 | `SKILLS_GLOBAL_INSTALL_UNSUPPORTED`                     | The agent has no global skills directory.                            |
 | `SKILLS_REMOVE_GLOBALLY_TRACKED`                        | A project remove would delete a skill tracked by the global lock.    |
+| `SKILLS_REMOVE_UNTRACKED_SKIPPED`                       | Warning: `*` skipped skill folders the lock does not track.          |
 | `SKILLS_INVALID_LOCAL_LOCK`                             | `skills-lock.json` is unreadable; nothing was written.               |
 | `SKILLS_LOCK_WRITE_FAILED`                              | Skills were installed but the lock file could not be updated.        |
 | `SKILLS_INSTALL_FAILED`, `SKILLS_REMOVE_FAILED`         | Writing or removing one skill failed.                                |

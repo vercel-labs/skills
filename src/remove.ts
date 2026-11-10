@@ -71,6 +71,15 @@ export function resolveSkillsToRemove(
   return Array.from(matched);
 }
 
+/**
+ * Installed skill folders no lock key maps to. `remove --all` only removes what
+ * the lock tracks; these are user-authored and are reported as skipped (#604).
+ */
+export function findUntrackedSkills(folderNames: string[], lockKeys: string[]): string[] {
+  const tracked = new Set(lockKeys.map(sanitizeName));
+  return folderNames.filter((folder) => !tracked.has(sanitizeName(folder)));
+}
+
 function isSameDir(a: string, b: string): boolean {
   try {
     return realpathSync(a) === realpathSync(b);
@@ -128,13 +137,9 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
     lockSkillsKeys.map((key) => [key, lockEntries[key]?.source])
   );
 
-  // Global `--all` only removes skills this tool manages (tracked in the global lock);
-  // the shared global skills dir may also hold user-managed skills (#604).
-  const requestedSkills = options.all
-    ? isGlobal
-      ? lockSkillsKeys
-      : [...installedSkills, ...lockSkillsKeys]
-    : skillNames;
+  // `--all` only removes skills this tool manages (tracked in the lock); skills
+  // dirs may also hold user-authored skills, which must survive (#604).
+  const requestedSkills = options.all ? lockSkillsKeys : skillNames;
   const resolvedRequestedSkills =
     options.all || skillNames.length > 0
       ? resolveSkillsToRemove(requestedSkills, installedSkills, lockSkillsKeys, sourceByKey)
@@ -164,6 +169,10 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
 
   if (options.all) {
     selectedSkills = resolvedRequestedSkills;
+    const untracked = findUntrackedSkills(installedSkills, lockSkillsKeys);
+    if (untracked.length > 0) {
+      p.log.warn(formatError(diagnostics.SKILLS_REMOVE_UNTRACKED_SKIPPED({ skills: untracked })));
+    }
   } else if (skillNames.length > 0) {
     selectedSkills = resolvedRequestedSkills;
 
@@ -211,8 +220,10 @@ export async function removeCommand(skillNames: string[], options: RemoveOptions
   }
 
   if (selectedSkills.length === 0) {
-    if (options.all && isGlobal) {
-      p.outro(pc.yellow('No globally managed skills found to remove.'));
+    if (options.all) {
+      p.outro(
+        pc.yellow(`No ${isGlobal ? 'globally managed' : 'lock-tracked'} skills found to remove.`)
+      );
     } else {
       p.outro(pc.yellow('No skills found to remove.'));
     }

@@ -240,7 +240,7 @@ npx skills remove --global web-design-guidelines
 # Remove from specific agents only
 npx skills remove --agent claude-code cursor my-skill
 
-# Remove all installed skills without confirmation
+# Remove all lock-tracked skills without confirmation
 npx skills remove --all
 
 # Remove all skills from a specific agent
@@ -260,6 +260,12 @@ npx skills rm my-skill
 | `-s, --skill`  | Specify skills to remove (use `'*'` for all)     |
 | `-y, --yes`    | Skip confirmation prompts                        |
 | `--all`        | Shorthand for `--skill '*' --agent '*' -y`       |
+
+`--all` (and `--skill '*'`) only removes skills recorded in the lock file
+(`skills-lock.json` for a project, the global lock with `-g`). Skill folders
+the lock does not track, such as skills you wrote by hand, are listed as
+skipped and never deleted. To remove one of them, name it:
+`npx skills remove my-skill`.
 
 ## Experimental commands
 

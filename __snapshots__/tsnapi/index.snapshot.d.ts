@@ -234,6 +234,12 @@ export declare const diagnostics: import("nostics").Diagnostics<{
       skills: string[];
     }) => string;
   };
+  readonly SKILLS_REMOVE_UNTRACKED_SKIPPED: {
+    readonly why: (p: {
+      skills: string[];
+    }) => string;
+    readonly fix: "Remove them by name, e.g. skills remove <name>";
+  };
   readonly SKILLS_UNSAFE_SUBPATH: {
     readonly why: (p: {
       subpath: string;
