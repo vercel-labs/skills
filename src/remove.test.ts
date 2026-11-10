@@ -217,37 +217,51 @@ This is a test skill.
       expect(existsSync(join(skillsDir, 'skill-three'))).toBe(true);
     });
 
+    // 'junction' needs no privileges on Windows and is ignored elsewhere; targets are absolute.
     it('should remove a skill directory that is a symlinked directory (#2679)', () => {
-      const sourceDir = join(testDir, 'linked-source', 'linked-pet');
-      mkdirSync(sourceDir, { recursive: true });
-      writeFileSync(
-        join(sourceDir, 'SKILL.md'),
-        `---
-name: linked-pet
-description: A skill installed as a directory symlink
----
-
-# linked-pet
-`
-      );
+      const sourceDir = createTestSkill('linked-pet', undefined, join(testDir, 'linked-source'));
       const skillLink = join(skillsDir, 'linked-pet');
-      symlinkSync(sourceDir, skillLink, 'dir');
+      symlinkSync(sourceDir, skillLink, 'junction');
       const claudeLink = join(createAgentSkillsDir('.claude'), 'linked-pet');
-      symlinkSync(join('..', '..', '.agents', 'skills', 'linked-pet'), claudeLink);
+      symlinkSync(skillLink, claudeLink, 'junction');
 
-      const before = runCli(['list', '--json'], testDir);
-      expect(before.stdout).toContain('linked-pet');
+      expect(runCli(['list', '--json'], testDir).stdout).toContain('linked-pet');
 
       const result = runCli(['remove', 'linked-pet', '-y'], testDir);
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('Successfully removed');
+      expect(result.stdout).toContain('Successfully removed 1 skill(s)');
       expect(lstatSync(skillLink, { throwIfNoEntry: false })).toBeUndefined();
       expect(lstatSync(claudeLink, { throwIfNoEntry: false })).toBeUndefined();
-      expect(existsSync(join(sourceDir, 'SKILL.md'))).toBe(true);
+      // Only the links go; the directory they pointed at is left untouched.
+      expect(readFileSync(join(sourceDir, 'SKILL.md'), 'utf-8')).toContain('name: linked-pet');
+      expect(runCli(['list', '--json'], testDir).stdout).not.toContain('linked-pet');
+    });
 
-      const after = runCli(['list', '--json'], testDir);
-      expect(after.stdout).not.toContain('linked-pet');
+    it('should unlink, not delete, a symlinked skill that only exists in an agent dir on --all', () => {
+      const sourceDir = createTestSkill('agent-linked', undefined, join(testDir, 'linked-source'));
+      const claudeLink = join(createAgentSkillsDir('.claude'), 'agent-linked');
+      symlinkSync(sourceDir, claudeLink, 'junction');
+
+      const result = runCli(['remove', '--all', '-y'], testDir);
+
+      expect(result.exitCode).toBe(0);
+      // skill-one..three from beforeEach plus the linked one.
+      expect(result.stdout).toContain('Successfully removed 4 skill(s)');
+      expect(lstatSync(claudeLink, { throwIfNoEntry: false })).toBeUndefined();
+      expect(existsSync(join(sourceDir, 'SKILL.md'))).toBe(true);
+    });
+
+    it('should ignore a symlink to a directory without SKILL.md', () => {
+      const targetDir = join(testDir, 'not-a-skill');
+      mkdirSync(targetDir, { recursive: true });
+      writeFileSync(join(targetDir, 'README.md'), 'not a skill');
+      symlinkSync(targetDir, join(skillsDir, 'not-a-skill'), 'junction');
+
+      const result = runCli(['remove', 'not-a-skill', '-y'], testDir);
+
+      expect(result.stdout).toContain('No matching skills');
+      expect(lstatSync(join(skillsDir, 'not-a-skill')).isSymbolicLink()).toBe(true);
     });
 
     it('should show error for non-existent skill name when skills exist', () => {
