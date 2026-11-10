@@ -1,7 +1,7 @@
 import { existsSync } from 'fs';
 import { join } from 'path';
 import * as p from '@clack/prompts';
-import pc from 'picocolors';
+import { pc } from './color.ts';
 import { readLocalLock } from './local-lock.ts';
 import { fetchSources, installFromSource } from './add.ts';
 import { runSync, parseSyncOptions } from './sync.ts';

@@ -1,5 +1,5 @@
 import * as p from '@clack/prompts';
-import pc from 'picocolors';
+import { pc } from './color.ts';
 import { realpathSync } from 'fs';
 import { readdir, rm, lstat } from 'fs/promises';
 import { join } from 'path';

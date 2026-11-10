@@ -1,7 +1,6 @@
 import { existsSync, readdirSync } from 'fs';
 import { join, dirname, relative, sep } from 'path';
 import * as p from '@clack/prompts';
-import pc from 'picocolors';
 
 import {
   readSkillLock,
@@ -56,11 +55,7 @@ import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
 import { agents, isUniversalAgent } from './agents.ts';
 import type { AgentType } from './types.ts';
-
-const RESET = '\x1b[0m';
-const BOLD = '\x1b[1m';
-const DIM = '\x1b[38;5;102m';
-const TEXT = '\x1b[38;5;145m';
+import { BOLD, CLEAR_LINE, DIM, RESET, TEXT, pc } from './color.ts';
 
 function printFetching(sourceCount: number): void {
   if (sourceCount === 0) return;
@@ -519,7 +514,7 @@ export async function processWellKnownUpdates(
   const pending: Array<{ baseUrl: string; items: WellKnownUpdateItem[]; changedSkills: string[] }> =
     [];
   for (const [index, [baseUrl, items]] of entries.entries()) {
-    process.stdout.write(`\r${DIM}Checking skills from source: ${baseUrl}${RESET}\x1b[K\n`);
+    process.stdout.write(`${CLEAR_LINE}${DIM}Checking skills from source: ${baseUrl}${RESET}\n`);
 
     const result = results[index]!;
 
@@ -629,7 +624,7 @@ async function processDownloadUpdates(
 
   for (const [index, [url, group]] of groups.entries()) {
     const source = fetched[index]!;
-    process.stdout.write(`\r${DIM}Checking skills from source: ${url}${RESET}\x1b[K\n`);
+    process.stdout.write(`${CLEAR_LINE}${DIM}Checking skills from source: ${url}${RESET}\n`);
     if (!source.resolved) {
       failCount += group.length;
       console.log(`  ${DIM}✗ Failed to check skills from ${url}: ${source.error}${RESET}`);
@@ -830,7 +825,7 @@ export async function updateGlobalSkills(
     const isGitHubSource = firstEntry.sourceType === 'github';
     const checkout = checkouts[index]!;
 
-    process.stdout.write(`\r${DIM}Checking skills from source: ${source}${RESET}\x1b[K\n`);
+    process.stdout.write(`${CLEAR_LINE}${DIM}Checking skills from source: ${source}${RESET}\n`);
 
     if ('error' in checkout) {
       console.log(`  ${DIM}✗ Failed to check skills from ${source}${RESET}`);
@@ -905,7 +900,7 @@ export async function updateGlobalSkills(
   }
 
   if (checkable.length > 0) {
-    process.stdout.write('\r\x1b[K');
+    process.stdout.write(CLEAR_LINE);
   }
 
   const checkedCount = checkable.length + skipped.length + otherCount;

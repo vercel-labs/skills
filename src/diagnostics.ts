@@ -1,6 +1,6 @@
 import { defineDiagnostics, Diagnostic } from 'nostics';
 import { ansiFormatter } from 'nostics/formatters/ansi';
-import pc from 'picocolors';
+import { pc } from './color.ts';
 
 // An empty fix is omitted from the output.
 const availableSkills = (names: string[]) =>
