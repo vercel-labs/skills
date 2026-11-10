@@ -1,4 +1,4 @@
-import { homedir } from 'os';
+import { homedir, platform } from 'os';
 import { join } from 'path';
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { xdgConfig } from 'xdg-basedir';
@@ -13,6 +13,12 @@ const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
 const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
 const grokHome = process.env.GROK_HOME?.trim() || join(home, '.grok');
+const sarvamHome = process.env.SARVAM_HOME?.trim() || join(home, '.sarvam');
+const reasonixHome =
+  process.env.REASONIX_HOME?.trim() ||
+  (platform() === 'win32'
+    ? join(process.env.APPDATA?.trim() || join(home, 'AppData', 'Roaming'), 'reasonix')
+    : join(home, '.reasonix'));
 const zedAppDataHome = process.env.APPDATA?.trim();
 const zedFlatpakConfigHome = process.env.FLATPAK_XDG_CONFIG_HOME?.trim();
 
@@ -99,7 +105,11 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'antigravity',
     displayName: 'Antigravity',
     skillsDir: '.agents/skills',
-    globalSkillsDir: join(home, '.gemini/antigravity/skills'),
+    // agy, the IDE and Antigravity 2.0 read global skills from ~/.gemini/config/skills,
+    // and none of them reads ~/.agents/skills outside a workspace.
+    globalSkillsDir: join(home, '.gemini/config/skills'),
+    globalReadsCanonical: false,
+    showInUniversalPrompt: false,
     detectInstalled: async () => {
       return existsSync(join(home, '.gemini/antigravity'));
     },
@@ -108,7 +118,11 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'antigravity-cli',
     displayName: 'Antigravity CLI',
     skillsDir: '.agents/skills',
-    globalSkillsDir: join(home, '.gemini/antigravity-cli/skills'),
+    // agy, the IDE and Antigravity 2.0 read global skills from ~/.gemini/config/skills,
+    // and none of them reads ~/.agents/skills outside a workspace.
+    globalSkillsDir: join(home, '.gemini/config/skills'),
+    globalReadsCanonical: false,
+    showInUniversalPrompt: false,
     detectInstalled: async () => {
       return existsSync(join(home, '.gemini/antigravity-cli'));
     },
@@ -118,8 +132,8 @@ export const agents: Record<AgentType, AgentConfig> = {
     displayName: 'AstrBot',
     skillsDir: 'data/skills',
     globalSkillsDir: join(home, '.astrbot/data/skills'),
-    detectInstalled: async () => {
-      return existsSync(join(process.cwd(), 'data/skills')) || existsSync(join(home, '.astrbot'));
+    detectInstalled: async (cwd = process.cwd()) => {
+      return existsSync(join(cwd, 'data/skills')) || existsSync(join(home, '.astrbot'));
     },
   },
   'autohand-code': {
@@ -154,6 +168,8 @@ export const agents: Record<AgentType, AgentConfig> = {
     displayName: 'Claude Code',
     skillsDir: '.claude/skills',
     globalSkillsDir: join(claudeHome, 'skills'),
+    // Preserve the established project-install behavior from #1138 and #1607.
+    createProjectSkillsDirByDefault: true,
     detectInstalled: async () => {
       return existsSync(claudeHome);
     },
@@ -194,8 +210,8 @@ export const agents: Record<AgentType, AgentConfig> = {
     displayName: 'CodeBuddy',
     skillsDir: '.codebuddy/skills',
     globalSkillsDir: join(home, '.codebuddy/skills'),
-    detectInstalled: async () => {
-      return existsSync(join(process.cwd(), '.codebuddy')) || existsSync(join(home, '.codebuddy'));
+    detectInstalled: async (cwd = process.cwd()) => {
+      return existsSync(join(cwd, '.codebuddy')) || existsSync(join(home, '.codebuddy'));
     },
   },
   codemaker: {
@@ -220,7 +236,7 @@ export const agents: Record<AgentType, AgentConfig> = {
     name: 'codex',
     displayName: 'Codex',
     skillsDir: '.agents/skills',
-    globalSkillsDir: join(codexHome, 'skills'),
+    globalSkillsDir: join(home, '.agents', 'skills'),
     detectInstalled: async () => {
       return existsSync(codexHome) || existsSync('/etc/codex');
     },
@@ -239,8 +255,8 @@ export const agents: Record<AgentType, AgentConfig> = {
     displayName: 'Continue',
     skillsDir: '.continue/skills',
     globalSkillsDir: join(home, '.continue/skills'),
-    detectInstalled: async () => {
-      return existsSync(join(process.cwd(), '.continue')) || existsSync(join(home, '.continue'));
+    detectInstalled: async (cwd = process.cwd()) => {
+      return existsSync(join(cwd, '.continue')) || existsSync(join(home, '.continue'));
     },
   },
   cortex: {
@@ -275,6 +291,7 @@ export const agents: Record<AgentType, AgentConfig> = {
     displayName: 'Deep Agents',
     skillsDir: '.agents/skills',
     globalSkillsDir: join(home, '.deepagents/agent/skills'),
+    showInUniversalPrompt: false,
     detectInstalled: async () => {
       return existsSync(join(home, '.deepagents'));
     },
@@ -301,7 +318,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   droid: {
     name: 'droid',
     displayName: 'Droid',
-    skillsDir: '.factory/skills',
+    // Droid reads .agents/skills and ~/.agents/skills as compatibility
+    // locations, so installing there avoids defining the same skill twice.
+    // globalSkillsDir stays on ~/.factory/skills so `remove` still cleans up
+    // skills placed there by earlier versions.
+    skillsDir: '.agents/skills',
     globalSkillsDir: join(home, '.factory/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.factory'));
@@ -312,8 +333,7 @@ export const agents: Record<AgentType, AgentConfig> = {
     displayName: 'Eve',
     skillsDir: 'agent/skills',
     globalSkillsDir: undefined,
-    detectInstalled: async () => {
-      const cwd = process.cwd();
+    detectInstalled: async (cwd = process.cwd()) => {
       return (
         existsSync(join(cwd, 'agent')) && packageJsonHasDependency(join(cwd, 'package.json'), 'eve')
       );
@@ -336,6 +356,16 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.forge/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.forge'));
+    },
+  },
+  fx: {
+    name: 'fx',
+    displayName: 'fx',
+    // fx discovers these shared roots natively alongside its own .fx/skills roots.
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.fx'));
     },
   },
   'gemini-cli': {
@@ -397,8 +427,8 @@ export const agents: Record<AgentType, AgentConfig> = {
     displayName: 'Jazz',
     skillsDir: '.jazz/skills',
     globalSkillsDir: join(home, '.jazz/skills'),
-    detectInstalled: async () => {
-      return existsSync(join(home, '.jazz')) || existsSync(join(process.cwd(), '.jazz'));
+    detectInstalled: async (cwd = process.cwd()) => {
+      return existsSync(join(home, '.jazz')) || existsSync(join(cwd, '.jazz'));
     },
   },
   junie: {
@@ -422,10 +452,12 @@ export const agents: Record<AgentType, AgentConfig> = {
   kilo: {
     name: 'kilo',
     displayName: 'Kilo Code',
-    skillsDir: '.kilocode/skills',
-    globalSkillsDir: join(home, '.kilocode/skills'),
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.kilo/skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.kilocode'));
+      // `.kilocode` is the legacy config directory, kept here so existing
+      // installs are still detected.
+      return existsSync(join(home, '.kilo')) || existsSync(join(home, '.kilocode'));
     },
   },
   kimchi: {
@@ -558,8 +590,11 @@ export const agents: Record<AgentType, AgentConfig> = {
   pi: {
     name: 'pi',
     displayName: 'Pi',
-    skillsDir: '.pi/skills',
-    globalSkillsDir: join(home, '.pi/agent/skills'),
+    // Pi natively reads the Agent Skills locations: `.agents/skills/` from the working
+    // directory up through its ancestors, and `~/.agents/skills/` globally.
+    // See https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/skills.md
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.pi/agent'));
     },
@@ -606,17 +641,17 @@ export const agents: Record<AgentType, AgentConfig> = {
     skillsDir: '.agents/skills',
     globalSkillsDir: join(configHome, 'agents/skills'),
     showInUniversalList: false,
-    detectInstalled: async () => {
-      return existsSync(join(process.cwd(), '.replit'));
+    detectInstalled: async (cwd = process.cwd()) => {
+      return existsSync(join(cwd, '.replit'));
     },
   },
   reasonix: {
     name: 'reasonix',
     displayName: 'Reasonix',
     skillsDir: '.reasonix/skills',
-    globalSkillsDir: join(home, '.reasonix/skills'),
+    globalSkillsDir: join(reasonixHome, 'skills'),
     detectInstalled: async () => {
-      return existsSync(join(home, '.reasonix'));
+      return existsSync(reasonixHome);
     },
   },
   rovodev: {
@@ -635,6 +670,16 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.roo/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.roo'));
+    },
+  },
+  'sarvam-code': {
+    name: 'sarvam-code',
+    displayName: 'Sarvam Code',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents/skills'),
+    showInUniversalPrompt: false,
+    detectInstalled: async () => {
+      return existsSync(sarvamHome);
     },
   },
   'tabnine-cli': {
@@ -765,11 +810,8 @@ export const agents: Record<AgentType, AgentConfig> = {
     skillsDir: '.agents/skills',
     globalSkillsDir: undefined,
     showInUniversalPrompt: false,
-    detectInstalled: async () => {
-      return (
-        existsSync(join(process.cwd(), '.promptscript')) ||
-        existsSync(join(process.cwd(), 'promptscript.yaml'))
-      );
+    detectInstalled: async (cwd = process.cwd()) => {
+      return existsSync(join(cwd, '.promptscript')) || existsSync(join(cwd, 'promptscript.yaml'));
     },
   },
   adal: {
@@ -791,11 +833,34 @@ export const agents: Record<AgentType, AgentConfig> = {
   },
 };
 
-export async function detectInstalledAgents(): Promise<AgentType[]> {
+// Project skill dirs from before these agents moved to the universal `.agents/skills`.
+// Existing skill repositories still publish skills there.
+const LEGACY_AGENT_PROJECT_SKILL_DIRS = [
+  '.cline/skills',
+  '.codex/skills',
+  '.factory/skills',
+  '.github/skills',
+  '.kilo/skills',
+  '.kilocode/skills',
+  '.opencode/skills',
+  '.pi/skills',
+];
+
+/** Agent project skill dirs searched during discovery. The root `skills/` dir is handled separately. */
+export const AGENT_PROJECT_SKILL_DIRS = [
+  ...new Set([
+    ...Object.values(agents).map((agent) => agent.skillsDir),
+    ...LEGACY_AGENT_PROJECT_SKILL_DIRS,
+  ]),
+]
+  .filter((dir) => dir !== 'skills')
+  .sort();
+
+export async function detectInstalledAgents(cwd: string = process.cwd()): Promise<AgentType[]> {
   const results = await Promise.all(
     Object.entries(agents).map(async ([type, config]) => ({
       type: type as AgentType,
-      installed: await config.detectInstalled(),
+      installed: await config.detectInstalled(cwd),
     }))
   );
   return results.filter((r) => r.installed).map((r) => r.type);
@@ -878,4 +943,12 @@ export function getNonUniversalAgents(): AgentType[] {
  */
 export function isUniversalAgent(type: AgentType): boolean {
   return agents[type].skillsDir === '.agents/skills';
+}
+
+/**
+ * Check if an agent reads the canonical ~/.agents/skills directory for global
+ * installs, so a global install needs nothing in its own globalSkillsDir.
+ */
+export function readsCanonicalGlobally(type: AgentType): boolean {
+  return isUniversalAgent(type) && agents[type].globalReadsCanonical !== false;
 }

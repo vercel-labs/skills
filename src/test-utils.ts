@@ -1,4 +1,4 @@
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -33,10 +33,24 @@ const AGENT_DETECTION_ENV_VARS = new Set(
   ].map((name) => name.toUpperCase())
 );
 
+// Keep synchronized with isCI() in ci.ts, so tests behave the same locally and in CI
+const CI_DETECTION_ENV_VARS = new Set([
+  'CI',
+  'GITHUB_ACTIONS',
+  'GITLAB_CI',
+  'CIRCLECI',
+  'TRAVIS',
+  'BUILDKITE',
+  'JENKINS_URL',
+  'TEAMCITY_VERSION',
+]);
+
 function createCliTestEnvironment(overrides?: Record<string, string>): NodeJS.ProcessEnv {
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
-      ([name]) => !AGENT_DETECTION_ENV_VARS.has(name.toUpperCase())
+      ([name]) =>
+        !AGENT_DETECTION_ENV_VARS.has(name.toUpperCase()) &&
+        !CI_DETECTION_ENV_VARS.has(name.toUpperCase())
     )
   );
 
@@ -105,19 +119,17 @@ export function runCli(
   const { env: testEnv, temporaryHome } = createIsolatedTestEnvironment(env);
 
   try {
-    const output = execFileSync(process.execPath, [CLI_PATH, ...args], {
+    const result = spawnSync(process.execPath, [CLI_PATH, ...args], {
       encoding: 'utf-8',
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: testEnv,
       timeout: timeout ?? 30000,
     });
-    return { stdout: stripAnsi(output), stderr: '', exitCode: 0 };
-  } catch (error: any) {
     return {
-      stdout: stripAnsi(error.stdout || ''),
-      stderr: stripAnsi(error.stderr || ''),
-      exitCode: error.status || 1,
+      stdout: stripAnsi(result.stdout || ''),
+      stderr: stripAnsi(result.stderr || ''),
+      exitCode: result.status ?? 1,
     };
   } finally {
     rmSync(temporaryHome, { recursive: true, force: true });

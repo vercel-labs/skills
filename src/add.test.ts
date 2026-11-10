@@ -1,9 +1,18 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { existsSync, rmSync, mkdirSync, writeFileSync } from 'fs';
+import { execFileSync } from 'child_process';
+import {
+  existsSync,
+  rmSync,
+  mkdirSync,
+  writeFileSync,
+  lstatSync,
+  readFileSync,
+  symlinkSync,
+} from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli, stripAnsi } from './test-utils.ts';
-import { shouldInstallInternalSkills } from './skills.ts';
+import { isInternalSkill, shouldInstallInternalSkills } from './skills.ts';
 import {
   parseAddOptions,
   getLockSource,
@@ -16,6 +25,27 @@ function countPathLinesForSkill(text: string, skillName: string): number {
     text.match(new RegExp(`→ .*${skillName.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}`, 'g')) || []
   ).length;
 }
+
+const noDetectedAgentEnv = {
+  AI_AGENT: '',
+  ANTIGRAVITY_AGENT: '',
+  AUGMENT_AGENT: '',
+  CLAUDE_CODE: '',
+  CLAUDE_CODE_IS_COWORK: '',
+  CLAUDECODE: '',
+  CODEX_CI: '',
+  CODEX_SANDBOX: '',
+  CODEX_THREAD_ID: '',
+  COPILOT_ALLOW_ALL: '',
+  COPILOT_GITHUB_TOKEN: '',
+  COPILOT_MODEL: '',
+  CURSOR_AGENT: '',
+  CURSOR_EXTENSION_HOST_ROLE: '',
+  CURSOR_TRACE_ID: '',
+  GEMINI_CLI: '',
+  OPENCODE_CLIENT: '',
+  REPL_ID: '',
+};
 
 describe('add command', () => {
   let testDir: string;
@@ -31,6 +61,26 @@ describe('add command', () => {
     }
   });
 
+  it('finds an explicitly requested nested skill below a root skill', () => {
+    const sourceDir = join(testDir, 'source');
+    const nestedDir = join(sourceDir, 'discovery', 'nested-skill');
+    mkdirSync(nestedDir, { recursive: true });
+    writeFileSync(join(sourceDir, 'SKILL.md'), '---\nname: root-skill\ndescription: Root\n---\n');
+    const nestedContent = '---\nname: nested-skill\ndescription: Nested\n---\nNested content\n';
+    writeFileSync(join(nestedDir, 'SKILL.md'), nestedContent);
+
+    const result = runCli(
+      ['add', sourceDir, '--skill', 'nested-skill', '-a', 'universal', '-y'],
+      testDir
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(readFileSync(join(testDir, '.agents/skills/nested-skill/SKILL.md'), 'utf8')).toBe(
+      nestedContent
+    );
+    expect(existsSync(join(testDir, '.agents/skills/root-skill'))).toBe(false);
+  });
+
   it('should show error when no source provided', () => {
     const result = runCli(['add'], testDir);
     expect(result.stdout).toContain('ERROR');
@@ -41,6 +91,24 @@ describe('add command', () => {
   it('should show error for non-existent local path', () => {
     const result = runCli(['add', './non-existent-path', '-y'], testDir);
     expect(result.stdout).toContain('Local path does not exist');
+    expect(result.exitCode).toBe(1);
+  });
+
+  it('special-cases notion and requires the ntn CLI', () => {
+    const result = runCli(['add', 'notion', '--list'], testDir, {
+      PATH: join(testDir, 'missing-bin'),
+    });
+
+    expect(result.stdout).toContain('Notion CLI (ntn) is required');
+    const docsLine = result.stdout
+      .split('\n')
+      .find((line) => line.includes('https://developers.notion.com/cli/get-started/overview'));
+    // clack draws an ASCII gutter on Windows when CI is unset, which runCli ensures
+    expect(docsLine?.replace(/^\s*[│|]?\s*/, '')).toBe(
+      'https://developers.notion.com/cli/get-started/overview'
+    );
+    expect(result.stdout).toContain('ntn login');
+    expect(result.stdout).not.toContain('Cloning repository');
     expect(result.exitCode).toBe(1);
   });
 
@@ -99,6 +167,223 @@ Instructions here.
     expect(result.stdout).toContain('my-skill');
     expect(result.stdout).toContain('Done!');
     expect(result.exitCode).toBe(0);
+  });
+
+  it('records a global install from a local path in the global skill lock', () => {
+    const skillDir = join(testDir, 'skills', 'my-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: my-skill
+description: My test skill
+---
+
+# My Skill
+
+Instructions here.
+`
+    );
+
+    const home = join(testDir, 'home');
+    mkdirSync(home, { recursive: true });
+    const targetDir = join(testDir, 'project');
+    mkdirSync(targetDir, { recursive: true });
+
+    const result = runCli(['add', testDir, '-y', '-g', '--agent', 'claude-code'], targetDir, {
+      HOME: home,
+      USERPROFILE: home,
+    });
+    expect(result.exitCode).toBe(0);
+
+    const lockPath = join(home, '.local', 'state', 'skills', '.skill-lock.json');
+    expect(existsSync(lockPath)).toBe(true);
+    const lock = JSON.parse(readFileSync(lockPath, 'utf-8'));
+    expect(lock.skills['my-skill']).toBeDefined();
+    expect(lock.skills['my-skill'].sourceType).toBe('local');
+    expect(lock.skills['my-skill'].source).toBe(testDir);
+  });
+
+  it('creates the project symlink for an explicitly selected non-universal agent', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'skills', 'kiro-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: kiro-skill
+description: A Kiro test skill
+---
+
+# Kiro Skill
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    mkdirSync(join(projectDir, '.claude'), { recursive: true });
+
+    const result = runCli(
+      ['add', sourceDir, '-y', '--agent', 'kiro-cli', 'claude-code'],
+      projectDir,
+      noDetectedAgentEnv
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(lstatSync(join(projectDir, '.kiro', 'skills', 'kiro-skill')).isSymbolicLink()).toBe(
+      true
+    );
+    expect(existsSync(join(projectDir, '.agents', 'skills', 'kiro-skill'))).toBe(true);
+    expect(result.stdout).toContain('symlinked: Kiro CLI');
+  });
+
+  it('does not dereference symlinks that escape the skill directory', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'skills', 'evil-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: evil-skill
+description: A skill that tries to exfiltrate host files
+---
+
+# Evil Skill
+`
+    );
+
+    // A secret that lives OUTSIDE the skill directory, as a host .env would.
+    const secretFile = join(testDir, 'secret.env');
+    writeFileSync(secretFile, 'TOP_SECRET_TOKEN=should-never-be-copied');
+
+    // Malicious symlink inside the skill pointing at the external secret.
+    symlinkSync(secretFile, join(skillDir, 'stolen.env'));
+
+    // A legitimate intra-skill symlink that must still be dereferenced so the
+    // installed skill stays self-contained after the clone is cleaned up.
+    writeFileSync(join(skillDir, 'real.txt'), 'legit-contents');
+    symlinkSync(join(skillDir, 'real.txt'), join(skillDir, 'alias.txt'));
+
+    const projectDir = join(testDir, 'project');
+    mkdirSync(join(projectDir, '.claude'), { recursive: true });
+
+    const result = runCli(
+      ['add', sourceDir, '-y', '--agent', 'claude-code'],
+      projectDir,
+      noDetectedAgentEnv
+    );
+
+    expect(result.exitCode).toBe(0);
+
+    const installedDir = join(projectDir, '.claude', 'skills', 'evil-skill');
+
+    // The escaping symlink must not be materialized at all, and certainly must
+    // not carry the external secret's bytes into the install tree.
+    const stolen = join(installedDir, 'stolen.env');
+    expect(existsSync(stolen)).toBe(false);
+    if (existsSync(stolen)) {
+      expect(readFileSync(stolen, 'utf-8')).not.toContain('TOP_SECRET_TOKEN');
+    }
+
+    // The intra-skill symlink is still dereferenced into real content.
+    const alias = join(installedDir, 'alias.txt');
+    expect(existsSync(alias)).toBe(true);
+    expect(readFileSync(alias, 'utf-8')).toBe('legit-contents');
+  });
+
+  it('reports a skipped project symlink for an automatically selected agent', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'skills', 'augment-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: augment-skill
+description: An Augment test skill
+---
+
+# Augment Skill
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    const isolatedHome = join(testDir, 'home');
+    mkdirSync(projectDir, { recursive: true });
+    mkdirSync(join(isolatedHome, '.augment'), { recursive: true });
+
+    const result = runCli(['add', sourceDir, '-y'], projectDir, {
+      ...noDetectedAgentEnv,
+      HOME: isolatedHome,
+      USERPROFILE: isolatedHome,
+      AUGMENT_AGENT: '1',
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(join(projectDir, '.augment'))).toBe(false);
+    expect(result.stdout).toContain('skipped: Augment (project directory not found)');
+  });
+
+  it('omits an automatically skipped agent from JSON install results', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'skills', 'augment-json-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: augment-json-skill
+description: An Augment JSON test skill
+---
+
+# Augment JSON Skill
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    const isolatedHome = join(testDir, 'home');
+    mkdirSync(projectDir, { recursive: true });
+    mkdirSync(join(isolatedHome, '.augment'), { recursive: true });
+
+    const result = runCli(['add', sourceDir, '-y', '--json'], projectDir, {
+      ...noDetectedAgentEnv,
+      HOME: isolatedHome,
+      USERPROFILE: isolatedHome,
+      AUGMENT_AGENT: '1',
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout.trim());
+    expect(parsed[0].status).toBe('installed');
+    expect(parsed[0].agents).not.toContain('Augment');
+  });
+
+  it('should exit non-zero when the agent prompt cannot run without a TTY', () => {
+    // Create a test skill
+    const skillDir = join(testDir, 'skills', 'my-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: my-skill
+description: My test skill
+---
+
+# My Skill
+
+Instructions here.
+`
+    );
+
+    const targetDir = join(testDir, 'project');
+    mkdirSync(targetDir, { recursive: true });
+
+    // No agents are detected in the isolated test home, and stdin is a pipe
+    // that hits EOF immediately, so the agent picker cannot collect input.
+    // The CLI previously exited 0 here with nothing installed.
+    const result = runCli(['add', testDir], targetDir);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stdout).toContain('Installation cancelled');
+    expect(result.stderr).toContain('not a TTY');
+    expect(existsSync(join(targetDir, '.claude', 'skills', 'my-skill'))).toBe(false);
+    expect(existsSync(join(targetDir, '.agents', 'skills', 'my-skill'))).toBe(false);
   });
 
   it('deduplicates copied install paths for universal agents sharing the same directory', () => {
@@ -289,21 +574,266 @@ description: Test
     expect(result.exitCode).toBe(1);
   });
 
-  it('should support add command aliases (a, i, install)', () => {
-    // Test that aliases work (just check they show missing source error)
-    const resultA = runCli(['a'], testDir);
-    const resultI = runCli(['i'], testDir);
-    const resultInstall = runCli(['install'], testDir);
+  it('should reject an invalid agent name before reading the source', () => {
+    const missingSource = join(testDir, 'does-not-exist');
 
-    // All should show the same "missing source" error
+    const result = runCli(['add', missingSource, '--agent', 'claude_code'], testDir);
+    expect(result.stdout).toContain('Invalid agents: claude_code');
+    expect(result.stdout).not.toContain('Source:');
+    expect(result.exitCode).toBe(1);
+  });
+
+  it('should report an invalid agent name in --json mode before reading the source', () => {
+    const missingSource = join(testDir, 'does-not-exist');
+
+    const result = runCli(
+      ['add', missingSource, '-y', '--json', '--agent', 'claude_code'],
+      testDir
+    );
+    expect(JSON.parse(result.stdout)).toEqual([
+      { status: 'failed', error: 'Invalid agents: claude_code' },
+    ]);
+    expect(result.exitCode).toBe(1);
+  });
+
+  it('should support add command alias a', () => {
+    const resultA = runCli(['a'], testDir);
     expect(resultA.stdout).toContain('Missing required argument: source');
-    expect(resultI.stdout).toContain('Missing required argument: source');
-    expect(resultInstall.stdout).toContain('Missing required argument: source');
+  });
+
+  it('should restore from lock file with i/install and no source', () => {
+    for (const command of ['i', 'install']) {
+      const result = runCli([command, '--no-frozen-lockfile'], testDir);
+      expect(result.stdout).toContain('No project skills found in skills-lock.json');
+      expect(result.stdout).not.toContain('Missing required argument: source');
+    }
+  });
+
+  it('should add with i/install when a source is given', () => {
+    for (const command of ['i', 'install']) {
+      const result = runCli([command, './missing-skill', '-y'], testDir);
+      expect(result.stdout).toContain('Local path does not exist');
+      expect(result.stdout).not.toContain('skills-lock.json');
+    }
   });
 
   it('should restore from lock file with experimental_install', () => {
     const result = runCli(['experimental_install'], testDir);
     expect(result.stdout).toContain('No project skills found in skills-lock.json');
+  });
+
+  describe('--json output', () => {
+    const writeSkill = (dir: string, name: string): void => {
+      const skillDir = join(dir, 'skills', name);
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---\nname: ${name}\ndescription: A ${name} test skill\n---\n# ${name}\n`
+      );
+    };
+
+    it('should output an installed entry as a JSON array', () => {
+      const sourceDir = join(testDir, 'source');
+      const projectDir = join(testDir, 'project');
+      writeSkill(sourceDir, 'json-add-skill');
+      mkdirSync(projectDir, { recursive: true });
+
+      const result = runCli(
+        ['add', sourceDir, '-y', '--agent', 'claude-code', '--json'],
+        projectDir,
+        noDetectedAgentEnv
+      );
+
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(Array.isArray(parsed)).toBe(true);
+      expect(parsed.length).toBe(1);
+      expect(parsed[0].name).toBe('json-add-skill');
+      expect(parsed[0].status).toBe('installed');
+      expect(parsed[0].source).toContain('source');
+      expect(parsed[0].ref).toBeNull();
+      expect(typeof parsed[0].hash).toBe('string');
+      expect(parsed[0].hash.length).toBeGreaterThan(0);
+      expect(typeof parsed[0].path).toBe('string');
+      expect(parsed[0].path.length).toBeGreaterThan(0);
+      expect(parsed[0].scope).toBe('project');
+      expect(parsed[0].agents).toEqual(['Claude Code']);
+      expect(parsed[0].mode).toBe('copy');
+      // No ANSI codes, no banner, no clack boxes on stdout
+      expect(result.stdout).not.toMatch(/\x1b\[/);
+      expect(result.stdout).not.toContain('Installation Summary');
+      expect(stripAnsi(result.stderr)).toContain('Installation Summary');
+    });
+
+    it('should output one entry per skill for multi-skill installs', () => {
+      const sourceDir = join(testDir, 'source');
+      const projectDir = join(testDir, 'project');
+      writeSkill(sourceDir, 'skill-one');
+      writeSkill(sourceDir, 'skill-two');
+      mkdirSync(projectDir, { recursive: true });
+
+      const result = runCli(
+        [
+          'add',
+          sourceDir,
+          '-y',
+          '--agent',
+          'claude-code',
+          '--skill',
+          'skill-one',
+          'skill-two',
+          '--json',
+        ],
+        projectDir,
+        noDetectedAgentEnv
+      );
+
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed.length).toBe(2);
+      const names = parsed.map((e: any) => e.name);
+      expect(names).toContain('skill-one');
+      expect(names).toContain('skill-two');
+      expect(parsed.every((e: any) => e.status === 'installed')).toBe(true);
+    });
+
+    it('should report requested skills that match nothing as skipped', () => {
+      const sourceDir = join(testDir, 'source');
+      const projectDir = join(testDir, 'project');
+      writeSkill(sourceDir, 'skill-one');
+      mkdirSync(projectDir, { recursive: true });
+
+      const result = runCli(
+        [
+          'add',
+          sourceDir,
+          '-y',
+          '--agent',
+          'claude-code',
+          '--skill',
+          'skill-one',
+          'no-such-skill',
+          '--json',
+        ],
+        projectDir,
+        noDetectedAgentEnv
+      );
+
+      expect(result.exitCode).toBe(1);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed.length).toBe(2);
+      const skipped = parsed.find((e: any) => e.name === 'no-such-skill');
+      expect(skipped.status).toBe('skipped');
+      expect(skipped.reason).toContain('No matching skill');
+      const installed = parsed.find((e: any) => e.name === 'skill-one');
+      expect(installed.status).toBe('installed');
+    });
+
+    it('should reject --json combined with --list', () => {
+      const sourceDir = join(testDir, 'source');
+      writeSkill(sourceDir, 'skill-one');
+
+      const result = runCli(
+        ['add', sourceDir, '--list', '--json', '-y'],
+        testDir,
+        noDetectedAgentEnv
+      );
+
+      expect(result.exitCode).toBe(1);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed).toEqual([
+        {
+          status: 'failed',
+          error: 'The --json flag cannot be combined with --list.',
+        },
+      ]);
+      expect(result.stderr).toContain('cannot be combined with --list');
+    });
+
+    it('should install from a generic Git URL in JSON mode', () => {
+      const sourceDir = join(testDir, 'source.git');
+      const projectDir = join(testDir, 'project');
+      writeSkill(sourceDir, 'git-json-skill');
+      mkdirSync(projectDir, { recursive: true });
+      execFileSync('git', ['init'], { cwd: sourceDir, stdio: 'ignore' });
+      execFileSync('git', ['config', 'user.email', 'skills-test@example.com'], {
+        cwd: sourceDir,
+      });
+      execFileSync('git', ['config', 'user.name', 'Skills Test'], { cwd: sourceDir });
+      execFileSync('git', ['add', '.'], { cwd: sourceDir });
+      execFileSync('git', ['commit', '-m', 'add test skill'], {
+        cwd: sourceDir,
+        stdio: 'ignore',
+      });
+
+      const sourceUrl = `file://${sourceDir}`;
+      const result = runCli(
+        ['add', sourceUrl, '-y', '--agent', 'claude-code', '--json'],
+        projectDir,
+        noDetectedAgentEnv
+      );
+
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed).toHaveLength(1);
+      expect(parsed[0]).toMatchObject({
+        name: 'git-json-skill',
+        status: 'installed',
+        source: sourceUrl,
+      });
+      expect(parsed[0].hash).toMatch(/^[a-f0-9]{64}$/);
+    });
+
+    it('should emit a failed entry and parseable array for a bad source', () => {
+      const result = runCli(
+        ['add', './definitely-missing-path', '-y', '--json'],
+        testDir,
+        noDetectedAgentEnv
+      );
+
+      expect(result.exitCode).toBe(1);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(Array.isArray(parsed)).toBe(true);
+      expect(parsed.length).toBe(1);
+      expect(parsed[0].status).toBe('failed');
+      expect(parsed[0].error).toContain('Local path does not exist');
+      // Human error text goes to stderr, never stdout
+      expect(result.stderr).toContain('Local path does not exist');
+    });
+
+    it('should fail cleanly instead of prompting when --json is used without -y', () => {
+      const sourceDir = join(testDir, 'source');
+      writeSkill(sourceDir, 'skill-one');
+
+      const result = runCli(['add', sourceDir, '--json'], testDir, noDetectedAgentEnv);
+
+      expect(result.exitCode).toBe(1);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(Array.isArray(parsed)).toBe(true);
+      expect(result.stderr).toContain('--yes');
+    });
+
+    it('should emit a parseable array when source is missing', () => {
+      const result = runCli(['add', '--json'], testDir, noDetectedAgentEnv);
+
+      expect(result.exitCode).toBe(1);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(Array.isArray(parsed)).toBe(true);
+      expect(parsed[0].status).toBe('failed');
+      expect(result.stderr).toContain('Missing required argument: source');
+    });
+
+    it('should emit a parseable array when flag parsing fails', () => {
+      const result = runCli(
+        ['add', 'some/source', '--json', '-y', '--metadata', 'not-json'],
+        testDir,
+        noDetectedAgentEnv
+      );
+
+      expect(result.exitCode).toBe(1);
+      expect(JSON.parse(result.stdout.trim())).toEqual([]);
+      expect(result.stderr).toContain('--metadata must be valid JSON');
+    });
   });
 
   describe('internal skills', () => {
@@ -513,6 +1043,28 @@ metadata:
       });
       expect(result.stdout).toContain('internal-skill');
     });
+
+    it('should skip string metadata.internal: "true" skills by default', () => {
+      const skillDir = join(testDir, 'string-internal-skill');
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---
+name: string-internal-skill
+description: A string-internal skill
+metadata:
+  internal: "true"
+---
+
+# String Internal Skill
+
+This is an internal skill.
+`
+      );
+
+      const result = runCli(['add', testDir, '--list'], testDir);
+      expect(result.stdout).not.toContain('string-internal-skill');
+    });
   });
 });
 
@@ -573,6 +1125,36 @@ describe('formatEveInstallPromptMessage', () => {
     expect(stripAnsi(message)).toBe(
       'Detected an eve project. Install eve-skill for your eve agent to use?'
     );
+  });
+});
+
+describe('isInternalSkill', () => {
+  it.each([
+    [true, true],
+    ['true', true],
+    ['1', true],
+    [false, false],
+    ['false', false],
+    ['0', false],
+    ['', false],
+    ['True', false],
+    ['TRUE', false],
+    [' true ', false],
+    [1, false],
+    [0, false],
+    [null, false],
+    [undefined, false],
+    [[], false],
+    [{}, false],
+  ])('treats metadata.internal=%s as internal=%s', (value, expected) => {
+    expect(isInternalSkill({ internal: value })).toBe(expected);
+  });
+
+  it('returns false for missing or non-record metadata', () => {
+    expect(isInternalSkill(undefined)).toBe(false);
+    expect(isInternalSkill(null)).toBe(false);
+    expect(isInternalSkill('internal')).toBe(false);
+    expect(isInternalSkill({})).toBe(false);
   });
 });
 
@@ -662,6 +1244,19 @@ describe('parseAddOptions', () => {
     expect(result.options.fullDepth).toBe(true);
   });
 
+  it('should parse --json flag', () => {
+    const result = parseAddOptions(['source', '--json']);
+    expect(result.source).toEqual(['source']);
+    expect(result.options.json).toBe(true);
+  });
+
+  it('should parse --json alongside other flags', () => {
+    const result = parseAddOptions(['source', '--json', '-y', '--skill', 'my-skill']);
+    expect(result.options.json).toBe(true);
+    expect(result.options.yes).toBe(true);
+    expect(result.options.skill).toEqual(['my-skill']);
+  });
+
   it('should parse --full-depth with other flags', () => {
     const result = parseAddOptions(['source', '--full-depth', '--list', '-g']);
     expect(result.source).toEqual(['source']);
@@ -683,13 +1278,13 @@ describe('parseAddOptions', () => {
     const result = parseAddOptions(['source', '--metadata', '{not-json}']);
 
     expect(result.options.metadata).toBeUndefined();
-    expect(result.errors).toEqual(['--metadata must be valid JSON']);
+    expect(result.errors.map((e) => e.message)).toEqual(['--metadata must be valid JSON']);
   });
 
   it('should reject a missing metadata value', () => {
     const result = parseAddOptions(['source', '--metadata']);
 
-    expect(result.errors).toEqual(['--metadata requires a JSON value']);
+    expect(result.errors.map((e) => e.message)).toEqual(['--metadata requires a JSON value']);
   });
 
   it('should parse a single --subagent value', () => {

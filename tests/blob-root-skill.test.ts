@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { resetRepoTreeAuthState, tryBlobInstall } from '../src/blob.ts';
+import { computeSkillFolderHash } from '../src/local-lock.ts';
 
 const ROOT_SKILL_MD = `---
 name: eve
@@ -112,6 +116,128 @@ description: Nested skill.
 
     expect(result).not.toBeNull();
     expect(result!.skills[0]!.files.map((file) => file.path)).toEqual(['SKILL.md', 'reference.md']);
-    expect(result!.skills[0]!.snapshotHash).toBe('nested-snapshot-hash');
+    // Recorded as computedHash, so it must match what check/update compute on disk,
+    // not the server's hash.
+    const dir = mkdtempSync(join(tmpdir(), 'blob-hash-'));
+    try {
+      for (const file of result!.skills[0]!.files)
+        writeFileSync(join(dir, file.path), file.contents);
+      expect(result!.skills[0]!.snapshotHash).not.toBe('nested-snapshot-hash');
+      expect(result!.skills[0]!.snapshotHash).toBe(await computeSkillFolderHash(dir));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back when a nested snapshot omits an installable repository file', async () => {
+    const nestedSkillMd = `---
+name: nested
+description: Nested skill with a binary resource.
+---
+# Nested
+`;
+
+    fetchMock
+      .mockResolvedValueOnce(
+        okResponse({
+          sha: 'root-tree-sha',
+          tree: [
+            { path: 'skills/nested/SKILL.md', type: 'blob', sha: 'skill-sha' },
+            {
+              path: 'skills/nested/references/example.png',
+              type: 'blob',
+              sha: 'image-sha',
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(textResponse(nestedSkillMd))
+      .mockResolvedValueOnce(
+        okResponse({
+          hash: 'incomplete-snapshot-hash',
+          files: [{ path: 'SKILL.md', contents: nestedSkillMd }],
+        })
+      );
+
+    await expect(tryBlobInstall('vercel-labs/agent-skills')).resolves.toBeNull();
+  });
+
+  it('does not require files excluded by the clone installer', async () => {
+    const nestedSkillMd = `---
+name: nested
+description: Nested skill with excluded source metadata.
+---
+# Nested
+`;
+
+    fetchMock
+      .mockResolvedValueOnce(
+        okResponse({
+          sha: 'root-tree-sha',
+          tree: [
+            { path: 'skills/nested/SKILL.md', type: 'blob', sha: 'skill-sha' },
+            { path: 'skills/nested/metadata.json', type: 'blob', sha: 'metadata-sha' },
+            {
+              path: 'skills/nested/__pycache__/cache.pyc',
+              type: 'blob',
+              sha: 'cache-sha',
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(textResponse(nestedSkillMd))
+      .mockResolvedValueOnce(
+        okResponse({
+          hash: 'complete-installable-snapshot-hash',
+          files: [{ path: 'SKILL.md', contents: nestedSkillMd }],
+        })
+      );
+
+    const result = await tryBlobInstall('vercel-labs/agent-skills');
+
+    expect(result).not.toBeNull();
+    expect(result!.skills[0]!.files).toEqual([{ path: 'SKILL.md', contents: nestedSkillMd }]);
+  });
+
+  it('skips boolean and string metadata.internal skills', async () => {
+    const skillMd = (name: string, internal: string) => `---
+name: ${name}
+description: ${name}.
+metadata:
+  internal: ${internal}
+---
+`;
+    const publicSkillMd = `---
+name: public-skill
+description: Public skill.
+---
+# Public
+`;
+
+    fetchMock
+      .mockResolvedValueOnce(
+        okResponse({
+          sha: 'root-tree-sha',
+          tree: [
+            { path: 'skills/bool-internal/SKILL.md', type: 'blob', sha: 'bool-sha' },
+            { path: 'skills/string-internal/SKILL.md', type: 'blob', sha: 'string-sha' },
+            { path: 'skills/public-skill/SKILL.md', type: 'blob', sha: 'public-sha' },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(textResponse(skillMd('bool-internal', 'true')))
+      .mockResolvedValueOnce(textResponse(skillMd('string-internal', '"true"')))
+      .mockResolvedValueOnce(textResponse(publicSkillMd))
+      .mockResolvedValueOnce(
+        okResponse({
+          hash: 'public-snapshot-hash',
+          files: [{ path: 'SKILL.md', contents: publicSkillMd }],
+        })
+      );
+
+    const result = await tryBlobInstall('vercel-labs/agent-skills');
+
+    expect(result).not.toBeNull();
+    expect(result!.skills.map((skill) => skill.name)).toEqual(['public-skill']);
   });
 });

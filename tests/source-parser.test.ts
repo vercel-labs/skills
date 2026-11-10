@@ -145,6 +145,86 @@ describe('parseSource', () => {
     });
   });
 
+  describe('Azure Repos URL tests', () => {
+    it('Azure DevOps Services clone URL is git, not well-known', () => {
+      const result = parseSource('https://dev.azure.com/fabrikam/FabrikamFiber/_git/skills');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://dev.azure.com/fabrikam/FabrikamFiber/_git/skills');
+      expect(result.ref).toBeUndefined();
+      expect(result.subpath).toBeUndefined();
+    });
+
+    it('Azure DevOps Services URL with .git suffix', () => {
+      const result = parseSource('https://dev.azure.com/fabrikam/FabrikamFiber/_git/skills.git');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://dev.azure.com/fabrikam/FabrikamFiber/_git/skills');
+    });
+
+    it('Azure DevOps Services web URL with path and branch query', () => {
+      const result = parseSource(
+        'https://dev.azure.com/fabrikam/FabrikamFiber/_git/skills?path=/skills/web-design&version=GBmain'
+      );
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://dev.azure.com/fabrikam/FabrikamFiber/_git/skills');
+      expect(result.ref).toBe('main');
+      expect(result.subpath).toBe('skills/web-design');
+    });
+
+    it('visualstudio.com clone URL', () => {
+      const result = parseSource('https://fabrikam.visualstudio.com/FabrikamFiber/_git/skills');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://fabrikam.visualstudio.com/FabrikamFiber/_git/skills');
+    });
+
+    it('Azure DevOps Server collection/project/_git/repo', () => {
+      const result = parseSource('https://ado.example.com/DefaultCollection/MyProject/_git/skills');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://ado.example.com/DefaultCollection/MyProject/_git/skills');
+    });
+
+    it('Azure DevOps Server /tfs/ virtual directory', () => {
+      const result = parseSource(
+        'https://ado.example.com/tfs/DefaultCollection/MyProject/_git/skills'
+      );
+      expect(result.type).toBe('git');
+      expect(result.url).toBe(
+        'https://ado.example.com/tfs/DefaultCollection/MyProject/_git/skills'
+      );
+    });
+
+    it('encoded spaces in organization and project', () => {
+      const result = parseSource('https://dev.azure.com/My%20Org/My%20Project/_git/agent-skills');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://dev.azure.com/My%20Org/My%20Project/_git/agent-skills');
+    });
+
+    it('version=GT is a tag ref; version=GC is not a cloneable ref', () => {
+      expect(
+        parseSource('https://dev.azure.com/fabrikam/Fiber/_git/skills?version=GTv1.2.0').ref
+      ).toBe('v1.2.0');
+      expect(
+        parseSource(
+          'https://dev.azure.com/fabrikam/Fiber/_git/skills?version=GC2c732a035bae9fb21e7823d37b2b9553e272f0c6'
+        ).ref
+      ).toBeUndefined();
+    });
+
+    it('#fragment is a git ref on Azure Repos URLs', () => {
+      const result = parseSource(
+        'https://dev.azure.com/fabrikam/FabrikamFiber/_git/skills#release-2026'
+      );
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://dev.azure.com/fabrikam/FabrikamFiber/_git/skills');
+      expect(result.ref).toBe('release-2026');
+    });
+
+    it('trailing slash after repo name', () => {
+      const result = parseSource('https://dev.azure.com/fabrikam/Fiber/_git/skills/');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('https://dev.azure.com/fabrikam/Fiber/_git/skills');
+    });
+  });
+
   describe('Generic URL tests', () => {
     it('generic HTTP URL is parsed as well-known with direct download fallback', () => {
       const result = parseSource('https://internal.example.com/download?id=123');
@@ -200,6 +280,44 @@ describe('parseSource', () => {
       expect(result.type).toBe('github');
       expect(result.url).toBe('https://github.com/vercel-labs/agent-skills.git');
       expect(result.skillFilter).toBe('find-skills');
+      expect(result.ref).toBeUndefined();
+    });
+
+    it('GitHub shorthand - owner/repo@v1.2.3 pins the release tag', () => {
+      const result = parseSource('mattpocock/skills@v1.3.1');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/mattpocock/skills.git');
+      expect(result.ref).toBe('v1.3.1');
+      expect(result.skillFilter).toBeUndefined();
+    });
+
+    it('GitHub shorthand - owner/repo@tag keeps prerelease and build metadata', () => {
+      const result = parseSource('owner/repo@v1.2.3-beta.1+build.5');
+      expect(result.ref).toBe('v1.2.3-beta.1+build.5');
+      expect(result.skillFilter).toBeUndefined();
+    });
+
+    it('GitHub shorthand - owner/repo@version pins tags without v or a patch part', () => {
+      for (const tag of ['1.2.3', 'v1.2', '2026.10.1', '1.0.0-rc.1']) {
+        const result = parseSource(`owner/repo@${tag}`);
+        expect(result.ref).toBe(tag);
+        expect(result.skillFilter).toBeUndefined();
+      }
+    });
+
+    it('GitHub shorthand - owner/repo@<full sha> pins the commit', () => {
+      const sha = 'd22f72308106ef62f558cbde16dacb1f21031ae3';
+      const result = parseSource(`owner/repo@${sha}`);
+      expect(result.ref).toBe(sha);
+      expect(result.skillFilter).toBeUndefined();
+    });
+
+    it('GitHub shorthand - owner/repo@name does not treat skill-like names as pins', () => {
+      for (const name of ['find-skills', 'v2', '2', 'v1.x', 'web-design-guidelines']) {
+        const result = parseSource(`owner/repo@${name}`);
+        expect(result.ref).toBeUndefined();
+        expect(result.skillFilter).toBe(name);
+      }
     });
 
     it('GitHub shorthand - owner/repo#branch', () => {
@@ -267,6 +385,42 @@ describe('parseSource', () => {
       expect(result.type).toBe('git');
       expect(result.url).toBe('git@github.com:owner/repo.git');
       expect(result.ref).toBe('feature/install');
+    });
+
+    it('Git URL - SSH format with /tree/branch', () => {
+      const result = parseSource('git@github.com:owner/repo/tree/mybranch');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@github.com:owner/repo.git');
+      expect(result.ref).toBe('mybranch');
+      expect(result.subpath).toBeUndefined();
+    });
+
+    it('Git URL - SSH format with /tree/branch/path', () => {
+      const result = parseSource('git@github.com:owner/repo/tree/mybranch/skills/foo');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@github.com:owner/repo.git');
+      expect(result.ref).toBe('mybranch');
+      expect(result.subpath).toBe('skills/foo');
+    });
+
+    it('Git URL - SSH format with .git and /tree/branch', () => {
+      const result = parseSource('git@github.com:owner/repo.git/tree/mybranch');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@github.com:owner/repo.git');
+      expect(result.ref).toBe('mybranch');
+    });
+
+    it('Git URL - SSH format with /tree/ on non-GitHub host is left as-is', () => {
+      const result = parseSource('git@git.example.com:group/repo/tree/mybranch.git');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@git.example.com:group/repo/tree/mybranch.git');
+      expect(result.ref).toBeUndefined();
+    });
+
+    it('Git URL - SSH format with /tree/ rejects path traversal', () => {
+      expect(() => parseSource('git@github.com:owner/repo/tree/main/../../etc')).toThrow(
+        /Unsafe subpath/
+      );
     });
 
     it('Git URL - custom host', () => {

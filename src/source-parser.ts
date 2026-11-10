@@ -1,6 +1,8 @@
 import { isAbsolute, resolve } from 'path';
 import type { ParsedSource } from './types.ts';
+import { diagnostics } from './diagnostics.ts';
 import { getGitHubHost, isGitHubHost } from './github-host.ts';
+import { isCommitSha } from './git.ts';
 
 /**
  * Extract owner/repo (or group/subgroup/repo for GitLab) from a parsed source
@@ -76,26 +78,63 @@ export function parseOwnerRepo(ownerRepo: string): { owner: string; repo: string
   return null;
 }
 
+/** A GitHub `owner/repo`: the characters GitHub allows, never a `.` or `..` repo. */
+const GITHUB_FULL_NAME = /^[A-Za-z0-9-]+\/(?!\.\.?$)[A-Za-z0-9._-]+$/;
+
+/**
+ * Look up a GitHub.com repository. `fullName` is its canonical `owner/repo`:
+ * GitHub follows renames and transfers. Returns null when the repo does not
+ * exist, is not visible anonymously, or the API is unreachable.
+ */
+export async function fetchGitHubRepoInfo(owner: string, repo: string) {
+  try {
+    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
+    if (!res.ok) {
+      return null;
+    }
+
+    const data = (await res.json()) as { private?: boolean; full_name?: unknown };
+    return {
+      private: data.private === true,
+      fullName:
+        typeof data.full_name === 'string' && GITHUB_FULL_NAME.test(data.full_name)
+          ? data.full_name
+          : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Check if a GitHub repository is private.
  * Returns true if private, false if public, null if unable to determine.
  * Only works for GitHub repositories (GitLab not supported).
  */
 export async function isRepoPrivate(owner: string, repo: string): Promise<boolean | null> {
-  try {
-    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
+  const info = await fetchGitHubRepoInfo(owner, repo);
+  // If repo doesn't exist or we don't have access, we can't tell
+  return info ? info.private : null;
+}
 
-    // If repo doesn't exist or we don't have access, assume private to be safe
-    if (!res.ok) {
-      return null; // Unable to determine
-    }
+/**
+ * Point a GitHub.com source at its canonical `owner/repo`, keeping ref, subpath,
+ * and skill filter. Returns `parsed` itself when there is nothing to change.
+ */
+export function withCanonicalGitHubRepo(
+  parsed: ParsedSource,
+  fullName: string | null | undefined
+): ParsedSource {
+  if (parsed.type !== 'github' || !fullName || getOwnerRepo(parsed) === fullName) return parsed;
+  return { ...parsed, url: `https://github.com/${fullName}.git` };
+}
 
-    const data = (await res.json()) as { private?: boolean };
-    return data.private === true;
-  } catch {
-    // On error, return null to indicate we couldn't determine
-    return null;
-  }
+/** The GitHub API lookup for a `github` source, or null for any other source. */
+export function lookupGitHubRepo(parsed: ParsedSource) {
+  if (parsed.type !== 'github') return Promise.resolve(null);
+  const ownerRepo = parseOwnerRepo(getOwnerRepo(parsed) ?? '');
+  if (!ownerRepo) return Promise.resolve(null);
+  return fetchGitHubRepoInfo(ownerRepo.owner, ownerRepo.repo);
 }
 
 /**
@@ -111,14 +150,83 @@ export function sanitizeSubpath(subpath: string): string {
   const segments = normalized.split('/');
   for (const segment of segments) {
     if (segment === '..') {
-      throw new Error(
-        `Unsafe subpath: "${subpath}" contains path traversal segments. ` +
-          `Subpaths must not contain ".." components.`
-      );
+      throw diagnostics.SKILLS_UNSAFE_SUBPATH({ subpath });
     }
   }
 
   return subpath;
+}
+
+/**
+ * Azure Repos version query values: GBbranch, GTtag, GCcommit.
+ * Bare values are treated as refs as-is.
+ */
+function azureReposVersionToRef(version: string | null): string | undefined {
+  if (!version) {
+    return undefined;
+  }
+
+  // GB = branch, GT = tag. GC (commit) is omitted because `git clone --branch`
+  // cannot check out a SHA.
+  const prefixed = /^(?:GB|GT)(.+)$/i.exec(version)?.[1];
+  return prefixed || undefined;
+}
+
+/**
+ * Parse Azure Repos HTTPS URLs (cloud and Server).
+ * Marker is `/_git/{repo}` — the same path Azure DevOps uses for git clone,
+ * on any host. Query `path` and `version` come from the web UI.
+ */
+function parseAzureReposSource(
+  input: string,
+  fragmentRef?: string,
+  fragmentSkillFilter?: string
+): ParsedSource | null {
+  if (!input.startsWith('http://') && !input.startsWith('https://')) {
+    return null;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(input);
+  } catch {
+    return null;
+  }
+
+  const segments = parsed.pathname.split('/').filter(Boolean);
+  const gitIndex = segments.indexOf('_git');
+  if (gitIndex < 0 || gitIndex === segments.length - 1) {
+    return null;
+  }
+
+  const repo = segments[gitIndex + 1]!.replace(/\.git$/, '');
+  if (!repo) {
+    return null;
+  }
+
+  const clonePath =
+    '/' +
+    [...segments.slice(0, gitIndex), '_git', repo]
+      .map((segment) => {
+        try {
+          return encodeURIComponent(decodeURIComponent(segment));
+        } catch {
+          return encodeURIComponent(segment);
+        }
+      })
+      .join('/');
+  const cloneUrl = `${parsed.protocol}//${parsed.host}${clonePath}`;
+  const ref = azureReposVersionToRef(parsed.searchParams.get('version')) || fragmentRef;
+  const pathParam = parsed.searchParams.get('path');
+  const subpath = pathParam ? sanitizeSubpath(pathParam.replace(/^\/+/, '')) : undefined;
+
+  return {
+    type: 'git',
+    url: cloneUrl,
+    ...(ref ? { ref } : {}),
+    ...(subpath ? { subpath } : {}),
+    ...(fragmentSkillFilter ? { skillFilter: fragmentSkillFilter } : {}),
+  };
 }
 
 /**
@@ -138,7 +246,7 @@ function isLocalPath(input: string): boolean {
 
 /**
  * Parse a source string into a structured format
- * Supports: local paths, GitHub URLs, GitLab URLs, GitHub shorthand, well-known URLs,
+ * Supports: local paths, GitHub URLs, GitLab URLs, Azure Repos URLs, GitHub shorthand, well-known URLs,
  * hosted download URLs, and direct git URLs
  */
 // Source aliases: map common shorthand to canonical source
@@ -183,6 +291,14 @@ function looksLikeGitSource(input: string): boolean {
       // Only treat gitlab.com fragments as refs for repo/tree URLs.
       if (parsed.hostname === 'gitlab.com') {
         return /^\/.+?\/[^/]+(?:\.git)?(?:\/-\/tree\/[^/]+(?:\/.*)?)?\/?$/.test(pathname);
+      }
+
+      // Azure Repos clone and web URLs use /_git/{repo} on any host
+      // (dev.azure.com, *.visualstudio.com, Azure DevOps Server).
+      const azureSegments = pathname.split('/').filter(Boolean);
+      const azureGitIndex = azureSegments.indexOf('_git');
+      if (azureGitIndex >= 0 && azureGitIndex < azureSegments.length - 1) {
+        return true;
       }
     } catch {
       // Fall through to generic checks below.
@@ -233,11 +349,23 @@ function parseFragmentRef(input: string): FragmentRefResult {
   };
 }
 
+/**
+ * `owner/repo@name` selects a skill. A version tag (`v1.2.3`, `1.2.3`, `v1.2`,
+ * with optional prerelease/build metadata) or a full commit SHA in that
+ * position is a checkout pin, the same as `owner/repo#ref`. A single number
+ * such as `v2` is ambiguous and stays a skill name. Branch pins use `#ref`.
+ */
+function isVersionPin(value: string): boolean {
+  return (
+    /^v?\d+(?:\.\d+)+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(value) || isCommitSha(value)
+  );
+}
+
 function appendFragmentRef(input: string, ref?: string, skillFilter?: string): string {
-  if (!ref) {
+  if (!ref && !skillFilter) {
     return input;
   }
-  return `${input}#${ref}${skillFilter ? `@${skillFilter}` : ''}`;
+  return `${input}#${ref ? encodeURIComponent(ref) : ''}${skillFilter ? `@${encodeURIComponent(skillFilter)}` : ''}`;
 }
 
 function isHostedArtifactUrl(input: string): boolean {
@@ -269,10 +397,17 @@ function isHostedArtifactUrl(input: string): boolean {
   }
 }
 
-export function parseSource(input: string): ParsedSource {
+/**
+ * `githubHost` pins `owner/repo` shorthand to a host regardless of GH_HOST,
+ * for inputs known to come from github.com (e.g. a public lock entry).
+ */
+export function parseSource(
+  input: string,
+  options: { githubHost?: string; cwd?: string } = {}
+): ParsedSource {
   // Local path: absolute, relative, or current directory
   if (isLocalPath(input)) {
-    const resolvedPath = resolve(input);
+    const resolvedPath = resolve(options.cwd ?? process.cwd(), input);
     // Return local type even if path doesn't exist - we'll handle validation in main flow
     return {
       type: 'local',
@@ -346,6 +481,20 @@ export function parseSource(input: string): ParsedSource {
     } catch {
       // Fall through to the remaining source formats.
     }
+  }
+
+  // GitHub SSH URL with branch: git@github.com:owner/repo/tree/branch[/path/to/skill]
+  const githubSshTreeMatch = input.match(
+    /^git@([^:]+):([^/]+)\/([^/]+?)(?:\.git)?\/tree\/([^/]+)(?:\/(.+))?$/
+  );
+  if (githubSshTreeMatch && isGitHubHost(githubSshTreeMatch[1]!)) {
+    const [, host, owner, repo, ref, subpath] = githubSshTreeMatch;
+    return {
+      type: 'git',
+      url: `git@${host}:${owner}/${repo}.git`,
+      ref,
+      ...(subpath ? { subpath: sanitizeSubpath(subpath) } : {}),
+    };
   }
 
   // GitHub URL with path: https://github.com/owner/repo/tree/branch/path/to/skill
@@ -430,18 +579,35 @@ export function parseSource(input: string): ParsedSource {
     }
   }
 
+  // Azure Repos (any host): https://dev.azure.com/org/project/_git/repo
+  // Also Azure DevOps Server: https://server[/tfs]/{collection}/{project}/_git/{repo}
+  const azureRepos = parseAzureReposSource(input, fragmentRef, fragmentSkillFilter);
+  if (azureRepos) {
+    return azureRepos;
+  }
+
   // GitHub shorthand: owner/repo, owner/repo/path/to/skill, or owner/repo@skill-name
   // Exclude paths that start with . or / to avoid matching local paths
   // GH_HOST selects a GitHub Enterprise host for shorthand inputs. Enterprise
   // sources use the generic git path because GitHub.com API optimizations do
   // not apply to them.
-  const githubHost = getGitHubHost();
+  const githubHost = options.githubHost ?? getGitHubHost();
   const shorthandSourceType = githubHost === 'github.com' ? 'github' : 'git';
 
-  // First check for @skill syntax: owner/repo@skill-name
+  // First check for @skill syntax: owner/repo@skill-name.
+  // A release tag or full SHA (`owner/repo@v1.2.3`) is a checkout pin, not a
+  // skill name. Otherwise the tag is printed as a filter and the install
+  // uses the default branch (#2526).
   const atSkillMatch = input.match(/^([^/]+)\/([^/@]+)@(.+)$/);
   if (atSkillMatch && !input.includes(':') && !input.startsWith('.') && !input.startsWith('/')) {
     const [, owner, repo, skillFilter] = atSkillMatch;
+    if (!fragmentRef && !fragmentSkillFilter && isVersionPin(skillFilter!)) {
+      return {
+        type: shorthandSourceType,
+        url: `https://${githubHost}/${owner}/${repo}.git`,
+        ref: skillFilter,
+      };
+    }
     return {
       type: shorthandSourceType,
       url: `https://${githubHost}/${owner}/${repo}.git`,

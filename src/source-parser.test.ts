@@ -6,6 +6,30 @@ describe('source-parser', () => {
     vi.unstubAllEnvs();
   });
 
+  describe('prefix shorthand fragments', () => {
+    it.each([
+      '#release%40v1@review',
+      '#release%2540v1@review',
+      '#main@code%40review',
+      '#main@code%2520review',
+      '#@review',
+      '#feature/install@review',
+    ])('preserves the parsed ref and selector when adding github: to %s', (fragment) => {
+      expect(parseSource(`github:owner/repo${fragment}`)).toEqual(
+        parseSource(`owner/repo${fragment}`)
+      );
+    });
+
+    it.each(['#release%40v1', '#release%2540v1', '#feature/install'])(
+      'preserves the parsed ref when adding gitlab: to %s',
+      (fragment) => {
+        expect(parseSource(`gitlab:owner/repo${fragment}`)).toEqual(
+          parseSource(`https://gitlab.com/owner/repo${fragment}`)
+        );
+      }
+    );
+  });
+
   describe('GitLab Custom Domains & Subgroups', () => {
     it('parses custom gitlab domain with deep subgroup paths', () => {
       const result = parseSource('https://git.corp.com/group/subgroup/project/-/tree/main/src');
@@ -48,6 +72,22 @@ describe('source-parser', () => {
       expect(result).toMatchObject({
         type: 'gitlab',
         url: 'https://gitlab.com/~user/project.git',
+      });
+    });
+  });
+
+  describe('Azure Repos', () => {
+    it('does not treat Azure Repos HTTPS as well-known', () => {
+      expect(parseSource('https://dev.azure.com/fabrikam/Fiber/_git/skills').type).toBe('git');
+    });
+
+    it('parses Azure DevOps Server with port and /tfs/', () => {
+      const result = parseSource(
+        'http://ado.example.com:8080/tfs/DefaultCollection/MyProject/_git/skills'
+      );
+      expect(result).toEqual({
+        type: 'git',
+        url: 'http://ado.example.com:8080/tfs/DefaultCollection/MyProject/_git/skills',
       });
     });
   });

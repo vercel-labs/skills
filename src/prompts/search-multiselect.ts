@@ -252,6 +252,13 @@ export function toggleSearchEntry<T>(selected: Set<T>, entry: SearchEntry<T> | u
     }
   }
 }
+export function toggleSelectAll<T>(selected: Set<T>, filtered: SearchItem<T>[]): void {
+  const allSelected = filtered.every((item) => selected.has(item.value));
+  for (const item of filtered) {
+    if (allSelected) selected.delete(item.value);
+    else selected.add(item.value);
+  }
+}
 
 export type SelectAllState = 'none' | 'partial' | 'all';
 
@@ -369,7 +376,9 @@ export async function searchMultiselect<T>(
         if (searchable) {
           const searchLine = `${S_BAR}  ${pc.dim('Search:')} ${query}${pc.inverse(' ')}`;
           lines.push(searchLine);
-          lines.push(`${S_BAR}  ${pc.dim('↑↓ move, space select, enter confirm')}`);
+          lines.push(
+            `${S_BAR}  ${pc.dim('↑↓ move, space select, ctrl+a select all, enter confirm')}`
+          );
           lines.push(`${S_BAR}`);
         }
 
@@ -567,6 +576,7 @@ export async function searchMultiselect<T>(
     };
 
     const cleanup = (): void => {
+      rl.removeListener('close', closeHandler);
       process.stdin.removeListener('keypress', keypressHandler);
       if (process.stdin.isTTY) {
         process.stdin.setRawMode(false);
@@ -574,11 +584,15 @@ export async function searchMultiselect<T>(
       rl.close();
     };
 
+    let settled = false;
+
     const submit = (): void => {
+      if (settled) return;
       // If required and no locked items, don't allow submitting with no selection
       if (required && selected.size === 0 && lockedValues.length === 0) {
         return;
       }
+      settled = true;
       render('submit');
       cleanup();
       // Include locked values in the result
@@ -586,9 +600,18 @@ export async function searchMultiselect<T>(
     };
 
     const cancel = (): void => {
+      if (settled) return;
+      settled = true;
       render('cancel');
       cleanup();
       resolve(cancelSymbol);
+    };
+
+    // Treat end of input as a cancel. Without this, a non-TTY stdin (CI,
+    // piped input) that reaches EOF leaves the promise pending forever and
+    // the process exits 0 as if the prompt had succeeded.
+    const closeHandler = (): void => {
+      cancel();
     };
 
     // Handle keypresses
@@ -653,6 +676,16 @@ export async function searchMultiselect<T>(
         render();
         return;
       }
+      if (key.ctrl && key.name === 'a') {
+        const filtered = getFiltered();
+        const allSelected = filtered.every((item) => selected.has(item.value));
+        for (const item of filtered) {
+          if (allSelected) selected.delete(item.value);
+          else selected.add(item.value);
+        }
+        render();
+        return;
+      }
 
       if (key.name === 'backspace') {
         query = query.slice(0, -1);
@@ -671,6 +704,15 @@ export async function searchMultiselect<T>(
     };
 
     process.stdin.on('keypress', keypressHandler);
+    rl.on('close', closeHandler);
+
+    // stdin may have already reached EOF before this prompt attached (an
+    // earlier readline consumer, such as a spinner, reads the stream), in
+    // which case the interface above never emits 'close'.
+    if (process.stdin.readableEnded || process.stdin.destroyed) {
+      cancel();
+      return;
+    }
 
     // Initial render
     render();

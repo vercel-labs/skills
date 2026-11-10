@@ -1,5 +1,8 @@
 import * as readline from 'readline';
+import type { Diagnostic } from 'nostics';
 import { runAdd, parseAddOptions } from './add.ts';
+import { diagnostics, formatError } from './diagnostics.ts';
+import { parseCliArgs } from './cli-args.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
 import { isRepoPrivate } from './source-parser.ts';
@@ -15,7 +18,6 @@ const YELLOW = '\x1b[33m';
 
 // API endpoint for skills search
 const SEARCH_API_BASE = process.env.SKILLS_API_URL || 'https://skills.sh';
-const SEARCH_RESULT_LIMIT = '20';
 
 function formatInstalls(count: number): string {
   if (!count || count <= 0) return '';
@@ -38,55 +40,39 @@ export interface FindOptions {
 export interface ParseFindOptionsResult {
   query: string;
   options: FindOptions;
-  errors: string[];
+  errors: Diagnostic[];
 }
 
 const GITHUB_OWNER_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38})$/i;
 
 export function parseFindOptions(args: string[]): ParseFindOptionsResult {
-  const queryParts: string[] = [];
+  const { values, positionals, errors } = parseCliArgs(args, {
+    owner: { type: 'string', value: 'a GitHub owner' },
+  });
   const options: FindOptions = {};
-  const errors: string[] = [];
 
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (!arg) continue;
-
-    let ownerValue: string | undefined;
-    if (arg === '--owner') {
-      const value = args[i + 1];
-      if (!value || value.startsWith('-')) {
-        errors.push('--owner requires a GitHub owner');
-        continue;
-      }
-      ownerValue = value;
-      i++;
-    } else if (arg.startsWith('--owner=')) {
-      ownerValue = arg.slice('--owner='.length);
-      if (!ownerValue) {
-        errors.push('--owner requires a GitHub owner');
-        continue;
-      }
-    } else {
-      queryParts.push(arg);
-      continue;
-    }
-
+  const ownerValue = values.owner?.at(-1);
+  if (ownerValue !== undefined) {
     const owner = ownerValue.trim().toLowerCase();
-    if (!GITHUB_OWNER_PATTERN.test(owner)) {
-      errors.push('--owner must be a valid GitHub owner');
-      continue;
+    if (GITHUB_OWNER_PATTERN.test(owner)) {
+      options.owner = owner;
+    } else {
+      errors.push(
+        diagnostics.SKILLS_INVALID_OPTION_VALUE({
+          option: '--owner',
+          expected: 'a valid GitHub owner',
+        })
+      );
     }
-    options.owner = owner;
   }
 
-  return { query: queryParts.join(' '), options, errors };
+  return { query: positionals.join(' '), options, errors };
 }
 
 // Search via API
 export async function searchSkillsAPI(query: string, owner?: string): Promise<SearchSkill[]> {
   try {
-    const params = new URLSearchParams({ q: query, limit: SEARCH_RESULT_LIMIT });
+    const params = new URLSearchParams({ q: query });
     if (owner) params.set('owner', owner);
     const url = `${SEARCH_API_BASE}/api/search?${params.toString()}`;
     const res = await fetch(url);
@@ -102,14 +88,12 @@ export async function searchSkillsAPI(query: string, owner?: string): Promise<Se
       }>;
     };
 
-    return data.skills
-      .map((skill) => ({
-        name: sanitizeMetadata(skill.name),
-        slug: sanitizeMetadata(skill.id),
-        source: sanitizeMetadata(skill.source || ''),
-        installs: skill.installs,
-      }))
-      .sort((a, b) => (b.installs || 0) - (a.installs || 0));
+    return data.skills.map((skill) => ({
+      name: sanitizeMetadata(skill.name),
+      slug: sanitizeMetadata(skill.id),
+      source: sanitizeMetadata(skill.source || ''),
+      installs: skill.installs,
+    }));
   } catch {
     return [];
   }
@@ -332,7 +316,7 @@ ${DIM}  1) npx skills find [query] [--owner <owner>]${RESET}
 ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
 
   if (errors.length > 0) {
-    for (const error of errors) console.error(error);
+    for (const error of errors) console.error(formatError(error));
     console.error('Usage: npx skills find <query> [--owner <owner>]');
     return;
   }

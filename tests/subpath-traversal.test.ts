@@ -109,4 +109,18 @@ describe('parseSource rejects traversal in subpaths', () => {
       expect(result.subpath).toBe('skills/my-skill');
     });
   });
+
+  describe('Azure Repos URLs with path traversal', () => {
+    it('rejects .. in Azure Repos path query', () => {
+      expect(() =>
+        parseSource('https://dev.azure.com/fabrikam/Fiber/_git/skills?path=../../etc')
+      ).toThrow('Unsafe subpath');
+    });
+
+    it('rejects encoded .. in Azure Repos path query', () => {
+      expect(() =>
+        parseSource('https://dev.azure.com/fabrikam/Fiber/_git/skills?path=%2e%2e/%2e%2e/etc')
+      ).toThrow('Unsafe subpath');
+    });
+  });
 });

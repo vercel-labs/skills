@@ -12,11 +12,14 @@
 
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
+import { AGENT_PROJECT_SKILL_DIRS } from './agents.ts';
 import { parseFrontmatter } from './frontmatter.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { getGitHubHost } from './github-host.ts';
 import type { Skill } from './types.ts';
 import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
+import { SKILLS_SH_CONFIG_FILE, parseSkillsShPaths } from './skills-sh-config.ts';
+import { isInternalSkill } from './skills.ts';
 
 // ─── Types ───
 
@@ -81,6 +84,8 @@ export interface TreeEntry {
   type: 'blob' | 'tree';
   sha: string;
   size?: number;
+  /** Git file mode, e.g. `120000` for a symlink (passed through from the Trees API). */
+  mode?: string;
 }
 
 export interface RepoTree {
@@ -309,45 +314,24 @@ const PRIORITY_PREFIXES = [
   'skills/.curated/',
   'skills/.experimental/',
   'skills/.system/',
-  '.agents/skills/',
-  '.claude/skills/',
-  '.cline/skills/',
-  '.codebuddy/skills/',
-  '.codex/skills/',
-  '.commandcode/skills/',
-  '.continue/skills/',
-  '.github/skills/',
-  '.goose/skills/',
-  '.grok/skills/',
-  '.iflow/skills/',
-  '.junie/skills/',
-  '.kilocode/skills/',
-  '.kimchi/skills/',
-  '.kiro/skills/',
-  '.minimax/skills/',
-  '.mux/skills/',
-  '.neovate/skills/',
-  '.opencode/skills/',
-  '.openhands/skills/',
-  '.pi/skills/',
-  '.posit/assistant/skills/',
-  '.qoder/skills/',
-  '.roo/skills/',
-  '.trae/skills/',
-  '.windsurf/skills/',
-  '.zcode/skills/',
-  '.zencoder/skills/',
+  ...AGENT_PROJECT_SKILL_DIRS.map((dir) => `${dir}/`),
 ];
 
 /**
  * Find all SKILL.md file paths in a repo tree.
  * Applies the same priority directory logic as discoverSkills().
  * If subpath is set, only searches within that subtree.
+ * `extraContainers` are additional container dirs relative to the search root
+ * (e.g. from skills.sh.json `paths`), searched like `skills/`.
  */
-export function findSkillMdPaths(tree: RepoTree, subpath?: string): string[] {
+export function findSkillMdPaths(
+  tree: RepoTree,
+  subpath?: string,
+  extraContainers: string[] = []
+): string[] {
   // Find all blob entries that are SKILL.md files (case-insensitive)
   const allSkillMds = tree.tree
-    .filter((e) => e.type === 'blob' && e.path.toLowerCase().endsWith('skill.md'))
+    .filter((e) => e.type === 'blob' && e.path.split('/').at(-1)!.toLowerCase() === 'skill.md')
     .map((e) => e.path);
 
   // Apply subpath filter
@@ -368,9 +352,18 @@ export function findSkillMdPaths(tree: RepoTree, subpath?: string): string[] {
   const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '__pycache__']);
   const lowerSkillMdSet = new Set(filtered.map((p) => p.toLowerCase()));
 
-  for (const priorityPrefix of PRIORITY_PREFIXES) {
+  const extraPrefixes = extraContainers.reduce((prefixes, dir) => {
+    const prefix = `${dir}/`;
+    if (!PRIORITY_PREFIXES.includes(prefix)) prefixes.add(prefix);
+    return prefixes;
+  }, new Set<string>());
+  const priorityPrefixes = [...PRIORITY_PREFIXES, ...extraPrefixes];
+
+  for (const priorityPrefix of priorityPrefixes) {
     const fullPrefix = prefix + priorityPrefix;
     const isContainer = priorityPrefix !== '';
+    // Declared containers only search their children, like the disk walk.
+    const isExtraContainer = extraPrefixes.has(priorityPrefix);
 
     for (const skillMd of filtered) {
       // Check if this SKILL.md is directly inside the priority dir (one level deep)
@@ -379,6 +372,7 @@ export function findSkillMdPaths(tree: RepoTree, subpath?: string): string[] {
 
       // Direct SKILL.md in the priority dir (e.g., "skills/SKILL.md")
       if (rest.toLowerCase() === 'skill.md') {
+        if (isExtraContainer) continue;
         if (!seen.has(skillMd)) {
           priorityResults.push(skillMd);
           seen.add(skillMd);
@@ -434,16 +428,16 @@ export function findSkillMdPaths(tree: RepoTree, subpath?: string): string[] {
 // ─── Fetching skill content ───
 
 /**
- * Fetch a single SKILL.md from raw.githubusercontent.com to get frontmatter.
- * Returns the raw content string, or null on failure.
+ * Fetch a single file (e.g. a SKILL.md for its frontmatter) from
+ * raw.githubusercontent.com. Returns the raw content string, or null on failure.
  */
-async function fetchSkillMdContent(
+async function fetchRawContent(
   ownerRepo: string,
   branch: string,
-  skillMdPath: string
+  filePath: string
 ): Promise<string | null> {
   try {
-    const url = `https://raw.githubusercontent.com/${ownerRepo}/${branch}/${skillMdPath}`;
+    const url = `https://raw.githubusercontent.com/${ownerRepo}/${branch}/${filePath}`;
     const response = await fetch(url, {
       signal: AbortSignal.timeout(FETCH_TIMEOUT),
     });
@@ -452,6 +446,23 @@ async function fetchSkillMdContent(
   } catch {
     return null;
   }
+}
+
+/**
+ * Read the `paths` declared in skills.sh.json at the search root, mirroring
+ * discoverSkills(). Only fetches when the tree contains the file.
+ */
+async function fetchSkillsShPaths(
+  ownerRepo: string,
+  tree: RepoTree,
+  subpath?: string
+): Promise<string[]> {
+  const root = subpath ? subpath.replace(/\/+$/, '') + '/' : '';
+  const configPath = root + SKILLS_SH_CONFIG_FILE;
+  if (!tree.tree.some((e) => e.type === 'blob' && e.path === configPath)) return [];
+
+  const content = await fetchRawContent(ownerRepo, tree.branch, configPath);
+  return content ? parseSkillsShPaths(content) : [];
 }
 
 /**
@@ -494,6 +505,44 @@ function computeSnapshotHash(files: SkillSnapshotFile[]): string {
   return hash.digest('hex');
 }
 
+function getSkillFolderPath(skillMdPath: string): string {
+  const pathLower = skillMdPath.toLowerCase();
+  if (pathLower.endsWith('/skill.md')) return skillMdPath.slice(0, -9);
+  if (pathLower === 'skill.md') return '';
+  return skillMdPath.slice(0, -(1 + 'SKILL.md'.length));
+}
+
+// Keep these exclusions aligned with copyDirectory() in installer.ts. Cached
+// snapshots do not need files that the normal clone installer intentionally
+// omits, but every other repository blob in a nested skill must be present.
+const SNAPSHOT_EXCLUDED_FILES = new Set(['metadata.json']);
+const SNAPSHOT_EXCLUDED_DIRS = new Set(['.git', '__pycache__', '__pypackages__']);
+
+function isInstallableSnapshotPath(path: string): boolean {
+  const parts = path.split('/');
+  const fileName = parts.at(-1);
+  if (!fileName || SNAPSHOT_EXCLUDED_FILES.has(fileName)) return false;
+  return parts.slice(0, -1).every((part) => !SNAPSHOT_EXCLUDED_DIRS.has(part));
+}
+
+function hasCompleteNestedSnapshot(
+  tree: RepoTree,
+  skillMdPath: string,
+  files: SkillSnapshotFile[]
+): boolean {
+  const folderPath = getSkillFolderPath(skillMdPath);
+  if (!folderPath) return true;
+
+  const folderPrefix = `${folderPath}/`;
+  const snapshotPaths = new Set(files.map((file) => file.path));
+
+  return tree.tree.every((entry) => {
+    if (entry.type !== 'blob' || !entry.path.startsWith(folderPrefix)) return true;
+    const relativePath = entry.path.slice(folderPrefix.length);
+    return !isInstallableSnapshotPath(relativePath) || snapshotPaths.has(relativePath);
+  });
+}
+
 /**
  * Attempt to resolve skills from blob storage instead of cloning.
  *
@@ -530,8 +579,11 @@ export async function tryBlobInstall(
   const tree = await fetchRepoTree(ownerRepo, options.ref, options.getToken);
   if (!tree) return null;
 
-  // 2. Discover SKILL.md paths in the tree
-  let skillMdPaths = findSkillMdPaths(tree, options.subpath);
+  // 2. Discover SKILL.md paths in the tree, including container dirs declared
+  // in skills.sh.json. The tree tells us whether the file exists, so repos
+  // without one cost no extra request.
+  const extraContainers = await fetchSkillsShPaths(ownerRepo, tree, options.subpath);
+  let skillMdPaths = findSkillMdPaths(tree, options.subpath, extraContainers);
   if (skillMdPaths.length === 0) return null;
 
   // 3. If a skill filter is set (owner/repo@skill-name), try to narrow down
@@ -553,7 +605,7 @@ export async function tryBlobInstall(
   // 4. Fetch SKILL.md content from raw.githubusercontent.com in parallel
   const mdFetches = await Promise.all(
     skillMdPaths.map(async (mdPath) => {
-      const content = await fetchSkillMdContent(ownerRepo, tree.branch, mdPath);
+      const content = await fetchRawContent(ownerRepo, tree.branch, mdPath);
       return { mdPath, content };
     })
   );
@@ -576,8 +628,7 @@ export async function tryBlobInstall(
     if (typeof data.name !== 'string' || typeof data.description !== 'string') continue;
 
     // Skip internal skills unless explicitly requested
-    const isInternal = (data.metadata as Record<string, unknown>)?.internal === true;
-    if (isInternal && !options.includeInternal) continue;
+    if (isInternalSkill(data.metadata) && !options.includeInternal) continue;
 
     const safeName = sanitizeMetadata(data.name);
     const safeDescription = sanitizeMetadata(data.description);
@@ -620,15 +671,18 @@ export async function tryBlobInstall(
   const allSucceeded = downloads.every((d) => d.download !== null);
   if (!allSucceeded) return null;
 
+  // A successful response can still be incomplete (for example, when the
+  // snapshot service cannot represent a binary supporting file). In that case
+  // use the existing clone path instead of silently installing a partial skill.
+  const allComplete = downloads.every(({ skill, download }) =>
+    hasCompleteNestedSnapshot(tree, skill.mdPath, download!.files)
+  );
+  if (!allComplete) return null;
+
   // 6. Convert to BlobSkill objects
   const blobSkills: BlobSkill[] = downloads.map(({ skill, download }) => {
     // Compute the folder path from the SKILL.md path (e.g., "skills/react-best-practices")
-    const mdPathLower = skill.mdPath.toLowerCase();
-    const folderPath = mdPathLower.endsWith('/skill.md')
-      ? skill.mdPath.slice(0, -9)
-      : mdPathLower === 'skill.md'
-        ? ''
-        : skill.mdPath.slice(0, -(1 + 'SKILL.md'.length));
+    const folderPath = getSkillFolderPath(skill.mdPath);
 
     // A root-level SKILL.md means the repository root is a skill entrypoint,
     // not that the entire repository is installable skill payload. Some cached
@@ -649,8 +703,10 @@ export async function tryBlobInstall(
       rawContent: skill.content,
       metadata: skill.metadata,
       files,
-      snapshotHash:
-        files.length === download!.files.length ? download!.hash : computeSnapshotHash(files),
+      // Hash locally rather than trusting download.hash. The server's hashSkillFiles
+      // (add-skill-telemetry) joins path and contents with \0 separators, so it never
+      // matches computeSkillFolderHash and `check` would flag every fresh add as outdated.
+      snapshotHash: computeSnapshotHash(files),
       repoPath: skill.mdPath,
     };
   });

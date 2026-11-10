@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join, normalize, resolve, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import * as tar from 'tar';
-import { ArchiveValidationError, readZipArchive } from './archive.ts';
+import type { Diagnostic } from 'nostics';
+import { readZipArchive } from './archive.ts';
+import { diagnostics, isDiagnostic } from './diagnostics.ts';
 import { parseFrontmatter } from './frontmatter.ts';
 
 const DEFAULT_DOWNLOAD_MAX_BYTES = 10 * 1024 * 1024;
@@ -29,6 +31,16 @@ export interface DownloadedSource {
   kind: 'skill-md' | 'archive';
 }
 
+export interface DownloadSourceOptions {
+  downloadMaxBytes?: number;
+  extractMaxBytes?: number;
+  extractMaxFiles?: number;
+}
+
+function positiveIntegerOr(value: number | undefined, fallback: number): number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
 function getPositiveIntegerEnv(name: string, fallback: number): number {
   const raw = process.env[name];
   if (!raw) return fallback;
@@ -36,14 +48,20 @@ function getPositiveIntegerEnv(name: string, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function getDownloadLimits(): DownloadLimits {
+function getDownloadLimits(options: DownloadSourceOptions): DownloadLimits {
   return {
     downloadMaxBytes: getPositiveIntegerEnv(
       'SKILLS_DOWNLOAD_MAX_BYTES',
-      DEFAULT_DOWNLOAD_MAX_BYTES
+      positiveIntegerOr(options.downloadMaxBytes, DEFAULT_DOWNLOAD_MAX_BYTES)
     ),
-    extractMaxBytes: getPositiveIntegerEnv('SKILLS_EXTRACT_MAX_BYTES', DEFAULT_EXTRACT_MAX_BYTES),
-    extractMaxFiles: getPositiveIntegerEnv('SKILLS_EXTRACT_MAX_FILES', DEFAULT_EXTRACT_MAX_FILES),
+    extractMaxBytes: getPositiveIntegerEnv(
+      'SKILLS_EXTRACT_MAX_BYTES',
+      positiveIntegerOr(options.extractMaxBytes, DEFAULT_EXTRACT_MAX_BYTES)
+    ),
+    extractMaxFiles: getPositiveIntegerEnv(
+      'SKILLS_EXTRACT_MAX_FILES',
+      positiveIntegerOr(options.extractMaxFiles, DEFAULT_EXTRACT_MAX_FILES)
+    ),
   };
 }
 
@@ -61,19 +79,34 @@ function validateArchivePath(path: string): string | null {
   return normalized;
 }
 
+/** A readable archive whose contents are refused, as opposed to one that is not an archive at all. */
+function isRejectedArchive(error: unknown): error is Diagnostic {
+  return isDiagnostic(
+    error,
+    'SKILLS_ARCHIVE_UNSAFE_PATH',
+    'SKILLS_ARCHIVE_ENCRYPTED_ENTRY',
+    'SKILLS_ARCHIVE_LINK_ENTRY',
+    'SKILLS_ARCHIVE_TOO_MANY_FILES',
+    'SKILLS_ARCHIVE_TOO_LARGE'
+  );
+}
+
 function incrementEntry(state: ExtractState, size: number, limits: DownloadLimits): void {
   state.entries += 1;
   if (state.entries > limits.extractMaxFiles) {
-    throw new ArchiveValidationError(
-      `Archive contains too many files (${state.entries}). Maximum is ${limits.extractMaxFiles}. Set SKILLS_EXTRACT_MAX_FILES to override.`
-    );
+    throw diagnostics.SKILLS_ARCHIVE_TOO_MANY_FILES({
+      count: state.entries,
+      max: limits.extractMaxFiles,
+      overrideEnv: 'SKILLS_EXTRACT_MAX_FILES',
+    });
   }
 
   state.bytes += size;
   if (state.bytes > limits.extractMaxBytes) {
-    throw new ArchiveValidationError(
-      `Archive extracts to more than ${limits.extractMaxBytes} bytes. Set SKILLS_EXTRACT_MAX_BYTES to override.`
-    );
+    throw diagnostics.SKILLS_ARCHIVE_TOO_LARGE({
+      maxBytes: limits.extractMaxBytes,
+      overrideEnv: 'SKILLS_EXTRACT_MAX_BYTES',
+    });
   }
 }
 
@@ -88,21 +121,19 @@ async function downloadToFile(
   });
 
   if (!response.ok) {
-    throw new Error(`Download failed with HTTP ${response.status}`);
+    throw diagnostics.SKILLS_DOWNLOAD_HTTP_ERROR({ status: response.status });
   }
 
   const contentLength = response.headers.get('content-length');
   if (contentLength) {
     const parsed = Number.parseInt(contentLength, 10);
     if (Number.isFinite(parsed) && parsed > limits.downloadMaxBytes) {
-      throw new Error(
-        `Download is larger than ${limits.downloadMaxBytes} bytes. Set SKILLS_DOWNLOAD_MAX_BYTES to override.`
-      );
+      throw diagnostics.SKILLS_DOWNLOAD_TOO_LARGE({ maxBytes: limits.downloadMaxBytes });
     }
   }
 
   if (!response.body) {
-    throw new Error('Download response has no body');
+    throw diagnostics.SKILLS_DOWNLOAD_NO_BODY();
   }
 
   let downloaded = 0;
@@ -110,9 +141,7 @@ async function downloadToFile(
     transform(chunk, controller) {
       downloaded += chunk.byteLength;
       if (downloaded > limits.downloadMaxBytes) {
-        throw new Error(
-          `Download is larger than ${limits.downloadMaxBytes} bytes. Set SKILLS_DOWNLOAD_MAX_BYTES to override.`
-        );
+        throw diagnostics.SKILLS_DOWNLOAD_TOO_LARGE({ maxBytes: limits.downloadMaxBytes });
       }
       controller.enqueue(chunk);
     },
@@ -144,7 +173,7 @@ async function extractZip(
   for (const [path, contents] of files) {
     const targetPath = join(extractDir, path);
     if (!isPathSafe(extractDir, targetPath)) {
-      throw new ArchiveValidationError(`Archive contains unsafe path: ${path}`);
+      throw diagnostics.SKILLS_ARCHIVE_UNSAFE_PATH({ path });
     }
 
     await mkdir(dirname(targetPath), { recursive: true });
@@ -172,7 +201,7 @@ async function extractTar(
   limits: DownloadLimits
 ): Promise<void> {
   const state: ExtractState = { bytes: 0, entries: 0 };
-  let validationError: ArchiveValidationError | undefined;
+  let validationError: Diagnostic | undefined;
 
   await tar.x({
     strict: true,
@@ -182,12 +211,12 @@ async function extractTar(
       try {
         const safePath = validateArchivePath(entryPath);
         if (safePath === null) {
-          throw new ArchiveValidationError(`Archive contains unsafe path: ${entryPath}`);
+          throw diagnostics.SKILLS_ARCHIVE_UNSAFE_PATH({ path: entryPath });
         }
 
         const targetPath = join(extractDir, safePath);
         if (!isPathSafe(extractDir, targetPath)) {
-          throw new ArchiveValidationError(`Archive contains unsafe path: ${entryPath}`);
+          throw diagnostics.SKILLS_ARCHIVE_UNSAFE_PATH({ path: entryPath });
         }
 
         incrementEntry(state, entry.size, limits);
@@ -198,7 +227,7 @@ async function extractTar(
 
         return getTarEntryType(entry) === 'Directory';
       } catch (error) {
-        if (error instanceof ArchiveValidationError) {
+        if (isRejectedArchive(error)) {
           validationError = error;
           return false;
         }
@@ -241,7 +270,7 @@ async function tryExtractArchive(
   } catch (error) {
     await rm(extractDir, { recursive: true, force: true }).catch(() => {});
     await mkdir(extractDir, { recursive: true });
-    if (error instanceof ArchiveValidationError) {
+    if (isRejectedArchive(error)) {
       throw error;
     }
     return false;
@@ -256,8 +285,11 @@ async function getSingleTopLevelDirectory(dir: string): Promise<string | null> {
   return join(dir, visibleEntries[0]!.name);
 }
 
-export async function downloadSource(url: string): Promise<DownloadedSource> {
-  const limits = getDownloadLimits();
+export async function downloadSource(
+  url: string,
+  options: DownloadSourceOptions = {}
+): Promise<DownloadedSource> {
+  const limits = getDownloadLimits(options);
   const tempDir = await mkdtemp(join(tmpdir(), 'skills-download-'));
   const downloadedFile = join(tempDir, 'source.download');
   const extractDir = join(tempDir, 'extract');
@@ -267,7 +299,7 @@ export async function downloadSource(url: string): Promise<DownloadedSource> {
 
     const downloadedStats = await stat(downloadedFile);
     if (downloadedStats.size === 0) {
-      throw new Error('Downloaded URL is empty');
+      throw diagnostics.SKILLS_DOWNLOAD_EMPTY();
     }
 
     if (await isValidSkillMarkdown(downloadedFile)) {
@@ -283,7 +315,7 @@ export async function downloadSource(url: string): Promise<DownloadedSource> {
       return { rootDir, tempDir, kind: 'archive' };
     }
 
-    throw new Error('Downloaded URL is not a valid SKILL.md file or supported archive');
+    throw diagnostics.SKILLS_DOWNLOAD_NOT_A_SKILL();
   } catch (error) {
     await rm(tempDir, { recursive: true, force: true }).catch(() => {});
     throw error;

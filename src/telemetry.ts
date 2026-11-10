@@ -1,5 +1,7 @@
-const TELEMETRY_URL = 'https://add-skill.vercel.sh/t';
-const AUDIT_URL = 'https://add-skill.vercel.sh/audit';
+import { isCI } from './ci.ts';
+
+const TELEMETRY_URL = 'https://www.skills.sh/tele/t';
+const AUDIT_URL = 'https://www.skills.sh/tele/audit';
 
 interface InstallTelemetryData {
   event: 'install';
@@ -68,19 +70,6 @@ let detectedAgentName: string | null = null;
  */
 export function setDetectedAgent(agentName: string | null): void {
   detectedAgentName = agentName;
-}
-
-function isCI(): boolean {
-  return !!(
-    process.env.CI ||
-    process.env.GITHUB_ACTIONS ||
-    process.env.GITLAB_CI ||
-    process.env.CIRCLECI ||
-    process.env.TRAVIS ||
-    process.env.BUILDKITE ||
-    process.env.JENKINS_URL ||
-    process.env.TEAMCITY_VERSION
-  );
 }
 
 function isEnabled(): boolean {
