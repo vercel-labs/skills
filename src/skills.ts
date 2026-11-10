@@ -35,12 +35,8 @@ export function shouldInstallInternalSkills(): boolean {
 }
 
 /**
- * Check if a skill's frontmatter metadata marks it as internal.
- * Accepts boolean `true` as well as the strings `"true"` and `"1"`: the
- * Agent Skills spec types metadata values as strings, and strict consumers
- * (e.g. Rovo Dev) reject boolean values, so spec-compliant skills spell the
- * flag as a string. Case-sensitive, no trimming — matching
- * shouldInstallInternalSkills(). Anything else is not internal.
+ * Accepts `"true"` and `"1"` besides boolean `true`: the Agent Skills spec types
+ * metadata values as strings, so spec-compliant skills spell the flag as a string.
  */
 export function isInternalSkill(metadata: unknown): boolean {
   if (!isRecord(metadata)) return false;

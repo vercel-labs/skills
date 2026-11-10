@@ -628,8 +628,7 @@ export async function tryBlobInstall(
     if (typeof data.name !== 'string' || typeof data.description !== 'string') continue;
 
     // Skip internal skills unless explicitly requested
-    const isInternal = isInternalSkill(data.metadata);
-    if (isInternal && !options.includeInternal) continue;
+    if (isInternalSkill(data.metadata) && !options.includeInternal) continue;
 
     const safeName = sanitizeMetadata(data.name);
     const safeDescription = sanitizeMetadata(data.description);
