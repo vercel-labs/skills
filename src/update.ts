@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from 'fs';
+import { existsSync, readdirSync, realpathSync } from 'fs';
 import { join, dirname, relative, sep } from 'path';
 import * as p from '@clack/prompts';
 
@@ -990,17 +990,31 @@ export async function updateGlobalSkills(
   return { successCount, failCount, checkedCount };
 }
 
+function isRealpathWithin(realRoot: string, path: string): boolean {
+  try {
+    const real = realpathSync(path);
+    return real === realRoot || real.startsWith(realRoot + sep);
+  } catch {
+    return false;
+  }
+}
+
 async function readLockedSkills(
   tempDir: string,
   lockSkills: Record<string, { skillPath?: string }>,
   names: string[]
 ): Promise<Skill[] | null> {
   const skills: Skill[] = [];
+  const realRoot = realpathSync(tempDir);
   for (const name of names) {
     const skillPath = lockSkills[name]?.skillPath;
     if (!skillPath || !isSubpathSafe(tempDir, skillPath)) return null;
     const skillMdPath = join(tempDir, skillPath);
     if (!existsSync(skillMdPath)) return null;
+    // The lexical check above does not see symlinks; a linked skill directory
+    // or SKILL.md could point at host files outside the clone.
+    if (!isRealpathWithin(realRoot, dirname(skillMdPath))) return null;
+    if (!isRealpathWithin(realRoot, skillMdPath)) return null;
     // An unparseable locked skill may have moved; let full discovery decide.
     const skill = await parseSkillMd(skillMdPath);
     if (!skill) return null;
