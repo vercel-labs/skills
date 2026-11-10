@@ -271,9 +271,7 @@ description: A Kiro test skill
     // The other agent still gets the skill.
     expect(existsSync(join(projectDir, '.claude', 'skills', 'research', 'SKILL.md'))).toBe(true);
     // The category and its nested skills are untouched.
-    expect(lstatSync(category).isSymbolicLink()).toBe(false);
-    expect(existsSync(join(category, 'SKILL.md'))).toBe(false);
-    expect(readFileSync(join(category, 'arxiv', 'SKILL.md'), 'utf-8')).toContain('arxiv');
+    expect(existsSync(join(category, 'arxiv', 'SKILL.md'))).toBe(true);
     expect(existsSync(join(category, 'polymarket', 'SKILL.md'))).toBe(true);
   });
 

@@ -370,7 +370,8 @@ function categoryConflictLine(name: string, conflict: CategoryConflict): string 
 }
 
 /** After install: one warning (with the fix) per category directory that was skipped. */
-function warnCategoryConflicts(conflicts: CategoryConflict[]): void {
+function warnCategoryConflicts(bySkill: Map<string, Map<string, CategoryConflict>>): void {
+  const conflicts = [...bySkill.values()].flatMap((m) => [...m.values()]);
   if (conflicts.length === 0) return;
   console.log();
   for (const conflict of new Map(conflicts.map((c) => [c.path, c])).values()) {
@@ -1463,7 +1464,7 @@ async function handleWellKnownSkills(
     }
   }
 
-  warnCategoryConflicts([...categoryConflicts.values()].flatMap((m) => [...m.values()]));
+  warnCategoryConflicts(categoryConflicts);
 
   console.log();
   p.outro(
@@ -3343,7 +3344,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
-    warnCategoryConflicts([...categoryConflicts.values()].flatMap((m) => [...m.values()]));
+    warnCategoryConflicts(categoryConflicts);
 
     console.log();
     p.outro(
