@@ -17,6 +17,7 @@ import {
   getCanonicalPath,
   getCanonicalSkillsDir,
   getEveSubagentSkillsDir,
+  isDirEntryOrSymlinkToDir,
   sanitizeName,
 } from './installer.ts';
 
@@ -293,7 +294,12 @@ export async function scanInstalledSkillNames(
         // leading dots, so a skill can never be installed under such a name and
         // removal could never address one either. Offering Codex's bundled
         // `$CODEX_HOME/skills/.system` was always a dead entry.
-        if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+        if (entry.name.startsWith('.')) continue;
+
+        // A skill dir may be a symlink to a real directory, e.g. a skill linked
+        // into .agents/skills by hand. listInstalledSkills() follows those, so
+        // removal must scan them the same way or the two commands disagree.
+        if (!(await isDirEntryOrSymlinkToDir(entry, join(dir, entry.name)))) continue;
 
         // A directory is only a skill if it holds a SKILL.md, which is what
         // listInstalledSkills() already requires. Without this, any directory

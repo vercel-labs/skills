@@ -335,6 +335,18 @@ describe('listSkills and removeSkills', () => {
     expect((await api.listSkills({ cwd, scope: 'project' })).skills).toEqual([]);
   });
 
+  it('removes a skill linked into .agents/skills and keeps the link target (#2679)', async () => {
+    const skillLink = join(cwd, '.agents/skills/alpha');
+    mkdirSync(join(cwd, '.agents/skills'), { recursive: true });
+    symlinkSync(join(source, 'skills', 'alpha'), skillLink, 'junction');
+
+    const removed = await api.removeSkills(['alpha'], { cwd });
+
+    expect(removed).toEqual({ removed: ['alpha'], notFound: [], failed: [] });
+    expect(lstatSync(skillLink, { throwIfNoEntry: false })).toBeUndefined();
+    expect(existsSync(join(source, 'skills', 'alpha', 'SKILL.md'))).toBe(true);
+  });
+
   it('refuses to remove from agents config does not allow', async () => {
     await expectCode(
       api.removeSkills(['alpha'], {
