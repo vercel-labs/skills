@@ -62,8 +62,9 @@ async function hasSkillMd(dir: string): Promise<boolean> {
  * `skills/<skill>/SKILL.md` inside it belongs to that plugin. A folder with a
  * root `SKILL.md` keeps the existing one-skill behavior.
  *
- * Only folders at or below `basePath` are considered, so discovery never
- * reaches outside the cloned source.
+ * Only folders below `basePath` are considered: the source root is a plugin
+ * repository, not a skills-dir plugin, so its skills keep installing as
+ * individual skills.
  */
 export async function findSkillsDirPlugin(
   skillDir: string,
@@ -73,7 +74,8 @@ export async function findSkillsDirPlugin(
   let dir = resolve(skillDir);
   if (!isContainedIn(dir, limit)) return null;
 
-  while (dir !== limit) {
+  // Stop before the source root; it is a plugin repository, not a skills-dir plugin.
+  while (dirname(dir) !== limit) {
     dir = dirname(dir);
     if (!isContainedIn(dir, limit)) return null;
     if (await hasSkillMd(dir)) return null;

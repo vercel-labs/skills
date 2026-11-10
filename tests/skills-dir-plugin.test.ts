@@ -130,6 +130,32 @@ describe('skills-dir plugin installs', () => {
     expect(existsSync(join(categorySkill, 'SKILL.md'))).toBe(true);
   });
 
+  it('keeps installing root-plugin skills as individual skills', () => {
+    const rootPluginRepo = join(testDir, 'root-plugin-repo');
+    mkdirSync(join(rootPluginRepo, '.claude-plugin'), { recursive: true });
+    mkdirSync(join(rootPluginRepo, 'skills', 'engineering', 'tdd'), { recursive: true });
+    writeFileSync(
+      join(rootPluginRepo, '.claude-plugin', 'plugin.json'),
+      JSON.stringify({
+        name: 'mattpocock-skills',
+        skills: ['./skills/engineering/tdd'],
+      })
+    );
+    writeFileSync(
+      join(rootPluginRepo, 'skills', 'engineering', 'tdd', 'SKILL.md'),
+      '---\nname: tdd\ndescription: TDD skill\n---\n'
+    );
+
+    const result = runCli(
+      ['add', rootPluginRepo, '-y', '--agent', 'claude-code', '--copy'],
+      projectDir
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(join(projectDir, '.claude', 'skills', 'tdd', 'SKILL.md'))).toBe(true);
+    expect(existsSync(join(projectDir, '.claude', 'skills', 'mattpocock-skills'))).toBe(false);
+  });
+
   it('still installs a plugin scaffold with a root SKILL.md as one skill', () => {
     const scaffoldRepo = join(testDir, 'scaffold-repo');
     const scaffoldPlugin = join(scaffoldRepo, 'skills', 'scaffold-plugin');
