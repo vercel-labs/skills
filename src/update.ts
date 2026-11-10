@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync } from 'fs';
+import { existsSync, readdirSync } from 'fs';
 import { join, dirname, relative, sep } from 'path';
 import * as p from '@clack/prompts';
 
@@ -857,7 +857,14 @@ export async function updateGlobalSkills(
     if (note) console.log(`  ${DIM}${note}${RESET}`);
 
     try {
-      const { discovered, discoveredLocations } = await discoverAllSkills(tempDir);
+      const discovered = await discoverSkills(tempDir, undefined, {
+        fullDepth: true,
+        includeDuplicateNames: true,
+      });
+      const discoveredLocations = discovered.map((skill) => ({
+        name: skill.name,
+        skillPath: join(relative(tempDir, skill.path), 'SKILL.md').split(sep).join('/'),
+      }));
 
       const resolution = await checkAndPromptForDeletions(
         source,
@@ -983,50 +990,23 @@ export async function updateGlobalSkills(
   return { successCount, failCount, checkedCount };
 }
 
-type DiscoveredSkills = {
-  discovered: Skill[];
-  discoveredLocations: DiscoveredSkillLocation[];
-};
-
-async function discoverAllSkills(tempDir: string): Promise<DiscoveredSkills> {
-  const discovered = await discoverSkills(tempDir, undefined, {
-    fullDepth: true,
-    includeDuplicateNames: true,
-  });
-  const discoveredLocations = discovered.map((skill) => ({
-    name: skill.name,
-    skillPath: join(relative(tempDir, skill.path), 'SKILL.md').split(sep).join('/'),
-  }));
-  return { discovered, discoveredLocations };
-}
-
-async function discoverLockedSkills(
+async function readLockedSkills(
   tempDir: string,
   lockSkills: Record<string, { skillPath?: string }>,
   names: string[]
-): Promise<DiscoveredSkills | null> {
-  const discovered: Skill[] = [];
-  const discoveredLocations: DiscoveredSkillLocation[] = [];
-
+): Promise<Skill[] | null> {
+  const skills: Skill[] = [];
   for (const name of names) {
     const skillPath = lockSkills[name]?.skillPath;
     if (!skillPath || !isSubpathSafe(tempDir, skillPath)) return null;
-
     const skillMdPath = join(tempDir, skillPath);
-    try {
-      if (!statSync(skillMdPath).isFile()) return null;
-    } catch {
-      return null;
-    }
-
+    if (!existsSync(skillMdPath)) return null;
     // An unparseable locked skill may have moved; let full discovery decide.
     const skill = await parseSkillMd(skillMdPath);
     if (!skill) return null;
-    discovered.push(skill);
-    discoveredLocations.push({ name: skill.name, skillPath });
+    skills.push(skill);
   }
-
-  return { discovered, discoveredLocations };
+  return skills;
 }
 
 export async function updateProjectSkills(
@@ -1195,10 +1175,17 @@ export async function updateProjectSkills(
       // Generic Git sources reinstall by name, so they keep full discovery to
       // detect same-name mirrors.
       const reinstallsByName = shouldUseFullDepthForUpdate(firstEntry);
-      const { discovered, discoveredLocations } =
+      const discovered =
         (!reinstallsByName &&
-          (await discoverLockedSkills(tempDir, localLock.skills, allLockedForSource))) ||
-        (await discoverAllSkills(tempDir));
+          (await readLockedSkills(tempDir, localLock.skills, allLockedForSource))) ||
+        (await discoverSkills(tempDir, undefined, {
+          fullDepth: true,
+          includeDuplicateNames: true,
+        }));
+      const discoveredLocations = discovered.map((skill) => ({
+        name: skill.name,
+        skillPath: join(relative(tempDir, skill.path), 'SKILL.md').split(sep).join('/'),
+      }));
 
       const resolution = await checkAndPromptForDeletions(
         source,

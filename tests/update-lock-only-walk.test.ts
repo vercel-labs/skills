@@ -99,6 +99,7 @@ describe('project update reads locked skill paths', () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('Updated alpha');
     expect(lock().skills.alpha?.skillPath).toBe('skills/renamed/SKILL.md');
+    expect(`${result.stdout}\n${result.stderr}`).not.toContain('failed to read file');
   });
 
   it('falls back to discovery when a locked skill no longer parses', () => {
