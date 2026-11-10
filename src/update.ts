@@ -857,14 +857,7 @@ export async function updateGlobalSkills(
     if (note) console.log(`  ${DIM}${note}${RESET}`);
 
     try {
-      const discovered = await discoverSkills(tempDir, undefined, {
-        fullDepth: true,
-        includeDuplicateNames: true,
-      });
-      const discoveredLocations = discovered.map((skill) => ({
-        name: skill.name,
-        skillPath: join(relative(tempDir, skill.path), 'SKILL.md').split(sep).join('/'),
-      }));
+      const { discovered, discoveredLocations } = await discoverAllSkills(tempDir);
 
       const resolution = await checkAndPromptForDeletions(
         source,
@@ -990,14 +983,28 @@ export async function updateGlobalSkills(
   return { successCount, failCount, checkedCount };
 }
 
+type DiscoveredSkills = {
+  discovered: Skill[];
+  discoveredLocations: DiscoveredSkillLocation[];
+};
+
+async function discoverAllSkills(tempDir: string): Promise<DiscoveredSkills> {
+  const discovered = await discoverSkills(tempDir, undefined, {
+    fullDepth: true,
+    includeDuplicateNames: true,
+  });
+  const discoveredLocations = discovered.map((skill) => ({
+    name: skill.name,
+    skillPath: join(relative(tempDir, skill.path), 'SKILL.md').split(sep).join('/'),
+  }));
+  return { discovered, discoveredLocations };
+}
+
 async function discoverLockedSkills(
   tempDir: string,
   lockSkills: Record<string, { skillPath?: string }>,
   names: string[]
-): Promise<{
-  discovered: Skill[];
-  discoveredLocations: DiscoveredSkillLocation[];
-} | null> {
+): Promise<DiscoveredSkills | null> {
   const discovered: Skill[] = [];
   const discoveredLocations: DiscoveredSkillLocation[] = [];
 
@@ -1012,8 +1019,9 @@ async function discoverLockedSkills(
       return null;
     }
 
+    // An unparseable locked skill may have moved; let full discovery decide.
     const skill = await parseSkillMd(skillMdPath);
-    if (!skill) continue;
+    if (!skill) return null;
     discovered.push(skill);
     discoveredLocations.push({ name: skill.name, skillPath });
   }
@@ -1186,21 +1194,11 @@ export async function updateProjectSkills(
       // resolve all of them, including skills filtered out of this run.
       // Generic Git sources reinstall by name, so they keep full discovery to
       // detect same-name mirrors.
-      const locked = shouldUseFullDepthForUpdate(firstEntry)
-        ? null
-        : await discoverLockedSkills(tempDir, localLock.skills, allLockedForSource);
-      const discovered =
-        locked?.discovered ??
-        (await discoverSkills(tempDir, undefined, {
-          fullDepth: true,
-          includeDuplicateNames: true,
-        }));
-      const discoveredLocations =
-        locked?.discoveredLocations ??
-        discovered.map((skill) => ({
-          name: skill.name,
-          skillPath: join(relative(tempDir, skill.path), 'SKILL.md').split(sep).join('/'),
-        }));
+      const reinstallsByName = shouldUseFullDepthForUpdate(firstEntry);
+      const { discovered, discoveredLocations } =
+        (!reinstallsByName &&
+          (await discoverLockedSkills(tempDir, localLock.skills, allLockedForSource))) ||
+        (await discoverAllSkills(tempDir));
 
       const resolution = await checkAndPromptForDeletions(
         source,
@@ -1209,7 +1207,7 @@ export async function updateProjectSkills(
         false,
         options,
         discoveredLocations,
-        { exactPathDisambiguates: !shouldUseFullDepthForUpdate(firstEntry) }
+        { exactPathDisambiguates: !reinstallsByName }
       );
       checked = true;
       const deleted = new Set(resolution.deletedSkills);

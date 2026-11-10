@@ -100,4 +100,50 @@ describe('project update reads locked skill paths', () => {
     expect(result.stdout).toContain('Updated alpha');
     expect(lock().skills.alpha?.skillPath).toBe('skills/renamed/SKILL.md');
   });
+
+  it('falls back to discovery when a locked skill no longer parses', () => {
+    expect(add().exitCode).toBe(0);
+    writeFileSync(
+      join(repo, 'skills', 'alpha', 'SKILL.md'),
+      '---\nname: alpha\ndescription: Alpha: now invalid\n---\n# alpha\n'
+    );
+    mkdirSync(join(repo, 'moved', 'alpha'), { recursive: true });
+    writeFileSync(
+      join(repo, 'moved', 'alpha', 'SKILL.md'),
+      '---\nname: alpha\ndescription: alpha\n---\n# alpha moved\n'
+    );
+    commitRepo('break alpha, add copy');
+
+    const result = update();
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Updated alpha');
+    expect(lock().skills.alpha?.skillPath).toBe('moved/alpha/SKILL.md');
+  });
+
+  it('reports a locked skill that is gone upstream', () => {
+    expect(add().exitCode).toBe(0);
+    rmSync(join(repo, 'skills'), { recursive: true });
+    commitRepo('remove alpha');
+
+    const result = update();
+
+    expect(result.stdout).toContain('appear to have been deleted upstream');
+    expect(result.stdout).not.toContain('Updated alpha');
+    expect(lock().skills.alpha?.skillPath).toBe('skills/alpha/SKILL.md');
+  });
+
+  it('keeps full discovery for generic Git sources', () => {
+    const bare = join(root, 'repo.git');
+    execFileSync('git', ['clone', '-q', '--bare', repo, bare], { stdio: 'ignore' });
+    const gitUrl = pathToFileURL(bare).href;
+    expect(
+      runCli(['add', gitUrl, '--skill', 'alpha', '-a', 'claude-code', '-y'], project).exitCode
+    ).toBe(0);
+
+    const result = update();
+
+    expect(result.exitCode).toBe(0);
+    expect(`${result.stdout}\n${result.stderr}`).toContain('YAML parse error');
+  });
 });
