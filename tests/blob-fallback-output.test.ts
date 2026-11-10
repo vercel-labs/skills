@@ -45,6 +45,7 @@ vi.mock('../src/source-parser.ts', async (importActual) => {
   return {
     ...actual,
     isRepoPrivate: vi.fn().mockResolvedValue(false),
+    lookupGitHubRepo: vi.fn().mockResolvedValue({ private: false, fullName: null }),
   };
 });
 
