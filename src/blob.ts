@@ -12,12 +12,14 @@
 
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
+import { AGENT_PROJECT_SKILL_DIRS } from './agents.ts';
 import { parseFrontmatter } from './frontmatter.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { getGitHubHost } from './github-host.ts';
 import type { Skill } from './types.ts';
 import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
 import { SKILLS_SH_CONFIG_FILE, parseSkillsShPaths } from './skills-sh-config.ts';
+import { isInternalSkill } from './skills.ts';
 
 // ─── Types ───
 
@@ -82,6 +84,8 @@ export interface TreeEntry {
   type: 'blob' | 'tree';
   sha: string;
   size?: number;
+  /** Git file mode, e.g. `120000` for a symlink (passed through from the Trees API). */
+  mode?: string;
 }
 
 export interface RepoTree {
@@ -310,36 +314,7 @@ const PRIORITY_PREFIXES = [
   'skills/.curated/',
   'skills/.experimental/',
   'skills/.system/',
-  '.agents/skills/',
-  '.claude/skills/',
-  '.cline/skills/',
-  '.codebuddy/skills/',
-  '.codex/skills/',
-  '.commandcode/skills/',
-  '.continue/skills/',
-  '.factory/skills/',
-  '.github/skills/',
-  '.goose/skills/',
-  '.grok/skills/',
-  '.iflow/skills/',
-  '.junie/skills/',
-  '.kilo/skills/',
-  '.kilocode/skills/',
-  '.kimchi/skills/',
-  '.kiro/skills/',
-  '.minimax/skills/',
-  '.mux/skills/',
-  '.neovate/skills/',
-  '.opencode/skills/',
-  '.openhands/skills/',
-  '.pi/skills/',
-  '.posit/assistant/skills/',
-  '.qoder/skills/',
-  '.roo/skills/',
-  '.trae/skills/',
-  '.windsurf/skills/',
-  '.zcode/skills/',
-  '.zencoder/skills/',
+  ...AGENT_PROJECT_SKILL_DIRS.map((dir) => `${dir}/`),
 ];
 
 /**
@@ -356,7 +331,7 @@ export function findSkillMdPaths(
 ): string[] {
   // Find all blob entries that are SKILL.md files (case-insensitive)
   const allSkillMds = tree.tree
-    .filter((e) => e.type === 'blob' && e.path.toLowerCase().endsWith('skill.md'))
+    .filter((e) => e.type === 'blob' && e.path.split('/').at(-1)!.toLowerCase() === 'skill.md')
     .map((e) => e.path);
 
   // Apply subpath filter
@@ -550,21 +525,34 @@ function isInstallableSnapshotPath(path: string): boolean {
   return parts.slice(0, -1).every((part) => !SNAPSHOT_EXCLUDED_DIRS.has(part));
 }
 
-function hasCompleteNestedSnapshot(
+function hasCurrentSnapshot(
   tree: RepoTree,
   skillMdPath: string,
   files: SkillSnapshotFile[]
 ): boolean {
   const folderPath = getSkillFolderPath(skillMdPath);
-  if (!folderPath) return true;
+  const folderPrefix = folderPath ? `${folderPath}/` : '';
+  const blobs = new Map(
+    tree.tree
+      .filter((entry) => entry.type === 'blob' && entry.path.startsWith(folderPrefix))
+      .map((entry) => [entry.path.slice(folderPrefix.length), entry.sha])
+  );
 
-  const folderPrefix = `${folderPath}/`;
+  // Root skills install only SKILL.md; nested skills need every installable blob.
+  const requiredPaths = folderPath
+    ? [...blobs.keys()].filter(isInstallableSnapshotPath)
+    : [skillMdPath];
   const snapshotPaths = new Set(files.map((file) => file.path));
+  if (!requiredPaths.every((path) => snapshotPaths.has(path))) return false;
 
-  return tree.tree.every((entry) => {
-    if (entry.type !== 'blob' || !entry.path.startsWith(folderPrefix)) return true;
-    const relativePath = entry.path.slice(folderPrefix.length);
-    return !isInstallableSnapshotPath(relativePath) || snapshotPaths.has(relativePath);
+  // A complete snapshot can still lag behind the tree used for update tracking.
+  // Compare every installed file's Git blob SHA, including files deleted upstream.
+  return files.every((file) => {
+    const sha = createHash('sha1')
+      .update(`blob ${Buffer.byteLength(file.contents, 'utf8')}\0`)
+      .update(file.contents, 'utf8')
+      .digest('hex');
+    return blobs.get(file.path) === sha;
   });
 }
 
@@ -678,8 +666,7 @@ export async function tryBlobInstall(
     if (typeof data.name !== 'string' || typeof data.description !== 'string') continue;
 
     // Skip internal skills unless explicitly requested
-    const isInternal = (data.metadata as Record<string, unknown>)?.internal === true;
-    if (isInternal && !options.includeInternal) continue;
+    if (isInternalSkill(data.metadata) && !options.includeInternal) continue;
 
     const safeName = sanitizeMetadata(data.name);
     const safeDescription = sanitizeMetadata(data.description);
@@ -722,14 +709,6 @@ export async function tryBlobInstall(
   const allSucceeded = downloads.every((d) => d.download !== null);
   if (!allSucceeded) return null;
 
-  // A successful response can still be incomplete (for example, when the
-  // snapshot service cannot represent a binary supporting file). In that case
-  // use the existing clone path instead of silently installing a partial skill.
-  const allComplete = downloads.every(({ skill, download }) =>
-    hasCompleteNestedSnapshot(tree, skill.mdPath, download!.files)
-  );
-  if (!allComplete) return null;
-
   // 6. Convert to BlobSkill objects
   const blobSkills: BlobSkill[] = downloads.map(({ skill, download }) => {
     // Compute the folder path from the SKILL.md path (e.g., "skills/react-best-practices")
@@ -754,11 +733,20 @@ export async function tryBlobInstall(
       rawContent: skill.content,
       metadata: skill.metadata,
       files,
-      snapshotHash:
-        files.length === download!.files.length ? download!.hash : computeSnapshotHash(files),
+      // Hash locally rather than trusting download.hash. The server's hashSkillFiles
+      // (add-skill-telemetry) joins path and contents with \0 separators, so it never
+      // matches computeSkillFolderHash and `check` would flag every fresh add as outdated.
+      snapshotHash: computeSnapshotHash(files),
       repoPath: skill.mdPath,
     };
   });
+
+  // A successful response can still be incomplete or stale. Only install bytes
+  // that match the tree used for update tracking; otherwise use the clone path.
+  const allCurrent = blobSkills.every((skill) =>
+    hasCurrentSnapshot(tree, skill.repoPath, skill.files)
+  );
+  if (!allCurrent) return null;
 
   return { skills: blobSkills, tree };
 }

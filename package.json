@@ -1,8 +1,16 @@
 {
   "name": "skills",
-  "version": "1.7.4",
+  "version": "1.7.6",
   "description": "The open agent skills ecosystem",
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "types": "./dist/index.d.mts",
   "bin": {
     "skills": "./bin/cli.mjs",
     "add-skill": "./bin/cli.mjs"
@@ -16,6 +24,8 @@
   ],
   "scripts": {
     "build": "node scripts/generate-licenses.ts && obuild",
+    "api:update": "UPDATE_SNAPSHOT=1 pnpm build",
+    "api:update:breaking": "UPDATE_SNAPSHOT=1 TSNAPI_ALLOW_BREAKING=1 pnpm build",
     "generate-licenses": "node scripts/generate-licenses.ts",
     "dev": "node src/cli.ts",
     "exec:test": "node scripts/execute-tests.ts",
@@ -24,13 +34,15 @@
     "format:check": "prettier --check \"src/**/*.ts\" \"scripts/**/*.ts\"",
     "prepare": "husky",
     "test": "vitest",
-    "type-check": "tsc --noEmit",
+    "test:e2e": "vitest run --config e2e/vitest.config.ts",
+    "type-check": "tsc --noEmit && tsc --noEmit -p e2e",
     "publish:snapshot": "npm version prerelease --preid=snapshot --no-git-tag-version && npm publish --tag snapshot"
   },
   "lint-staged": {
     "src/**/*.ts": "prettier --write",
     "scripts/**/*.ts": "prettier --write",
-    "tests/**/*.ts": "prettier --write"
+    "tests/**/*.ts": "prettier --write",
+    "e2e/**/*.ts": "prettier --write"
   },
   "keywords": [
     "cli",
@@ -133,11 +145,13 @@
     "@types/node": "^22.10.0",
     "@vercel/detect-agent": "^1.2.1",
     "husky": "^9.1.7",
+    "license-checker": "25.0.1",
     "lint-staged": "^16.2.7",
     "obuild": "^0.4.22",
     "picocolors": "^1.1.1",
     "prettier": "^3.8.1",
     "simple-git": "^3.36.0",
+    "tsnapi": "^1.6.1",
     "typescript": "^5.9.3",
     "vitest": "^4.0.17",
     "xdg-basedir": "^5.1.0"
@@ -147,6 +161,7 @@
   },
   "packageManager": "pnpm@10.17.1",
   "dependencies": {
+    "nostics": "^1.3.0",
     "tar": "^7.5.20",
     "yaml": "^2.8.3"
   }

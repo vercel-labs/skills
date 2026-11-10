@@ -108,6 +108,28 @@ describe('skills-dir plugin installs', () => {
     expect(existsSync(join(projectDir, '.agents', 'skills', 'my-plugin'))).toBe(false);
   });
 
+  it('uses the plugin name when checking for category-directory conflicts', () => {
+    const categorySkill = join(projectDir, '.claude', 'skills', 'my-skill', 'other-skill');
+    mkdirSync(categorySkill, { recursive: true });
+    writeFileSync(
+      join(categorySkill, 'SKILL.md'),
+      '---\nname: other-skill\ndescription: Existing category skill\n---\n'
+    );
+
+    const result = runCli(
+      ['add', sourceRepo, '-y', '--agent', 'claude-code', '--copy'],
+      projectDir
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(
+      existsSync(
+        join(projectDir, '.claude', 'skills', 'my-plugin', '.claude-plugin', 'plugin.json')
+      )
+    ).toBe(true);
+    expect(existsSync(join(categorySkill, 'SKILL.md'))).toBe(true);
+  });
+
   it('still installs a plugin scaffold with a root SKILL.md as one skill', () => {
     const scaffoldRepo = join(testDir, 'scaffold-repo');
     const scaffoldPlugin = join(scaffoldRepo, 'skills', 'scaffold-plugin');

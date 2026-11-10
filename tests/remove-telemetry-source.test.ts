@@ -23,31 +23,10 @@ vi.mock('@clack/prompts', () => {
   };
 });
 
-vi.mock('picocolors', () => {
-  const identity = (value: string) => value;
-  const colors = [
-    'red',
-    'green',
-    'blue',
-    'yellow',
-    'cyan',
-    'white',
-    'black',
-    'dim',
-    'bold',
-    'bgRed',
-    'bgCyan',
-    'bgBlack',
-    'bgWhite',
-    'underline',
-    'inverse',
-    'magenta',
-    'gray',
-    'reset',
-  ];
-  const colorMap: any = identity;
-  for (const color of colors) colorMap[color] = identity;
-  return { default: colorMap };
+vi.mock('picocolors', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('picocolors')>();
+  const plain = actual.createColors(false);
+  return { ...actual, default: plain, createColors: () => plain };
 });
 
 vi.mock('../src/telemetry.ts', () => ({
@@ -130,5 +109,24 @@ describe('remove telemetry source masking (#2278)', () => {
       const data = call[0] as { source?: string };
       expect(data.source).not.toBe(absoluteLocalPath);
     }
+  });
+
+  it('reports a download entry as "download", never its URL', async () => {
+    const url = 'https://skills.internal.example/alpha.md';
+    await writeFile(
+      join(project, 'skills-lock.json'),
+      JSON.stringify({
+        version: 1,
+        skills: {
+          alpha: { source: url, sourceUrl: url, sourceType: 'download', computedHash: 'h' },
+        },
+      })
+    );
+
+    await removeCommand(['alpha'], { yes: true });
+
+    expect(track).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'remove', source: 'download', sourceType: 'download' })
+    );
   });
 });

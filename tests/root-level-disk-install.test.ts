@@ -24,31 +24,10 @@ vi.mock('@clack/prompts', () => {
   };
 });
 
-vi.mock('picocolors', () => {
-  const id = (s: string) => s;
-  const colors = [
-    'red',
-    'green',
-    'blue',
-    'yellow',
-    'cyan',
-    'white',
-    'black',
-    'dim',
-    'bold',
-    'bgRed',
-    'bgCyan',
-    'bgBlack',
-    'bgWhite',
-    'underline',
-    'inverse',
-    'magenta',
-    'gray',
-    'reset',
-  ];
-  const obj: any = id;
-  for (const c of colors) obj[c] = id;
-  return { default: obj };
+vi.mock('picocolors', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('picocolors')>();
+  const plain = actual.createColors(false);
+  return { ...actual, default: plain, createColors: () => plain };
 });
 
 vi.mock('../src/telemetry.ts', () => ({
@@ -69,13 +48,14 @@ vi.mock('../src/detect-agent.ts', () => ({
 // "The \"path\" argument must be of type string. Received undefined". We pass
 // `agent: ['codex']` to runAdd so the detectInstalledAgents() branch is skipped anyway.
 
-// Keep parseSource/getOwnerRepo real, but stub the only network call (isRepoPrivate)
+// Keep parseSource/getOwnerRepo real, but stub the GitHub repo lookups
 // so the test runs offline.
 vi.mock('../src/source-parser.ts', async (importActual) => {
   const actual = await importActual<typeof import('../src/source-parser.ts')>();
   return {
     ...actual,
     isRepoPrivate: vi.fn().mockResolvedValue(false),
+    lookupGitHubRepo: vi.fn().mockResolvedValue({ private: false, fullName: null }),
   };
 });
 

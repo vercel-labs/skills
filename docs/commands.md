@@ -18,6 +18,9 @@ npx skills add vercel-labs/agent-skills
 # GitHub shorthand (owner/repo)
 npx skills add vercel-labs/agent-skills
 
+# Pin a release tag or full commit. Skill names still use the same @ form.
+npx skills add owner/repo@v1.2.3 --skill my-skill
+
 # Full GitHub URL
 npx skills add https://github.com/vercel-labs/agent-skills
 
@@ -105,6 +108,8 @@ npx skills add https://example.com/download/my-skill
 ```
 
 Direct download URLs are tried after well-known discovery. They may point to a single valid `SKILL.md` file or a `.zip`, `.tar`, `.tar.gz`, or `.tgz` archive; the URL does not need to include a file extension. Downloads are limited to 10 MiB, extracted content to 25 MiB, and archives to 1000 files by default. Override with `SKILLS_DOWNLOAD_MAX_BYTES`, `SKILLS_EXTRACT_MAX_BYTES`, and `SKILLS_EXTRACT_MAX_FILES` when you trust the source.
+
+The lock file records a direct download as `sourceType: "download"` with its URL and the skill's path inside the download, so `skills update`, `skills check`, and restore can fetch it again. Notion installs are recorded the same way: a skill page by its page URL, and a pack as `notion://packs/<id>`, because the download URL from `ntn` expires. A URL with a query string or user info, such as a signed URL, is not recorded, because the lock is usually committed and those parts often hold credentials. To update such a skill, run `skills add` with a new URL.
 
 ### Installation Scope
 
@@ -200,6 +205,8 @@ npx skills update -y
 | `-y, --yes`     | Skip scope prompt (auto-detect: project if in a project dir, else global) |
 | `[skills...]`   | Update specific skills by name instead of all                             |
 
+A skill installed from a direct download is downloaded again and reinstalled when its content hash differs from the lock, or when its folder is missing.
+
 ## `skills init`
 
 ```bash
@@ -233,7 +240,7 @@ npx skills remove --global web-design-guidelines
 # Remove from specific agents only
 npx skills remove --agent claude-code cursor my-skill
 
-# Remove all installed skills without confirmation
+# Remove all lock-tracked skills without confirmation
 npx skills remove --all
 
 # Remove all skills from a specific agent
@@ -253,6 +260,12 @@ npx skills rm my-skill
 | `-s, --skill`  | Specify skills to remove (use `'*'` for all)     |
 | `-y, --yes`    | Skip confirmation prompts                        |
 | `--all`        | Shorthand for `--skill '*' --agent '*' -y`       |
+
+`--all` (and `--skill '*'`) only removes skills recorded in the lock file
+(`skills-lock.json` for a project, the global lock with `-g`). Skill folders
+the lock does not track, such as skills you wrote by hand, are listed as
+skipped and never deleted. To remove one of them, name it:
+`npx skills remove my-skill`.
 
 ## Experimental commands
 
@@ -359,14 +372,24 @@ pass `--no-frozen-lockfile` to update the lock from CI.
 npx skills experimental_install
 ```
 
-Restore supported sources recorded in `skills-lock.json` into `.agents/skills/`.
-Skills already in `.agents/skills/` are left as they are; pass `--force` to reinstall
-them. Entries from npm packages are synced from the dependencies already on disk, so
+`skills install` and `skills i` without a source are aliases for this command. With
+a source, they behave like `skills add`.
+
+Restore supported sources recorded in `skills-lock.json` into `.agents/skills/` and
+link them into agent directories. Skills already in `.agents/skills/` are left as they
+are and only get the agent links they are missing; pass `--force` to reinstall them.
+Entries from npm packages are synced from the dependencies already on disk, so
 install your npm dependencies before restoring. This command does not install
-npm packages or create agent-specific links for restored skills.
+npm packages.
+
+Restore never prompts. It links to the agents given with `--agent`; without it, to
+the agents last selected with `skills add`; otherwise to the agents detected on this
+machine. With none of these, only `.agents/skills/` is filled. Skills recorded with
+`installMode: "copy"` are copied into each agent directory instead of linked.
 
 | Option                 | Description                                                 |
 | ---------------------- | ----------------------------------------------------------- |
+| `-a, --agent <agents...>` | Link to these agents (use `'*'` for all)                 |
 | `--dry-run`            | Show what would be restored without installing anything     |
 | `--frozen-lockfile`    | Fail instead of changing `skills-lock.json` (default in CI) |
 | `--no-frozen-lockfile` | Allow `skills-lock.json` to change in CI                    |

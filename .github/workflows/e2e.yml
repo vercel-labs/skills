@@ -1,0 +1,67 @@
+name: E2E
+
+# Packs the CLI, installs the tarball into a clean prefix, and drives it against
+# live sources (GitHub, skills.sh blobs, vercel.com well-known, npm). Runs daily
+# too, because those sources change without any commit here.
+
+on:
+  pull_request:
+    paths-ignore:
+      - '**/*.md'
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+    inputs:
+      package:
+        description: 'npm spec to test instead of packing this checkout (e.g. skills@latest)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            node-version: '22.20.0'
+          - os: ubuntu-latest
+            node-version: '24'
+          - os: macos-latest
+            node-version: '24'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: E2E tests
+        run: pnpm test:e2e
+        env:
+          # Authenticated GitHub API calls avoid the 60/hour anonymous limit.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SKILLS_E2E_PACKAGE: ${{ inputs.package }}

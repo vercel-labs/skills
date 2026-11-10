@@ -46,6 +46,7 @@ vi.mock('fs', async (importOriginal) => {
   return {
     ...actual,
     existsSync: vi.fn().mockReturnValue(true),
+    realpathSync: vi.fn((path: string) => path),
     readFileSync: vi.fn().mockImplementation((path, encoding) => {
       if (typeof path === 'string' && path.endsWith('.skill-lock.json')) {
         return JSON.stringify({
@@ -1333,6 +1334,35 @@ describe('Update Cleanup Unit Tests', () => {
       await updateGlobalSkills({ yes: true });
 
       expect(vi.mocked(add.installFetched).mock.calls[0]![1].placement.mode).toBe('copy');
+    });
+
+    it('skips detected agents without a global skills dir', async () => {
+      // PromptScript is always added as a universal agent but has no global dir.
+      vi.mocked(add.nonInteractiveTargetAgents).mockResolvedValue(['claude-code', 'promptscript']);
+      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+        version: 3,
+        skills: {
+          'skill-a': {
+            source: 'owner/repo',
+            skillPath: 'skills/skill-a/SKILL.md',
+            sourceType: 'github',
+            skillFolderHash: 'old',
+            installedAt: '',
+            updatedAt: '',
+          },
+        },
+      });
+      vi.mocked(blob.fetchRepoTree).mockResolvedValue({
+        sha: 'rootsha',
+        branch: 'main',
+        tree: [{ path: 'skills/skill-a/SKILL.md', type: 'blob', sha: 'sha1' }],
+      });
+      vi.mocked(blob.getSkillFolderHashFromTree).mockReturnValue('new');
+
+      await updateGlobalSkills({ yes: true });
+
+      const { targets } = vi.mocked(add.installFetched).mock.calls[0]![1].placement;
+      expect(targets.map((t) => t.agent)).toEqual(['claude-code']);
     });
 
     it('fetches every global update before installing any', async () => {

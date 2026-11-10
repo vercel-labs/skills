@@ -259,6 +259,28 @@ describe('checkWellKnownForUpdates', () => {
       .filter((url) => url.endsWith('/SKILL.md'));
     expect(fileCalls).toEqual([`${BASE_URL}/.well-known/skills/alpha-skill/SKILL.md`]);
   });
+
+  it('does not report a skill as changed when its files cannot be downloaded', async () => {
+    const betaDigest = await digestOf('beta-skill');
+    const index = v1Index(['alpha-skill', 'beta-skill']) as {
+      skills: Array<{ name: string; files: string[] }>;
+    };
+    index.skills[0]!.files.push('references/README.md');
+    const items = [
+      { name: 'alpha-skill', digest: DIGEST_STALE },
+      { name: 'beta-skill', digest: betaDigest },
+    ];
+    // The stub serves only SKILL.md, so alpha's extra file returns 404.
+    stubWellKnownServer(index);
+
+    expect(await checkWellKnownForUpdates(BASE_URL, items)).toEqual({
+      status: 'current',
+      newSkills: [],
+    });
+    expect(await checkWellKnownForUpdates(BASE_URL, items.slice(0, 1))).toEqual({
+      status: 'error',
+    });
+  });
 });
 
 describe('processWellKnownUpdates in check mode', () => {

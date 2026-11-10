@@ -1,17 +1,13 @@
 import { homedir } from 'os';
 import type { AgentType } from './types.ts';
 import { agents } from './agents.ts';
+import { diagnostics, formatError, isDiagnostic } from './diagnostics.ts';
+import { parseCliArgs, throwFirstError } from './cli-args.ts';
 import { listInstalledSkills, sanitizeName, type InstalledSkill } from './installer.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { getAllLockedSkills } from './skill-lock.ts';
-import { InvalidLocalLockError, readLocalLock } from './local-lock.ts';
-
-const RESET = '\x1b[0m';
-const BOLD = '\x1b[1m';
-const DIM = '\x1b[38;5;102m';
-const TEXT = '\x1b[38;5;145m';
-const CYAN = '\x1b[36m';
-const YELLOW = '\x1b[33m';
+import { readLocalLock } from './local-lock.ts';
+import { BOLD, CYAN, DIM, RESET, YELLOW } from './color.ts';
 
 interface ListOptions {
   global?: boolean;
@@ -53,24 +49,13 @@ function formatList(items: string[], maxShow: number = 5): string {
 }
 
 export function parseListOptions(args: string[]): ListOptions {
-  const options: ListOptions = {};
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === '-g' || arg === '--global') {
-      options.global = true;
-    } else if (arg === '--json') {
-      options.json = true;
-    } else if (arg === '-a' || arg === '--agent') {
-      options.agent = options.agent || [];
-      // Collect all following arguments until next flag
-      while (i + 1 < args.length && !args[i + 1]!.startsWith('-')) {
-        options.agent.push(args[++i]!);
-      }
-    }
-  }
-
-  return options;
+  const { values, errors } = parseCliArgs(args, {
+    global: { type: 'boolean', short: 'g' },
+    json: { type: 'boolean' },
+    agent: { type: 'list', short: 'a', value: 'an agent name' },
+  });
+  throwFirstError(errors);
+  return { global: values.global, json: values.json, agent: values.agent };
 }
 
 /** Listing is read-only, so an unusable lock only costs source info. */
@@ -78,8 +63,8 @@ async function readProjectLockOrWarn(cwd: string): Promise<Record<string, ListLo
   try {
     return (await readLocalLock(cwd)).skills;
   } catch (error) {
-    if (!(error instanceof InvalidLocalLockError)) throw error;
-    console.error(`${YELLOW}Warning: ${error.message}${RESET}`);
+    if (!isDiagnostic(error, 'SKILLS_INVALID_LOCAL_LOCK')) throw error;
+    console.error(`${YELLOW}Warning: ${formatError(error)}${RESET}`);
     return {};
   }
 }
@@ -97,8 +82,11 @@ export async function runList(args: string[]): Promise<void> {
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 
     if (invalidAgents.length > 0) {
-      console.log(`${YELLOW}Invalid agents: ${invalidAgents.join(', ')}${RESET}`);
-      console.log(`${DIM}Valid agents: ${validAgents.join(', ')}${RESET}`);
+      console.log(
+        formatError(
+          diagnostics.SKILLS_INVALID_AGENTS({ invalid: invalidAgents, valid: validAgents })
+        )
+      );
       process.exit(1);
     }
 

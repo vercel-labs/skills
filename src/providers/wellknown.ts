@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
 import { readZipArchive } from '../archive.ts';
+import { diagnostics, isDiagnostic } from '../diagnostics.ts';
 import { parseFrontmatter } from '../frontmatter.ts';
 import { sanitizeMetadata } from '../sanitize.ts';
-import { shouldInstallInternalSkills } from '../skills.ts';
+import { isInternalSkill, shouldInstallInternalSkills } from '../skills.ts';
 import type { HostProvider, ProviderMatch, RemoteSkill } from './types.ts';
 
 const DISCOVERY_SCHEMA_V2 = 'https://schemas.agentskills.io/discovery/0.2.0/schema.json';
@@ -50,29 +51,6 @@ export interface WellKnownSkillEntryV2 {
   digest: string;
 }
 
-/**
- * Thrown when a path-scoped URL (for example https://host/s/my-list) has no
- * usable skills under that path while the host does publish a root index.
- * Falling back to the root index in that situation used to install the
- * host's entire catalog, so the caller must surface the unresolved scope
- * instead of installing anything.
- */
-export class WellKnownScopeNotFoundError extends Error {
-  readonly scopePath: string;
-  readonly rootUrl: string;
-
-  constructor(scopePath: string, rootUrl: string) {
-    super(
-      `No skills found for the scoped path '${scopePath}' on ${rootUrl}. ` +
-        `Not falling back to the root skills index because that would install every skill the host publishes. ` +
-        `Check the URL, or run 'skills add ${rootUrl}' to install from the root index.`
-    );
-    this.name = 'WellKnownScopeNotFoundError';
-    this.scopePath = scopePath;
-    this.rootUrl = rootUrl;
-  }
-}
-
 export type WellKnownIndex = WellKnownIndexV1 | WellKnownIndexV2;
 export type WellKnownSkillEntry = WellKnownSkillEntryV1 | WellKnownSkillEntryV2;
 export type WellKnownFileContent = string | Uint8Array;
@@ -105,6 +83,12 @@ export interface WellKnownSkill extends RemoteSkill {
   files: Map<string, WellKnownFileContent>;
   /** The entry from index.json */
   indexEntry: WellKnownSkillEntry;
+}
+
+/** Skill metadata available before downloading legacy supporting files. */
+export interface DiscoveredWellKnownSkill extends RemoteSkill {
+  filePaths: string[];
+  load(): Promise<WellKnownSkill>;
 }
 
 export interface FetchAllSkillsOptions {
@@ -414,7 +398,16 @@ export class WellKnownProvider implements HostProvider {
       }
 
       return null;
-    } catch {
+    } catch (error) {
+      if (
+        isDiagnostic(
+          error,
+          'SKILLS_WELLKNOWN_DIGEST_MISMATCH',
+          'SKILLS_WELLKNOWN_FILE_FETCH_FAILED'
+        )
+      ) {
+        throw error;
+      }
       return null;
     }
   }
@@ -450,7 +443,14 @@ export class WellKnownProvider implements HostProvider {
 
   private async fetchLegacySkillByEntry(
     entry: Extract<NormalizedWellKnownEntry, { version: '0.1.0' }>
-  ) {
+  ): Promise<WellKnownSkill | null> {
+    const skill = await this.discoverLegacySkillByEntry(entry);
+    return skill ? skill.load() : null;
+  }
+
+  private async discoverLegacySkillByEntry(
+    entry: Extract<NormalizedWellKnownEntry, { version: '0.1.0' }>
+  ): Promise<DiscoveredWellKnownSkill | null> {
     try {
       const skillBaseUrl = `${entry.baseUrl.replace(/\/$/, '')}/${entry.wellKnownPath}/${entry.name}`;
       const skillMdUrl = `${skillBaseUrl}/SKILL.md`;
@@ -461,39 +461,44 @@ export class WellKnownProvider implements HostProvider {
       const { data } = parseFrontmatter(content);
       if (typeof data.name !== 'string' || typeof data.description !== 'string') return null;
 
-      const files = new Map<string, WellKnownFileContent>();
-      files.set('SKILL.md', content);
-
       const otherFiles = entry.files.filter((f) => f.toLowerCase() !== 'skill.md');
-      const filePromises = otherFiles.map(async (filePath) => {
-        try {
-          const fileUrl = `${skillBaseUrl}/${filePath}`;
-          const fileResponse = await fetch(fileUrl);
-          if (fileResponse.ok) {
-            const fileContent = await fileResponse.arrayBuffer();
-            return { path: filePath, content: new Uint8Array(fileContent) };
-          }
-        } catch {
-          // Ignore individual file fetch errors to preserve legacy behavior.
-        }
-        return null;
-      });
-
-      const fileResults = await Promise.all(filePromises);
-      for (const result of fileResults) {
-        if (result) files.set(result.path, result.content);
-      }
-
-      return this.createSkill({
+      const skill = this.createSkill({
         name: data.name,
         description: data.description,
         content,
         installName: entry.name,
         sourceUrl: skillMdUrl,
         metadata: data.metadata,
-        files,
+        files: new Map([['SKILL.md', content]]),
         indexEntry: entry.indexEntry,
       });
+
+      return {
+        ...skill,
+        filePaths: ['SKILL.md', ...otherFiles],
+        async load() {
+          const fileResults = await Promise.all(
+            otherFiles.map(async (filePath) => {
+              let status: number | undefined;
+              try {
+                const fileResponse = await fetch(`${skillBaseUrl}/${filePath}`);
+                if (fileResponse.ok) {
+                  return [filePath, new Uint8Array(await fileResponse.arrayBuffer())] as const;
+                }
+                status = fileResponse.status;
+              } catch {
+                // Network and body-read failures leave the skill just as incomplete.
+              }
+              throw diagnostics.SKILLS_WELLKNOWN_FILE_FETCH_FAILED({
+                skill: sanitizeMetadata(entry.name),
+                path: sanitizeMetadata(filePath),
+                status,
+              });
+            })
+          );
+          return { ...skill, files: new Map([...skill.files, ...fileResults]) };
+        },
+      };
     } catch {
       return null;
     }
@@ -508,7 +513,14 @@ export class WellKnownProvider implements HostProvider {
 
       const contentType = response.headers.get('content-type') ?? '';
       const bytes = new Uint8Array(await response.arrayBuffer());
-      if (this.computeDigest(bytes) !== entry.digest) return null;
+      const actualDigest = this.computeDigest(bytes);
+      if (actualDigest !== entry.digest) {
+        throw diagnostics.SKILLS_WELLKNOWN_DIGEST_MISMATCH({
+          skill: entry.name,
+          expected: entry.digest,
+          actual: actualDigest,
+        });
+      }
 
       if (entry.type === 'skill-md') {
         const content = new TextDecoder().decode(bytes);
@@ -551,7 +563,8 @@ export class WellKnownProvider implements HostProvider {
         files,
         indexEntry: entry.indexEntry,
       });
-    } catch {
+    } catch (error) {
+      if (isDiagnostic(error, 'SKILLS_WELLKNOWN_DIGEST_MISMATCH')) throw error;
       return null;
     }
   }
@@ -597,17 +610,20 @@ export class WellKnownProvider implements HostProvider {
   }
 
   /**
-   * Fetch all skills from a well-known endpoint.
+   * Discover skills before downloading legacy supporting files. Call load()
+   * only after selection so unrelated download failures cannot block a skill.
    *
    * When the URL is scoped to a path, only path-relative indexes are used.
    * If the scope yields no skills but the host publishes a root index, this
-   * throws {@link WellKnownScopeNotFoundError} instead of silently widening
-   * to the root index and returning the host's entire catalog.
+   * throws SKILLS_WELLKNOWN_SCOPE_NOT_FOUND instead of silently widening to the root index and
+   * installing the host's entire catalog.
+   * Digest mismatches throw SKILLS_WELLKNOWN_DIGEST_MISMATCH rather than downgrading to an
+   * index or download without integrity verification.
    */
-  async fetchAllSkills(
+  async discoverSkills(
     url: string,
     options: FetchAllSkillsOptions = {}
-  ): Promise<WellKnownSkill[]> {
+  ): Promise<DiscoveredWellKnownSkill[]> {
     try {
       const candidates = await this.fetchIndexCandidates(url);
       const scope = this.getScope(url);
@@ -617,23 +633,47 @@ export class WellKnownProvider implements HostProvider {
       const includeInternal = options.includeInternal || shouldInstallInternalSkills();
 
       for (const result of scopedCandidates) {
-        const skillPromises = result.entries.map((entry) => this.fetchSkillByEntry(entry));
+        const skillPromises = result.entries.map(async (entry) => {
+          if (entry.version === '0.1.0') return this.discoverLegacySkillByEntry(entry);
+          // Artifact metadata lives inside the verified artifact, so it is fetched together.
+          const skill = await this.fetchArtifactSkillByEntry(entry);
+          return skill
+            ? { ...skill, filePaths: [...skill.files.keys()], load: async () => skill }
+            : null;
+        });
         const results = await Promise.all(skillPromises);
         const skills = results
-          .filter((s: WellKnownSkill | null): s is WellKnownSkill => s !== null)
-          .filter((skill) => includeInternal || skill.metadata?.internal !== true);
+          .filter((s): s is DiscoveredWellKnownSkill => s !== null)
+          .filter((skill) => includeInternal || !isInternalSkill(skill.metadata));
         if (skills.length > 0) return skills;
       }
 
       if (scope && scopedCandidates.length < candidates.length) {
-        throw new WellKnownScopeNotFoundError(scope.scopePath, scope.rootBaseUrl);
+        throw diagnostics.SKILLS_WELLKNOWN_SCOPE_NOT_FOUND({
+          scopePath: scope.scopePath,
+          rootUrl: scope.rootBaseUrl,
+        });
       }
 
       return [];
     } catch (error) {
-      if (error instanceof WellKnownScopeNotFoundError) throw error;
+      if (
+        isDiagnostic(error, 'SKILLS_WELLKNOWN_SCOPE_NOT_FOUND') ||
+        isDiagnostic(error, 'SKILLS_WELLKNOWN_DIGEST_MISMATCH')
+      ) {
+        throw error;
+      }
       return [];
     }
+  }
+
+  /** Fetch every visible skill with all of its listed files. */
+  async fetchAllSkills(
+    url: string,
+    options: FetchAllSkillsOptions = {}
+  ): Promise<WellKnownSkill[]> {
+    const skills = await this.discoverSkills(url, options);
+    return Promise.all(skills.map((skill) => skill.load()));
   }
 
   private computeDigest(bytes: Uint8Array): string {
@@ -658,7 +698,7 @@ export class WellKnownProvider implements HostProvider {
       return this.extractTarGz(bytes);
     }
 
-    throw new Error('Unsupported archive format');
+    throw diagnostics.SKILLS_ARCHIVE_UNSUPPORTED_FORMAT();
   }
 
   private isZipArchive(bytes: Uint8Array, artifactUrl: string, contentType: string): boolean {
@@ -700,14 +740,14 @@ export class WellKnownProvider implements HostProvider {
     runningTotal: { bytes: number }
   ) {
     const normalizedPath = this.normalizeArchivePath(path);
-    if (!normalizedPath) throw new Error(`Unsafe archive path: ${path}`);
+    if (!normalizedPath) throw diagnostics.SKILLS_WELLKNOWN_ARCHIVE_UNSAFE_PATH({ path });
 
     runningTotal.bytes += content.byteLength;
     if (runningTotal.bytes > MAX_ARCHIVE_UNPACKED_BYTES) {
-      throw new Error('Archive exceeds maximum unpacked size');
+      throw diagnostics.SKILLS_WELLKNOWN_ARCHIVE_TOO_LARGE();
     }
     if (files.size >= MAX_ARCHIVE_FILES) {
-      throw new Error('Archive contains too many files');
+      throw diagnostics.SKILLS_WELLKNOWN_ARCHIVE_TOO_MANY_FILES();
     }
 
     files.set(normalizedPath, content);
@@ -730,12 +770,13 @@ export class WellKnownProvider implements HostProvider {
       const path = prefix ? `${prefix}/${name}` : name;
       const size = Number.parseInt(sizeText || '0', 8);
 
-      if (!Number.isFinite(size) || size < 0) throw new Error('Invalid tar entry size');
+      if (!Number.isFinite(size) || size < 0)
+        throw diagnostics.SKILLS_ARCHIVE_INVALID({ reason: 'Invalid tar entry size' });
       offset += 512;
 
       // Reject symlinks and hard links. Skip directories and metadata entries.
       if (typeFlag === 0x32 || typeFlag === 0x31) {
-        throw new Error('Archive links are not supported');
+        throw diagnostics.SKILLS_ARCHIVE_LINK_ENTRY();
       }
 
       const isFile = typeFlag === 0 || typeFlag === 0x30;
@@ -747,7 +788,7 @@ export class WellKnownProvider implements HostProvider {
       offset += Math.ceil(size / 512) * 512;
     }
 
-    if (!files.has('SKILL.md')) throw new Error('Archive missing root SKILL.md');
+    if (!files.has('SKILL.md')) throw diagnostics.SKILLS_ARCHIVE_MISSING_SKILL_MD();
     return files;
   }
 

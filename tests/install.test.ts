@@ -9,8 +9,15 @@ vi.mock('../src/sync.ts', () => ({
   runSync: vi.fn(),
   parseSyncOptions: vi.fn().mockReturnValue({ options: {} }),
 }));
-vi.mock('../src/agents.ts', () => ({
+vi.mock('../src/agents.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/agents.ts')>()),
+  agents: { cursor: { displayName: 'Cursor', skillsDir: '.agents/skills' } },
+  detectInstalledAgents: vi.fn().mockResolvedValue([]),
   getUniversalAgents: vi.fn().mockReturnValue(['cursor']),
+  isUniversalAgent: vi.fn().mockReturnValue(true),
+}));
+vi.mock('../src/skill-lock.ts', () => ({
+  getLastSelectedAgents: vi.fn().mockResolvedValue(undefined),
 }));
 // The suite itself runs in CI, where --frozen-lockfile would otherwise default on
 vi.mock('../src/ci.ts', () => ({ isCI: () => false }));

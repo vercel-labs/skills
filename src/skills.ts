@@ -1,47 +1,17 @@
 import { readdir, readFile, stat } from 'fs/promises';
 import { join, basename, dirname, resolve, normalize, sep, relative } from 'path';
+import { AGENT_PROJECT_SKILL_DIRS } from './agents.ts';
 import { parseFrontmatter } from './frontmatter.ts';
+import { diagnostics, isDiagnostic } from './diagnostics.ts';
 import { sanitizeMetadata, stripTerminalEscapes } from './sanitize.ts';
 import type { Skill } from './types.ts';
 import { findSkillsDirPlugin, getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
 import { getSkillsShSearchDirs } from './skills-sh-config.ts';
-import { InvalidLocalLockError, readLocalLock } from './local-lock.ts';
+import { readLocalLock } from './local-lock.ts';
 import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
+import { warn } from './warnings.ts';
 
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
-
-const AGENT_PROJECT_SKILL_DIRS = [
-  '.agents/skills',
-  '.claude/skills',
-  '.cline/skills',
-  '.codebuddy/skills',
-  '.codex/skills',
-  '.commandcode/skills',
-  '.continue/skills',
-  '.factory/skills',
-  '.github/skills',
-  '.goose/skills',
-  '.grok/skills',
-  '.iflow/skills',
-  '.junie/skills',
-  '.kilo/skills',
-  '.kilocode/skills',
-  '.kimchi/skills',
-  '.kiro/skills',
-  '.minimax/skills',
-  '.mux/skills',
-  '.neovate/skills',
-  '.opencode/skills',
-  '.openhands/skills',
-  '.pi/skills',
-  '.posit/assistant/skills',
-  '.qoder/skills',
-  '.roo/skills',
-  '.trae/skills',
-  '.windsurf/skills',
-  '.zcode/skills',
-  '.zencoder/skills',
-];
 
 function normalizeSkillName(name: string): string {
   return name.toLowerCase().replace(/[\s_]+/g, '-');
@@ -64,6 +34,16 @@ export function shouldInstallInternalSkills(): boolean {
   return envValue === '1' || envValue === 'true';
 }
 
+/**
+ * Accepts `"true"` and `"1"` besides boolean `true`: the Agent Skills spec types
+ * metadata values as strings, so spec-compliant skills spell the flag as a string.
+ */
+export function isInternalSkill(metadata: unknown): boolean {
+  if (!isRecord(metadata)) return false;
+  const internal = metadata.internal;
+  return internal === true || internal === 'true' || internal === '1';
+}
+
 export async function hasSkillMd(dir: string): Promise<boolean> {
   try {
     const skillPath = join(dir, 'SKILL.md');
@@ -75,7 +55,12 @@ export async function hasSkillMd(dir: string): Promise<boolean> {
 }
 
 function warnSkippedSkill(skillMdPath: string, reason: string): void {
-  console.warn(`⚠ Skipped ${sanitizeMetadata(skillMdPath)} — ${stripTerminalEscapes(reason)}`);
+  warn(
+    diagnostics.SKILLS_SKILL_SKIPPED({
+      path: sanitizeMetadata(skillMdPath),
+      reason: stripTerminalEscapes(reason),
+    })
+  );
 }
 
 export async function parseSkillMd(
@@ -115,18 +100,28 @@ export async function parseSkillMd(
     return null;
   }
 
+  const name = sanitizeMetadata(data.name);
+  const description = sanitizeMetadata(data.description);
+  if (!name || !description) {
+    const empty: string[] = [];
+    if (!name) empty.push('name');
+    if (!description) empty.push('description');
+    warnSkippedSkill(skillMdPath, `empty required frontmatter field(s): ${empty.join(', ')}`);
+    return null;
+  }
+
   // Skip internal skills unless:
   // 1. INSTALL_INTERNAL_SKILLS=1 is set, OR
   // 2. includeInternal option is true (e.g., when user explicitly requests a skill)
   const metadata = isRecord(data.metadata) ? data.metadata : undefined;
-  const isInternal = metadata?.internal === true;
+  const isInternal = isInternalSkill(metadata);
   if (isInternal && !shouldInstallInternalSkills() && !options?.includeInternal) {
     return null;
   }
 
   return {
-    name: sanitizeMetadata(data.name),
-    description: sanitizeMetadata(data.description),
+    name,
+    description,
     path: dirname(skillMdPath),
     rawContent: content,
     metadata,
@@ -186,7 +181,7 @@ async function sourceLockedSkillNames(basePath: string): Promise<string[]> {
   try {
     return Object.keys((await readLocalLock(basePath)).skills);
   } catch (error) {
-    if (error instanceof InvalidLocalLockError) return [];
+    if (isDiagnostic(error, 'SKILLS_INVALID_LOCAL_LOCK')) return [];
     throw error;
   }
 }
@@ -205,9 +200,7 @@ export async function discoverSkills(
 
   // Validate subpath doesn't escape basePath (prevent path traversal)
   if (subpath && !isSubpathSafe(basePath, subpath)) {
-    throw new Error(
-      `Invalid subpath: "${subpath}" resolves outside the repository directory. Subpath must not contain ".." segments that escape the base path.`
-    );
+    throw diagnostics.SKILLS_SUBPATH_OUTSIDE_REPO({ subpath });
   }
 
   const searchPath = subpath ? join(basePath, subpath) : basePath;
@@ -357,16 +350,20 @@ export function getSkillDisplayName(skill: Skill): string {
 }
 
 /**
- * Filter skills based on user input (case-insensitive direct matching).
- * Multi-word skill names must be quoted on the command line.
+ * Filter skills by name, falling back to slug matching when no exact name matches.
  */
 export function filterSkills(skills: Skill[], inputNames: string[]): Skill[] {
-  const normalizedInputs = inputNames.map((n) => n.toLowerCase());
-
-  return skills.filter((skill) => {
-    const name = skill.name.toLowerCase();
-    const displayName = getSkillDisplayName(skill).toLowerCase();
-
-    return normalizedInputs.some((input) => input === name || input === displayName);
-  });
+  const selected = new Set<Skill>();
+  for (const input of inputNames) {
+    const exact = skills.filter(
+      (skill) => getSkillDisplayName(skill).toLowerCase() === input.toLowerCase()
+    );
+    const matches = exact.length
+      ? exact
+      : skills.filter(
+          (skill) => normalizeSkillName(getSkillDisplayName(skill)) === normalizeSkillName(input)
+        );
+    for (const skill of matches) selected.add(skill);
+  }
+  return skills.filter((skill) => selected.has(skill));
 }
