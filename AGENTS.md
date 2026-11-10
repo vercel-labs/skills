@@ -55,6 +55,7 @@ src/
 ├── sync.ts          # Sync command - crawl node_modules for skills
 ├── source-parser.ts # Parse git URLs, GitHub shorthand, local paths
 ├── git.ts           # Git clone operations
+├── glob.ts          # Glob matching (path.matchesGlob with Node 22.2 fallback)
 ├── telemetry.ts     # Anonymous usage tracking
 ├── types.ts         # TypeScript types
 ├── plugin-manifest.ts # Plugin manifest discovery support
@@ -75,6 +76,7 @@ tests/
 ├── full-depth-discovery.test.ts # --full-depth skill discovery tests
 ├── openclaw-paths.test.ts       # OpenClaw-specific path tests
 ├── plugin-manifest-discovery.test.ts # Plugin manifest skill discovery
+├── glob.test.ts              # Fallback glob matcher parity with path.matchesGlob
 ├── sanitize-name.test.ts     # Tests for sanitizeName (path traversal prevention)
 ├── skill-matching.test.ts    # Tests for filterSkills (multi-word skill name matching)
 ├── source-parser.test.ts     # Tests for URL/path parsing
