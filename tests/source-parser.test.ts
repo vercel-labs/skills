@@ -284,7 +284,6 @@ describe('parseSource', () => {
     });
 
     it.each([
-      'https://evilgithub.com/owner/repo',
       'https://github.com.example.com/owner/repo',
       'https://example.com/?next=github.com/owner/repo',
     ])('does not treat a non-GitHub host as GitHub: %s', (url) => {

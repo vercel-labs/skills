@@ -234,10 +234,8 @@ function parseAzureReposSource(
  * `www.{host}`, with or without an http(s) scheme. Null for any other host.
  */
 function pathOnHost(input: string, host: string): string | null {
-  const match = input.match(/^(?:https?:\/\/)?([^/?#]*)([^?#]*)/i);
-  if (!match) {
-    return null;
-  }
+  // Always matches: every part is optional.
+  const match = input.match(/^(?:https?:\/\/)?([^/?#]*)([^?#]*)/i)!;
   const hostname = match[1]!
     .replace(/^[^@]*@/, '')
     .replace(/:\d*$/, '')
@@ -603,7 +601,7 @@ export function parseSource(
       const [, owner, repo, ref, subpath] = treeMatch;
       return {
         type: 'github',
-        url: `https://github.com/${owner}/${repo!.replace(/\.git$/, '')}.git`,
+        url: `https://github.com/${owner}/${repo}.git`,
         ref: ref || fragmentRef,
         ...(subpath ? { subpath: sanitizeSubpath(subpath) } : {}),
       };
