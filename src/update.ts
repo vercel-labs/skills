@@ -1175,13 +1175,13 @@ export async function updateProjectSkills(
       // Generic Git sources reinstall by name, so they keep full discovery to
       // detect same-name mirrors.
       const reinstallsByName = shouldUseFullDepthForUpdate(firstEntry);
-      const discovered =
-        (!reinstallsByName &&
-          (await readLockedSkills(tempDir, localLock.skills, allLockedForSource))) ||
-        (await discoverSkills(tempDir, undefined, {
-          fullDepth: true,
-          includeDuplicateNames: true,
-        }));
+      let discovered = reinstallsByName
+        ? null
+        : await readLockedSkills(tempDir, localLock.skills, allLockedForSource);
+      discovered ??= await discoverSkills(tempDir, undefined, {
+        fullDepth: true,
+        includeDuplicateNames: true,
+      });
       const discoveredLocations = discovered.map((skill) => ({
         name: skill.name,
         skillPath: join(relative(tempDir, skill.path), 'SKILL.md').split(sep).join('/'),
