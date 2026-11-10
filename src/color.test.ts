@@ -1,28 +1,27 @@
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'child_process';
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { join, relative } from 'path';
 
-const CLI_PATH = join(import.meta.dirname, 'cli.ts');
+const SRC_DIR = import.meta.dirname;
+const CLI_PATH = join(SRC_DIR, 'cli.ts');
+const ANSI = /\x1b\[/;
 
 /**
- * Runs `skills list` in a subprocess writing to a pipe, returning the RAW
- * stdout (unlike runCli, which strips terminal escapes). The piped stdout is
- * never a TTY, so this exercises exactly the surface where color output leaks
- * as garbage into `| less`, `| code -`, CI logs, etc.
+ * Runs the CLI in a subprocess writing to a pipe and returns the RAW stdout
+ * (unlike runCli, which strips terminal escapes). A pipe is never a TTY, so
+ * this is exactly the `| less`, `| code -` case.
  */
-function runListRaw(overrides: Record<string, string>): string {
+function runRaw(args: string[], overrides: Record<string, string> = {}): string {
   const env: NodeJS.ProcessEnv = { ...process.env, DISABLE_TELEMETRY: '1' };
-  // Neither variable may leak in from the surrounding environment: the
-  // detector's contract is defined entirely by the overrides below.
-  delete env.NO_COLOR;
-  delete env.FORCE_COLOR;
+  // The detection contract is defined entirely by the overrides below.
+  for (const key of ['NO_COLOR', 'FORCE_COLOR', 'CI', 'TERM']) delete env[key];
   Object.assign(env, overrides);
 
   const cwd = mkdtempSync(join(tmpdir(), 'skills-color-test-'));
   try {
-    return execFileSync(process.execPath, [CLI_PATH, 'list'], {
+    return execFileSync(process.execPath, [CLI_PATH, ...args], {
       encoding: 'utf-8',
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -34,21 +33,52 @@ function runListRaw(overrides: Record<string, string>): string {
 }
 
 describe('color support detection', () => {
-  it('emits no ANSI codes when stdout is piped', () => {
-    const output = runListRaw({});
-    expect(output).toContain('No project skills found');
-    expect(output).not.toMatch(/\x1b\[/);
+  it.each(['list', '--help'])('emits no ANSI codes when piped: `skills %s`', (args) => {
+    const output = runRaw([args]);
+    expect(output.trim()).not.toBe('');
+    expect(output).not.toMatch(ANSI);
   });
 
-  it('emits ANSI codes when FORCE_COLOR is set', () => {
-    const output = runListRaw({ FORCE_COLOR: '1' });
-    expect(output).toContain('No project skills found');
-    expect(output).toMatch(/\x1b\[/);
+  it.each<Record<string, string>>([{ FORCE_COLOR: '1' }, { CI: 'true' }])(
+    'emits color when %o',
+    (env) => {
+      expect(runRaw(['list'], env)).toMatch(ANSI);
+    }
+  );
+
+  it('honors --color', () => {
+    expect(runRaw(['list', '--color'])).toMatch(ANSI);
   });
 
-  it('NO_COLOR wins over FORCE_COLOR', () => {
-    const output = runListRaw({ NO_COLOR: '1', FORCE_COLOR: '1' });
-    expect(output).toContain('No project skills found');
-    expect(output).not.toMatch(/\x1b\[/);
+  it.each<Record<string, string>>([
+    { NO_COLOR: '1', FORCE_COLOR: '1' },
+    { NO_COLOR: '1', CI: 'true' },
+  ])('NO_COLOR wins: %o', (env) => {
+    expect(runRaw(['list'], env)).not.toMatch(ANSI);
+  });
+
+  it('honors --no-color over FORCE_COLOR', () => {
+    expect(runRaw(['list', '--no-color'], { FORCE_COLOR: '1' })).not.toMatch(ANSI);
+  });
+});
+
+describe('escape code hygiene', () => {
+  // Files allowed to contain raw escape literals:
+  // - color.ts: the gated palette itself
+  // - sanitize.ts: regexes that strip escapes from untrusted metadata
+  // - find.ts, prompts/search-multiselect.ts: cursor control for interactive
+  //   pickers, which only run on a TTY
+  const ALLOWED = new Set(['color.ts', 'sanitize.ts', 'find.ts', 'prompts/search-multiselect.ts']);
+  const RAW_ESCAPE = /\\x1b\[|\\u001b\[|\\033\[|\\e\[/;
+
+  it('keeps raw ANSI literals out of the rest of src/', () => {
+    const offenders = readdirSync(SRC_DIR, { recursive: true, encoding: 'utf-8' })
+      .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && f !== 'test-utils.ts')
+      .map((f) => relative(SRC_DIR, join(SRC_DIR, f)).replaceAll('\\', '/'))
+      .filter((f) => !ALLOWED.has(f))
+      .filter((f) => RAW_ESCAPE.test(readFileSync(join(SRC_DIR, f), 'utf-8')));
+
+    // Import from ./color.ts (or picocolors) so NO_COLOR and pipes are respected.
+    expect(offenders).toEqual([]);
   });
 });

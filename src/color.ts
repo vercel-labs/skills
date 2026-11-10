@@ -1,26 +1,33 @@
-// Shared ANSI palette for the CLI commands. Escape codes are emitted only when
-// they can actually be interpreted: stdout is a TTY (or FORCE_COLOR is set) and
-// NO_COLOR is unset — see https://no-color.org. Piped output stays plain text
-// so `skills list | less` never renders escape codes as garbage. Semantics
-// mirror the picocolors dependency.
-const supportsColor =
-  !process.env.NO_COLOR &&
-  (!!process.env.FORCE_COLOR || (process.stdout.isTTY === true && process.env.TERM !== 'dumb'));
+import pc from 'picocolors';
 
-export const RESET = supportsColor ? '\x1b[0m' : '';
-export const BOLD = supportsColor ? '\x1b[1m' : '';
+/**
+ * The single place that decides whether the CLI emits terminal escape codes.
+ *
+ * Color follows picocolors (already used by `add`, `remove`, `sync` and clack),
+ * so every command agrees: `NO_COLOR` / `--no-color` disable it; `FORCE_COLOR` /
+ * `--color` / `CI` enable it; otherwise stdout must be a TTY with `TERM != dumb`.
+ *
+ * Cursor/line control is separate: it only makes sense on a real terminal, so
+ * it stays off in pipes even when color is forced.
+ *
+ * Do not write raw `\x1b[` literals elsewhere; add them here instead
+ * (enforced by color.test.ts).
+ */
+export const colorEnabled = pc.isColorSupported;
+const isTTY = process.stdout.isTTY === true;
+
+const sgr = (code: string): string => (colorEnabled ? `\x1b[${code}m` : '');
+
+export const RESET = sgr('0');
+export const BOLD = sgr('1');
 // 256-color grays - visible on both light and dark backgrounds
-export const DIM = supportsColor ? '\x1b[38;5;102m' : ''; // darker gray for secondary text
-export const TEXT = supportsColor ? '\x1b[38;5;145m' : ''; // lighter gray for primary text
-export const CYAN = supportsColor ? '\x1b[36m' : '';
-export const YELLOW = supportsColor ? '\x1b[33m' : '';
+export const DIM = sgr('38;5;102'); // darker gray for secondary text
+export const TEXT = sgr('38;5;145'); // lighter gray for primary text
+export const CYAN = sgr('36');
+export const YELLOW = sgr('33');
 
-// 256-color middle grays - visible on both light and dark backgrounds
-export const GRAYS = [
-  '\x1b[38;5;250m', // lighter gray
-  '\x1b[38;5;248m',
-  '\x1b[38;5;245m', // mid gray
-  '\x1b[38;5;243m',
-  '\x1b[38;5;240m',
-  '\x1b[38;5;238m', // darker gray
-].map((code) => (supportsColor ? code : ''));
+// 256-color middle grays (lighter → darker) for the logo gradient
+export const GRAYS = [250, 248, 245, 243, 240, 238].map((n) => sgr(`38;5;${n}`));
+
+/** Returns the cursor to column 0 and erases the line; empty when not a TTY. */
+export const CLEAR_LINE = isTTY ? '\r\x1b[K' : '';
