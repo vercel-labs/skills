@@ -132,6 +132,21 @@ describe('installer category-dir protection (#1723)', () => {
     }
   }
 
+  for (const [kind, install] of Object.entries(installPaths)) {
+    it(`${kind}: a refused symlink install writes no canonical copy`, async () => {
+      const category = join(home, '.hermes', 'skills', 'research');
+      await makeCategory(category);
+      const canonical = join(home, '.agents', 'skills', 'research');
+
+      const result = await install('research', { global: true, cwd: root, mode: 'symlink' });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('category directory');
+      expect(existsSync(canonical)).toBe(false);
+      expectNestedKept(category);
+    });
+  }
+
   it('refuses a project copy install over a category', async () => {
     const category = join(root, '.hermes', 'skills', 'research');
     await makeCategory(category);

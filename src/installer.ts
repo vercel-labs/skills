@@ -246,33 +246,45 @@ async function resolveParentSymlinks(path: string): Promise<string> {
 }
 
 /**
+ * True when `a` and `b` are the same location on disk, even through symlinked
+ * parents (e.g. ~/.claude/skills -> ~/.agents/skills). Linking one to the other
+ * must then be a no-op, or the canonical directory would be deleted.
+ */
+async function isSamePhysicalPath(a: string, b: string): Promise<boolean> {
+  const [resolvedA, resolvedB] = [resolve(a), resolve(b)];
+  const [realA, realB] = await Promise.all([
+    realpath(resolvedA).catch(() => resolvedA),
+    realpath(resolvedB).catch(() => resolvedB),
+  ]);
+  if (realA === realB) return true;
+  return (await resolveParentSymlinks(a)) === (await resolveParentSymlinks(b));
+}
+
+/**
+ * Runs the category guard on every directory an install will replace, before
+ * anything is written (#1723). Otherwise a refused agent link would leave a fresh
+ * canonical copy in ~/.agents/skills for other agents to pick up. `agentDir` is
+ * skipped when it is the canonical dir itself, matching `createSymlink`.
+ */
+async function assertInstallTargets(
+  canonicalDir: string | undefined,
+  agentDir: string | undefined
+): Promise<void> {
+  if (canonicalDir) await assertNotCategoryDir(canonicalDir);
+  if (agentDir && !(canonicalDir && (await isSamePhysicalPath(canonicalDir, agentDir)))) {
+    await assertNotCategoryDir(agentDir);
+  }
+}
+
+/**
  * Creates a symlink, handling cross-platform differences
  * Returns true if symlink was created, false if fallback to copy is needed
  */
 async function createSymlink(target: string, linkPath: string): Promise<boolean> {
   try {
     const resolvedTarget = resolve(target);
-    const resolvedLinkPath = resolve(linkPath);
 
-    // Use realpath to handle cases where parent directories are symlinked.
-    // This prevents deleting the canonical directory if the agent directory
-    // is a symlink to the canonical location.
-    const [realTarget, realLinkPath] = await Promise.all([
-      realpath(resolvedTarget).catch(() => resolvedTarget),
-      realpath(resolvedLinkPath).catch(() => resolvedLinkPath),
-    ]);
-
-    if (realTarget === realLinkPath) {
-      return true;
-    }
-
-    // Also check with symlinks resolved in parent directories.
-    // This handles cases where e.g. ~/.claude/skills is a symlink to ~/.agents/skills,
-    // so ~/.claude/skills/<skill> and ~/.agents/skills/<skill> are physically the same.
-    const realTargetWithParents = await resolveParentSymlinks(target);
-    const realLinkPathWithParents = await resolveParentSymlinks(linkPath);
-
-    if (realTargetWithParents === realLinkPathWithParents) {
+    if (await isSamePhysicalPath(target, linkPath)) {
       return true;
     }
 
@@ -414,6 +426,19 @@ export async function installSkillForAgent(
         skipped: true,
       };
     }
+
+    const linksAgentDir =
+      !(isGlobal && readsCanonicalGlobally(agentType)) &&
+      !shouldSkipProjectAgentSymlink(
+        agentType,
+        isGlobal,
+        cwd,
+        options.createMissingAgentRoot ?? false
+      );
+    await assertInstallTargets(
+      sourceIsCanonical ? undefined : canonicalDir,
+      linksAgentDir ? agentDir : undefined
+    );
 
     // Reuse an existing canonical copy when only adding another agent's link.
     if (!sourceIsCanonical) {
@@ -810,6 +835,10 @@ export async function installRemoteSkillForAgent(
     }
 
     // Symlink mode: write to canonical location and symlink to agent location
+    await assertInstallTargets(
+      canonicalDir,
+      isGlobal && readsCanonicalGlobally(agentType) ? undefined : agentDir
+    );
     await cleanAndCreateDirectory(canonicalDir);
     const skillFileName =
       agentType === 'eve' ? toEveFlatSkillFileName(skill.installName) : 'SKILL.md';
@@ -972,6 +1001,10 @@ export async function installWellKnownSkillForAgent(
     }
 
     // Symlink mode: write to canonical location and symlink to agent location
+    await assertInstallTargets(
+      canonicalDir,
+      isGlobal && readsCanonicalGlobally(agentType) ? undefined : agentDir
+    );
     await cleanAndCreateDirectory(canonicalDir);
     await writeSkillFiles(canonicalDir);
 
@@ -1125,6 +1158,15 @@ export async function installBlobSkillForAgent(
     }
 
     // Symlink mode
+    const linksAgentDir =
+      !(isGlobal && readsCanonicalGlobally(agentType)) &&
+      !shouldSkipProjectAgentSymlink(
+        agentType,
+        isGlobal,
+        cwd,
+        options.createMissingAgentRoot ?? false
+      );
+    await assertInstallTargets(canonicalDir, linksAgentDir ? agentDir : undefined);
     await cleanAndCreateDirectory(canonicalDir);
     await writeSkillFiles(canonicalDir);
 
