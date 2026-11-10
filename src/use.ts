@@ -7,6 +7,7 @@ import { agents } from './agents.ts';
 import { tryBlobInstall, type BlobInstallResult, type BlobSkill } from './blob.ts';
 import type { Diagnostic } from 'nostics';
 import { diagnostics, formatError, isDiagnostic } from './diagnostics.ts';
+import { parseCliArgs } from './cli-args.ts';
 import { cloneRepo, cleanupTempDir } from './git.ts';
 import { copyDirectory, sanitizeName } from './installer.ts';
 import { getGitHubToken } from './skill-lock.ts';
@@ -86,58 +87,29 @@ const USE_AGENT_CONFIGS: Partial<Record<AgentType, UseAgentConfig>> = {
 };
 const SUPPORTED_USE_AGENTS = Object.keys(USE_AGENT_CONFIGS) as AgentType[];
 
+const USE_OPTIONS = {
+  help: { type: 'boolean', short: 'h' },
+  'full-depth': { type: 'boolean' },
+  skill: { type: 'string', short: 's', value: 'a skill name' },
+  agent: { type: 'list', short: 'a', value: 'an agent name' },
+} as const;
+
 export function parseUseOptions(args: string[]): ParseUseOptionsResult {
-  const source: string[] = [];
-  const options: UseOptions = {};
-  const errors: Diagnostic[] = [];
+  const { values, positionals, unknown, errors } = parseCliArgs(args, USE_OPTIONS);
+  const options: UseOptions = {
+    help: values.help,
+    fullDepth: values['full-depth'],
+    skill: values.skill?.[0],
+    agent: values.agent,
+  };
 
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (!arg) continue;
-
-    if (arg === '--help' || arg === '-h') {
-      options.help = true;
-    } else if (arg === '--full-depth') {
-      options.fullDepth = true;
-    } else if (arg === '--skill' || arg === '-s') {
-      const value = args[i + 1];
-      if (!value || value.startsWith('-')) {
-        errors.push(
-          diagnostics.SKILLS_OPTION_REQUIRES_VALUE({ option: arg, value: 'a skill name' })
-        );
-      } else if (options.skill) {
-        errors.push(diagnostics.SKILLS_DUPLICATE_OPTION({ option: '--skill' }));
-        i++;
-      } else {
-        options.skill = value;
-        i++;
-      }
-    } else if (arg === '--agent' || arg === '-a') {
-      options.agent = options.agent || [];
-      i++;
-      let nextArg = args[i];
-      const startCount = options.agent.length;
-      while (i < args.length && nextArg && !nextArg.startsWith('-')) {
-        options.agent.push(nextArg);
-        i++;
-        nextArg = args[i];
-      }
-      if (options.agent.length === startCount) {
-        errors.push(
-          diagnostics.SKILLS_OPTION_REQUIRES_VALUE({ option: arg, value: 'an agent name' })
-        );
-      }
-      i--;
-    } else if (arg.startsWith('-')) {
-      errors.push(diagnostics.SKILLS_UNKNOWN_OPTION({ option: arg }));
-    } else {
-      source.push(arg);
-    }
+  if (values.skill && values.skill.length > 1) {
+    errors.push(diagnostics.SKILLS_DUPLICATE_OPTION({ option: '--skill' }));
   }
-
+  for (const option of unknown) errors.push(diagnostics.SKILLS_UNKNOWN_OPTION({ option }));
   errors.push(...validateUseAgentOption(options.agent));
 
-  return { source, options, errors };
+  return { source: positionals, options, errors };
 }
 
 export function buildUsePrompt(input: {

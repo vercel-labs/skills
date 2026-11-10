@@ -2,6 +2,7 @@ import { homedir } from 'os';
 import type { AgentType } from './types.ts';
 import { agents } from './agents.ts';
 import { diagnostics, formatError, isDiagnostic } from './diagnostics.ts';
+import { parseCliArgs, throwFirstError } from './cli-args.ts';
 import { listInstalledSkills, sanitizeName, type InstalledSkill } from './installer.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { getAllLockedSkills } from './skill-lock.ts';
@@ -54,24 +55,13 @@ function formatList(items: string[], maxShow: number = 5): string {
 }
 
 export function parseListOptions(args: string[]): ListOptions {
-  const options: ListOptions = {};
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === '-g' || arg === '--global') {
-      options.global = true;
-    } else if (arg === '--json') {
-      options.json = true;
-    } else if (arg === '-a' || arg === '--agent') {
-      options.agent = options.agent || [];
-      // Collect all following arguments until next flag
-      while (i + 1 < args.length && !args[i + 1]!.startsWith('-')) {
-        options.agent.push(args[++i]!);
-      }
-    }
-  }
-
-  return options;
+  const { values, errors } = parseCliArgs(args, {
+    global: { type: 'boolean', short: 'g' },
+    json: { type: 'boolean' },
+    agent: { type: 'list', short: 'a', value: 'an agent name' },
+  });
+  throwFirstError(errors);
+  return { global: values.global, json: values.json, agent: values.agent };
 }
 
 /** Listing is read-only, so an unusable lock only costs source info. */

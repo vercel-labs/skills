@@ -180,6 +180,11 @@ export declare const diagnostics: import("nostics").Diagnostics<{
       value: string;
     }) => string;
   };
+  readonly SKILLS_OPTION_TAKES_NO_VALUE: {
+    readonly why: (p: {
+      option: string;
+    }) => string;
+  };
   readonly SKILLS_UNKNOWN_OPTION: {
     readonly why: (p: {
       option: string;

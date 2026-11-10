@@ -49,6 +49,7 @@ import {
   type SkillLocationResolutionOptions,
 } from './skill-relocation.ts';
 import { listInstalledSkills } from './installer.ts';
+import { parseCliArgs, throwFirstError } from './cli-args.ts';
 import { wellKnownProvider, computeWellKnownSkillDigest } from './providers/index.ts';
 import { removeCommand } from './remove.ts';
 import { sanitizeMetadata } from './sanitize.ts';
@@ -158,22 +159,17 @@ function parseUpdateSource(installUrl: string, sourceType: string) {
 }
 
 export function parseUpdateOptions(args: string[]): UpdateCheckOptions {
+  const { values, positionals, errors } = parseCliArgs(args, {
+    global: { type: 'boolean', short: 'g' },
+    project: { type: 'boolean', short: 'p' },
+    yes: { type: 'boolean', short: 'y' },
+  });
+  throwFirstError(errors);
   const options: UpdateCheckOptions = {};
-  const positional: string[] = [];
-  for (const arg of args) {
-    if (arg === '-g' || arg === '--global') {
-      options.global = true;
-    } else if (arg === '-p' || arg === '--project') {
-      options.project = true;
-    } else if (arg === '-y' || arg === '--yes') {
-      options.yes = true;
-    } else if (!arg.startsWith('-')) {
-      positional.push(arg);
-    }
-  }
-  if (positional.length > 0) {
-    options.skills = positional;
-  }
+  if (values.global) options.global = true;
+  if (values.project) options.project = true;
+  if (values.yes) options.yes = true;
+  if (positionals.length > 0) options.skills = positionals;
   return options;
 }
 

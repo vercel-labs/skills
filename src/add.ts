@@ -81,6 +81,7 @@ import {
 } from './blob.ts';
 import { collectSkillsShFiles, computeSkillsShTreeHash } from './skills-sh-hash.ts';
 import packageJson from '../package.json' with { type: 'json' };
+import { parseCliArgs } from './cli-args.ts';
 import {
   downloadNotionUrl,
   isNotionPackUrl,
@@ -3382,86 +3383,52 @@ async function promptForFindSkills(
   }
 }
 
-// Parse command line options from args array
+const ADD_OPTIONS = {
+  global: { type: 'boolean', short: 'g' },
+  yes: { type: 'boolean', short: 'y' },
+  list: { type: 'boolean', short: 'l' },
+  all: { type: 'boolean' },
+  agent: { type: 'list', short: 'a', value: 'an agent name' },
+  skill: { type: 'list', short: 's', value: 'a skill name' },
+  metadata: { type: 'string', value: 'a JSON value' },
+  'full-depth': { type: 'boolean' },
+  json: { type: 'boolean' },
+  copy: { type: 'boolean' },
+  subagent: { type: 'list', value: 'a subagent name' },
+} as const;
+
+// Parse command line options from args array. Unknown options are ignored:
+// `skills install` passes restore flags (`--force`, `--frozen-lockfile`) through here.
 export function parseAddOptions(args: string[]): {
   source: string[];
   options: AddOptions;
   errors: Diagnostic[];
 } {
-  const options: AddOptions = {};
-  const source: string[] = [];
-  const errors: Diagnostic[] = [];
+  const { values, positionals, errors } = parseCliArgs(args, ADD_OPTIONS);
+  const options: AddOptions = {
+    global: values.global,
+    yes: values.yes,
+    list: values.list,
+    all: values.all,
+    agent: values.agent,
+    skill: values.skill,
+    fullDepth: values['full-depth'],
+    json: values.json,
+    copy: values.copy,
+    subagent: values.subagent,
+  };
 
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-
-    if (arg === '-g' || arg === '--global') {
-      options.global = true;
-    } else if (arg === '-y' || arg === '--yes') {
-      options.yes = true;
-    } else if (arg === '-l' || arg === '--list') {
-      options.list = true;
-    } else if (arg === '--all') {
-      options.all = true;
-    } else if (arg === '-a' || arg === '--agent') {
-      options.agent = options.agent || [];
-      i++;
-      let nextArg = args[i];
-      while (i < args.length && nextArg && !nextArg.startsWith('-')) {
-        options.agent.push(nextArg);
-        i++;
-        nextArg = args[i];
-      }
-      i--; // Back up one since the loop will increment
-    } else if (arg === '-s' || arg === '--skill') {
-      options.skill = options.skill || [];
-      i++;
-      let nextArg = args[i];
-      while (i < args.length && nextArg && !nextArg.startsWith('-')) {
-        options.skill.push(nextArg);
-        i++;
-        nextArg = args[i];
-      }
-      i--; // Back up one since the loop will increment
-    } else if (arg === '--metadata') {
-      const metadata = args[++i];
-      if (metadata === undefined) {
-        errors.push(
-          diagnostics.SKILLS_OPTION_REQUIRES_VALUE({ option: '--metadata', value: 'a JSON value' })
-        );
-      } else {
-        try {
-          JSON.parse(metadata);
-          options.metadata = metadata;
-        } catch {
-          errors.push(
-            diagnostics.SKILLS_INVALID_OPTION_VALUE({
-              option: '--metadata',
-              expected: 'valid JSON',
-            })
-          );
-        }
-      }
-    } else if (arg === '--full-depth') {
-      options.fullDepth = true;
-    } else if (arg === '--json') {
-      options.json = true;
-    } else if (arg === '--copy') {
-      options.copy = true;
-    } else if (arg === '--subagent') {
-      options.subagent = options.subagent || [];
-      i++;
-      let nextArg = args[i];
-      while (i < args.length && nextArg && !nextArg.startsWith('-')) {
-        options.subagent.push(nextArg);
-        i++;
-        nextArg = args[i];
-      }
-      i--; // Back up one since the loop will increment
-    } else if (arg && !arg.startsWith('-')) {
-      source.push(arg);
+  const metadata = values.metadata?.at(-1);
+  if (metadata !== undefined) {
+    try {
+      JSON.parse(metadata);
+      options.metadata = metadata;
+    } catch {
+      errors.push(
+        diagnostics.SKILLS_INVALID_OPTION_VALUE({ option: '--metadata', expected: 'valid JSON' })
+      );
     }
   }
 
-  return { source, options, errors };
+  return { source: positionals, options, errors };
 }
