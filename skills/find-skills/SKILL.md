@@ -45,7 +45,6 @@ When a user asks for help with something, identify:
 Before running a CLI search, check the [skills.sh leaderboard](https://skills.sh/) to see if a well-known skill already exists for the domain. The leaderboard ranks skills by total installs, surfacing the most popular and battle-tested options.
 
 For example, top skills for web development include:
-
 - `vercel-labs/agent-skills` — React, Next.js, web design (100K+ installs each)
 - `anthropics/skills` — Frontend design, document processing (100K+ installs)
 
@@ -63,27 +62,10 @@ For example:
 - User asks "can you help me with PR reviews?" → `npx skills find pr review`
 - User asks "I need to create a changelog" → `npx skills find changelog`
 
-Search results are candidates, not an exhaustive catalog. If results are empty,
-poor matches, or omit a likely official source, try a shorter query and an
-alternative task term before recommending alternatives or concluding that no
-relevant skill was found. For example:
-
-```bash
-npx skills find next bundle analyzer
-npx skills find next bundle
-npx skills find next bundle optimizer
-```
-
-For a framework or vendor with documented skills, also check its official docs or
-skill repository. If you know the repository, list its skills without installing:
-
-```bash
-npx skills add <owner/repo> --list
-```
-
-Read a candidate's `SKILL.md` to confirm it covers the user's task. Stop searching
-once you have a verified match, or report the limits of the sources checked if
-broader queries and likely official sources do not produce one.
+Before recommending alternatives or concluding that no relevant skill was found,
+try a shorter query or synonyms if results are empty, weak matches, or omit a
+likely official source. For example, broaden `next bundle analyzer` to `next bundle`
+or try `next bundle optimizer`.
 
 ### Step 4: Verify Quality Before Recommending
 
@@ -141,22 +123,22 @@ When searching, consider these common categories:
 
 ## Tips for Effective Searches
 
-1. **Start specific, then broaden**: Try "react testing" first; shorten the query if results miss relevant skills
+1. **Use specific keywords**: "react testing" is better than just "testing"
 2. **Try alternative terms**: If "deploy" doesn't work, try "deployment" or "ci-cd"
 3. **Check popular sources**: Many skills come from `vercel-labs/agent-skills` or `ComposioHQ/awesome-claude-skills`
 
 ## When No Skills Are Found
 
-If broader queries and likely official sources do not reveal a relevant skill:
+If no relevant skills exist:
 
-1. Explain that you did not find a relevant skill in the sources checked
+1. Acknowledge that no existing skill was found
 2. Offer to help with the task directly using your general capabilities
 3. Suggest the user could create their own skill with `npx skills init`
 
 Example:
 
 ```
-I didn't find a relevant skill for "xyz" in the sources I checked.
+I searched for skills related to "xyz" but didn't find any matches.
 I can still help you with this task directly! Would you like me to proceed?
 
 If this is something you do often, you could create your own skill:
