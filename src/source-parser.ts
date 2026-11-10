@@ -78,27 +78,15 @@ export function parseOwnerRepo(ownerRepo: string): { owner: string; repo: string
   return null;
 }
 
-/** What the GitHub API reports about a repository. */
-export interface GitHubRepoInfo {
-  private: boolean;
-  /**
-   * Canonical `owner/repo`. GitHub follows renames and transfers, so this
-   * differs from the requested name when the repository has moved.
-   */
-  fullName: string | null;
-}
-
 /** A GitHub `owner/repo`: the characters GitHub allows, never a `.` or `..` repo. */
 const GITHUB_FULL_NAME = /^[A-Za-z0-9-]+\/(?!\.\.?$)[A-Za-z0-9._-]+$/;
 
 /**
- * Look up a GitHub.com repository. Returns null when it does not exist, is not
- * visible anonymously, or the API is unreachable.
+ * Look up a GitHub.com repository. `fullName` is its canonical `owner/repo`:
+ * GitHub follows renames and transfers. Returns null when the repo does not
+ * exist, is not visible anonymously, or the API is unreachable.
  */
-export async function fetchGitHubRepoInfo(
-  owner: string,
-  repo: string
-): Promise<GitHubRepoInfo | null> {
+export async function fetchGitHubRepoInfo(owner: string, repo: string) {
   try {
     const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
     if (!res.ok) {
@@ -130,22 +118,19 @@ export async function isRepoPrivate(owner: string, repo: string): Promise<boolea
 }
 
 /**
- * Point a GitHub.com source at the repository's canonical name, so a renamed or
- * transferred repository is locked and reported under its current
- * `owner/repo`. Ref, subpath, and skill filter are kept. Returns `parsed`
- * unchanged for other sources or when the name is already canonical.
+ * Point a GitHub.com source at its canonical `owner/repo`, keeping ref, subpath,
+ * and skill filter. Returns `parsed` itself when there is nothing to change.
  */
 export function withCanonicalGitHubRepo(
   parsed: ParsedSource,
-  info: GitHubRepoInfo | null
+  fullName: string | null | undefined
 ): ParsedSource {
-  if (parsed.type !== 'github' || !info?.fullName) return parsed;
-  if (getOwnerRepo(parsed) === info.fullName) return parsed;
-  return { ...parsed, url: `https://github.com/${info.fullName}.git` };
+  if (parsed.type !== 'github' || !fullName || getOwnerRepo(parsed) === fullName) return parsed;
+  return { ...parsed, url: `https://github.com/${fullName}.git` };
 }
 
 /** The GitHub API lookup for a `github` source, or null for any other source. */
-export function lookupGitHubRepo(parsed: ParsedSource): Promise<GitHubRepoInfo | null> {
+export function lookupGitHubRepo(parsed: ParsedSource) {
   if (parsed.type !== 'github') return Promise.resolve(null);
   const ownerRepo = parseOwnerRepo(getOwnerRepo(parsed) ?? '');
   if (!ownerRepo) return Promise.resolve(null);
