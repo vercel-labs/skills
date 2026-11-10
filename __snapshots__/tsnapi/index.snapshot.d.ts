@@ -240,6 +240,12 @@ export declare const diagnostics: import("nostics").Diagnostics<{
     }) => string;
     readonly fix: "Remove them by name, e.g. skills remove <name>";
   };
+  readonly SKILLS_REMOVE_UNMANAGED_DIR_KEPT: {
+    readonly why: (p: {
+      path: string;
+    }) => string;
+    readonly fix: "Delete it by hand if you no longer need it";
+  };
   readonly SKILLS_UNSAFE_SUBPATH: {
     readonly why: (p: {
       subpath: string;
