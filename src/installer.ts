@@ -415,6 +415,18 @@ export async function installSkillForAgent(
       };
     }
 
+    const linksAgentDir =
+      !(isGlobal && readsCanonicalGlobally(agentType)) &&
+      !shouldSkipProjectAgentSymlink(
+        agentType,
+        isGlobal,
+        cwd,
+        options.createMissingAgentRoot ?? false
+      );
+    // Check every target before writing, so a refusal leaves nothing behind (#1723).
+    if (!sourceIsCanonical) await assertNotCategoryDir(canonicalDir);
+    if (linksAgentDir) await assertNotCategoryDir(agentDir);
+
     // Reuse an existing canonical copy when only adding another agent's link.
     if (!sourceIsCanonical) {
       if (installMode === 'link') {
@@ -810,6 +822,9 @@ export async function installRemoteSkillForAgent(
     }
 
     // Symlink mode: write to canonical location and symlink to agent location
+    // Check every target before writing, so a refusal leaves nothing behind (#1723).
+    await assertNotCategoryDir(canonicalDir);
+    if (!(isGlobal && readsCanonicalGlobally(agentType))) await assertNotCategoryDir(agentDir);
     await cleanAndCreateDirectory(canonicalDir);
     const skillFileName =
       agentType === 'eve' ? toEveFlatSkillFileName(skill.installName) : 'SKILL.md';
@@ -972,6 +987,9 @@ export async function installWellKnownSkillForAgent(
     }
 
     // Symlink mode: write to canonical location and symlink to agent location
+    // Check every target before writing, so a refusal leaves nothing behind (#1723).
+    await assertNotCategoryDir(canonicalDir);
+    if (!(isGlobal && readsCanonicalGlobally(agentType))) await assertNotCategoryDir(agentDir);
     await cleanAndCreateDirectory(canonicalDir);
     await writeSkillFiles(canonicalDir);
 
@@ -1125,6 +1143,17 @@ export async function installBlobSkillForAgent(
     }
 
     // Symlink mode
+    const linksAgentDir =
+      !(isGlobal && readsCanonicalGlobally(agentType)) &&
+      !shouldSkipProjectAgentSymlink(
+        agentType,
+        isGlobal,
+        cwd,
+        options.createMissingAgentRoot ?? false
+      );
+    // Check every target before writing, so a refusal leaves nothing behind (#1723).
+    await assertNotCategoryDir(canonicalDir);
+    if (linksAgentDir) await assertNotCategoryDir(agentDir);
     await cleanAndCreateDirectory(canonicalDir);
     await writeSkillFiles(canonicalDir);
 
