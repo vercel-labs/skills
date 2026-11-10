@@ -87,6 +87,7 @@ export function createTestHomeEnvironment(home: string): Record<string, string> 
     CLAUDE_CONFIG_DIR: join(home, '.claude'),
     VIBE_HOME: join(home, '.vibe'),
     HERMES_HOME: join(home, '.hermes'),
+    KRONOS_HOME: join(home, '.kronos'),
     AUTOHAND_HOME: join(home, '.autohand'),
     FLATPAK_XDG_CONFIG_HOME: join(home, '.var', 'app'),
     DISABLE_TELEMETRY: '1',

@@ -42,6 +42,7 @@ export type AgentType =
   | 'kimi-code-cli'
   | 'kiro-cli'
   | 'kode'
+  | 'kronos'
   | 'lingma'
   | 'loaf'
   | 'mcpjam'

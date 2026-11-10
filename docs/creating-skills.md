@@ -91,6 +91,7 @@ discover `SKILL.md` files outside these container directories (e.g. under
 - `.kimchi/skills/`
 - `.kiro/skills/`
 - `.kode/skills/`
+- `.kronos/skills/`
 - `.lingma/skills/`
 - `.mcpjam/skills/`
 - `.minimax/skills/`

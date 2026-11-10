@@ -10,6 +10,7 @@ const configHome = xdgConfig ?? join(home, '.config');
 const codexHome = process.env.CODEX_HOME?.trim() || join(home, '.codex');
 const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude');
 const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
+const kronosHome = process.env.KRONOS_HOME?.trim() || join(home, '.kronos');
 const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
 const grokHome = process.env.GROK_HOME?.trim() || join(home, '.grok');
@@ -494,6 +495,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.kode/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.kode'));
+    },
+  },
+  kronos: {
+    name: 'kronos',
+    displayName: 'KronOS',
+    skillsDir: '.kronos/skills',
+    globalSkillsDir: join(kronosHome, 'skills'),
+    detectInstalled: async (cwd = process.cwd()) => {
+      return existsSync(kronosHome) || existsSync(join(cwd, '.kronos'));
     },
   },
   lingma: {

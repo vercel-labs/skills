@@ -45,6 +45,7 @@ Skills can be installed to any of these agents:
 | Kimchi | `kimchi` | `.kimchi/skills/` | `~/.config/kimchi/harness/skills/` |
 | Kiro CLI | `kiro-cli` | `.kiro/skills/` | `~/.kiro/skills/` |
 | Kode | `kode` | `.kode/skills/` | `~/.kode/skills/` |
+| KronOS | `kronos` | `.kronos/skills/` | `~/.kronos/skills/` |
 | Lingma | `lingma` | `.lingma/skills/` | `~/.lingma/skills/` |
 | MCPJam | `mcpjam` | `.mcpjam/skills/` | `~/.mcpjam/skills/` |
 | MiniMax Code | `minimax-code` | `.minimax/skills/` | `~/.minimax/skills/` |
