@@ -9,7 +9,7 @@ Third Party Code Components
 --------------------------------------------
 
 ================================================================================
-Package: @clack/prompts@1.7.0
+Package: @clack/prompts@1.9.0
 License: MIT
 Repository: https://github.com/bombshell-dev/clack
 --------------------------------------------------------------------------------
@@ -93,7 +93,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 
 ================================================================================
-Package: yaml@2.9.0
+Package: yaml@2.9.1
 License: ISC
 Repository: https://github.com/eemeli/yaml
 --------------------------------------------------------------------------------
