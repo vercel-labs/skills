@@ -981,7 +981,8 @@ export async function updateGlobalSkills(
     });
     await releaseSource(source);
     if (outcome.installed.length > 0) {
-      await addSkillToLock(name, { ...entry, skillFolderHash });
+      // Drop a stale commit when the new one is unknown
+      await addSkillToLock(name, { ...entry, skillFolderHash, commit: source.resolved?.commit });
     }
     if (reportInstall(name, { ok: outcome.installed.length > 0, ...outcome })) successCount++;
     else failCount++;

@@ -8,9 +8,10 @@ import { runCli } from '../src/test-utils.ts';
 
 // A file:// source cannot carry a #ref, so the fixture is reached through an
 // HTTPS Git URL that git rewrites to the local repository.
-const SOURCE = 'https://git.example.test/skills.git';
+// The global lock only tracks sources with an owner/repo path.
+const SOURCE = 'https://git.example.test/owner/skills.git';
 
-describe('project lock commit pin', () => {
+describe('lock commit pin', () => {
   let root: string;
   let project: string;
   let repo: string;
@@ -96,5 +97,20 @@ describe('project lock commit pin', () => {
 
     expect(cli('update', '-y').exitCode).toBe(0);
     expect(lockEntry().commit).toBe(v1);
+  });
+
+  it('records the commit in the global lock and moves it forward on update', () => {
+    env.HOME = join(root, 'home');
+    const globalEntry = () =>
+      JSON.parse(
+        readFileSync(join(env.HOME!, '.local', 'state', 'skills', '.skill-lock.json'), 'utf-8')
+      ).skills.alpha;
+    const v1 = publish('v1');
+    expect(cli('add', SOURCE, '--skill', 'alpha', '-g', '-a', 'universal', '-y').exitCode).toBe(0);
+    expect(globalEntry().commit).toBe(v1);
+
+    const v2 = publish('v2');
+    expect(cli('update', '-g', '-y').exitCode).toBe(0);
+    expect(globalEntry().commit).toBe(v2);
   });
 });

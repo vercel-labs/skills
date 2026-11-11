@@ -915,6 +915,7 @@ async function installPackPointerSkills(
               sourceType: source.parsed.type,
               sourceUrl: source.parsed.url,
               ref: source.parsed.ref,
+              ...(resolved.commit && { commit: resolved.commit }),
               skillPath,
               skillFolderHash:
                 (tree && skillPath && getSkillFolderHashFromTree(tree, skillPath)) || '',
@@ -2223,6 +2224,7 @@ export async function recordGlobalLock(
         sourceType: parsed.type,
         sourceUrl: parsed.url,
         ref: parsed.ref,
+        ...(resolved.commit && { commit: resolved.commit }),
         skillPath: skillPathValue,
         skillFolderHash,
         pluginName: skill.pluginName,
