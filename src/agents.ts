@@ -358,6 +358,17 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.forge'));
     },
   },
+  froe: {
+    name: 'froe',
+    displayName: 'Froe',
+    // Froe scans `.agents/skills` and `~/.agents/skills` first among its skill roots,
+    // so it installs into the canonical locations.
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents', 'skills'),
+    detectInstalled: async () => {
+      return existsSync(join(configHome, 'froe'));
+    },
+  },
   fx: {
     name: 'fx',
     displayName: 'fx',
