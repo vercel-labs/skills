@@ -107,22 +107,24 @@ export function resetRepoTreeAuthState(): void {
   _rateLimitedThisSession = false;
 }
 
-interface BranchFetchResult {
-  tree: RepoTree | null;
+interface ApiFetchResult<T> {
+  value: T | null;
   rateLimited: boolean;
   authRetryable: boolean;
 }
 
-async function fetchTreeBranch(
-  ownerRepo: string,
-  branch: string,
-  token: string | null
-): Promise<BranchFetchResult> {
+/** Reads one response body into the value a caller wants, or null when it is not one. */
+type ApiParser<T> = (data: unknown) => T | null;
+
+async function fetchGitHubApi<T>(
+  endpoint: string,
+  token: string | null,
+  parse: ApiParser<T>
+): Promise<ApiFetchResult<T>> {
   try {
     const githubHost = getGitHubHost();
     const apiBase =
       githubHost === 'github.com' ? 'https://api.github.com' : `https://${githubHost}/api/v3`;
-    const url = `${apiBase}/repos/${ownerRepo}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
     const headers: Record<string, string> = {
       Accept: 'application/vnd.github.v3+json',
       'User-Agent': 'skills-cli',
@@ -131,21 +133,13 @@ async function fetchTreeBranch(
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await fetch(url, {
+    const response = await fetch(`${apiBase}/${endpoint}`, {
       headers,
       signal: AbortSignal.timeout(FETCH_TIMEOUT),
     });
 
     if (response.ok) {
-      const data = (await response.json()) as {
-        sha: string;
-        tree: TreeEntry[];
-      };
-      return {
-        tree: { sha: data.sha, branch, tree: data.tree },
-        rateLimited: false,
-        authRetryable: false,
-      };
+      return { value: parse(await response.json()), rateLimited: false, authRetryable: false };
     }
 
     // GitHub signals rate-limit with 403 + X-RateLimit-Remaining: 0.
@@ -155,33 +149,32 @@ async function fetchTreeBranch(
     // A private repo answers 401/404 to an anonymous request (GitHub hides its
     // existence); a token may turn that into a 200. See issue #1318.
     const authRetryable = response.status === 401 || response.status === 404;
-    return { tree: null, rateLimited, authRetryable };
+    return { value: null, rateLimited, authRetryable };
   } catch {
-    return { tree: null, rateLimited: false, authRetryable: false };
+    return { value: null, rateLimited: false, authRetryable: false };
   }
 }
 
-async function fetchTreeWithToken(
-  ownerRepo: string,
-  branches: string[],
+async function fetchGitHubApiWithToken<T>(
+  endpoints: string[],
+  parsers: ApiParser<T>[],
   getToken: () => string | null
-): Promise<RepoTree | null> {
+): Promise<T | null> {
   const token = getToken();
   if (!token) return null;
-  for (const branch of branches) {
-    const result = await fetchTreeBranch(ownerRepo, branch, token);
-    if (result.tree) return result.tree;
+  for (const [index, endpoint] of endpoints.entries()) {
+    const result = await fetchGitHubApi(endpoint, token, parsers[index]!);
+    if (result.value) return result.value;
   }
   return null;
 }
 
-async function fetchTreeWithGitHubCli(
-  ownerRepo: string,
-  branches: string[]
-): Promise<RepoTree | null> {
-  for (const branch of branches) {
+async function fetchGitHubApiWithGitHubCli<T>(
+  endpoints: string[],
+  parsers: ApiParser<T>[]
+): Promise<T | null> {
+  for (const [index, endpoint] of endpoints.entries()) {
     try {
-      const endpoint = `repos/${ownerRepo}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
       const stdout = await new Promise<string>((resolve, reject) => {
         execFile(
           'gh',
@@ -199,35 +192,30 @@ async function fetchTreeWithGitHubCli(
           }
         );
       });
-      const data = JSON.parse(stdout) as {
-        sha?: unknown;
-        tree?: unknown;
-      };
-      if (typeof data.sha !== 'string' || !Array.isArray(data.tree)) continue;
-      return { sha: data.sha, branch, tree: data.tree as TreeEntry[] };
+      const value = parsers[index]!(JSON.parse(stdout));
+      if (value) return value;
     } catch {
-      // Try the next candidate branch, then let the caller fall back to clone.
+      // Try the next candidate endpoint, then let the caller fall back to clone.
     }
   }
   return null;
 }
 
-async function fetchTreeWithAvailableAuth(
-  ownerRepo: string,
-  branches: string[],
+async function fetchGitHubApiWithAvailableAuth<T>(
+  endpoints: string[],
+  parsers: ApiParser<T>[],
   getToken?: () => string | null
-): Promise<RepoTree | null> {
+): Promise<T | null> {
   if (getToken) {
-    const tree = await fetchTreeWithToken(ownerRepo, branches, getToken);
-    if (tree) return tree;
+    const value = await fetchGitHubApiWithToken(endpoints, parsers, getToken);
+    if (value) return value;
   }
-  return fetchTreeWithGitHubCli(ownerRepo, branches);
+  return fetchGitHubApiWithGitHubCli(endpoints, parsers);
 }
 
 /**
- * Fetch the full recursive tree for a GitHub repo.
- * Returns the tree data including all entries, or null on failure.
- * Tries branches in order: ref (if specified), then main, then master.
+ * GET the first of `endpoints` (paths under the API root) that answers, read
+ * with the parser at the same index. Returns null when none does.
  *
  * Authentication is lazy: by default the call goes out unauthenticated,
  * which is enough for the vast majority of users (60 req/hr per IP). We only
@@ -238,33 +226,31 @@ async function fetchTreeWithAvailableAuth(
  * credential. A bare permission-denied 403 is not retried. See issues #523
  * and #1318.
  */
-export async function fetchRepoTree(
-  ownerRepo: string,
-  ref?: string,
+async function fetchFirstGitHubApi<T>(
+  endpoints: string[],
+  parsers: ApiParser<T>[],
   getToken?: () => string | null
-): Promise<RepoTree | null> {
-  const branches = ref ? [ref] : ['HEAD', 'main', 'master'];
-
+): Promise<T | null> {
   // Fast path: once we've seen a rate limit in this process, don't bother
   // retrying unauth on subsequent calls. Go straight to auth.
   if (_rateLimitedThisSession) {
-    return fetchTreeWithAvailableAuth(ownerRepo, branches, getToken);
+    return fetchGitHubApiWithAvailableAuth(endpoints, parsers, getToken);
   }
 
   // First pass: unauthenticated.
   let rateLimited = false;
   let authRetryable = false;
-  for (const branch of branches) {
-    const result = await fetchTreeBranch(ownerRepo, branch, null);
-    if (result.tree) return result.tree;
+  for (const [index, endpoint] of endpoints.entries()) {
+    const result = await fetchGitHubApi(endpoint, null, parsers[index]!);
+    if (result.value) return result.value;
     if (result.rateLimited) {
-      // All branches share the same rate-limit bucket on this IP, so it's
-      // pointless to keep trying other branches in this pass.
+      // All endpoints share the same rate-limit bucket on this IP, so it's
+      // pointless to keep trying other endpoints in this pass.
       rateLimited = true;
       break;
     }
     if (result.authRetryable) {
-      // A private repo answers 401/404 to anonymous requests on every branch,
+      // A private repo answers 401/404 to anonymous requests on every endpoint,
       // so stop and retry the whole set once with a token.
       authRetryable = true;
       break;
@@ -277,7 +263,63 @@ export async function fetchRepoTree(
   // A private-repo 404 is per-repo, not per-IP, so it must not set this flag.
   if (rateLimited) _rateLimitedThisSession = true;
 
-  return fetchTreeWithAvailableAuth(ownerRepo, branches, getToken);
+  return fetchGitHubApiWithAvailableAuth(endpoints, parsers, getToken);
+}
+
+/**
+ * Fetch the full recursive tree for a GitHub repo.
+ * Returns the tree data including all entries, or null on failure.
+ * Tries branches in order: ref (if specified), then HEAD, main, and master.
+ * See fetchFirstGitHubApi for how authentication is used.
+ */
+export async function fetchRepoTree(
+  ownerRepo: string,
+  ref?: string,
+  getToken?: () => string | null
+): Promise<RepoTree | null> {
+  const branches = ref ? [ref] : ['HEAD', 'main', 'master'];
+  return fetchFirstGitHubApi(
+    branches.map(
+      (branch) => `repos/${ownerRepo}/git/trees/${encodeURIComponent(branch)}?recursive=1`
+    ),
+    branches.map((branch) => (data: unknown): RepoTree | null => {
+      const { sha, tree } = (data ?? {}) as { sha?: unknown; tree?: unknown };
+      if (typeof sha !== 'string' || !Array.isArray(tree)) return null;
+      return { sha, branch, tree: tree as TreeEntry[] };
+    }),
+    getToken
+  );
+}
+
+/**
+ * The commit at the tip of `tree.branch`, when it is still the commit `tree` was read from.
+ * Null when it cannot be read or the branch has moved since `tree` was fetched,
+ * so a recorded commit always matches the files that were installed.
+ */
+export async function fetchTreeCommit(
+  ownerRepo: string,
+  tree: RepoTree,
+  getToken?: () => string | null
+): Promise<string | null> {
+  // The list endpoint omits per-file stats, unlike `commits/<ref>`.
+  const branch = tree.branch === 'HEAD' ? '' : `&sha=${encodeURIComponent(tree.branch)}`;
+  return fetchFirstGitHubApi(
+    [`repos/${ownerRepo}/commits?per_page=1${branch}`],
+    [
+      (data: unknown): string | null => {
+        const latest = (Array.isArray(data) ? data[0] : null) as {
+          sha?: unknown;
+          commit?: { tree?: { sha?: unknown } };
+        } | null;
+        const sha = latest?.sha;
+        if (typeof sha !== 'string' || !/^[0-9a-f]{40}$/i.test(sha)) return null;
+        // Asked for a branch, the Trees API answers with the commit's SHA, not the root tree's
+        const matches = sha === tree.sha || latest?.commit?.tree?.sha === tree.sha;
+        return matches ? sha.toLowerCase() : null;
+      },
+    ],
+    getToken
+  );
 }
 
 /**
@@ -495,6 +537,8 @@ async function fetchSkillDownload(
 export interface BlobInstallResult {
   skills: BlobSkill[];
   tree: RepoTree;
+  /** Commit whose tree the snapshots were checked against, when it could be read. */
+  commit?: string;
 }
 
 /** The installed copy's computedHash: only the files the installer writes count. */
@@ -716,5 +760,6 @@ export async function tryBlobInstall(
   );
   if (!allCurrent) return null;
 
-  return { skills: blobSkills, tree };
+  const commit = await fetchTreeCommit(ownerRepo, tree, options.getToken);
+  return { skills: blobSkills, tree, ...(commit && { commit }) };
 }

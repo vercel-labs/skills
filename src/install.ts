@@ -92,11 +92,13 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
   const modifiedSkills: string[] = [];
   // Lock entries that could not be restored; their lock entries are left untouched
   const failedSkills: string[] = [];
-  // Keyed by source, install mode, and download, so copied skills stay copies
+  // Keyed by source, install mode, download, and pinned ref, so copied skills stay copies
   const bySource = new Map<
     string,
     {
       source: string;
+      /** Set when `source` is pinned to the locked commit: the ref the lock keeps tracking. */
+      lockedRef?: { ref?: string };
       copy: boolean;
       download: boolean;
       /** Lock keys: the installed names. */
@@ -122,8 +124,12 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
     }
 
     // A download is fetched again from its URL as-is; it has no folder or ref to append.
+    // A Git source is fetched at its locked commit, so upstream changes cannot break the restore.
+    const pinned = entry.sourceType !== 'download' && !!entry.commit;
     const installSource =
-      entry.sourceType === 'download' ? (entry.sourceUrl ?? null) : buildLocalUpdateSource(entry);
+      entry.sourceType === 'download'
+        ? (entry.sourceUrl ?? null)
+        : buildLocalUpdateSource({ ...entry, ref: entry.commit ?? entry.ref });
     if (!installSource) {
       p.log.error(
         formatError(diagnostics.SKILLS_LOCK_MISSING_SOURCE_URL({ skill: pc.cyan(skillName) }))
@@ -133,9 +139,10 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
     }
     const copy = entry.installMode === 'copy';
     const download = entry.sourceType === 'download';
-    const key = `${copy ? 'copy' : 'symlink'}:${download ? 'download' : 'source'}:${installSource}`;
+    const key = `${copy ? 'copy' : 'symlink'}:${download ? 'download' : 'source'}:${installSource}\n${pinned ? (entry.ref ?? '') : ''}`;
     const group = bySource.get(key) ?? {
       source: installSource,
+      ...(pinned && { lockedRef: { ref: entry.ref } }),
       copy,
       download,
       skills: [] as string[],
@@ -184,8 +191,9 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
 
   // Download every source at once, then install them in order
   const requests = [...bySource.values()].map(
-    ({ source, copy, download, skills, installNames }) => ({
+    ({ source, lockedRef, copy, download, skills, installNames }) => ({
       source,
+      lockedRef,
       copy,
       parsed: download ? { type: 'download' as const, url: source } : parseSource(source),
       // Fetch renamed skills by the name their source uses
@@ -200,23 +208,30 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
   let restoredCount = 0;
   for (const [
     index,
-    { source, copy, skills: sourceNames, lockKeys: skills, installNames },
+    { source, lockedRef, copy, skills: sourceNames, lockKeys: skills, installNames },
   ] of requests.entries()) {
-    const result = await installFromSource(fetched[index]!, {
-      skills: sourceNames,
-      // Install each found skill under every name the lock has it as
-      ...(skills.some((name) => lock.skills[name]?.skillName) && {
-        select: async (found: Skill[]) =>
-          found.flatMap((skill) =>
-            (installNames.get(skill.name.toLowerCase()) ?? [skill.name]).map((name) =>
-              name.toLowerCase() === skill.name.toLowerCase() ? skill : renameSkill(skill, name)
-            )
-          ),
-      }),
-      agents: targetAgents,
-      ...(copy && { installMode: 'copy' as const }),
-      ...(frozen && { frozenLock: lock }),
-    });
+    const fetchedSource = fetched[index]!;
+    // Fetched at the locked commit; the lock keeps tracking the branch or tag it came from.
+    const result = await installFromSource(
+      lockedRef
+        ? { ...fetchedSource, parsed: { ...fetchedSource.parsed, ref: lockedRef.ref } }
+        : fetchedSource,
+      {
+        skills: sourceNames,
+        // Install each found skill under every name the lock has it as
+        ...(skills.some((name) => lock.skills[name]?.skillName) && {
+          select: async (found: Skill[]) =>
+            found.flatMap((skill) =>
+              (installNames.get(skill.name.toLowerCase()) ?? [skill.name]).map((name) =>
+                name.toLowerCase() === skill.name.toLowerCase() ? skill : renameSkill(skill, name)
+              )
+            ),
+        }),
+        agents: targetAgents,
+        ...(copy && { installMode: 'copy' as const }),
+        ...(frozen && { frozenLock: lock }),
+      }
+    );
     if (result.error) {
       p.log.error(
         `Failed to restore ${skills.map((name) => pc.cyan(name)).join(', ')} from ${pc.cyan(source)}: ${result.error}`

@@ -1,6 +1,6 @@
 {
   "name": "skills",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "description": "The open agent skills ecosystem",
   "type": "module",
   "exports": {
@@ -8,6 +8,7 @@
       "types": "./dist/index.d.mts",
       "default": "./dist/index.mjs"
     },
+    "./bin/cli.mjs": "./bin/cli.mjs",
     "./package.json": "./package.json"
   },
   "types": "./dist/index.d.mts",
@@ -140,29 +141,28 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "@clack/prompts": "^1.2.0",
-    "@types/bun": "latest",
-    "@types/node": "^22.10.0",
-    "@vercel/detect-agent": "^1.2.1",
+    "@clack/prompts": "^1.9.0",
+    "@types/node": "^22.20.5",
+    "@vercel/detect-agent": "^1.2.7",
     "husky": "^9.1.7",
     "license-checker": "25.0.1",
-    "lint-staged": "^16.2.7",
-    "obuild": "^0.4.22",
+    "lint-staged": "^17.6.0",
+    "obuild": "^0.4.45",
     "picocolors": "^1.1.1",
-    "prettier": "^3.8.1",
-    "simple-git": "^3.36.0",
+    "prettier": "^3.9.10",
+    "simple-git": "^4.0.2",
     "tsnapi": "^1.6.1",
-    "typescript": "^5.9.3",
-    "vitest": "^4.0.17",
+    "typescript": "^6.0.3",
+    "vitest": "^5.1.0",
     "xdg-basedir": "^5.1.0"
   },
   "engines": {
     "node": ">=22.20.0"
   },
-  "packageManager": "pnpm@10.17.1",
+  "packageManager": "pnpm@12.18.0",
   "dependencies": {
     "nostics": "^1.3.0",
-    "tar": "^7.5.20",
-    "yaml": "^2.8.3"
+    "tar": "^7.5.22",
+    "yaml": "^2.9.1"
   }
 }

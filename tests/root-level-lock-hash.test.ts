@@ -58,6 +58,7 @@ vi.mock('../src/source-parser.ts', async (importActual) => {
 vi.mock('../src/git.ts', () => ({
   cloneRepo: vi.fn(),
   cleanupTempDir: vi.fn().mockResolvedValue(undefined),
+  getHeadCommit: vi.fn().mockResolvedValue(null),
 }));
 
 import { runAdd } from '../src/add.ts';

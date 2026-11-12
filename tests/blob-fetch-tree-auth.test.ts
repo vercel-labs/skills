@@ -15,7 +15,7 @@ vi.mock('node:child_process', async (importActual) => {
   return { ...actual, execFile: vi.fn() };
 });
 
-import { fetchRepoTree, resetRepoTreeAuthState } from '../src/blob.ts';
+import { fetchRepoTree, fetchTreeCommit, resetRepoTreeAuthState } from '../src/blob.ts';
 
 const SAMPLE_TREE = {
   sha: 'deadbeef',
@@ -268,6 +268,63 @@ describe('fetchRepoTree lazy auth fallback', () => {
     const secondCallFirstInit = fetchMock.mock.calls[2]?.[1] as RequestInit;
     expect((secondCallFirstInit.headers as Record<string, string>)['Authorization']).toBe(
       'Bearer ghp_fake_token'
+    );
+  });
+});
+
+describe('fetchTreeCommit', () => {
+  const COMMIT = 'a'.repeat(40);
+  const tree = { sha: 'deadbeef', branch: 'main', tree: [] };
+  let fetchMock: ReturnType<typeof vi.fn>;
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    resetRepoTreeAuthState();
+    originalFetch = globalThis.fetch;
+    fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    vi.mocked(execFile).mockReset();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('returns the branch tip whose tree is the fetched tree', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse([{ sha: COMMIT, commit: { tree: { sha: 'deadbeef' } } }])
+    );
+
+    expect(await fetchTreeCommit('vercel/skills', tree)).toBe(COMMIT);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      'https://api.github.com/repos/vercel/skills/commits?per_page=1&sha=main'
+    );
+  });
+
+  it('accepts the commit SHA the Trees API reports for a branch', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse([{ sha: COMMIT, commit: { tree: { sha: 'root-tree' } } }])
+    );
+
+    expect(await fetchTreeCommit('vercel/skills', { ...tree, sha: COMMIT })).toBe(COMMIT);
+  });
+
+  it('returns null when the branch moved after the tree was fetched', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse([{ sha: COMMIT, commit: { tree: { sha: 'newer-tree' } } }])
+    );
+
+    expect(await fetchTreeCommit('vercel/skills', tree)).toBeNull();
+  });
+
+  it('asks for the default branch when the tree came from HEAD', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse([{ sha: COMMIT, commit: { tree: { sha: 'deadbeef' } } }])
+    );
+
+    expect(await fetchTreeCommit('vercel/skills', { ...tree, branch: 'HEAD' })).toBe(COMMIT);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      'https://api.github.com/repos/vercel/skills/commits?per_page=1'
     );
   });
 });

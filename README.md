@@ -105,6 +105,8 @@ Test vectors:
 
 The last vector equals `printf 'SKILL.md\0002\000a\ndocs/b.md\0002\000b\n' | sha256sum`.
 
+For a Git source, the entry also records the `commit` the skill came from. `skills install` (with or without `--frozen-lockfile`) fetches that commit, not the latest commit on `ref`, so a restore still matches `computedHash` after the source repository changes. `skills update` moves `commit` forward, and it adds a `commit` to an older entry that has none. The server must allow fetching a commit by its SHA. GitHub and GitLab allow this.
+
 A skill installed with `--rename` is hashed as it is installed: its `SKILL.md` has the new `name` in the frontmatter, so the hash differs from the upstream folder's hash.
 
 A version 1 lock is upgraded when it is read, without network access. An installed skill whose files still match its version 1 hash gets a new hash computed from those files. Any other entry gets an empty hash, because there is nothing trusted to check it against. `skills install` fetches those skills again and records new hashes, and `--frozen-lockfile` fails until that is done.

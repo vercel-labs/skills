@@ -27,6 +27,12 @@ export interface LocalSkillLockEntry {
   sourceUrl?: string;
   /** Branch or tag ref used for installation */
   ref?: string;
+  /**
+   * Git commit the skill was installed from. A restore fetches this commit
+   * instead of the tip of `ref`, so an upstream change cannot break it;
+   * `update` moves it forward. Unset for non-Git sources and older locks.
+   */
+  commit?: string;
   /** The provider/source type (e.g., "github", "node_modules", "local") */
   sourceType: string;
   /**

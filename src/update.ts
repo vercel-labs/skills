@@ -22,7 +22,7 @@ import {
   buildLocalCloneSource,
   shouldUseFullDepthForUpdate,
 } from './update-source.ts';
-import { cloneRepo, cleanupTempDir, getGitTreeHash } from './git.ts';
+import { cloneRepo, cleanupTempDir, getGitTreeHash, getHeadCommit } from './git.ts';
 import { discoverSkills, isSubpathSafe, parseSkillMd } from './skills.ts';
 import { fetchRepoTree, getSkillFolderHashFromTree, type RepoTree } from './blob.ts';
 import { mapConcurrent } from './concurrency.ts';
@@ -1012,7 +1012,8 @@ export async function updateGlobalSkills(
     });
     await releaseSource(source);
     if (outcome.installed.length > 0) {
-      await addSkillToLock(name, { ...entry, skillFolderHash });
+      // Drop a stale commit when the new one is unknown
+      await addSkillToLock(name, { ...entry, skillFolderHash, commit: source.resolved?.commit });
     }
     if (reportInstall(name, { ok: outcome.installed.length > 0, ...outcome })) successCount++;
     else failCount++;
@@ -1248,6 +1249,7 @@ export async function updateProjectSkills(
       const deleted = new Set(resolution.deletedSkills);
       const skillAt = new Map(discovered.map((s, i) => [discoveredLocations[i]!.skillPath, s]));
       const resolved: ResolvedSkills = { skills: discovered, tempDir, blobResult: null };
+      const commit = (await getHeadCommit(tempDir)) ?? undefined;
 
       for (const skill of skillsForSource) {
         if (deleted.has(skill.name)) continue;
@@ -1265,6 +1267,10 @@ export async function updateProjectSkills(
           onDisk.has(skill.name)
         ) {
           upToDateCount++;
+          // Pin a lock written before commits were recorded, so restores stop following the branch
+          if (commit && !skill.entry.commit && !options.reportOutdated) {
+            await addSkillToLocalLock(skill.name, { ...skill.entry, commit });
+          }
           continue;
         }
         if (options.reportOutdated) {
@@ -1280,7 +1286,13 @@ export async function updateProjectSkills(
         );
         const outcome = targetOutcome(results);
         if (outcome.ok && computedHash) {
-          await addSkillToLocalLock(skill.name, { ...skill.entry, skillPath, computedHash });
+          await addSkillToLocalLock(skill.name, {
+            ...skill.entry,
+            skillPath,
+            computedHash,
+            // Drop a stale commit when the new one cannot be read
+            commit,
+          });
         }
         if (reportInstall(skill.name, outcome)) successCount++;
         else failCount++;
