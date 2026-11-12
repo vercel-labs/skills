@@ -92,6 +92,7 @@ discover `SKILL.md` files outside these container directories (e.g. under
 - `.kiro/skills/`
 - `.kode/skills/`
 - `.lingma/skills/`
+- `.matilda/skills/`
 - `.mcpjam/skills/`
 - `.minimax/skills/`
 - `.vibe/skills/`

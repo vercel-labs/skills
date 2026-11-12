@@ -515,6 +515,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.loaf'));
     },
   },
+  matilda: {
+    name: 'matilda',
+    displayName: 'Matilda Code',
+    skillsDir: '.matilda/skills',
+    globalSkillsDir: join(home, '.matilda/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.matilda'));
+    },
+  },
   mcpjam: {
     name: 'mcpjam',
     displayName: 'MCPJam',
