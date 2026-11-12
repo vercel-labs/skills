@@ -55,6 +55,7 @@ export type UseSkill =
       directoryName: string;
       rawContent: string;
       files: Map<string, WellKnownFileContent>;
+      executables?: ReadonlySet<string>;
     };
 
 export interface MaterializedUseSkill {
@@ -145,7 +146,7 @@ export async function materializeUseSkill(skill: UseSkill): Promise<Materialized
   if (skill.kind === 'blob') {
     await writeSnapshotFiles(skillDir, skill.files);
   } else if (skill.kind === 'well-known') {
-    await writeMapFiles(skillDir, skill.files);
+    await writeMapFiles(skillDir, skill.files, skill.executables);
   } else {
     await copyDirectory(skill.path, skillDir);
   }
@@ -463,6 +464,7 @@ async function selectWellKnownSkill(
     directoryName: skill.installName,
     rawContent: skill.content,
     files: skill.files,
+    executables: skill.executables,
   };
 }
 
@@ -506,27 +508,25 @@ async function writeSnapshotFiles(
 
 async function writeMapFiles(
   targetDir: string,
-  files: Map<string, WellKnownFileContent>
+  files: Map<string, WellKnownFileContent>,
+  executables?: ReadonlySet<string>
 ): Promise<void> {
   for (const [path, contents] of files) {
-    await writeSafeFile(targetDir, path, contents);
+    await writeSafeFile(targetDir, path, contents, executables?.has(path) ? 0o755 : undefined);
   }
 }
 
 async function writeSafeFile(
   targetDir: string,
   filePath: string,
-  contents: WellKnownFileContent
+  contents: WellKnownFileContent,
+  mode?: number
 ): Promise<void> {
   const fullPath = join(targetDir, filePath);
   if (!isPathSafe(targetDir, fullPath)) return;
 
   await mkdir(dirname(fullPath), { recursive: true });
-  if (typeof contents === 'string') {
-    await writeFile(fullPath, contents, 'utf-8');
-  } else {
-    await writeFile(fullPath, contents);
-  }
+  await writeFile(fullPath, contents, { encoding: 'utf-8', mode });
 }
 
 async function containsSupportingFiles(rootDir: string, currentDir: string): Promise<boolean> {
