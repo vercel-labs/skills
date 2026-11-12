@@ -934,7 +934,8 @@ export async function installWellKnownSkillForAgent(
           basename(filePath).toLowerCase() === 'skill.md' &&
           typeof content === 'string'
           ? stripIgnoredEveFrontmatter(content)
-          : content
+          : content,
+        { mode: skill.executables?.has(filePath) ? 0o755 : undefined }
       );
     }
   }
