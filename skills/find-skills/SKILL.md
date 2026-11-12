@@ -67,7 +67,7 @@ For example:
 **Do not recommend a skill based solely on search results.** Always verify:
 
 1. **Install count** — Prefer skills with 1K+ installs. Be cautious with anything under 100.
-2. **Source reputation** — Official sources (`vercel-labs`, `anthropics`, `microsoft`) are more trustworthy than unknown authors.
+2. **Source reputation** — Official sources (`vercel-labs`, `anthropics`, `microsoft`, `google`) are more trustworthy than unknown authors.
 3. **GitHub stars** — Check the source repository. A skill from a repo with <100 stars should be treated with skepticism.
 
 ### Step 5: Present Options to the User
