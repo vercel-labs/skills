@@ -190,6 +190,14 @@ export interface InstallOptions extends BaseOptions, InstallSettings {
   /** Skill names to install. @default all skills in the source */
   skills?: readonly string[];
   /**
+   * Install skills under new names, keyed by the name the source uses (matched
+   * like `skills`): `{ shadcn: 'shadcn-ui' }`. The new name is used for the
+   * folder, the lock entry and the SKILL.md `name`; the lock remembers the
+   * source name, so update and restore keep the new name. Each key must match
+   * one skill being installed, and no two skills may end up with one name.
+   */
+  rename?: Readonly<Record<string, string>>;
+  /**
    * Agents to install into; each must be allowed by `config.agents`.
    * @default `config.agents.default`, else the agents `skills add -y` picks
    */
@@ -250,6 +258,8 @@ export interface InstalledSkillInfo {
   readonly agents: readonly string[];
   /** Source recorded in the lock file, when the skill is tracked there. */
   readonly source?: string;
+  /** The name the source publishes the skill under, when it was installed under another name. */
+  readonly renamedFrom?: string;
 }
 
 export interface ListResult {

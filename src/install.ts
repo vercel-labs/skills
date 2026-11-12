@@ -2,7 +2,7 @@ import { existsSync } from 'fs';
 import * as p from '@clack/prompts';
 import { pc } from './color.ts';
 import { getLockedSkillState, readLocalLock } from './local-lock.ts';
-import { fetchSources, installFromSource } from './add.ts';
+import { fetchSources, installFromSource, renameSkill } from './add.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { agents, detectInstalledAgents, getUniversalAgents, isUniversalAgent } from './agents.ts';
 import { diagnostics, formatError } from './diagnostics.ts';
@@ -11,7 +11,7 @@ import { parseSource } from './source-parser.ts';
 import { isCI } from './ci.ts';
 import { getCanonicalPath, getInstallPath, installSkillForAgent } from './installer.ts';
 import { getLastSelectedAgents } from './skill-lock.ts';
-import type { AgentType } from './types.ts';
+import type { AgentType, Skill } from './types.ts';
 
 /**
  * The agents a restore installs to, without prompting: `--agent` when given,
@@ -101,7 +101,10 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
       lockedRef?: { ref?: string };
       copy: boolean;
       download: boolean;
+      /** Lock keys: the installed names. */
       skills: string[];
+      /** Installed names per lowercased source name; a renamed skill differs from its source name. */
+      installNames: Map<string, string[]>;
     }
   >();
 
@@ -142,9 +145,12 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
       ...(pinned && { lockedRef: { ref: entry.ref } }),
       copy,
       download,
-      skills: [],
+      skills: [] as string[],
+      installNames: new Map<string, string[]>(),
     };
     group.skills.push(skillName);
+    const sourceName = (entry.skillName ?? skillName).toLowerCase();
+    group.installNames.set(sourceName, [...(group.installNames.get(sourceName) ?? []), skillName]);
     bySource.set(key, group);
   }
 
@@ -184,18 +190,26 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
   }
 
   // Download every source at once, then install them in order
-  const requests = [...bySource.values()].map(({ source, lockedRef, copy, download, skills }) => ({
-    source,
-    lockedRef,
-    copy,
-    parsed: download ? { type: 'download' as const, url: source } : parseSource(source),
-    skills,
-    // A pack or archive can hold its skills at any depth.
-    ...(download && { fullDepth: true }),
-  }));
+  const requests = [...bySource.values()].map(
+    ({ source, lockedRef, copy, download, skills, installNames }) => ({
+      source,
+      lockedRef,
+      copy,
+      parsed: download ? { type: 'download' as const, url: source } : parseSource(source),
+      // Fetch renamed skills by the name their source uses
+      skills: skills.map((name) => lock.skills[name]?.skillName ?? name),
+      lockKeys: skills,
+      installNames,
+      // A pack or archive can hold its skills at any depth.
+      ...(download && { fullDepth: true }),
+    })
+  );
   const fetched = await fetchSources(requests);
   let restoredCount = 0;
-  for (const [index, { source, lockedRef, copy, skills }] of requests.entries()) {
+  for (const [
+    index,
+    { source, lockedRef, copy, skills: sourceNames, lockKeys: skills, installNames },
+  ] of requests.entries()) {
     const fetchedSource = fetched[index]!;
     // Fetched at the locked commit; the lock keeps tracking the branch or tag it came from.
     const result = await installFromSource(
@@ -203,7 +217,16 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
         ? { ...fetchedSource, parsed: { ...fetchedSource.parsed, ref: lockedRef.ref } }
         : fetchedSource,
       {
-        skills,
+        skills: sourceNames,
+        // Install each found skill under every name the lock has it as
+        ...(skills.some((name) => lock.skills[name]?.skillName) && {
+          select: async (found: Skill[]) =>
+            found.flatMap((skill) =>
+              (installNames.get(skill.name.toLowerCase()) ?? [skill.name]).map((name) =>
+                name.toLowerCase() === skill.name.toLowerCase() ? skill : renameSkill(skill, name)
+              )
+            ),
+        }),
         agents: targetAgents,
         ...(copy && { installMode: 'copy' as const }),
         ...(frozen && { frozenLock: lock }),

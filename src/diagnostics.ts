@@ -102,6 +102,11 @@ export const diagnostics = defineDiagnostics({
         return `Examples:\n  skills use ${p.source}@${example}\n  skills use ${p.source} --skill ${example}`;
       },
     },
+    SKILLS_RENAME_MULTIPLE_SKILLS: {
+      why: (p: { count: number }) =>
+        `--rename installs one skill under a new name, but ${p.count} skills were selected.`,
+      fix: 'Pick one skill with --skill <name> or <source>@<skill>.',
+    },
     SKILLS_AMBIGUOUS_SKILL_SELECTOR: {
       why: (p: { selector: string }) => `Skill selector "${p.selector}" matched multiple skills.`,
     },

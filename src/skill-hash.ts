@@ -66,10 +66,15 @@ function normalizeLineEndings(content: Buffer): Buffer {
  * links that are broken, cyclic, or leave the folder are left out.
  */
 export async function computeSkillFolderHash(skillDir: string): Promise<string> {
+  return hashSkillFiles(await collectSkillFolderFiles(skillDir));
+}
+
+/** The files computeSkillFolderHash() hashes for the skill folder at `skillDir`. */
+export async function collectSkillFolderFiles(skillDir: string): Promise<HashedFile[]> {
   const root = await realpath(skillDir);
   const files: HashedFile[] = [];
   await collectFiles(skillDir, '', root, new Set(), files);
-  return hashSkillFiles(files);
+  return files;
 }
 
 async function collectFiles(

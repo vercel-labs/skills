@@ -152,4 +152,15 @@ describe('resolveSkillLocations', () => {
     );
     expect(result.deletedSkills).toEqual([]);
   });
+
+  it('finds a renamed skill by the name its source uses', () => {
+    const result = resolveSkillLocations(
+      ['beta'],
+      { beta: { skillPath: 'skills/alpha/SKILL.md', skillName: 'alpha' } },
+      [{ name: 'alpha', skillPath: 'skills/moved/alpha/SKILL.md' }]
+    );
+
+    expect(result.resolvedPaths.get('beta')).toBe('skills/moved/alpha/SKILL.md');
+    expect(result.deletedSkills).toEqual([]);
+  });
 });

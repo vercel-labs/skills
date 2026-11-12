@@ -73,6 +73,7 @@ For GitHub tree lookups, `skills` first tries the API anonymously, then an expli
 | `-s, --skill <skills...>` | Install specific skills by name (use `'*'` for all skills)                                                                                                  |
 | `-l, --list`              | List available skills without installing                                                                                                                    |
 | `--copy`                  | Copy files instead of symlinking to agent directories                                                                                                       |
+| `--rename <name>`         | Install the one selected skill under a new name (see [Renaming a skill](#renaming-a-skill))                                                                 |
 | `-y, --yes`               | Skip all confirmation prompts                                                                                                                               |
 | `--all`                   | Install all skills to all agents without prompts                                                                                                            |
 
@@ -110,6 +111,18 @@ npx skills add https://example.com/download/my-skill
 Direct download URLs are tried after well-known discovery. They may point to a single valid `SKILL.md` file or a `.zip`, `.tar`, `.tar.gz`, or `.tgz` archive; the URL does not need to include a file extension. Downloads are limited to 10 MiB, extracted content to 25 MiB, and archives to 1000 files by default. Override with `SKILLS_DOWNLOAD_MAX_BYTES`, `SKILLS_EXTRACT_MAX_BYTES`, and `SKILLS_EXTRACT_MAX_FILES` when you trust the source.
 
 The lock file records a direct download as `sourceType: "download"` with its URL and the skill's path inside the download, so `skills update`, `skills check`, and restore can fetch it again. Notion installs are recorded the same way: a skill page by its page URL, and a pack as `notion://packs/<id>`, because the download URL from `ntn` expires. A URL with a query string or user info, such as a signed URL, is not recorded, because the lock is usually committed and those parts often hold credentials. To update such a skill, run `skills add` with a new URL.
+
+### Renaming a skill
+
+Two sources can publish skills with the same name, and installing the second one overwrites the first. Use `--rename` to install a skill under a name of your choice:
+
+```bash
+npx skills add vercel-labs/json-render --skill shadcn --rename json-render-shadcn
+```
+
+The new name is used for the skill folder, the lock file key, and the `name` field in the installed `SKILL.md`, so agents invoke the skill by the new name. The name must contain only lowercase letters, digits, `.`, `_`, and `-`. `--rename` works with one skill only: select it with `--skill` or `<source>@<skill>`.
+
+The lock entry records the original name in `skillName`. `skills update`, `skills check`, `skills experimental_install`, and `skills experimental_sync` use it to find the skill in its source, and keep the new name. `skills list` shows the original name next to the source. To go back to the original name, remove the renamed skill and add it again without `--rename`.
 
 ### Installation Scope
 
