@@ -275,6 +275,9 @@ export const diagnostics = defineDiagnostics({
       why: (p: { path: string }) => `Skipping symlink that creates a directory cycle: ${p.path}`,
       data: (p: { path: string }) => ({ path: p.path }),
     },
+    SKILLS_SKILL_MD_NOT_COPYABLE: {
+      why: (p: { reason: string }) => `${p.reason}, so the installed skill would have no SKILL.md`,
+    },
 
     SKILLS_PACKAGE_SKILLS_NOT_ARRAY: {
       why: 'package.json: "skills" must be an array',

@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from 'fs/promises';
+import { readdir, readFile, realpath, stat } from 'fs/promises';
 import { join, basename, dirname, resolve, normalize, sep, relative } from 'path';
 import { AGENT_PROJECT_SKILL_DIRS } from './agents.ts';
 import { parseFrontmatter } from './frontmatter.ts';
@@ -159,6 +159,8 @@ export interface DiscoverSkillsOptions {
   fullDepth?: boolean;
   /** Preserve duplicate skill names so callers can detect ambiguous locations */
   includeDuplicateNames?: boolean;
+  /** Repo-relative skill folders to check however deep they sit, such as those a lock file records */
+  knownSkillDirs?: string[];
 }
 
 /**
@@ -334,6 +336,19 @@ export async function discoverSkills(
         seenNames.add(skill.name);
       }
     }
+  }
+
+  // A locked folder can sit deeper than the walk reaches; a skill still there
+  // is current, not deleted or relocated.
+  // The walk never enters a linked directory, so a known folder that links
+  // outside the base must not be read either.
+  const realBase = await realpath(basePath).catch(() => null);
+  for (const dir of options?.knownSkillDirs ?? []) {
+    if (!realBase || !isSubpathSafe(basePath, dir)) continue;
+    const skillDir = join(basePath, dir);
+    const realDir = await realpath(skillDir).catch(() => null);
+    if (realDir !== realBase && !realDir?.startsWith(realBase + sep)) continue;
+    await tryAddSkillAt(skillDir);
   }
 
   return skills;

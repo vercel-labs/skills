@@ -3360,6 +3360,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       for (const r of failed) {
         p.log.message(`  ${pc.red('✗')} ${r.skill} → ${r.agent}: ${pc.dim(r.error)}`);
       }
+      process.exitCode = 1;
     }
 
     warnCategoryConflicts(categoryConflicts);

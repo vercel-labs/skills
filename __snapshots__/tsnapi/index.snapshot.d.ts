@@ -497,6 +497,11 @@ export declare const diagnostics: import("nostics").Diagnostics<{
       path: string;
     };
   };
+  readonly SKILLS_SKILL_MD_NOT_COPYABLE: {
+    readonly why: (p: {
+      reason: string;
+    }) => string;
+  };
   readonly SKILLS_PACKAGE_SKILLS_NOT_ARRAY: {
     readonly why: "package.json: \"skills\" must be an array";
   };
