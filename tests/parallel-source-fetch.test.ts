@@ -22,6 +22,7 @@ vi.mock('../src/telemetry.ts', () => ({
 vi.mock('../src/git.ts', () => ({
   cloneRepo: vi.fn(),
   cleanupTempDir: vi.fn().mockResolvedValue(undefined),
+  getHeadCommit: vi.fn().mockResolvedValue(null),
 }));
 
 // The suite itself runs in CI, where --frozen-lockfile would otherwise default on

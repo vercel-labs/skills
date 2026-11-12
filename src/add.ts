@@ -15,7 +15,7 @@ import { stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 import type { Diagnostic } from 'nostics';
 import { diagnostics, formatError, isDiagnostic } from './diagnostics.ts';
-import { cloneRepo, cleanupTempDir } from './git.ts';
+import { cloneRepo, cleanupTempDir, getHeadCommit } from './git.ts';
 import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
 import {
   installSkillForAgent,
@@ -915,6 +915,7 @@ async function installPackPointerSkills(
               sourceType: source.parsed.type,
               sourceUrl: source.parsed.url,
               ref: source.parsed.ref,
+              ...(resolved.commit && { commit: resolved.commit }),
               skillPath,
               skillFolderHash:
                 (tree && skillPath && getSkillFolderHashFromTree(tree, skillPath)) || '',
@@ -1495,6 +1496,8 @@ export interface ResolvedSkills {
   blobResult: BlobInstallResult | null;
   /** Directory skills were discovered in (the source root); unset for blob and well-known. */
   rootDir?: string;
+  /** Git commit the skills were read from, for Git sources when it is known. */
+  commit?: string;
   /**
    * Set for direct downloads (raw SKILL.md, archive, Notion): each directory a
    * download was unpacked into and the URL that fetches it again. The lock
@@ -1607,6 +1610,7 @@ async function resolveSkills(
   let tempDir: string | null = null;
   let discoveredRoot: string | undefined;
   let downloads: DownloadRoot[] | undefined;
+  let commit: string | undefined;
 
   const missingRequestedSkill = (found: Skill[]): boolean =>
     !!options.requestedSkills?.some(
@@ -1664,6 +1668,7 @@ async function resolveSkills(
       }
       if (blobResult) {
         skills = blobResult.skills;
+        commit = blobResult.commit;
         spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
       } else {
         // Blob failed — fall back to git clone
@@ -1673,6 +1678,7 @@ async function resolveSkills(
           spinner.start('Cloning repository…');
         }
         tempDir = await cloneRepo(parsed.url, parsed.ref);
+        commit = (await getHeadCommit(tempDir)) ?? undefined;
         spinner.stop('Repository cloned');
 
         spinner.start('Discovering skills…');
@@ -1682,6 +1688,7 @@ async function resolveSkills(
       // GitLab, git URL, or --full-depth: always clone
       spinner.start('Cloning repository…');
       tempDir = await cloneRepo(parsed.url, parsed.ref);
+      commit = (await getHeadCommit(tempDir)) ?? undefined;
       spinner.stop('Repository cloned');
 
       spinner.start('Discovering skills…');
@@ -1698,6 +1705,7 @@ async function resolveSkills(
     blobResult,
     ...(discoveredRoot && { rootDir: discoveredRoot }),
     ...(downloads && { downloads }),
+    ...(commit && { commit }),
   };
 }
 
@@ -1831,13 +1839,15 @@ export function getProjectLockSource(parsed: ParsedSource): string {
 function projectLockEntry(
   parsed: ParsedSource,
   skillPath: string | undefined,
-  computedHash: string
+  computedHash: string,
+  commit: string | undefined
 ): LocalSkillLockEntry {
   const sourceUrl = getProjectLockSourceUrl(parsed.type, parsed.url);
   return {
     source: getProjectLockSource(parsed),
     ...(sourceUrl && { sourceUrl }),
     ref: parsed.ref,
+    ...(commit && { commit }),
     sourceType: parsed.type,
     ...(skillPath && { skillPath }),
     computedHash,
@@ -2118,7 +2128,7 @@ export async function recordProjectLock(
     } else if (isWellKnownSourceSkill(skill)) {
       entry = wellKnownLockEntry(parsed.url, skill.wellKnown, hash);
     } else {
-      entry = projectLockEntry(parsed, repoPaths[skill.name], hash);
+      entry = projectLockEntry(parsed, repoPaths[skill.name], hash, resolved.commit);
     }
     await addSkillToLocalLock(
       skill.name,
@@ -2214,6 +2224,7 @@ export async function recordGlobalLock(
         sourceType: parsed.type,
         sourceUrl: parsed.url,
         ref: parsed.ref,
+        ...(resolved.commit && { commit: resolved.commit }),
         skillPath: skillPathValue,
         skillFolderHash,
         pluginName: skill.pluginName,
@@ -3180,7 +3191,12 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               if (!fields) continue;
               entry = { ...fields, computedHash };
             } else {
-              entry = projectLockEntry(parsed, skillFiles[skill.name], computedHash);
+              entry = projectLockEntry(
+                parsed,
+                skillFiles[skill.name],
+                computedHash,
+                resolved.commit
+              );
             }
             await addSkillToLocalLock(
               skill.name,
