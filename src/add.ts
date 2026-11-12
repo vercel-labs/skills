@@ -2031,6 +2031,38 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
+    // Add to skill lock file for update tracking (project-scoped installs)
+    if (successful.length > 0 && !installGlobally) {
+      for (const skill of selectedSkills) {
+        const skillDisplayName = getSkillDisplayName(skill);
+        if (successfulSkillNames.has(skillDisplayName)) {
+          try {
+            let skillFolderHash = '';
+            const skillPathValue = skillFiles[skill.name];
+            if (parsed.type === 'github' && skillPathValue) {
+              const hash = await fetchSkillFolderHash(normalizedSource, skillPathValue);
+              if (hash) skillFolderHash = hash;
+            }
+
+            await addSkillToLock(
+              skill.name,
+              {
+                source: normalizedSource,
+                sourceType: parsed.type,
+                sourceUrl: parsed.url,
+                skillPath: skillPathValue,
+                namespace: parsed.namespace || 'legacy',
+                skillFolderHash,
+              },
+              installGlobally ? 'global' : 'project'
+            );
+          } catch {
+            // Don't fail installation if lock file update fails
+          }
+        }
+      }
+    }
+
     if (successful.length > 0) {
       const bySkill = new Map<string, typeof results>();
       for (const r of successful) {

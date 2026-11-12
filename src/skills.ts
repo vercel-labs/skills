@@ -3,6 +3,7 @@ import { join, basename, dirname } from 'path';
 import matter from 'gray-matter';
 import type { Skill } from './types.ts';
 import { getPluginSkillPaths } from './plugin-manifest.ts';
+import { getSkillsShSearchDirs } from './skills-sh-config.ts';
 
 const SKIP_DIRS = ['node_modules', '.git', 'dist', 'build', '__pycache__'];
 
@@ -181,20 +182,61 @@ export async function discoverSkills(
   // Add skill paths declared in plugin manifests
   prioritySearchDirs.push(...(await getPluginSkillPaths(searchPath)));
 
+  // Add skill paths declared in skills.sh.json
+  prioritySearchDirs.push(...(await getSkillsShSearchDirs(searchPath)));
+
+  // Known skill container directories (searched recursively up to DEFAULT_SKILL_CONTAINER_DEPTH)
+  const knownContainerDirs = new Set<string>([
+    join(searchPath, 'skills'),
+    join(searchPath, 'skills/.curated'),
+    join(searchPath, 'skills/.experimental'),
+    join(searchPath, 'skills/.system'),
+    join(searchPath, '.agent/skills'),
+    join(searchPath, '.agents/skills'),
+    join(searchPath, '.claude/skills'),
+    join(searchPath, '.cline/skills'),
+    join(searchPath, '.codebuddy/skills'),
+    join(searchPath, '.codex/skills'),
+    join(searchPath, '.commandcode/skills'),
+    join(searchPath, '.continue/skills'),
+    join(searchPath, '.cursor/skills'),
+    join(searchPath, '.github/skills'),
+    join(searchPath, '.goose/skills'),
+    join(searchPath, '.iflow/skills'),
+    join(searchPath, '.junie/skills'),
+    join(searchPath, '.kilocode/skills'),
+    join(searchPath, '.kiro/skills'),
+    join(searchPath, '.mux/skills'),
+    join(searchPath, '.neovate/skills'),
+    join(searchPath, '.opencode/skills'),
+    join(searchPath, '.openhands/skills'),
+    join(searchPath, '.pi/skills'),
+    join(searchPath, '.qoder/skills'),
+    join(searchPath, '.roo/skills'),
+    join(searchPath, '.trae/skills'),
+    join(searchPath, '.windsurf/skills'),
+    join(searchPath, '.zencoder/skills'),
+  ]);
+
   for (const dir of prioritySearchDirs) {
     try {
       const entries = await readdir(dir, { withFileTypes: true });
 
       for (const entry of entries) {
-        if (entry.isDirectory()) {
-          const skillDir = join(dir, entry.name);
-          if (await hasSkillMd(skillDir)) {
-            const skill = await parseSkillMd(join(skillDir, 'SKILL.md'), parseOptions);
-            if (skill && !seenNames.has(skill.name)) {
-              skills.push(skill);
-              seenNames.add(skill.name);
-            }
+        if (!entry.isDirectory()) continue;
+
+        const skillDir = join(dir, entry.name);
+        if (await hasSkillMd(skillDir)) {
+          const skill = await parseSkillMd(join(skillDir, 'SKILL.md'), parseOptions);
+          if (skill && !seenNames.has(skill.name)) {
+            skills.push(skill);
+            seenNames.add(skill.name);
           }
+        }
+
+        // Walk nested skill containers (e.g., skills/<category>/<skill>/SKILL.md)
+        if (knownContainerDirs.has(dir)) {
+          await walkSkillContainers(skillDir, 2, seenNames, skills, parseOptions);
         }
       }
     } catch {

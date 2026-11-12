@@ -103,10 +103,12 @@ export interface SkillLockFile {
 
 /**
  * Get the path to the global skill lock file.
- * Located at ~/.agents/.skill-lock.json
+ * Located at XDG_STATE_HOME/skills/.skill-lock.json if set, otherwise ~/.agents/.skill-lock.json
  */
 export function getSkillLockPath(): string {
-  return join(homedir(), AGENTS_DIR, LOCK_FILE);
+  const xdgState = process.env.XDG_STATE_HOME;
+  const baseDir = xdgState ? join(xdgState, 'skills') : join(homedir(), AGENTS_DIR);
+  return join(baseDir, LOCK_FILE);
 }
 
 /**
@@ -374,10 +376,18 @@ export async function getSkillFromLock(skillName: string): Promise<SkillLockEntr
 
 /**
  * Get all skills from the lock file.
+ * Returns a map of skill name → entry, with lock keys normalized to just the skill name
+ * for compatibility with on-disk skill name comparisons.
  */
 export async function getAllLockedSkills(): Promise<Record<string, SkillLockEntry>> {
   const lock = await readSkillLock();
-  return lock.skills;
+  const normalized: Record<string, SkillLockEntry> = {};
+  for (const [key, entry] of Object.entries(lock.skills)) {
+    const parsed = parseLockKey(key);
+    const skillName = parsed ? parsed[2] || key : key;
+    normalized[skillName] = entry;
+  }
+  return normalized;
 }
 
 /**

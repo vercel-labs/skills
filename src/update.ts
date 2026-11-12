@@ -634,7 +634,7 @@ export async function updateGlobalSkills(
     const skillName = getSkillNameFromLockKey(lockKey);
     if (!matchesSkillFilter(skillName, options.skills)) continue;
 
-    const entry = lock.skills[getSkillNameFromLockKey(lockKey)];
+    const entry = lock.skills[lockKey as SkillLockKey];
     if (!entry) continue;
 
     if (entry.sourceType === 'well-known' && entry.sourceBaseUrl && entry.wellKnownDigest) {
