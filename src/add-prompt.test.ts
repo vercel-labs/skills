@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { promptForAgents } from './add.js';
+import { promptForAgents, selectAgentsInteractive } from './add.js';
+import {
+  agents,
+  getNonUniversalAgents,
+  getUniversalAgents,
+  getVisibleUniversalAgents,
+  readsCanonicalGlobally,
+} from './agents.js';
 import * as skillLock from './skill-lock.js';
 import * as searchMultiselectModule from './prompts/search-multiselect.js';
 
@@ -100,5 +107,77 @@ describe('promptForAgents', () => {
     await promptForAgents('Select agents', choices);
 
     expect(skillLock.saveSelectedAgents).not.toHaveBeenCalled();
+  });
+});
+
+describe('selectAgentsInteractive', () => {
+  const promptArgs = () => vi.mocked(searchMultiselectModule.searchMultiselect).mock.calls[0]![0];
+  const values = (items: Array<{ value: unknown }>) => items.map((item) => item.value);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(skillLock.getLastSelectedAgents).mockResolvedValue(undefined);
+    vi.mocked(searchMultiselectModule.searchMultiselect).mockResolvedValue([]);
+  });
+
+  it.each([{}, { global: false }])('keeps the project prompt unchanged (%o)', async (options) => {
+    await selectAgentsInteractive(options);
+
+    const universal = getUniversalAgents();
+    const visibleUniversal = getVisibleUniversalAgents();
+    expect(promptArgs()).toEqual({
+      message: 'Which agents do you want to install to?',
+      items: getNonUniversalAgents()
+        .filter((a) => a !== 'eve')
+        .map((a) => ({ value: a, label: agents[a].displayName, hint: agents[a].skillsDir })),
+      initialSelected: [],
+      lockedSection: {
+        title: 'Universal (.agents/skills)',
+        items: visibleUniversal.map((a) => ({ value: a, label: agents[a].displayName })),
+        hiddenCount: universal.length - visibleUniversal.length,
+      },
+    });
+  });
+
+  it('offers Antigravity as a selectable agent in global mode', async () => {
+    await selectAgentsInteractive({ global: true });
+
+    const { items, lockedSection } = promptArgs();
+    for (const agent of ['antigravity', 'antigravity-cli'] as const) {
+      expect(items).toContainEqual({
+        value: agent,
+        label: agents[agent].displayName,
+        hint: agents[agent].globalSkillsDir,
+      });
+      expect(values(lockedSection!.items)).not.toContain(agent);
+    }
+
+    const lockedUniversal = getUniversalAgents().filter(
+      (a) => agents[a].globalSkillsDir && readsCanonicalGlobally(a)
+    );
+    expect(values(lockedSection!.items)).toContain('codex');
+    expect(lockedUniversal).toEqual(expect.arrayContaining(values(lockedSection!.items)));
+    expect(lockedSection!.hiddenCount).toBe(lockedUniversal.length - lockedSection!.items.length);
+  });
+
+  it('pre-checks a remembered Antigravity selection in global mode only', async () => {
+    const history = ['antigravity', 'codex', 'claude-code'];
+    vi.mocked(skillLock.getLastSelectedAgents).mockResolvedValue(history);
+
+    await selectAgentsInteractive({ global: true });
+    expect(promptArgs().initialSelected).toEqual(['antigravity', 'claude-code']);
+
+    vi.clearAllMocks();
+    vi.mocked(skillLock.getLastSelectedAgents).mockResolvedValue(history);
+    await selectAgentsInteractive({ global: false });
+    expect(promptArgs().initialSelected).toEqual(['claude-code']);
+  });
+
+  it('returns and saves the selected agents', async () => {
+    const selected = ['codex', 'antigravity', 'antigravity-cli'];
+    vi.mocked(searchMultiselectModule.searchMultiselect).mockResolvedValue(selected);
+
+    await expect(selectAgentsInteractive({ global: true })).resolves.toEqual(selected);
+    expect(skillLock.saveSelectedAgents).toHaveBeenCalledWith(selected);
   });
 });
