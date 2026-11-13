@@ -1,6 +1,6 @@
-import { readFile, readdir, writeFile } from 'fs/promises';
-import { createHash } from 'crypto';
-import { existsSync } from 'fs';
+import { access, open, readFile, readdir, rename, stat, unlink, writeFile } from 'fs/promises';
+import { createHash, randomBytes } from 'crypto';
+import { constants, existsSync } from 'fs';
 import { isAbsolute, join, relative, resolve, sep } from 'path';
 import { diagnostics } from './diagnostics.ts';
 import { computeSkillFolderHash } from './skill-hash.ts';
@@ -247,14 +247,66 @@ function isLocalLockShape(value: unknown): value is LocalSkillLockFile {
   );
 }
 
-/**
- * Write the local skill lock file.
- * Skills are sorted alphabetically by name for deterministic output.
- */
-export async function writeLocalLock(lock: LocalSkillLockFile, cwd?: string): Promise<void> {
-  const lockDir = cwd || process.cwd();
-  const lockPath = getLocalLockPath(lockDir);
+const LOCK_ACQUIRE_TIMEOUT_MS = 10_000;
+const STALE_LOCK_MS = 30_000;
 
+function isNodeErrorCode(error: unknown, ...codes: string[]): boolean {
+  return error instanceof Error && 'code' in error && codes.includes(String(error.code));
+}
+
+/**
+ * Serialize local lock mutations both in-process and across OS processes using
+ * an exclusive companion lock file.
+ */
+async function withLocalLock<T>(lockPath: string, fn: () => Promise<T>): Promise<T> {
+  const mutexPath = `${resolve(lockPath)}.lock`;
+  const deadline = Date.now() + LOCK_ACQUIRE_TIMEOUT_MS;
+
+  while (true) {
+    try {
+      const handle = await open(mutexPath, 'wx');
+      await handle.close().catch(() => {});
+      break;
+    } catch (error) {
+      if (!isNodeErrorCode(error, 'EEXIST')) throw error;
+      const lockStat = await stat(mutexPath).catch(() => null);
+      if (lockStat && Date.now() - lockStat.mtimeMs > STALE_LOCK_MS) {
+        await unlink(mutexPath).catch(() => {});
+        continue;
+      }
+      if (Date.now() >= deadline) throw error;
+      await new Promise((r) => setTimeout(r, 10 + Math.floor(Math.random() * 15)));
+    }
+  }
+
+  try {
+    return await fn();
+  } finally {
+    await unlink(mutexPath).catch(() => {});
+  }
+}
+
+async function renameWithWindowsRetry(src: string, dest: string): Promise<void> {
+  const maxAttempts = process.platform === 'win32' ? 5 : 1;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await rename(src, dest);
+      return;
+    } catch (error) {
+      if (attempt < maxAttempts && isNodeErrorCode(error, 'EPERM', 'EBUSY')) {
+        await new Promise((r) => setTimeout(r, attempt * 15));
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
+async function writeLocalLockUnlocked(
+  lock: LocalSkillLockFile,
+  lockDir: string,
+  lockPath: string
+): Promise<void> {
   // Sort skills alphabetically for deterministic output / clean diffs
   const sortedSkills = Object.fromEntries(
     Object.keys(lock.skills)
@@ -272,7 +324,34 @@ export async function writeLocalLock(lock: LocalSkillLockFile, cwd?: string): Pr
 
   const sorted: LocalSkillLockFile = { version: lock.version, skills: sortedSkills };
   const content = JSON.stringify(sorted, null, 2) + '\n';
-  await writeFile(lockPath, content, 'utf-8');
+
+  // Preserve write-permission errors on read-only lock files across POSIX (where rename mutates the parent dir).
+  try {
+    await access(lockPath, constants.W_OK);
+  } catch (error) {
+    if (!isNodeErrorCode(error, 'ENOENT')) {
+      throw error;
+    }
+  }
+
+  const tempPath = `${lockPath}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+  await writeFile(tempPath, content, 'utf-8');
+  try {
+    await renameWithWindowsRetry(tempPath, lockPath);
+  } catch (error) {
+    await unlink(tempPath).catch(() => {});
+    throw error;
+  }
+}
+
+/**
+ * Write the local skill lock file.
+ * Skills are sorted alphabetically by name for deterministic output.
+ */
+export async function writeLocalLock(lock: LocalSkillLockFile, cwd?: string): Promise<void> {
+  const lockDir = cwd || process.cwd();
+  const lockPath = getLocalLockPath(lockDir);
+  await withLocalLock(lockPath, () => writeLocalLockUnlocked(lock, lockDir, lockPath));
 }
 
 function getPortableLocalSource(source: string, lockDir: string): string {
@@ -298,9 +377,13 @@ export async function addSkillToLocalLock(
   entry: LocalSkillLockEntry,
   cwd?: string
 ): Promise<void> {
-  const lock = await readLocalLock(cwd);
-  lock.skills = { ...lock.skills, [skillName]: entry };
-  await writeLocalLock(lock, cwd);
+  const lockDir = cwd || process.cwd();
+  const lockPath = getLocalLockPath(lockDir);
+  await withLocalLock(lockPath, async () => {
+    const lock = await readLocalLock(lockDir);
+    lock.skills = { ...lock.skills, [skillName]: entry };
+    await writeLocalLockUnlocked(lock, lockDir, lockPath);
+  });
 }
 
 /**
@@ -338,15 +421,19 @@ export function frozenLockfileError(changes: string[]): string {
  * Remove a skill from the local lock file.
  */
 export async function removeSkillFromLocalLock(skillName: string, cwd?: string): Promise<boolean> {
-  const lock = await readLocalLock(cwd);
+  const lockDir = cwd || process.cwd();
+  const lockPath = getLocalLockPath(lockDir);
+  return withLocalLock(lockPath, async () => {
+    const lock = await readLocalLock(lockDir);
 
-  if (!Object.hasOwn(lock.skills, skillName)) {
-    return false;
-  }
+    if (!Object.hasOwn(lock.skills, skillName)) {
+      return false;
+    }
 
-  delete lock.skills[skillName];
-  await writeLocalLock(lock, cwd);
-  return true;
+    delete lock.skills[skillName];
+    await writeLocalLockUnlocked(lock, lockDir, lockPath);
+    return true;
+  });
 }
 
 function createEmptyLocalLock(): LocalSkillLockFile {
