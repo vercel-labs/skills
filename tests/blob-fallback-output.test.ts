@@ -66,7 +66,7 @@ vi.mock('../src/blob.ts', async (importActual) => {
   };
 });
 
-import { runAdd } from '../src/add.ts';
+import { runAdd, fetchSources, prepareFetched, releaseSource } from '../src/add.ts';
 import { cloneRepo } from '../src/git.ts';
 import { tryBlobInstall } from '../src/blob.ts';
 
@@ -111,4 +111,68 @@ describe('blob clone fallback output', () => {
     expect(spinnerMessage).toHaveBeenCalledWith('Cloning repository…');
     expect(spinnerStop).toHaveBeenCalledWith('Repository cloned');
   });
+  it('reports a failed initial source resolution without throwing', async () => {
+    vi.mocked(cloneRepo).mockRejectedValueOnce(new Error('clone failed'));
+    const [fetched] = await fetchSources([
+      { parsed: { type: 'git', url: 'file:///missing.git' }, skills: [] },
+    ]);
+    expect(fetched?.error).toBe('clone failed');
+    await expect(prepareFetched(fetched!, [])).rejects.toThrow('clone failed');
+  });
+
+  it.each([false, true])(
+    'uses one pinned checkout only when dependencies are required (%s)',
+    async (required) => {
+      const metadata = required ? { dependencies: 'dependency' } : {};
+      const content = `---\nname: fallback-skill\ndescription: Clone content\nmetadata: ${JSON.stringify(metadata)}\n---\n`;
+      await writeFile(join(fixture, 'skill', 'SKILL.md'), content);
+      await mkdir(join(fixture, 'dependency'));
+      await writeFile(
+        join(fixture, 'dependency', 'SKILL.md'),
+        '---\nname: dependency\ndescription: Sibling skill\n---\n'
+      );
+      vi.mocked(tryBlobInstall).mockResolvedValueOnce({
+        skills: [
+          {
+            name: 'fallback-skill',
+            description: 'Snapshot content',
+            path: '/snapshot',
+            metadata,
+            files: [],
+            snapshotHash: 'snapshot',
+            repoPath: 'skill/SKILL.md',
+          },
+        ],
+        tree: { sha: 'snapshot', branch: 'main', tree: [] },
+      });
+      const [fetched] = await fetchSources([
+        {
+          parsed: {
+            type: 'github',
+            url: 'https://github.com/vercel/fixture.git',
+            subpath: 'skill',
+            ref: 'v1',
+          },
+          skills: ['fallback-skill'],
+        },
+      ]);
+      const prepared = await prepareFetched(fetched!, ['fallback-skill']);
+      try {
+        if (required) {
+          expect(cloneRepo).toHaveBeenCalledExactlyOnceWith(
+            'https://github.com/vercel/fixture.git',
+            'v1'
+          );
+          expect(prepared.selected.map((s) => s.name)).toEqual(['dependency', 'fallback-skill']);
+          expect(prepared.selected[1]?.rawContent).toBe(content);
+          expect(fetched!.resolved!.blobResult).toBeNull();
+        } else {
+          expect(cloneRepo).not.toHaveBeenCalled();
+          expect(fetched!.resolved!.blobResult).not.toBeNull();
+        }
+      } finally {
+        await releaseSource(fetched!);
+      }
+    }
+  );
 });

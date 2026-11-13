@@ -23,7 +23,7 @@ vi.mock('@clack/prompts', () => {
       step: noop,
       success: noop,
     },
-    spinner: () => ({ start: noop, stop: noop }),
+    spinner: () => ({ start: noop, stop: noop, message: noop }),
   };
 });
 
@@ -62,7 +62,7 @@ vi.mock('../src/source-parser.ts', async (importActual) => {
   };
 });
 
-import { runAdd } from '../src/add.ts';
+import { runAdd, fetchSources, installFromSource } from '../src/add.ts';
 import { track } from '../src/telemetry.ts';
 import { searchMultiselect } from '../src/prompts/search-multiselect.ts';
 import * as p from '@clack/prompts';
@@ -342,6 +342,25 @@ describe('direct download add', () => {
         sourceType: 'well-known',
       })
     );
+  });
+  it('rejects dependency requirements in independent downloads before writing', async () => {
+    const url = 'https://downloads.example.com/SKILL.md';
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        '---\nname: downloaded\ndescription: Downloaded skill\nmetadata:\n  dependencies: "sibling"\n---\n'
+      )
+    );
+    const [fetched] = await fetchSources([
+      { parsed: { type: 'download', url }, skills: ['downloaded'] },
+    ]);
+    const result = await installFromSource(fetched!, {
+      skills: ['downloaded'],
+      agents: ['codex'],
+    });
+    expect(result.error).toContain('not supported');
+    expect(result.installed).toEqual([]);
+    expect(existsSync(join(project, '.agents'))).toBe(false);
+    expect(existsSync(join(project, 'skills-lock.json'))).toBe(false);
   });
 
   describe('a well-known skill whose lock cannot be written', () => {
