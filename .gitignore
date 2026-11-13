@@ -37,7 +37,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 package-lock.json
 .codebuddy/
 .agent/
-.agents/
+#.agents/
 .claude/
 .cursor/
 .gemini/
@@ -51,3 +51,5 @@ package-lock.json
 bin/_chunks/
 bin/cli-wrapper.mjs
 bin/cli.d.mts
+
+scripts/archive

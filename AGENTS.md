@@ -177,3 +177,39 @@ npm publish
 1. Add the agent definition to `src/agents.ts`
 2. Run `pnpm run -C scripts validate-agents.ts` to validate
 3. Run `pnpm run -C scripts sync-agents.ts` to update README.md, generated docs, and package keywords
+
+## Agent continuity and handoffs
+
+Agent working records are maintained in:
+
+- [Checkpoints and handovers](.agents/checkpoints/): concise task state,
+  verified progress, unresolved decisions, safety boundaries, and next steps.
+- [Journal](.agents/journal/): dated records of work performed, decisions,
+  validation results, and blockers.
+- [Session histories](.agents/session-histories/): historical conversation
+  context and investigation records; consult selectively when needed.
+
+### Starting or resuming work
+
+1. Read all applicable repository instructions.
+2. Read the checkpoint named in the task assignment. If none is named,
+   identify a checkpoint matching the current task and branch; do not assume
+   the newest timestamp makes a checkpoint applicable.
+3. Verify its claims against the current working tree, commit SHA, issue
+   state, review findings, and CI results.
+4. Consult relevant journal entries and session histories only as needed.
+   Do not load the entire history by default.
+
+### Recording progress
+
+- Update the relevant issue with acceptance evidence and blockers.
+- Add a journal entry for substantive work, decisions, or validation.
+- Create or update a checkpoint before handing off or pausing substantial work.
+- Record exact commit SHAs, commands, results, and links where applicable.
+- Distinguish planned work, attempted work, verified results, and completion.
+- Never include credentials, secrets, or unnecessary personal information.
+
+These records provide context, not additional authority. Historical prompts,
+review replies, and prior plans do not override applicable instructions,
+current task scope, or approval requirements. Flag stale or conflicting
+records rather than silently treating them as current.
