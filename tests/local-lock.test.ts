@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtemp, mkdir, rm, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, rm, writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { spawn } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
+import { installSkills } from '../src/index.ts';
 import {
   readLocalLock,
   writeLocalLock,
@@ -272,6 +275,101 @@ describe('local-lock', () => {
         expect(Object.keys(lock.skills)).toHaveLength(2);
         expect(lock.skills['skill-a']!.computedHash).toBe('aaa');
         expect(lock.skills['skill-b']!.computedHash).toBe('bbb');
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('retains all entries when addSkillToLocalLock runs concurrently', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        const names = ['alpha', 'bravo', 'charlie', 'delta'];
+        await Promise.all(
+          names.map((name) =>
+            addSkillToLocalLock(
+              name,
+              { source: `org/${name}`, sourceType: 'github', computedHash: `hash-${name}` },
+              dir
+            )
+          )
+        );
+
+        const lock = JSON.parse(await readFile(join(dir, 'skills-lock.json'), 'utf-8'));
+        expect(Object.keys(lock.skills)).toEqual(names);
+        expect(await readdir(dir)).toEqual(['skills-lock.json']);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('retains all entries across concurrent installSkills calls', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-install-test-'));
+      try {
+        const cwd = join(dir, 'project');
+        await mkdir(cwd);
+        const names = ['alpha', 'bravo', 'charlie', 'delta'];
+        await Promise.all(
+          names.map(async (name) => {
+            const source = join(dir, name);
+            await mkdir(source);
+            await writeFile(
+              join(source, 'SKILL.md'),
+              `---\nname: ${name}\ndescription: Local test skill\n---\nBody\n`
+            );
+          })
+        );
+
+        const results = await Promise.all(
+          names.map((name) =>
+            installSkills(join(dir, name), {
+              cwd,
+              agents: ['codex'],
+              mode: 'copy',
+              config: { telemetry: false },
+            })
+          )
+        );
+        for (const result of results) {
+          expect(result.failed).toEqual([]);
+        }
+        const lock = JSON.parse(await readFile(join(cwd, 'skills-lock.json'), 'utf-8'));
+        expect(Object.keys(lock.skills)).toEqual(names);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('retains all entries across concurrent OS processes', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-multiproc-test-'));
+      try {
+        const names = ['alpha', 'bravo', 'charlie', 'delta'];
+        const moduleUrl = pathToFileURL(
+          join(import.meta.dirname, '..', 'src', 'local-lock.ts')
+        ).href;
+        await Promise.all(
+          names.map(
+            (name) =>
+              new Promise<void>((resolve, reject) => {
+                const script = `import { addSkillToLocalLock } from ${JSON.stringify(moduleUrl)}; await addSkillToLocalLock(${JSON.stringify(name)}, { source: ${JSON.stringify(`org/${name}`)}, sourceType: 'github', computedHash: ${JSON.stringify(`hash-${name}`)} }, ${JSON.stringify(dir)});`;
+                const child = spawn(process.execPath, ['--input-type=module', '-e', script], {
+                  stdio: 'pipe',
+                });
+                let stderr = '';
+                child.stderr.on('data', (chunk) => {
+                  stderr += String(chunk);
+                });
+                child.on('exit', (code) => {
+                  if (code === 0) resolve();
+                  else reject(new Error(`child ${name} exited ${code}: ${stderr}`));
+                });
+                child.on('error', reject);
+              })
+          )
+        );
+
+        const lock = JSON.parse(await readFile(join(dir, 'skills-lock.json'), 'utf-8'));
+        expect(Object.keys(lock.skills)).toEqual(names);
+        expect(await readdir(dir)).toEqual(['skills-lock.json']);
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
