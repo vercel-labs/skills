@@ -125,9 +125,9 @@ export async function fetchAuditData(
   }
 }
 
-// Pending telemetry promises — awaited before CLI exit so we don't lose data,
+// Pending telemetry requests — awaited before CLI exit so we don't lose data,
 // but never block the main workflow.
-const pendingTelemetry: Promise<void>[] = [];
+const pendingTelemetry: { promise: Promise<void>; controller: AbortController }[] = [];
 
 export function track(data: TelemetryData): void {
   if (!isEnabled()) return;
@@ -157,12 +157,15 @@ export function track(data: TelemetryData): void {
       }
     }
 
-    // Fire and forget during the workflow, but track the promise so
-    // flushTelemetry() can await it before the process exits.
-    const p = fetch(`${TELEMETRY_URL}?${params.toString()}`)
+    // Fire and forget during the workflow, but track the promise and controller so
+    // flushTelemetry() can await it before the process exits and abort hanging sockets.
+    const controller = new AbortController();
+    const p = fetch(`${TELEMETRY_URL}?${params.toString()}`, {
+      signal: controller.signal,
+    })
       .catch(() => {})
       .then(() => {});
-    pendingTelemetry.push(p);
+    pendingTelemetry.push({ promise: p, controller });
   } catch {
     // Silently fail - telemetry should never break the CLI
   }
@@ -174,7 +177,15 @@ export function track(data: TelemetryData): void {
  * but also doesn't drop data by exiting too early.
  */
 export async function flushTelemetry(timeoutMs = 5000): Promise<void> {
-  if (pendingTelemetry.length === 0) return;
-  const timeout = new Promise<void>((resolve) => setTimeout(resolve, timeoutMs));
-  await Promise.race([Promise.all(pendingTelemetry), timeout]);
+  const pending = pendingTelemetry.splice(0);
+  if (pending.length === 0) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, timeoutMs);
+  });
+  await Promise.race([Promise.all(pending.map((item) => item.promise)), timeout]);
+  // The CLI exits by draining the event loop, so neither the timer nor a hung
+  // request may outlive the flush.
+  clearTimeout(timer);
+  for (const item of pending) item.controller.abort();
 }

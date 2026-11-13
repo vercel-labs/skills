@@ -5,16 +5,17 @@ import { basename, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { stringify as stringifyYaml } from 'yaml';
 import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
+import { diagnostics, formatError, isDiagnostic } from './diagnostics.ts';
 import { runFind } from './find.ts';
 import { runInstallFromLock } from './install.ts';
 import { runList } from './list.ts';
-import { InvalidLocalLockError } from './local-lock.ts';
 import { removeCommand, parseRemoveOptions } from './remove.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { flushTelemetry } from './telemetry.ts';
 import { isRunningInAgent } from './detect-agent.ts';
 import { runUpdate } from './update.ts';
 import { runUse, parseUseOptions } from './use.ts';
+import { BOLD, DIM, GRAYS, RESET, TEXT } from './color.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -31,12 +32,6 @@ function getVersion(): string {
 const VERSION = getVersion();
 initTelemetry(VERSION);
 
-const RESET = '\x1b[0m';
-const BOLD = '\x1b[1m';
-// 256-color grays - visible on both light and dark backgrounds
-const DIM = '\x1b[38;5;102m'; // darker gray for secondary text
-const TEXT = '\x1b[38;5;145m'; // lighter gray for primary text
-
 const LOGO_LINES = [
   '███████╗██╗  ██╗██╗██╗     ██╗     ███████╗',
   '██╔════╝██║ ██╔╝██║██║     ██║     ██╔════╝',
@@ -44,16 +39,6 @@ const LOGO_LINES = [
   '╚════██║██╔═██╗ ██║██║     ██║     ╚════██║',
   '███████║██║  ██╗██║███████╗███████╗███████║',
   '╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝╚══════╝',
-];
-
-// 256-color middle grays - visible on both light and dark backgrounds
-const GRAYS = [
-  '\x1b[38;5;250m', // lighter gray
-  '\x1b[38;5;248m',
-  '\x1b[38;5;245m', // mid gray
-  '\x1b[38;5;243m',
-  '\x1b[38;5;240m',
-  '\x1b[38;5;238m', // darker gray
 ];
 
 function showLogo(): void {
@@ -169,11 +154,12 @@ ${BOLD}Update Options:${RESET}
   -y, --yes              Skip scope prompt (auto-detect: project if in a project, else global)
 
 ${BOLD}Project:${RESET}
-  experimental_install Restore skills from skills-lock.json
+  experimental_install Restore skills from skills-lock.json (alias: install, i)
   init [name]          Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)
   experimental_sync    Sync skills from node_modules into agent directories (alias: sync)
 
 ${BOLD}Experimental Install Options:${RESET}
+  -a, --agent <agents>   Link to these agents (default: last selected, else detected)
   --dry-run              Show what would be restored without installing anything
   --frozen-lockfile      Fail instead of changing skills-lock.json (default in CI)
   --no-frozen-lockfile   Allow skills-lock.json to change in CI
@@ -186,6 +172,7 @@ ${BOLD}Add Options:${RESET}
   -l, --list             List available skills in the repository without installing
   -y, --yes              Skip confirmation prompts
   --copy                 Copy files instead of symlinking to agent directories
+  --rename <name>        Install the one selected skill under a new name
   --metadata <json>      Attach valid JSON to the install telemetry event
   --subagent <names>     Install to Eve subagents (use 'root' for the root agent)
   --all                  Shorthand for --skill '*' --agent '*' -y
@@ -342,7 +329,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const command = args[0];
+  const command = args[0]!;
   const restArgs = args.slice(1);
 
   // Subcommand --help / -h must short-circuit before dispatch so that running
@@ -388,10 +375,16 @@ async function main(): Promise<void> {
     case 'a':
     case 'add': {
       const { source: addSource, options: addOpts, errors } = parseAddOptions(restArgs);
+      // `skills install` with no source restores skills-lock.json, like `npm install`
+      if ((command === 'i' || command === 'install') && addSource.length === 0) {
+        if (!inAgent) showLogo();
+        await runInstallFromLock(restArgs);
+        break;
+      }
       // JSON mode must keep stdout parseable — no logo
       if (!inAgent && !addOpts.json) showLogo();
       if (errors.length > 0) {
-        for (const error of errors) console.error(`Error: ${error}`);
+        for (const error of errors) console.error(`Error: ${formatError(error)}`);
         // JSON mode promises exactly one JSON value on stdout, even here
         if (addOpts.json) console.log('[]');
         process.exitCode = 1;
@@ -444,16 +437,27 @@ async function main(): Promise<void> {
       break;
 
     default:
-      console.log(`Unknown command: ${command}`);
-      console.log(`Run ${BOLD}skills --help${RESET} for usage.`);
+      console.log(formatError(diagnostics.SKILLS_UNKNOWN_COMMAND({ command })));
       process.exitCode = 1;
   }
 }
 
+// Exit by draining the event loop rather than process.exit(): on Windows,
+// forcing exit while a telemetry fetch's socket teardown is still in flight
+// aborts the process with a libuv UV_HANDLE_CLOSING assertion.
 main()
   .catch((error: unknown) => {
-    if (!(error instanceof InvalidLocalLockError)) throw error;
-    console.error(`Error: ${error.message}`);
+    if (
+      !isDiagnostic(
+        error,
+        'SKILLS_INVALID_LOCAL_LOCK',
+        'SKILLS_OPTION_REQUIRES_VALUE',
+        'SKILLS_OPTION_TAKES_NO_VALUE'
+      )
+    ) {
+      throw error;
+    }
+    console.error(`Error: ${formatError(error)}`);
     process.exitCode = 1;
   })
-  .finally(() => flushTelemetry().then(() => process.exit(process.exitCode ?? 0)));
+  .finally(() => flushTelemetry());

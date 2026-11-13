@@ -5,9 +5,9 @@ import { tmpdir } from 'os';
 import { runCli } from '../src/test-utils.ts';
 
 const CONFLICTED_LOCK = `<<<<<<< HEAD
-{ "version": 1, "skills": {} }
+{ "version": 2, "skills": {} }
 =======
-{ "version": 1, "skills": {} }
+{ "version": 2, "skills": {} }
 >>>>>>> feature-branch
 `;
 
@@ -96,7 +96,7 @@ describe('commands with an invalid skills-lock.json', { timeout: 30000 }, () => 
     const result = runCli(['list'], projectDir);
 
     expect(result.exitCode).toBe(0);
-    expect(result.stderr).toContain(`Warning: Invalid ${lockPath}`);
+    expect(result.stderr).toContain(`Warning: [SKILLS_INVALID_LOCAL_LOCK] Invalid ${lockPath}`);
     expect(result.stdout).toContain('alpha');
     expectLockUntouched();
   });

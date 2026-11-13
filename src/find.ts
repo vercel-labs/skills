@@ -1,17 +1,13 @@
 import * as readline from 'readline';
+import type { Diagnostic } from 'nostics';
 import { runAdd, parseAddOptions } from './add.ts';
+import { diagnostics, formatError } from './diagnostics.ts';
+import { parseCliArgs } from './cli-args.ts';
 import { sanitizeMetadata } from './sanitize.ts';
 import { track } from './telemetry.ts';
 import { isRepoPrivate } from './source-parser.ts';
 import { isRunningInAgent } from './detect-agent.ts';
-
-const RESET = '\x1b[0m';
-const BOLD = '\x1b[1m';
-const DIM = '\x1b[38;5;102m';
-const TEXT = '\x1b[38;5;145m';
-const CYAN = '\x1b[36m';
-const MAGENTA = '\x1b[35m';
-const YELLOW = '\x1b[33m';
+import { BOLD, CYAN, DIM, RESET, TEXT, YELLOW } from './color.ts';
 
 // API endpoint for skills search
 const SEARCH_API_BASE = process.env.SKILLS_API_URL || 'https://skills.sh';
@@ -37,49 +33,33 @@ export interface FindOptions {
 export interface ParseFindOptionsResult {
   query: string;
   options: FindOptions;
-  errors: string[];
+  errors: Diagnostic[];
 }
 
 const GITHUB_OWNER_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38})$/i;
 
 export function parseFindOptions(args: string[]): ParseFindOptionsResult {
-  const queryParts: string[] = [];
+  const { values, positionals, errors } = parseCliArgs(args, {
+    owner: { type: 'string', value: 'a GitHub owner' },
+  });
   const options: FindOptions = {};
-  const errors: string[] = [];
 
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (!arg) continue;
-
-    let ownerValue: string | undefined;
-    if (arg === '--owner') {
-      const value = args[i + 1];
-      if (!value || value.startsWith('-')) {
-        errors.push('--owner requires a GitHub owner');
-        continue;
-      }
-      ownerValue = value;
-      i++;
-    } else if (arg.startsWith('--owner=')) {
-      ownerValue = arg.slice('--owner='.length);
-      if (!ownerValue) {
-        errors.push('--owner requires a GitHub owner');
-        continue;
-      }
-    } else {
-      queryParts.push(arg);
-      continue;
-    }
-
+  const ownerValue = values.owner?.at(-1);
+  if (ownerValue !== undefined) {
     const owner = ownerValue.trim().toLowerCase();
-    if (!GITHUB_OWNER_PATTERN.test(owner)) {
-      errors.push('--owner must be a valid GitHub owner');
-      continue;
+    if (GITHUB_OWNER_PATTERN.test(owner)) {
+      options.owner = owner;
+    } else {
+      errors.push(
+        diagnostics.SKILLS_INVALID_OPTION_VALUE({
+          option: '--owner',
+          expected: 'a valid GitHub owner',
+        })
+      );
     }
-    options.owner = owner;
   }
 
-  return { query: queryParts.join(' '), options, errors };
+  return { query: positionals.join(' '), options, errors };
 }
 
 // Search via API
@@ -110,6 +90,59 @@ export async function searchSkillsAPI(query: string, owner?: string): Promise<Se
   } catch {
     return [];
   }
+}
+
+// The search API requires every query term to match, so one extra word (e.g.
+// "next bundle analyzer") can hide an otherwise relevant skill. When a
+// multi-term query returns few results, retry with each term dropped and
+// append those partial matches after the exact ones.
+const MIN_EXACT_RESULTS = 10;
+const MAX_FALLBACK_TERMS = 6;
+const MAX_MERGED_RESULTS = 25;
+
+export interface SearchResult {
+  skills: SearchSkill[];
+  /** Number of leading results that matched every query term. */
+  exactCount: number;
+}
+
+export async function searchSkills(query: string, owner?: string): Promise<SearchResult> {
+  const exact = await searchSkillsAPI(query, owner);
+  const terms = [...new Set(query.trim().split(/\s+/).filter(Boolean))];
+
+  if (exact.length >= MIN_EXACT_RESULTS || terms.length < 2 || terms.length > MAX_FALLBACK_TERMS) {
+    return { skills: exact, exactCount: exact.length };
+  }
+
+  const subqueries = terms.map((_, i) => terms.filter((_, j) => j !== i).join(' '));
+  const partialLists = await Promise.all(subqueries.map((q) => searchSkillsAPI(q, owner)));
+
+  const seen = new Set(exact.map((skill) => skill.slug));
+  const candidates = new Map<string, { skill: SearchSkill; hits: number; bestRank: number }>();
+  for (const list of partialLists) {
+    list.forEach((skill, rank) => {
+      if (seen.has(skill.slug)) return;
+      const entry = candidates.get(skill.slug);
+      if (entry) {
+        entry.hits++;
+        entry.bestRank = Math.min(entry.bestRank, rank);
+      } else {
+        candidates.set(skill.slug, { skill, hits: 1, bestRank: rank });
+      }
+    });
+  }
+
+  const partial = [...candidates.values()]
+    .sort(
+      (a, b) =>
+        b.hits - a.hits ||
+        a.bestRank - b.bestRank ||
+        (b.skill.installs || 0) - (a.skill.installs || 0)
+    )
+    .slice(0, Math.max(0, MAX_MERGED_RESULTS - exact.length))
+    .map((entry) => entry.skill);
+
+  return { skills: [...exact, ...partial], exactCount: exact.length };
 }
 
 // ANSI escape codes for terminal control
@@ -221,7 +254,7 @@ async function runSearchPrompt(initialQuery = '', owner?: string): Promise<Searc
 
     debounceTimer = setTimeout(async () => {
       try {
-        results = await searchSkillsAPI(q, owner);
+        results = (await searchSkills(q, owner)).skills;
         selectedIndex = 0;
       } catch {
         results = [];
@@ -329,14 +362,14 @@ ${DIM}  1) npx skills find [query] [--owner <owner>]${RESET}
 ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
 
   if (errors.length > 0) {
-    for (const error of errors) console.error(error);
+    for (const error of errors) console.error(formatError(error));
     console.error('Usage: npx skills find <query> [--owner <owner>]');
     return;
   }
 
   // Non-interactive mode: just print results and exit
   if (query) {
-    const results = await searchSkillsAPI(query, owner);
+    const { skills: results, exactCount } = await searchSkills(query, owner);
 
     // Track telemetry for non-interactive search
     track({
@@ -354,7 +387,15 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
     console.log(`${DIM}Install with${RESET} npx skills add <owner/repo@skill>`);
     console.log();
 
-    for (const skill of results) {
+    for (const [index, skill] of results.entries()) {
+      if (index === exactCount) {
+        console.log(
+          exactCount === 0
+            ? `${DIM}No skills matched every term in "${query}". Partial matches:${RESET}`
+            : `${DIM}Partial matches (some terms of "${query}"):${RESET}`
+        );
+        console.log();
+      }
       const pkg = skill.source || skill.slug;
       const installs = formatInstalls(skill.installs);
       console.log(

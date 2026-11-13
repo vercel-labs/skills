@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -24,6 +25,13 @@ function textResponse(body: string): Response {
     status: 200,
     headers: { 'content-type': 'text/plain' },
   });
+}
+
+function blobSha(contents: string): string {
+  return createHash('sha1')
+    .update(`blob ${Buffer.byteLength(contents, 'utf8')}\0`)
+    .update(contents, 'utf8')
+    .digest('hex');
 }
 
 describe('tryBlobInstall', () => {
@@ -57,7 +65,7 @@ describe('tryBlobInstall', () => {
         okResponse({
           sha: 'root-tree-sha',
           tree: [
-            { path: 'SKILL.md', type: 'blob', sha: 'skill-sha' },
+            { path: 'SKILL.md', type: 'blob', sha: blobSha(ROOT_SKILL_MD) },
             { path: 'packages/eve/src/index.ts', type: 'blob', sha: 'package-sha' },
             { path: 'docs/introduction.mdx', type: 'blob', sha: 'docs-sha' },
           ],
@@ -96,8 +104,8 @@ description: Nested skill.
         okResponse({
           sha: 'root-tree-sha',
           tree: [
-            { path: 'skills/nested/SKILL.md', type: 'blob', sha: 'skill-sha' },
-            { path: 'skills/nested/reference.md', type: 'blob', sha: 'reference-sha' },
+            { path: 'skills/nested/SKILL.md', type: 'blob', sha: blobSha(nestedSkillMd) },
+            { path: 'skills/nested/reference.md', type: 'blob', sha: blobSha('# Reference') },
           ],
         })
       )
@@ -142,7 +150,7 @@ description: Nested skill with a binary resource.
         okResponse({
           sha: 'root-tree-sha',
           tree: [
-            { path: 'skills/nested/SKILL.md', type: 'blob', sha: 'skill-sha' },
+            { path: 'skills/nested/SKILL.md', type: 'blob', sha: blobSha(nestedSkillMd) },
             {
               path: 'skills/nested/references/example.png',
               type: 'blob',
@@ -175,7 +183,7 @@ description: Nested skill with excluded source metadata.
         okResponse({
           sha: 'root-tree-sha',
           tree: [
-            { path: 'skills/nested/SKILL.md', type: 'blob', sha: 'skill-sha' },
+            { path: 'skills/nested/SKILL.md', type: 'blob', sha: blobSha(nestedSkillMd) },
             { path: 'skills/nested/metadata.json', type: 'blob', sha: 'metadata-sha' },
             {
               path: 'skills/nested/__pycache__/cache.pyc',
@@ -197,5 +205,47 @@ description: Nested skill with excluded source metadata.
 
     expect(result).not.toBeNull();
     expect(result!.skills[0]!.files).toEqual([{ path: 'SKILL.md', contents: nestedSkillMd }]);
+  });
+
+  it('skips boolean and string metadata.internal skills', async () => {
+    const skillMd = (name: string, internal: string) => `---
+name: ${name}
+description: ${name}.
+metadata:
+  internal: ${internal}
+---
+`;
+    const publicSkillMd = `---
+name: public-skill
+description: Public skill.
+---
+# Public
+`;
+
+    fetchMock
+      .mockResolvedValueOnce(
+        okResponse({
+          sha: 'root-tree-sha',
+          tree: [
+            { path: 'skills/bool-internal/SKILL.md', type: 'blob', sha: 'bool-sha' },
+            { path: 'skills/string-internal/SKILL.md', type: 'blob', sha: 'string-sha' },
+            { path: 'skills/public-skill/SKILL.md', type: 'blob', sha: blobSha(publicSkillMd) },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(textResponse(skillMd('bool-internal', 'true')))
+      .mockResolvedValueOnce(textResponse(skillMd('string-internal', '"true"')))
+      .mockResolvedValueOnce(textResponse(publicSkillMd))
+      .mockResolvedValueOnce(
+        okResponse({
+          hash: 'public-snapshot-hash',
+          files: [{ path: 'SKILL.md', contents: publicSkillMd }],
+        })
+      );
+
+    const result = await tryBlobInstall('vercel-labs/agent-skills');
+
+    expect(result).not.toBeNull();
+    expect(result!.skills.map((skill) => skill.name)).toEqual(['public-skill']);
   });
 });

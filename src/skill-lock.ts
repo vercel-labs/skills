@@ -19,8 +19,15 @@ export interface SkillLockEntry {
   sourceUrl: string;
   /** Branch or tag ref used for installation (for ref-aware updates) */
   ref?: string;
+  /** Git commit the skill was installed from; `update` moves it forward. Unset for non-Git sources. */
+  commit?: string;
   /** Subpath within the source repo, if applicable */
   skillPath?: string;
+  /**
+   * Name of the skill in its source, when it is installed under another name
+   * (`add --rename`); the lock key is the installed name. Omitted otherwise.
+   */
+  skillName?: string;
   /**
    * GitHub tree SHA for the entire skill folder.
    * This hash changes when ANY file in the skill folder changes.

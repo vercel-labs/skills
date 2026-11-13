@@ -242,6 +242,91 @@ describe('parseSource', () => {
       expect(result.type).toBe('download');
       expect(result.url).toBe(url);
     });
+
+    // #2079: a proxy or mirror host must never be rewritten to github.com/gitlab.com.
+    it.each([
+      [
+        'https://gh-proxy.org/github.com/giikin/skills',
+        { type: 'git', url: 'https://gh-proxy.org/github.com/giikin/skills.git' },
+      ],
+      [
+        'https://gh-proxy.org/github.com/giikin/skills.git',
+        { type: 'git', url: 'https://gh-proxy.org/github.com/giikin/skills.git' },
+      ],
+      [
+        'https://gh-proxy.org/https://github.com/giikin/skills/',
+        { type: 'git', url: 'https://gh-proxy.org/https://github.com/giikin/skills.git' },
+      ],
+      [
+        'https://gh-proxy.org/github.com/owner/repo/tree/main/skills/my-skill',
+        {
+          type: 'git',
+          url: 'https://gh-proxy.org/github.com/owner/repo.git',
+          ref: 'main',
+          subpath: 'skills/my-skill',
+        },
+      ],
+      [
+        'https://gh-proxy.org/github.com/owner/repo#v1.0.0@my-skill',
+        {
+          type: 'git',
+          url: 'https://gh-proxy.org/github.com/owner/repo.git',
+          ref: 'v1.0.0',
+          skillFilter: 'my-skill',
+        },
+      ],
+      [
+        'https://mirror.example.com:8443/gitlab.com/group/sub/repo.git',
+        { type: 'git', url: 'https://mirror.example.com:8443/gitlab.com/group/sub/repo.git' },
+      ],
+    ])('keeps the proxy host for mirrored repo URL %s', (url, expected) => {
+      expect(parseSource(url)).toEqual(expected);
+    });
+
+    it.each([
+      'https://github.com.example.com/owner/repo',
+      'https://example.com/?next=github.com/owner/repo',
+    ])('does not treat a non-GitHub host as GitHub: %s', (url) => {
+      const result = parseSource(url);
+      expect(result.type).not.toBe('github');
+      expect(result.url).toBe(url);
+    });
+
+    it('treats a proxied archive URL as a download source, not a repo', () => {
+      const url = 'https://gh-proxy.org/https://github.com/owner/repo/archive/main.zip';
+      expect(parseSource(url)).toEqual({ type: 'well-known', url });
+    });
+  });
+
+  describe('GitHub.com host matching', () => {
+    it.each([
+      ['https://GitHub.com/owner/repo', 'https://github.com/owner/repo.git'],
+      ['https://www.github.com/owner/repo', 'https://github.com/owner/repo.git'],
+      ['github.com/owner/repo', 'https://github.com/owner/repo.git'],
+      ['https://github.com/owner/repo?tab=readme-ov-file', 'https://github.com/owner/repo.git'],
+      ['https://github.com/owner/repo.git/', 'https://github.com/owner/repo.git'],
+    ])('normalizes %s', (input, url) => {
+      expect(parseSource(input)).toEqual({ type: 'github', url });
+    });
+
+    it('keeps the ref for a tree URL with a trailing slash or query', () => {
+      expect(parseSource('https://github.com/owner/repo/tree/main/')).toEqual({
+        type: 'github',
+        url: 'https://github.com/owner/repo.git',
+        ref: 'main',
+      });
+      expect(parseSource('https://github.com/owner/repo/tree/main/skills/x/?plain=1')).toEqual({
+        type: 'github',
+        url: 'https://github.com/owner/repo.git',
+        ref: 'main',
+        subpath: 'skills/x',
+      });
+    });
+
+    it('does not treat a non-GitLab host as gitlab.com', () => {
+      const url = 'https://notgitlab.com/group/repo';
+      expect(parseSource(url).type).not.toBe('gitlab');
+    });
   });
 
   describe('GitHub shorthand tests', () => {
@@ -280,6 +365,44 @@ describe('parseSource', () => {
       expect(result.type).toBe('github');
       expect(result.url).toBe('https://github.com/vercel-labs/agent-skills.git');
       expect(result.skillFilter).toBe('find-skills');
+      expect(result.ref).toBeUndefined();
+    });
+
+    it('GitHub shorthand - owner/repo@v1.2.3 pins the release tag', () => {
+      const result = parseSource('mattpocock/skills@v1.3.1');
+      expect(result.type).toBe('github');
+      expect(result.url).toBe('https://github.com/mattpocock/skills.git');
+      expect(result.ref).toBe('v1.3.1');
+      expect(result.skillFilter).toBeUndefined();
+    });
+
+    it('GitHub shorthand - owner/repo@tag keeps prerelease and build metadata', () => {
+      const result = parseSource('owner/repo@v1.2.3-beta.1+build.5');
+      expect(result.ref).toBe('v1.2.3-beta.1+build.5');
+      expect(result.skillFilter).toBeUndefined();
+    });
+
+    it('GitHub shorthand - owner/repo@version pins tags without v or a patch part', () => {
+      for (const tag of ['1.2.3', 'v1.2', '2026.10.1', '1.0.0-rc.1']) {
+        const result = parseSource(`owner/repo@${tag}`);
+        expect(result.ref).toBe(tag);
+        expect(result.skillFilter).toBeUndefined();
+      }
+    });
+
+    it('GitHub shorthand - owner/repo@<full sha> pins the commit', () => {
+      const sha = 'd22f72308106ef62f558cbde16dacb1f21031ae3';
+      const result = parseSource(`owner/repo@${sha}`);
+      expect(result.ref).toBe(sha);
+      expect(result.skillFilter).toBeUndefined();
+    });
+
+    it('GitHub shorthand - owner/repo@name does not treat skill-like names as pins', () => {
+      for (const name of ['find-skills', 'v2', '2', 'v1.x', 'web-design-guidelines']) {
+        const result = parseSource(`owner/repo@${name}`);
+        expect(result.ref).toBeUndefined();
+        expect(result.skillFilter).toBe(name);
+      }
     });
 
     it('GitHub shorthand - owner/repo#branch', () => {
@@ -347,6 +470,42 @@ describe('parseSource', () => {
       expect(result.type).toBe('git');
       expect(result.url).toBe('git@github.com:owner/repo.git');
       expect(result.ref).toBe('feature/install');
+    });
+
+    it('Git URL - SSH format with /tree/branch', () => {
+      const result = parseSource('git@github.com:owner/repo/tree/mybranch');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@github.com:owner/repo.git');
+      expect(result.ref).toBe('mybranch');
+      expect(result.subpath).toBeUndefined();
+    });
+
+    it('Git URL - SSH format with /tree/branch/path', () => {
+      const result = parseSource('git@github.com:owner/repo/tree/mybranch/skills/foo');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@github.com:owner/repo.git');
+      expect(result.ref).toBe('mybranch');
+      expect(result.subpath).toBe('skills/foo');
+    });
+
+    it('Git URL - SSH format with .git and /tree/branch', () => {
+      const result = parseSource('git@github.com:owner/repo.git/tree/mybranch');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@github.com:owner/repo.git');
+      expect(result.ref).toBe('mybranch');
+    });
+
+    it('Git URL - SSH format with /tree/ on non-GitHub host is left as-is', () => {
+      const result = parseSource('git@git.example.com:group/repo/tree/mybranch.git');
+      expect(result.type).toBe('git');
+      expect(result.url).toBe('git@git.example.com:group/repo/tree/mybranch.git');
+      expect(result.ref).toBeUndefined();
+    });
+
+    it('Git URL - SSH format with /tree/ rejects path traversal', () => {
+      expect(() => parseSource('git@github.com:owner/repo/tree/main/../../etc')).toThrow(
+        /Unsafe subpath/
+      );
     });
 
     it('Git URL - custom host', () => {

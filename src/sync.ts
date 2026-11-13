@@ -1,5 +1,5 @@
 import * as p from '@clack/prompts';
-import pc from 'picocolors';
+import { pc } from './color.ts';
 import { existsSync } from 'fs';
 import { glob, lstat, readdir, readFile, readlink, realpath, rm } from 'fs/promises';
 import { basename, dirname, join, posix, relative, resolve, sep } from 'path';
@@ -33,6 +33,9 @@ import {
   type LocalSkillLockFile,
 } from './local-lock.ts';
 import type { Skill, AgentType } from './types.ts';
+import type { Diagnostic } from 'nostics';
+import { diagnostics, formatError } from './diagnostics.ts';
+import { parseCliArgs, throwFirstError } from './cli-args.ts';
 import { track } from './telemetry.ts';
 import { isCI } from './ci.ts';
 import { detectAgent, getAgentType } from './detect-agent.ts';
@@ -42,6 +45,7 @@ import {
   fetchSources,
   getProjectLockSource,
   installFromSource,
+  renameSkill,
   prepareFetched,
   releaseSource,
   type FetchedSource,
@@ -223,12 +227,14 @@ function requestsLockedSkill(
   name: string,
   entry: LocalSkillLockEntry
 ) {
+  // A renamed skill is requested by the name its source uses
+  const sourceName = entry.skillName ?? name;
   return (
     isFromRequest(entry, request) &&
     (request.skills.length === 0 ||
       request.skills.some(
         (selected) =>
-          sanitizeName(selected) === sanitizeName(name) ||
+          sanitizeName(selected) === sanitizeName(sourceName) ||
           selected === posix.basename(posix.dirname(entry.skillPath ?? ''))
       ))
   );
@@ -284,11 +290,11 @@ async function discoverNodeModuleSkills(
 ): Promise<{
   skills: PackageSkill[];
   remote: FieldRemoteRequest[];
-  warnings: string[];
-  errors: string[];
+  warnings: Diagnostic[];
+  errors: Diagnostic[];
 }> {
-  const warnings: string[] = [];
-  const errors: string[] = [];
+  const warnings: Diagnostic[] = [];
+  const errors: Diagnostic[] = [];
   // identical requests from several packages are one
   const remote = new Map<string, FieldRemoteRequest>();
   const pkg = await readPackageJson(cwd);
@@ -344,7 +350,7 @@ async function discoverNodeModuleSkills(
     if (field === undefined) continue;
     if (!Array.isArray(field)) {
       // a dependency may use the key for something else
-      if (problems === errors) errors.push('package.json: "skills" must be an array');
+      if (problems === errors) errors.push(diagnostics.SKILLS_PACKAGE_SKILLS_NOT_ARRAY());
       continue;
     }
 
@@ -364,7 +370,10 @@ async function discoverNodeModuleSkills(
       const target = findInstalledPackage(dir, request.package);
       if (!target) {
         problems.push(
-          `${declarer.name}: cannot resolve "npm:${request.package}"; is it a dependency?`
+          diagnostics.SKILLS_PACKAGE_SKILLS_UNRESOLVED_NPM({
+            declarer: declarer.name,
+            pkg: request.package,
+          })
         );
         continue;
       }
@@ -709,7 +718,7 @@ async function syncSkills(
   const discovery = await discoverNodeModuleSkills(cwd, options.recursive ?? false);
   if (discovery.errors.length > 0) {
     spinner.stop(pc.red('Invalid skills field'));
-    for (const error of discovery.errors) p.log.error(error);
+    for (const error of discovery.errors) p.log.error(formatError(error));
     p.outro(pc.red('Fix the "skills" field in package.json and run sync again.'));
     process.exitCode = 1;
     return;
@@ -721,7 +730,7 @@ async function syncSkills(
       ? pc.yellow('No skills found')
       : `Found ${pc.green(String(discoveredSkills.length))} skill${discoveredSkills.length > 1 ? 's' : ''} in node_modules`
   );
-  for (const warning of discovery.warnings) p.log.warn(warning);
+  for (const warning of discovery.warnings) p.log.warn(formatError(warning));
 
   const localLock = await readLocalLock(cwd);
 
@@ -832,8 +841,11 @@ async function syncSkills(
   } else if (options.agent && options.agent.length > 0) {
     const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
     if (invalidAgents.length > 0) {
-      p.log.error(`Invalid agents: ${invalidAgents.join(', ')}`);
-      p.log.info(`Valid agents: ${validAgents.join(', ')}`);
+      p.log.error(
+        formatError(
+          diagnostics.SKILLS_INVALID_AGENTS({ invalid: invalidAgents, valid: validAgents })
+        )
+      );
       process.exit(1);
     }
     targetAgents = options.agent as AgentType[];
@@ -916,6 +928,14 @@ async function syncSkills(
   const claimed = new Set(discoveredSkills.map((skill) => sanitizeName(skill.name)));
   const lockEntryFor = (name: string) =>
     Object.entries(localLock.skills).find(([key]) => sanitizeName(key) === name)?.[1];
+  // A skill this request installed before under another name keeps that name
+  const renamedFor = (request: FieldRemoteRequest, name: string) =>
+    Object.entries(localLock.skills).find(
+      ([, entry]) =>
+        entry.skillName !== undefined &&
+        sanitizeName(entry.skillName) === name &&
+        isFromRequest(entry, request)
+    )?.[0];
   const fetchedSources = await fetchSources(remoteRequests);
   for (const [index, request] of remoteRequests.entries()) {
     const fetched = fetchedSources[index]!;
@@ -923,8 +943,9 @@ async function syncSkills(
       const prepared = await prepareFetched(fetched, request.skills);
       const selected: Skill[] = [];
       for (const skill of prepared.selected) {
-        const name = sanitizeName(skill.name);
-        if (!remoteAllowsSkill(request, name, options)) continue;
+        const sourceName = sanitizeName(skill.name);
+        if (!remoteAllowsSkill(request, sourceName, options)) continue;
+        const name = sanitizeName(renamedFor(request, sourceName) ?? skill.name);
         const reason = claimed.has(name)
           ? 'another source in this sync provides it'
           : await blockedReason(name, targetAgents, lockEntryFor(name), cwd);
@@ -932,10 +953,20 @@ async function syncSkills(
           p.log.warn(`Skipped ${name} from ${getProjectLockSource(request.parsed)}: ${reason}`);
         } else selected.push(skill);
       }
-      prepared.selected = resolveDependencyGraph(
+      const graph = resolveDependencyGraph(
         prepared.roots.filter((root) => selected.includes(root)),
         selected
       );
+      // Rename after resolving: dependencies are matched by the source's names
+      const renamed = new Map<Skill, Skill>();
+      const rename = (skill: Skill) => {
+        const name = renamedFor(request, sanitizeName(skill.name));
+        if (!name) return skill;
+        if (!renamed.has(skill)) renamed.set(skill, renameSkill(skill, name));
+        return renamed.get(skill)!;
+      };
+      prepared.roots = prepared.roots.filter((root) => graph.includes(root)).map(rename);
+      prepared.selected = graph.map(rename);
       for (const skill of prepared.selected) claimed.add(sanitizeName(skill.name));
       preparedRequests.push({ request, fetched, prepared });
     } catch (error) {
@@ -1150,42 +1181,32 @@ async function syncSkills(
 }
 
 export function parseSyncOptions(args: string[]): { options: SyncOptions } {
+  const { values, errors } = parseCliArgs(args, {
+    yes: { type: 'boolean', short: 'y' },
+    copy: { type: 'boolean' },
+    'dry-run': { type: 'boolean' },
+    'no-cleanup': { type: 'boolean' },
+    'no-remote': { type: 'boolean' },
+    'frozen-lockfile': { type: 'boolean' },
+    'no-frozen-lockfile': { type: 'boolean' },
+    recursive: { type: 'boolean', short: 'r' },
+    agent: { type: 'list', short: 'a', value: 'an agent name' },
+    include: { type: 'list', value: 'a pattern' },
+    exclude: { type: 'list', value: 'a pattern' },
+  });
+  throwFirstError(errors);
+
   const options: SyncOptions = {};
-  let i = 0;
-  /** Consume the values after a flag, up to the next flag. */
-  const takeValues = (): string[] => {
-    const values: string[] = [];
-    while (args[i + 1] !== undefined && !args[i + 1]!.startsWith('-')) values.push(args[++i]!);
-    return values;
-  };
-
-  for (; i < args.length; i++) {
-    const arg = args[i];
-
-    if (arg === '-y' || arg === '--yes') {
-      options.yes = true;
-    } else if (arg === '--copy') {
-      options.copy = true;
-    } else if (arg === '--dry-run') {
-      options.dryRun = true;
-    } else if (arg === '--no-cleanup') {
-      options.cleanup = false;
-    } else if (arg === '--no-remote') {
-      options.remote = false;
-    } else if (arg === '--frozen-lockfile') {
-      options.frozenLockfile = true;
-    } else if (arg === '--no-frozen-lockfile') {
-      options.frozenLockfile = false;
-    } else if (arg === '-r' || arg === '--recursive') {
-      options.recursive = true;
-    } else if (arg === '-a' || arg === '--agent') {
-      options.agent = [...(options.agent ?? []), ...takeValues()];
-    } else if (arg === '--include') {
-      options.include = [...(options.include ?? []), ...takeValues()];
-    } else if (arg === '--exclude') {
-      options.exclude = [...(options.exclude ?? []), ...takeValues()];
-    }
-  }
-
+  if (values.yes) options.yes = true;
+  if (values.copy) options.copy = true;
+  if (values['dry-run']) options.dryRun = true;
+  if (values['no-cleanup']) options.cleanup = false;
+  if (values['no-remote']) options.remote = false;
+  if (values['frozen-lockfile']) options.frozenLockfile = true;
+  if (values['no-frozen-lockfile']) options.frozenLockfile = false;
+  if (values.recursive) options.recursive = true;
+  if (values.agent) options.agent = values.agent;
+  if (values.include) options.include = values.include;
+  if (values.exclude) options.exclude = values.exclude;
   return { options };
 }
