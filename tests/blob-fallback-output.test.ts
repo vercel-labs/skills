@@ -3,10 +3,11 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-const { spinnerStart, spinnerStop, spinnerMessage } = vi.hoisted(() => ({
+const { spinnerStart, spinnerStop, spinnerMessage, logMessage } = vi.hoisted(() => ({
   spinnerStart: vi.fn(),
   spinnerStop: vi.fn(),
   spinnerMessage: vi.fn(),
+  logMessage: vi.fn(),
 }));
 
 vi.mock('@clack/prompts', () => {
@@ -18,7 +19,7 @@ vi.mock('@clack/prompts', () => {
     cancel: noop,
     log: {
       info: noop,
-      message: noop,
+      message: logMessage,
       warn: noop,
       error: noop,
       step: noop,
@@ -110,5 +111,83 @@ describe('blob clone fallback output', () => {
     expect(spinnerStop).not.toHaveBeenCalledWith('Falling back to clone…');
     expect(spinnerMessage).toHaveBeenCalledWith('Cloning repository…');
     expect(spinnerStop).toHaveBeenCalledWith('Repository cloned');
+  });
+
+  describe('when the fast path reports why it failed', () => {
+    const report = (reason: 'rate-limited' | 'tree-unavailable') =>
+      vi.mocked(tryBlobInstall).mockImplementationOnce(async (_ownerRepo, options) => {
+        options?.onFallback?.(reason);
+        return null;
+      });
+
+    const add = (extra: { json?: boolean } = {}) =>
+      runAdd(['remotion-dev/skills'], {
+        yes: true,
+        agent: ['codex'],
+        global: false,
+        mode: 'copy',
+        ...extra,
+      });
+
+    it('tells the user about a GitHub rate limit and still clones', async () => {
+      report('rate-limited');
+
+      await add();
+
+      expect(spinnerStop).toHaveBeenCalledWith(expect.stringContaining('rate limit'));
+      expect(logMessage).toHaveBeenCalledWith(expect.stringContaining('GITHUB_TOKEN'));
+      expect(spinnerStart).toHaveBeenCalledWith('Cloning repository…');
+      expect(cloneRepo).toHaveBeenCalled();
+      expect(spinnerStop).toHaveBeenCalledWith('Repository cloned');
+    });
+
+    it('stays silent when the tree is unavailable for another reason', async () => {
+      report('tree-unavailable');
+
+      await add();
+
+      expect(spinnerStop).not.toHaveBeenCalledWith(expect.stringContaining('rate limit'));
+      expect(logMessage).not.toHaveBeenCalledWith(expect.stringContaining('GITHUB_TOKEN'));
+      expect(spinnerMessage).toHaveBeenCalledWith('Cloning repository…');
+      expect(cloneRepo).toHaveBeenCalled();
+    });
+
+    describe('--json', () => {
+      let log: ReturnType<typeof vi.spyOn>;
+
+      const installedEntry = () => {
+        const printed = log.mock.calls.map((call) => String(call[0]));
+        const entries = JSON.parse(printed.at(-1)!) as Array<Record<string, unknown>>;
+        return entries[0]!;
+      };
+
+      beforeEach(() => {
+        log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      });
+
+      afterEach(() => {
+        log.mockRestore();
+        process.exitCode = undefined;
+      });
+
+      it('records fallbackReason on the installed entry', async () => {
+        report('rate-limited');
+
+        await add({ json: true });
+
+        expect(installedEntry()).toMatchObject({
+          status: 'installed',
+          fallbackReason: 'rate-limited',
+        });
+      });
+
+      it('leaves fallbackReason out when the fast path gave no reason', async () => {
+        await add({ json: true });
+
+        const entry = installedEntry();
+        expect(entry).toMatchObject({ status: 'installed' });
+        expect(entry).not.toHaveProperty('fallbackReason');
+      });
+    });
   });
 });
