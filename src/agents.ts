@@ -136,6 +136,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(cwd, 'data/skills')) || existsSync(join(home, '.astrbot'));
     },
   },
+  autoclaw2: {
+    name: 'autoclaw2',
+    displayName: 'AutoClaw2',
+    skillsDir: '.openclaw-autoclaw/skills',
+    globalSkillsDir: join(home, '.openclaw-autoclaw/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.openclaw-autoclaw'));
+    },
+  },
   'autohand-code': {
     name: 'autohand-code',
     displayName: 'Autohand Code CLI',
@@ -172,6 +181,32 @@ export const agents: Record<AgentType, AgentConfig> = {
     createProjectSkillsDirByDefault: true,
     detectInstalled: async () => {
       return existsSync(claudeHome);
+    },
+  },
+  comate: {
+    name: 'comate',
+    displayName: 'Comate',
+    skillsDir: '.comate/skills',
+    globalSkillsDir: join(home, '.comate/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.comate'));
+    },
+  },
+  doubaowork: {
+    name: 'doubaowork',
+    displayName: 'DoubaoWork',
+    skillsDir: '.doubaowork/skills',
+    globalSkillsDir:
+      platform() === 'win32'
+        ? join(
+            process.env.LOCALAPPDATA?.trim() || join(home, 'AppData', 'Local'),
+            'DoubaoWork/User Data/Default/.doubaowork/agent_mode/workspace/.user_skills'
+          )
+        : join(home, '.super_doubao/super-doubao-runtime/workspace/.user_skills'),
+    detectInstalled: async () => {
+      return platform() === 'win32'
+        ? existsSync(join(process.env.LOCALAPPDATA?.trim() || join(home, 'AppData', 'Local'), 'DoubaoWork'))
+        : existsSync(join(home, '.super_doubao'));
     },
   },
   openclaw: {
@@ -635,6 +670,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.qwen'));
     },
   },
+  qwenwork: {
+    name: 'qwenwork',
+    displayName: 'QwenWork',
+    skillsDir: '.qwenworkcn/skills',
+    globalSkillsDir: join(home, '.qwenworkcn/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.qwenworkcn'));
+    },
+  },
   replit: {
     name: 'replit',
     displayName: 'Replit',
@@ -743,6 +787,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.codeium/windsurf/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.codeium/windsurf'));
+    },
+  },
+  workbuddy: {
+    name: 'workbuddy',
+    displayName: 'WorkBuddy',
+    skillsDir: '.workbuddy/skills',
+    globalSkillsDir: join(home, '.workbuddy/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.workbuddy'));
     },
   },
   zed: {
