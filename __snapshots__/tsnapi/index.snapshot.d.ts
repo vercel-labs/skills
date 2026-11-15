@@ -485,6 +485,11 @@ export declare const diagnostics: import("nostics").Diagnostics<{
       reason: string;
     }) => string;
   };
+  readonly SKILLS_LOCAL_LOCK_BUSY: {
+    readonly why: (p: {
+      path: string;
+    }) => string;
+  };
   readonly SKILLS_SYMLINK_OUTSIDE_SKILL: {
     readonly why: (p: {
       path: string;

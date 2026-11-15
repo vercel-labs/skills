@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtemp, mkdir, readdir, rm, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, rm, utimes, writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
@@ -296,6 +296,29 @@ describe('local-lock', () => {
 
         const lock = JSON.parse(await readFile(join(dir, 'skills-lock.json'), 'utf-8'));
         expect(Object.keys(lock.skills)).toEqual(names);
+        expect(await readdir(dir)).toEqual(['skills-lock.json']);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('breaks a lock file left behind by a crashed process', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-stale-test-'));
+      try {
+        const mutexPath = join(dir, 'skills-lock.json.lock');
+        await writeFile(mutexPath, '');
+        const old = new Date(Date.now() - 60_000);
+        await utimes(mutexPath, old, old);
+
+        const started = Date.now();
+        await addSkillToLocalLock(
+          'alpha',
+          { source: 'org/alpha', sourceType: 'github', computedHash: 'hash-alpha' },
+          dir
+        );
+
+        expect(Date.now() - started).toBeLessThan(2_000);
+        expect((await readLocalLock(dir)).skills.alpha?.source).toBe('org/alpha');
         expect(await readdir(dir)).toEqual(['skills-lock.json']);
       } finally {
         await rm(dir, { recursive: true, force: true });

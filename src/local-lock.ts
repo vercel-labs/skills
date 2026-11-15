@@ -1,4 +1,15 @@
-import { access, open, readFile, readdir, rename, stat, unlink, writeFile } from 'fs/promises';
+import {
+  access,
+  link,
+  open,
+  readFile,
+  readdir,
+  rename,
+  stat,
+  unlink,
+  writeFile,
+} from 'fs/promises';
+import type { Stats } from 'fs';
 import { createHash, randomBytes } from 'crypto';
 import { constants, existsSync } from 'fs';
 import { isAbsolute, join, relative, resolve, sep } from 'path';
@@ -247,11 +258,31 @@ function isLocalLockShape(value: unknown): value is LocalSkillLockFile {
   );
 }
 
+// The lock is held only for one read and one write, so a lock older than
+// STALE_LOCK_MS was left by a crashed process. It must be shorter than the
+// acquire timeout, or a waiter gives up before it may break the stale lock.
 const LOCK_ACQUIRE_TIMEOUT_MS = 10_000;
-const STALE_LOCK_MS = 30_000;
+const STALE_LOCK_MS = 5_000;
 
 function isNodeErrorCode(error: unknown, ...codes: string[]): boolean {
   return error instanceof Error && 'code' in error && codes.includes(String(error.code));
+}
+
+/**
+ * Remove a stale lock without removing a live one. Moving it to a unique name
+ * lets only one waiter claim it. If another waiter broke it first and a new
+ * holder took the lock in between, the moved file is that live lock: put it back.
+ */
+async function breakStaleLock(mutexPath: string, stale: Stats): Promise<void> {
+  const claimed = `${mutexPath}.${process.pid}.${randomBytes(6).toString('hex')}.stale`;
+  try {
+    await rename(mutexPath, claimed);
+  } catch {
+    return;
+  }
+  const moved = await stat(claimed).catch(() => null);
+  if (moved && moved.mtimeMs !== stale.mtimeMs) await link(claimed, mutexPath).catch(() => {});
+  await unlink(claimed).catch(() => {});
 }
 
 /**
@@ -271,10 +302,12 @@ async function withLocalLock<T>(lockPath: string, fn: () => Promise<T>): Promise
       if (!isNodeErrorCode(error, 'EEXIST')) throw error;
       const lockStat = await stat(mutexPath).catch(() => null);
       if (lockStat && Date.now() - lockStat.mtimeMs > STALE_LOCK_MS) {
-        await unlink(mutexPath).catch(() => {});
+        await breakStaleLock(mutexPath, lockStat);
         continue;
       }
-      if (Date.now() >= deadline) throw error;
+      if (Date.now() >= deadline) {
+        throw diagnostics.SKILLS_LOCAL_LOCK_BUSY({ path: mutexPath, cause: error });
+      }
       await new Promise((r) => setTimeout(r, 10 + Math.floor(Math.random() * 15)));
     }
   }
