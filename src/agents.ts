@@ -9,6 +9,7 @@ const home = homedir();
 const configHome = xdgConfig ?? join(home, '.config');
 const codexHome = process.env.CODEX_HOME?.trim() || join(home, '.codex');
 const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude');
+const ompAgentHome = process.env.PI_CODING_AGENT_DIR?.trim() || join(home, '.omp', 'agent');
 const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
 const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
@@ -585,6 +586,15 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalSkillsDir: join(home, '.ona/skills'),
     detectInstalled: async () => {
       return existsSync(join(home, '.ona'));
+    },
+  },
+  omp: {
+    name: 'omp',
+    displayName: 'OMP',
+    skillsDir: '.omp/skills',
+    globalSkillsDir: join(ompAgentHome, 'skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.omp')) || existsSync(ompAgentHome);
     },
   },
   pi: {

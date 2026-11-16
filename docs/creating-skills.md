@@ -99,6 +99,7 @@ discover `SKILL.md` files outside these container directories (e.g. under
 - `.mux/skills/`
 - `.openhands/skills/`
 - `.ona/skills/`
+- `.omp/skills/`
 - `.posit/assistant/skills/`
 - `.qoder/skills/`
 - `.qwen/skills/`
