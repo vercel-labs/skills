@@ -13,12 +13,15 @@ import {
   type InstalledSkill,
   type InstallPlacement,
   type TargetInstallResult,
+  renameSkill,
+  validateRename,
 } from '../add.ts';
 import { agents as agentConfigs } from '../agents.ts';
 import type { Diagnostic } from 'nostics';
 import { diagnostics, type DiagnosticCode } from '../diagnostics.ts';
 import { readLocalLock } from '../local-lock.ts';
 import { filterSkills, getSkillDisplayName } from '../skills.ts';
+import { sanitizeName } from '../installer.ts';
 import { flushTelemetry, setVersion } from '../telemetry.ts';
 import type { AgentType, Skill } from '../types.ts';
 import { version } from './version.ts';
@@ -48,6 +51,7 @@ export async function installSkills(
 ): Promise<InstallResult> {
   const config = resolveConfig(options);
   const requested = validateNames(options.skills, 'skills');
+  validateRenames(options.rename);
   assertKnownAgents(validateNames(options.agents, 'agents'));
   if (typeof source !== 'string' && options.ref !== undefined) {
     throw diagnostics.SKILLS_INVALID_OPTION_VALUE({
@@ -71,7 +75,7 @@ async function install(
   const handle = owned ? await openSource(source, config, requested ?? [], options) : source;
   try {
     const fetched = getFetchedSource(handle);
-    const skills = selectSkills(fetched, requested);
+    const skills = applyRenames(selectSkills(fetched, requested), options.rename);
     if (config.duplicates === 'error') rejectDuplicates(handle, skills);
     if (config.symlinks === 'reject') await rejectSymlinks(fetched, skills);
     const { targets, failures } = await resolveTargets(options.agents, config, skills);
@@ -135,6 +139,67 @@ function validateNames(
     });
   }
   return names;
+}
+
+/** Throws unless `rename` maps skill names to safe folder names. */
+function validateRenames(rename: unknown): void {
+  if (rename === undefined) return;
+  if (typeof rename !== 'object' || rename === null || Array.isArray(rename)) {
+    throw diagnostics.SKILLS_INVALID_OPTION_VALUE({
+      option: 'rename',
+      expected: 'an object mapping skill names to new names',
+    });
+  }
+  for (const [from, to] of Object.entries(rename)) {
+    const option = `rename[${JSON.stringify(from)}]`;
+    const error =
+      typeof to === 'string'
+        ? validateRename(to, option)
+        : diagnostics.SKILLS_INVALID_OPTION_VALUE({ option, expected: 'a string' });
+    if (error) throw error;
+  }
+}
+
+/**
+ * `skills` with the `rename` map applied. Throws before anything is written
+ * when a key matches no skill or several, or when two skills would share a
+ * name (one renamed onto another, or two renamed to the same name).
+ */
+function applyRenames(
+  skills: Skill[],
+  rename: Readonly<Record<string, string>> | undefined
+): Skill[] {
+  if (!rename) return skills;
+  const newNames = new Map<Skill, string>();
+  for (const [from, to] of Object.entries(rename)) {
+    const matches = filterSkills(skills, [from]);
+    if (matches.length === 0) {
+      throw diagnostics.SKILLS_NO_MATCHING_SKILLS({
+        requested: [from],
+        available: skills.map(getSkillDisplayName),
+      });
+    }
+    if (matches.length > 1) throw diagnostics.SKILLS_AMBIGUOUS_SKILL_SELECTOR({ selector: from });
+    newNames.set(matches[0]!, to);
+  }
+  const renamed = skills.map((skill) => {
+    const name = newNames.get(skill);
+    return name === undefined ? skill : renameSkill(skill, name);
+  });
+  // Folder name -> whether a renamed skill claimed it
+  const claimed = new Map<string, boolean>();
+  for (const skill of renamed) {
+    const key = sanitizeName(getSkillDisplayName(skill));
+    const isRenamed = skill.renamedFrom !== undefined;
+    if (claimed.has(key) && (isRenamed || claimed.get(key))) {
+      throw diagnostics.SKILLS_INVALID_OPTION_VALUE({
+        option: 'rename',
+        expected: `a map to distinct names, but two skills would be installed as ${key}`,
+      });
+    }
+    claimed.set(key, isRenamed || (claimed.get(key) ?? false));
+  }
+  return renamed;
 }
 
 /** Throws SKILLS_INVALID_LOCAL_LOCK before anything is written when the project lock is unusable. */

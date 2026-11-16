@@ -1,9 +1,8 @@
 import { existsSync } from 'fs';
-import { join } from 'path';
 import * as p from '@clack/prompts';
 import { pc } from './color.ts';
-import { readLocalLock } from './local-lock.ts';
-import { fetchSources, installFromSource } from './add.ts';
+import { getLockedSkillState, readLocalLock } from './local-lock.ts';
+import { fetchSources, installFromSource, renameSkill } from './add.ts';
 import { runSync, parseSyncOptions } from './sync.ts';
 import { agents, detectInstalledAgents, getUniversalAgents, isUniversalAgent } from './agents.ts';
 import { diagnostics, formatError } from './diagnostics.ts';
@@ -12,7 +11,7 @@ import { parseSource } from './source-parser.ts';
 import { isCI } from './ci.ts';
 import { getCanonicalPath, getInstallPath, installSkillForAgent } from './installer.ts';
 import { getLastSelectedAgents } from './skill-lock.ts';
-import type { AgentType } from './types.ts';
+import type { AgentType, Skill } from './types.ts';
 
 /**
  * The agents a restore installs to, without prompting: `--agent` when given,
@@ -57,7 +56,8 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
   const { options: syncOptions } = parseSyncOptions(args);
   const frozen = syncOptions.frozenLockfile ?? isCI();
   const force = args.includes('--force');
-  const lock = await readLocalLock(cwd);
+  // A v1 lock is rewritten as v2 unless this run must not write the lock
+  const lock = await readLocalLock(cwd, { persistMigration: !frozen && !syncOptions.dryRun });
   const skillEntries = Object.entries(lock.skills);
 
   if (skillEntries.length === 0) {
@@ -88,12 +88,24 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
   // Separate node_modules skills from remote skills
   const nodeModuleSkills: string[] = [];
   const alreadyInstalled: string[] = [];
+  // Installed, but the files no longer match the lock; restored over
+  const modifiedSkills: string[] = [];
   // Lock entries that could not be restored; their lock entries are left untouched
   const failedSkills: string[] = [];
-  // Keyed by source, install mode, and download, so copied skills stay copies
+  // Keyed by source, install mode, download, and pinned ref, so copied skills stay copies
   const bySource = new Map<
     string,
-    { source: string; copy: boolean; download: boolean; skills: string[] }
+    {
+      source: string;
+      /** Set when `source` is pinned to the locked commit: the ref the lock keeps tracking. */
+      lockedRef?: { ref?: string };
+      copy: boolean;
+      download: boolean;
+      /** Lock keys: the installed names. */
+      skills: string[];
+      /** Installed names per lowercased source name; a renamed skill differs from its source name. */
+      installNames: Map<string, string[]>;
+    }
   >();
 
   for (const [skillName, entry] of skillEntries) {
@@ -102,14 +114,22 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
       continue;
     }
 
-    if (!force && existsSync(join(getCanonicalPath(skillName, { cwd }), 'SKILL.md'))) {
-      alreadyInstalled.push(skillName);
-      continue;
+    if (!force) {
+      const state = await getLockedSkillState(skillName, entry, cwd);
+      if (state === 'tracked') {
+        alreadyInstalled.push(skillName);
+        continue;
+      }
+      if (state === 'modified') modifiedSkills.push(skillName);
     }
 
     // A download is fetched again from its URL as-is; it has no folder or ref to append.
+    // A Git source is fetched at its locked commit, so upstream changes cannot break the restore.
+    const pinned = entry.sourceType !== 'download' && !!entry.commit;
     const installSource =
-      entry.sourceType === 'download' ? (entry.sourceUrl ?? null) : buildLocalUpdateSource(entry);
+      entry.sourceType === 'download'
+        ? (entry.sourceUrl ?? null)
+        : buildLocalUpdateSource({ ...entry, ref: entry.commit ?? entry.ref });
     if (!installSource) {
       p.log.error(
         formatError(diagnostics.SKILLS_LOCK_MISSING_SOURCE_URL({ skill: pc.cyan(skillName) }))
@@ -119,15 +139,30 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
     }
     const copy = entry.installMode === 'copy';
     const download = entry.sourceType === 'download';
-    const key = `${copy ? 'copy' : 'symlink'}:${download ? 'download' : 'source'}:${installSource}`;
-    const group = bySource.get(key) ?? { source: installSource, copy, download, skills: [] };
+    const key = `${copy ? 'copy' : 'symlink'}:${download ? 'download' : 'source'}:${installSource}\n${pinned ? (entry.ref ?? '') : ''}`;
+    const group = bySource.get(key) ?? {
+      source: installSource,
+      ...(pinned && { lockedRef: { ref: entry.ref } }),
+      copy,
+      download,
+      skills: [] as string[],
+      installNames: new Map<string, string[]>(),
+    };
     group.skills.push(skillName);
+    const sourceName = (entry.skillName ?? skillName).toLowerCase();
+    group.installNames.set(sourceName, [...(group.installNames.get(sourceName) ?? []), skillName]);
     bySource.set(key, group);
   }
 
   if (alreadyInstalled.length > 0) {
     p.log.info(
       `${pc.cyan(String(alreadyInstalled.length))} skill${alreadyInstalled.length !== 1 ? 's' : ''} already installed ${pc.dim('(use --force to reinstall)')}`
+    );
+  }
+
+  if (modifiedSkills.length > 0) {
+    p.log.warn(
+      `${modifiedSkills.map((name) => pc.cyan(name)).join(', ')} ${modifiedSkills.length === 1 ? 'does' : 'do'} not match skills-lock.json; ${syncOptions.dryRun ? 'would restore' : 'restoring'} the locked version`
     );
   }
 
@@ -155,23 +190,48 @@ export async function runInstallFromLock(args: string[]): Promise<void> {
   }
 
   // Download every source at once, then install them in order
-  const requests = [...bySource.values()].map(({ source, copy, download, skills }) => ({
-    source,
-    copy,
-    parsed: download ? { type: 'download' as const, url: source } : parseSource(source),
-    skills,
-    // A pack or archive can hold its skills at any depth.
-    ...(download && { fullDepth: true }),
-  }));
+  const requests = [...bySource.values()].map(
+    ({ source, lockedRef, copy, download, skills, installNames }) => ({
+      source,
+      lockedRef,
+      copy,
+      parsed: download ? { type: 'download' as const, url: source } : parseSource(source),
+      // Fetch renamed skills by the name their source uses
+      skills: skills.map((name) => lock.skills[name]?.skillName ?? name),
+      lockKeys: skills,
+      installNames,
+      // A pack or archive can hold its skills at any depth.
+      ...(download && { fullDepth: true }),
+    })
+  );
   const fetched = await fetchSources(requests);
   let restoredCount = 0;
-  for (const [index, { source, copy, skills }] of requests.entries()) {
-    const result = await installFromSource(fetched[index]!, {
-      skills,
-      agents: targetAgents,
-      ...(copy && { installMode: 'copy' as const }),
-      ...(frozen && { frozenLock: lock }),
-    });
+  for (const [
+    index,
+    { source, lockedRef, copy, skills: sourceNames, lockKeys: skills, installNames },
+  ] of requests.entries()) {
+    const fetchedSource = fetched[index]!;
+    // Fetched at the locked commit; the lock keeps tracking the branch or tag it came from.
+    const result = await installFromSource(
+      lockedRef
+        ? { ...fetchedSource, parsed: { ...fetchedSource.parsed, ref: lockedRef.ref } }
+        : fetchedSource,
+      {
+        skills: sourceNames,
+        // Install each found skill under every name the lock has it as
+        ...(skills.some((name) => lock.skills[name]?.skillName) && {
+          select: async (found: Skill[]) =>
+            found.flatMap((skill) =>
+              (installNames.get(skill.name.toLowerCase()) ?? [skill.name]).map((name) =>
+                name.toLowerCase() === skill.name.toLowerCase() ? skill : renameSkill(skill, name)
+              )
+            ),
+        }),
+        agents: targetAgents,
+        ...(copy && { installMode: 'copy' as const }),
+        ...(frozen && { frozenLock: lock }),
+      }
+    );
     if (result.error) {
       p.log.error(
         `Failed to restore ${skills.map((name) => pc.cyan(name)).join(', ')} from ${pc.cyan(source)}: ${result.error}`

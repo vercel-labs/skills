@@ -312,6 +312,97 @@ describe('telemetry', () => {
   });
 });
 
+describe('rename', () => {
+  const lockOf = () => JSON.parse(readFileSync(join(cwd, 'skills-lock.json'), 'utf-8'));
+  const skillMd = (name: string) =>
+    readFileSync(join(cwd, `.claude/skills/${name}/SKILL.md`), 'utf-8');
+
+  it('installs a skill under a new name and lists where it came from', async () => {
+    const result = await api.installSkills(source, {
+      cwd,
+      skills: ['alpha'],
+      rename: { alpha: 'gamma' },
+      agents: ['claude-code'],
+    });
+
+    expect(result.installed.map((target) => target.skill)).toEqual(['gamma']);
+    expect(skillMd('gamma')).toContain('name: gamma\n');
+    expect(lockOf().skills.gamma.skillName).toBe('alpha');
+    const listed = await api.listSkills({ cwd, scope: 'project' });
+    expect(listed.skills).toEqual([
+      expect.objectContaining({ name: 'gamma', source, renamedFrom: 'alpha' }),
+    ]);
+  });
+
+  it('renames several skills in one call and installs the rest as-is', async () => {
+    await api.installSkills(source, {
+      cwd,
+      rename: { alpha: 'gamma', beta: 'delta' },
+      agents: ['claude-code'],
+    });
+
+    expect(skillMd('gamma')).toContain('name: gamma\n');
+    expect(skillMd('delta')).toContain('name: delta\n');
+    expect(lockOf().skills).toEqual({
+      gamma: expect.objectContaining({ skillName: 'alpha' }),
+      delta: expect.objectContaining({ skillName: 'beta' }),
+    });
+
+    writeSkill(join(source, 'skills'), 'epsilon');
+    await api.installSkills(source, {
+      cwd,
+      skills: ['alpha', 'epsilon'],
+      rename: { alpha: 'zeta' },
+      agents: ['claude-code'],
+    });
+    expect(lockOf().skills.zeta.skillName).toBe('alpha');
+    expect(lockOf().skills.epsilon.skillName).toBeUndefined();
+  });
+
+  it('rejects a bad map before writing anything', async () => {
+    const install = (rename: unknown, skills?: string[]) =>
+      api.installSkills(source, {
+        cwd,
+        agents: ['claude-code'],
+        ...(skills && { skills }),
+        rename: rename as Record<string, string>,
+      });
+
+    await expect(install('gamma')).rejects.toMatchObject({ code: 'SKILLS_INVALID_OPTION_VALUE' });
+    await expect(install({ alpha: '../gamma' })).rejects.toMatchObject({
+      code: 'SKILLS_INVALID_OPTION_VALUE',
+    });
+    // A key must name a skill being installed
+    await expect(install({ nope: 'gamma' })).rejects.toMatchObject({
+      code: 'SKILLS_NO_MATCHING_SKILLS',
+    });
+    await expect(install({ beta: 'gamma' }, ['alpha'])).rejects.toMatchObject({
+      code: 'SKILLS_NO_MATCHING_SKILLS',
+    });
+    // No two skills may end up with one name
+    await expect(install({ alpha: 'beta' })).rejects.toMatchObject({
+      code: 'SKILLS_INVALID_OPTION_VALUE',
+    });
+    await expect(install({ alpha: 'gamma', beta: 'gamma' })).rejects.toMatchObject({
+      code: 'SKILLS_INVALID_OPTION_VALUE',
+    });
+    expect(existsSync(join(cwd, 'skills-lock.json'))).toBe(false);
+    expect(existsSync(join(cwd, '.claude/skills'))).toBe(false);
+  });
+
+  it('can swap the names of two skills', async () => {
+    await api.installSkills(source, {
+      cwd,
+      rename: { alpha: 'beta', beta: 'alpha' },
+      agents: ['claude-code'],
+    });
+
+    expect(skillMd('beta')).toContain('The alpha skill');
+    expect(lockOf().skills.beta.skillName).toBe('alpha');
+    expect(lockOf().skills.alpha.skillName).toBe('beta');
+  });
+});
+
 describe('listSkills and removeSkills', () => {
   it('lists installed skills with their lock source, then removes them', async () => {
     await api.installSkills(source, { cwd, agents: ['claude-code'] });

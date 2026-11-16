@@ -31,6 +31,7 @@ export interface InstalledSkillInfo {
   readonly path: string;
   readonly agents: readonly string[];
   readonly source?: string;
+  readonly renamedFrom?: string;
 }
 export interface InstalledSkillTarget {
   readonly skill: string;
@@ -49,6 +50,7 @@ export interface InstallFailure {
 export interface InstallOptions extends BaseOptions, InstallSettings {
   ref?: string;
   skills?: readonly string[];
+  rename?: Readonly<Record<string, string>>;
   agents?: readonly string[];
   telemetry?: boolean;
   metadata?: Readonly<Record<string, unknown>>;
@@ -276,6 +278,12 @@ export declare const diagnostics: import("nostics").Diagnostics<{
       names: string[];
     }) => string;
   };
+  readonly SKILLS_RENAME_MULTIPLE_SKILLS: {
+    readonly why: (p: {
+      count: number;
+    }) => string;
+    readonly fix: "Pick one skill with --skill <name> or <source>@<skill>.";
+  };
   readonly SKILLS_AMBIGUOUS_SKILL_SELECTOR: {
     readonly why: (p: {
       selector: string;
@@ -475,6 +483,11 @@ export declare const diagnostics: import("nostics").Diagnostics<{
     readonly why: (p: {
       path: string;
       reason: string;
+    }) => string;
+  };
+  readonly SKILLS_LOCAL_LOCK_BUSY: {
+    readonly why: (p: {
+      path: string;
     }) => string;
   };
   readonly SKILLS_SYMLINK_OUTSIDE_SKILL: {

@@ -92,6 +92,59 @@ export async function searchSkillsAPI(query: string, owner?: string): Promise<Se
   }
 }
 
+// The search API requires every query term to match, so one extra word (e.g.
+// "next bundle analyzer") can hide an otherwise relevant skill. When a
+// multi-term query returns few results, retry with each term dropped and
+// append those partial matches after the exact ones.
+const MIN_EXACT_RESULTS = 10;
+const MAX_FALLBACK_TERMS = 6;
+const MAX_MERGED_RESULTS = 25;
+
+export interface SearchResult {
+  skills: SearchSkill[];
+  /** Number of leading results that matched every query term. */
+  exactCount: number;
+}
+
+export async function searchSkills(query: string, owner?: string): Promise<SearchResult> {
+  const exact = await searchSkillsAPI(query, owner);
+  const terms = [...new Set(query.trim().split(/\s+/).filter(Boolean))];
+
+  if (exact.length >= MIN_EXACT_RESULTS || terms.length < 2 || terms.length > MAX_FALLBACK_TERMS) {
+    return { skills: exact, exactCount: exact.length };
+  }
+
+  const subqueries = terms.map((_, i) => terms.filter((_, j) => j !== i).join(' '));
+  const partialLists = await Promise.all(subqueries.map((q) => searchSkillsAPI(q, owner)));
+
+  const seen = new Set(exact.map((skill) => skill.slug));
+  const candidates = new Map<string, { skill: SearchSkill; hits: number; bestRank: number }>();
+  for (const list of partialLists) {
+    list.forEach((skill, rank) => {
+      if (seen.has(skill.slug)) return;
+      const entry = candidates.get(skill.slug);
+      if (entry) {
+        entry.hits++;
+        entry.bestRank = Math.min(entry.bestRank, rank);
+      } else {
+        candidates.set(skill.slug, { skill, hits: 1, bestRank: rank });
+      }
+    });
+  }
+
+  const partial = [...candidates.values()]
+    .sort(
+      (a, b) =>
+        b.hits - a.hits ||
+        a.bestRank - b.bestRank ||
+        (b.skill.installs || 0) - (a.skill.installs || 0)
+    )
+    .slice(0, Math.max(0, MAX_MERGED_RESULTS - exact.length))
+    .map((entry) => entry.skill);
+
+  return { skills: [...exact, ...partial], exactCount: exact.length };
+}
+
 // ANSI escape codes for terminal control
 const HIDE_CURSOR = '\x1b[?25l';
 const SHOW_CURSOR = '\x1b[?25h';
@@ -201,7 +254,7 @@ async function runSearchPrompt(initialQuery = '', owner?: string): Promise<Searc
 
     debounceTimer = setTimeout(async () => {
       try {
-        results = await searchSkillsAPI(q, owner);
+        results = (await searchSkills(q, owner)).skills;
         selectedIndex = 0;
       } catch {
         results = [];
@@ -316,7 +369,7 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
 
   // Non-interactive mode: just print results and exit
   if (query) {
-    const results = await searchSkillsAPI(query, owner);
+    const { skills: results, exactCount } = await searchSkills(query, owner);
 
     // Track telemetry for non-interactive search
     track({
@@ -334,7 +387,15 @@ ${DIM}  2) npx skills add <owner/repo@skill>${RESET}`;
     console.log(`${DIM}Install with${RESET} npx skills add <owner/repo@skill>`);
     console.log();
 
-    for (const skill of results) {
+    for (const [index, skill] of results.entries()) {
+      if (index === exactCount) {
+        console.log(
+          exactCount === 0
+            ? `${DIM}No skills matched every term in "${query}". Partial matches:${RESET}`
+            : `${DIM}Partial matches (some terms of "${query}"):${RESET}`
+        );
+        console.log();
+      }
       const pkg = skill.source || skill.slug;
       const installs = formatInstalls(skill.installs);
       console.log(

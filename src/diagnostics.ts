@@ -102,6 +102,11 @@ export const diagnostics = defineDiagnostics({
         return `Examples:\n  skills use ${p.source}@${example}\n  skills use ${p.source} --skill ${example}`;
       },
     },
+    SKILLS_RENAME_MULTIPLE_SKILLS: {
+      why: (p: { count: number }) =>
+        `--rename installs one skill under a new name, but ${p.count} skills were selected.`,
+      fix: 'Pick one skill with --skill <name> or <source>@<skill>.',
+    },
     SKILLS_AMBIGUOUS_SKILL_SELECTOR: {
       why: (p: { selector: string }) => `Skill selector "${p.selector}" matched multiple skills.`,
     },
@@ -264,6 +269,10 @@ export const diagnostics = defineDiagnostics({
     SKILLS_INVALID_LOCAL_LOCK: {
       why: (p: { path: string; reason: string }) =>
         `Invalid ${p.path}: ${p.reason}. Fix or delete the file, then retry.`,
+    },
+    SKILLS_LOCAL_LOCK_BUSY: {
+      why: (p: { path: string }) =>
+        `Timed out waiting for ${p.path}: another skills process is updating skills-lock.json. If none is running, delete the file, then retry.`,
     },
     SKILLS_SYMLINK_OUTSIDE_SKILL: {
       why: (p: { path: string }) =>

@@ -1,4 +1,4 @@
-import simpleGit from 'simple-git';
+import { simpleGit } from 'simple-git';
 import { join, normalize, resolve, sep } from 'path';
 import { mkdtemp, mkdir, rm } from 'fs/promises';
 import { tmpdir } from 'os';
@@ -149,6 +149,21 @@ function isAuthFailure(message: string): boolean {
 }
 
 function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_ALLOW_PROTOCOL: ALLOWED_GIT_PROTOCOLS,
+    // When git-lfs IS installed, tell it not to download LFS content
+    // during checkout. See #952 for context and empirical impact.
+    GIT_LFS_SKIP_SMUDGE: '1',
+    // isMissingRefError and isAuthFailure match git's English messages. A
+    // translated git (e.g. LANG=de_DE.UTF-8) would skip the commit-SHA and
+    // auth fallbacks, so force untranslated output. LC_ALL=C also overrides
+    // LANGUAGE and LC_MESSAGES. See #2505.
+    LC_ALL: 'C',
+    ...extraEnv,
+  };
+
   const git = simpleGit({
     timeout: { block: CLONE_TIMEOUT_MS },
     // When git-lfs is NOT installed, GIT_LFS_SKIP_SMUDGE has no effect —
@@ -190,43 +205,41 @@ function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
     // allowances apply only to trusted environment variables already controlled
     // by the caller (plus the hard-coded SSH fallback). This client is used only
     // for clone with fixed options; the clone URL and ref cannot configure them.
+    //
+    // simple-git v4 also strips or rejects Git-related variables (GIT_*,
+    // PAGER, SSH_ASKPASS, ...) unless they are listed in allowEnvironment.
+    // Allow every variable we pass so the inherited environment reaches git
+    // unchanged, as it did with v3.
+    allowEnvironment: Object.keys(env),
     unsafe: {
       allowUnsafeAlias: true,
       allowUnsafeAskPass: true,
+      allowUnsafeCommandBinaries: true,
       allowUnsafeConfigEnvCount: true,
       allowUnsafeConfigPaths: true,
       allowUnsafeCredentialHelper: true,
       allowUnsafeDiffExternal: true,
       allowUnsafeDiffTextConv: true,
       allowUnsafeEditor: true,
+      allowUnsafeExec: true,
       allowUnsafeFilter: true,
       allowUnsafeFsMonitor: true,
       allowUnsafeGpgProgram: true,
       allowUnsafeGitProxy: true,
       allowUnsafeHooksPath: true,
+      allowUnsafeInclude: true,
       allowUnsafeMergeDriver: true,
       allowUnsafePack: true,
       allowUnsafePager: true,
       allowUnsafeProtocolOverride: true,
       allowUnsafeSshCommand: true,
+      allowUnsafeSubmodule: true,
       allowUnsafeTemplateDir: true,
+      allowUnsafeUrlRewrite: true,
     },
   });
 
-  git.env({
-    ...process.env,
-    GIT_TERMINAL_PROMPT: '0',
-    GIT_ALLOW_PROTOCOL: ALLOWED_GIT_PROTOCOLS,
-    // When git-lfs IS installed, tell it not to download LFS content
-    // during checkout. See #952 for context and empirical impact.
-    GIT_LFS_SKIP_SMUDGE: '1',
-    // isMissingRefError and isAuthFailure match git's English messages. A
-    // translated git (e.g. LANG=de_DE.UTF-8) would skip the commit-SHA and
-    // auth fallbacks, so force untranslated output. LC_ALL=C also overrides
-    // LANGUAGE and LC_MESSAGES. See #2505.
-    LC_ALL: 'C',
-    ...extraEnv,
-  });
+  git.env(env);
 
   return git;
 }

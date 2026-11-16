@@ -22,6 +22,7 @@ vi.mock('../src/telemetry.ts', () => ({
 vi.mock('../src/git.ts', () => ({
   cloneRepo: vi.fn(),
   cleanupTempDir: vi.fn().mockResolvedValue(undefined),
+  getHeadCommit: vi.fn().mockResolvedValue(null),
 }));
 
 // The suite itself runs in CI, where --frozen-lockfile would otherwise default on
@@ -69,7 +70,7 @@ describe('skills install fetches sources in parallel', () => {
     await writeFile(
       join(project, 'skills-lock.json'),
       JSON.stringify({
-        version: 1,
+        version: 2,
         skills: {
           alpha: {
             source: 'acme/alpha',

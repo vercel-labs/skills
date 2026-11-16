@@ -396,6 +396,8 @@ export interface RemoveSkillResult {
   success: boolean;
   source?: string;
   sourceType?: string;
+  /** Name of the skill in its source, when it was installed with `--rename`. */
+  skillName?: string;
   error?: string;
 }
 
@@ -492,6 +494,7 @@ export async function removeInstalledSkills(
 
       let effectiveSource = 'local';
       let effectiveSourceType = 'local';
+      let sourceSkillName: string | undefined;
       const updateLock = options.lockfile !== false && !isStillUsed;
 
       // The lock entry tracks the canonical path, so it survives for as long as
@@ -501,6 +504,7 @@ export async function removeInstalledSkills(
         const lockEntry = await getSkillFromLock(skillName);
         effectiveSource = lockEntry?.source || 'local';
         effectiveSourceType = lockEntry?.sourceType || 'local';
+        sourceSkillName = lockEntry?.skillName;
         if (updateLock) {
           await removeSkillFromLock(skillName);
         }
@@ -509,6 +513,7 @@ export async function removeInstalledSkills(
         const lockEntry = localLock.skills[skillName];
         effectiveSource = lockEntry?.source || 'local';
         effectiveSourceType = lockEntry?.sourceType || 'local';
+        sourceSkillName = lockEntry?.skillName;
         if (updateLock) {
           await removeSkillFromLocalLock(skillName, cwd);
         }
@@ -519,6 +524,7 @@ export async function removeInstalledSkills(
         success: true,
         source: effectiveSource,
         sourceType: effectiveSourceType,
+        ...(sourceSkillName && { skillName: sourceSkillName }),
       });
     } catch (err) {
       results.push({
@@ -548,7 +554,8 @@ export function trackRemovals(
     const source =
       r.sourceType === 'local' || r.sourceType === 'download' ? r.sourceType : r.source || 'local';
     const existing = bySource.get(source) || { skills: [] };
-    existing.skills.push(r.skill);
+    // A --rename alias is a local name; telemetry only receives the source's name.
+    existing.skills.push(r.skillName ?? r.skill);
     existing.sourceType = r.sourceType;
     bySource.set(source, existing);
   }
