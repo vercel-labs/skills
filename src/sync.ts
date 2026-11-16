@@ -28,7 +28,7 @@ import {
   frozenLockfileError,
   lockChangeReason,
   readLocalLock,
-  writeLocalLock,
+  removeSkillFromLocalLock,
   type LocalSkillLockEntry,
   type LocalSkillLockFile,
 } from './local-lock.ts';
@@ -475,9 +475,13 @@ async function pruneStaleSkills(
         await rm(dest, { recursive: true, force: true });
       }
     }
-    if (key) delete lock.skills[key];
+    if (key) {
+      delete lock.skills[key];
+      // Remove under the file lock: `lock` was read before sync started, so
+      // writing it back would drop entries other processes added since.
+      await removeSkillFromLocalLock(key, cwd);
+    }
   }
-  await writeLocalLock(lock, cwd);
   return stale;
 }
 
