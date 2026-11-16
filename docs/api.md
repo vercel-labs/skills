@@ -182,21 +182,28 @@ off. See [what is collected](troubleshooting.md#telemetry).
 Errors and warnings are [nostics](https://github.com/antfu/nostics)
 diagnostics from the same catalog the CLI uses, exported as `diagnostics`.
 Each has a permanent `code` (`SKILLS_*`), a `message`, and often a `fix`.
-Check them with `isDiagnostic`:
+Check one code with `diagnostics.SKILLS_X.is(error)`, or any code of the
+catalog with `diagnostics.is(error)`:
 
 ```ts
-import { installSkills, isDiagnostic } from 'skills';
+import { diagnostics, installSkills } from 'skills';
 
 try {
   await installSkills(source, options);
 } catch (error) {
-  if (isDiagnostic(error, 'SKILLS_GIT_CLONE_TIMEOUT')) return retry();
-  if (isDiagnostic(error, 'SKILLS_GIT_AUTH_FAILED', 'SKILLS_GIT_SAML_SSO_BLOCKED')) {
+  if (diagnostics.SKILLS_GIT_CLONE_TIMEOUT.is(error)) return retry();
+  if (
+    diagnostics.SKILLS_GIT_AUTH_FAILED.is(error) ||
+    diagnostics.SKILLS_GIT_SAML_SSO_BLOCKED.is(error)
+  ) {
     return askForCredentials();
   }
+  if (diagnostics.is(error)) console.error(error.code, error.message);
   throw error;
 }
 ```
+
+`isDiagnostic(error, ...codes)` still works but is deprecated.
 
 Per-skill failures in `result.failed` carry the same `code` and `message`.
 Fetch failures are the original diagnostic from git, the download, or the

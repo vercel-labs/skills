@@ -1,7 +1,6 @@
 import { existsSync } from 'fs';
 import { posix, relative, sep } from 'path';
 import { fetchSource, releaseSource, type FetchedSource } from '../add.ts';
-import { Diagnostic } from 'nostics';
 import { diagnostics } from '../diagnostics.ts';
 import { getHeadCommit } from '../git.ts';
 import { getSkillDisplayName } from '../skills.ts';
@@ -126,7 +125,7 @@ function withRef(parsed: ParsedSource, ref: string | undefined): ParsedSource {
  */
 function fetchError(input: string, fetched: FetchedSource): Error {
   const { cause } = fetched;
-  if (cause instanceof Diagnostic) return cause;
+  if (diagnostics.is(cause)) return cause;
   return diagnostics.SKILLS_SOURCE_FETCH_FAILED({
     source: input,
     detail: fetched.error ?? 'unknown error',

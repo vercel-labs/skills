@@ -53,7 +53,7 @@ import {
 import { listInstalledSkills } from './installer.ts';
 import { parseCliArgs, throwFirstError } from './cli-args.ts';
 import { wellKnownProvider, computeWellKnownSkillDigest } from './providers/index.ts';
-import { isDiagnostic } from './diagnostics.ts';
+import { diagnostics } from './diagnostics.ts';
 import { removeCommand } from './remove.ts';
 import { sanitizeMetadata, sanitizeName } from './sanitize.ts';
 import { track } from './telemetry.ts';
@@ -487,7 +487,7 @@ export async function checkWellKnownForUpdates(
           .filter((entry) => tracked.has(entry.name))
           .map((entry) =>
             wellKnownProvider.fetchSkillByEntry(entry).catch((error) => {
-              if (isDiagnostic(error, 'SKILLS_WELLKNOWN_FILE_FETCH_FAILED')) {
+              if (diagnostics.SKILLS_WELLKNOWN_FILE_FETCH_FAILED.is(error)) {
                 incomplete.add(entry.name);
               }
               return null;

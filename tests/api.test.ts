@@ -93,8 +93,26 @@ async function expectCode(promise: Promise<unknown>, code: DiagnosticCode): Prom
     (e: unknown) => e
   );
   expect(error).toMatchObject({ code });
-  expect(api.isDiagnostic(error, code)).toBe(true);
+  expect(api.diagnostics[code].is(error)).toBe(true);
 }
+
+describe('diagnostics', () => {
+  it('recognizes diagnostics from every catalog', () => {
+    const git = api.diagnostics.SKILLS_GIT_CLONE_FAILED({ url: 'u', detail: 'd' });
+    const archive = api.diagnostics.SKILLS_ARCHIVE_LINK_ENTRY();
+    const base = api.diagnostics.SKILLS_SOURCE_DISPOSED();
+
+    for (const error of [git, archive, base]) expect(api.diagnostics.is(error)).toBe(true);
+  });
+
+  it('keeps the deprecated isDiagnostic working', () => {
+    const error = api.diagnostics.SKILLS_GIT_AUTH_FAILED({ url: 'u', host: 'h' });
+    expect(api.isDiagnostic(error, 'SKILLS_GIT_CLONE_TIMEOUT', 'SKILLS_GIT_AUTH_FAILED')).toBe(
+      true
+    );
+    expect(api.isDiagnostic(error, 'SKILLS_GIT_CLONE_FAILED')).toBe(false);
+  });
+});
 
 describe('agents', () => {
   it('lists supported agents as frozen records, including the neutral universal target', () => {
@@ -707,7 +725,7 @@ describe('git sources', { timeout: 30000 }, () => {
     const missing = pathToFileURL(join(root, 'missing-repo')).href;
     const error = await api.resolveSource(missing, { cwd }).catch((e: unknown) => e);
     // Git failures surface as the original diagnostic, not a wrapper.
-    expect(api.isDiagnostic(error, 'SKILLS_GIT_CLONE_FAILED')).toBe(true);
+    expect(api.diagnostics.SKILLS_GIT_CLONE_FAILED.is(error)).toBe(true);
   });
 
   it('accepts ref only for git sources', async () => {

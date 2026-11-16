@@ -26,7 +26,7 @@ import {
   EVE_SUBAGENTS_DIR,
 } from './agents.ts';
 import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
-import { diagnostics, isDiagnostic } from './diagnostics.ts';
+import { diagnostics } from './diagnostics.ts';
 import { parseFrontmatter, setFrontmatterName } from './frontmatter.ts';
 import { stringify } from 'yaml';
 import { parseSkillMd } from './skills.ts';
@@ -295,7 +295,7 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
     await symlink(symlinkTarget, linkPath, symlinkType);
     return true;
   } catch (error) {
-    if (isDiagnostic(error, 'SKILLS_CATEGORY_DIR_CONFLICT')) throw error;
+    if (diagnostics.SKILLS_CATEGORY_DIR_CONFLICT.is(error)) throw error;
     return false;
   }
 }

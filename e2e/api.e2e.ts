@@ -295,7 +295,7 @@ describe('programmatic API', () => {
     await writeFile(
       join(dir, 'consumer.ts'),
       [
-        "import { installSkills, isDiagnostic, listSkills, resolveSource, version } from 'skills';",
+        "import { diagnostics, installSkills, listSkills, resolveSource, version } from 'skills';",
         "import type { InstallResult, SkillsConfig, SkillSource } from 'skills';",
         '',
         "const config: SkillsConfig = { scope: 'project', agents: { include: ['codex'] } };",
@@ -306,7 +306,7 @@ describe('programmatic API', () => {
         '    const { skills } = await listSkills({ cwd });',
         '    return `${version} ${result.installed.length} ${skills.length}`;',
         '  } catch (error) {',
-        "    if (isDiagnostic(error, 'SKILLS_GIT_AUTH_FAILED')) return error.message;",
+        '    if (diagnostics.SKILLS_GIT_AUTH_FAILED.is(error)) return error.message;',
         '    throw error;',
         '  } finally {',
         '    await source.dispose();',
@@ -314,7 +314,7 @@ describe('programmatic API', () => {
         '}',
         '',
         '// @ts-expect-error unknown diagnostic codes are rejected',
-        "isDiagnostic(new Error(), 'SKILLS_NOT_A_REAL_CODE');",
+        'diagnostics.SKILLS_NOT_A_REAL_CODE.is(new Error());',
         '',
       ].join('\n')
     );

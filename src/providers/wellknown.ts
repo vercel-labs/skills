@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
 import { readZipArchive } from '../archive.ts';
-import { diagnostics, isDiagnostic } from '../diagnostics.ts';
+import { diagnostics } from '../diagnostics.ts';
 import { parseFrontmatter } from '../frontmatter.ts';
 import { sanitizeMetadata } from '../sanitize.ts';
 import { isInternalSkill, shouldInstallInternalSkills } from '../skills.ts';
@@ -400,11 +400,8 @@ export class WellKnownProvider implements HostProvider {
       return null;
     } catch (error) {
       if (
-        isDiagnostic(
-          error,
-          'SKILLS_WELLKNOWN_DIGEST_MISMATCH',
-          'SKILLS_WELLKNOWN_FILE_FETCH_FAILED'
-        )
+        diagnostics.SKILLS_WELLKNOWN_DIGEST_MISMATCH.is(error) ||
+        diagnostics.SKILLS_WELLKNOWN_FILE_FETCH_FAILED.is(error)
       ) {
         throw error;
       }
@@ -564,7 +561,7 @@ export class WellKnownProvider implements HostProvider {
         indexEntry: entry.indexEntry,
       });
     } catch (error) {
-      if (isDiagnostic(error, 'SKILLS_WELLKNOWN_DIGEST_MISMATCH')) throw error;
+      if (diagnostics.SKILLS_WELLKNOWN_DIGEST_MISMATCH.is(error)) throw error;
       return null;
     }
   }
@@ -658,8 +655,8 @@ export class WellKnownProvider implements HostProvider {
       return [];
     } catch (error) {
       if (
-        isDiagnostic(error, 'SKILLS_WELLKNOWN_SCOPE_NOT_FOUND') ||
-        isDiagnostic(error, 'SKILLS_WELLKNOWN_DIGEST_MISMATCH')
+        diagnostics.SKILLS_WELLKNOWN_SCOPE_NOT_FOUND.is(error) ||
+        diagnostics.SKILLS_WELLKNOWN_DIGEST_MISMATCH.is(error)
       ) {
         throw error;
       }

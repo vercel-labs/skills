@@ -5,7 +5,7 @@ import { basename, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { stringify as stringifyYaml } from 'yaml';
 import { runAdd, parseAddOptions, initTelemetry } from './add.ts';
-import { diagnostics, formatError, isDiagnostic } from './diagnostics.ts';
+import { diagnostics, formatError } from './diagnostics.ts';
 import { runFind } from './find.ts';
 import { runInstallFromLock } from './install.ts';
 import { runList } from './list.ts';
@@ -448,12 +448,9 @@ async function main(): Promise<void> {
 main()
   .catch((error: unknown) => {
     if (
-      !isDiagnostic(
-        error,
-        'SKILLS_INVALID_LOCAL_LOCK',
-        'SKILLS_OPTION_REQUIRES_VALUE',
-        'SKILLS_OPTION_TAKES_NO_VALUE'
-      )
+      !diagnostics.SKILLS_INVALID_LOCAL_LOCK.is(error) &&
+      !diagnostics.SKILLS_OPTION_REQUIRES_VALUE.is(error) &&
+      !diagnostics.SKILLS_OPTION_TAKES_NO_VALUE.is(error)
     ) {
       throw error;
     }

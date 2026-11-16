@@ -122,8 +122,8 @@ export class Sandbox {
         'const [project, home, out] = process.argv.slice(2);',
         'async function codeOf(promise) {',
         '  try { await promise; return null; } catch (error) {',
-        // instanceof check through the package's own isDiagnostic, not just a `code` field.
-        '    return api.isDiagnostic(error, error?.code) ? error.code : `not a diagnostic: ${error}`;',
+        // Checked through the package's own catalog, not just a `code` field.
+        '    return api.diagnostics.is(error) ? error.code : `not a diagnostic: ${error}`;',
         '  }',
         '}',
         `const value = await (async () => {\n${body}\n})();`,
