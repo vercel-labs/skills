@@ -85,7 +85,7 @@ import { setFrontmatterName } from './frontmatter.ts';
 import type { Skill, AgentType, ParsedSource } from './types.ts';
 import {
   tryBlobInstall,
-  type BlobFallbackReason,
+  type BlobFallback,
   BLOB_ALLOWED_REPOS,
   getSkillFolderHashFromTree,
   fetchRepoTree,
@@ -743,7 +743,7 @@ interface AddJsonResult {
   reason?: string;
   error?: string;
   /** Present when the blob fast path failed and the install fell back to a git clone. */
-  fallbackReason?: BlobFallbackReason;
+  fallback?: BlobFallback;
 }
 
 /** Build the `security` field for a JSON entry from partner audit data. */
@@ -1537,7 +1537,7 @@ export interface ResolvedSkills {
   tempDir: string | null;
   blobResult: BlobInstallResult | null;
   /** Set when the blob fast path was tried and the repo tree could not be read. */
-  blobFallbackReason?: BlobFallbackReason;
+  blobFallback?: BlobFallback;
   /** Directory skills were discovered in (the source root); unset for blob and well-known. */
   rootDir?: string;
   /** Git commit the skills were read from, for Git sources when it is known. */
@@ -1651,7 +1651,7 @@ async function resolveSkills(
   const { includeInternal } = options;
   let skills: Skill[];
   let blobResult: BlobInstallResult | null = null;
-  let blobFallbackReason: BlobFallbackReason | undefined;
+  let blobFallback: BlobFallback | undefined;
   let tempDir: string | null = null;
   let discoveredRoot: string | undefined;
   let downloads: DownloadRoot[] | undefined;
@@ -1705,8 +1705,8 @@ async function resolveSkills(
           ref: parsed.ref,
           getToken: getGitHubToken,
           includeInternal,
-          onFallback: (reason) => {
-            blobFallbackReason = reason;
+          onFallback: (fallback) => {
+            blobFallback = fallback;
           },
         });
       }
@@ -1720,13 +1720,16 @@ async function resolveSkills(
         spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
       } else {
         // Blob failed — fall back to git clone
-        if (blobFallbackReason === 'rate-limited') {
+        if (blobFallback?.reason === 'rate-limited') {
           spinner.stop(
             pc.yellow('GitHub API rate limit reached, falling back to git clone (slower)')
           );
-          p.log.message(
-            pc.dim('Tip: run `gh auth login` or set GITHUB_TOKEN to use the fast path.')
-          );
+          // With a token already set, the authenticated retry failed too; the tip would not help.
+          if (!getGitHubToken()) {
+            p.log.message(
+              pc.dim('Tip: run `gh auth login` or set GITHUB_TOKEN to use the fast path.')
+            );
+          }
           spinner.start('Cloning repository…');
         } else if (attemptedBlobInstall) {
           spinner.message('Cloning repository…');
@@ -1759,7 +1762,7 @@ async function resolveSkills(
     skills,
     tempDir,
     blobResult,
-    ...(blobFallbackReason && { blobFallbackReason }),
+    ...(blobFallback && { blobFallback }),
     ...(discoveredRoot && { rootDir: discoveredRoot }),
     ...(downloads && { downloads }),
     ...(commit && { commit }),
@@ -3409,7 +3412,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           agents: skillResults.filter((r) => !r.skipped).map((r) => r.agent),
           mode: skillResults[0]?.mode ?? installMode,
           security: buildJsonSecurity(auditDataForJson, name, ownerRepoForAudit),
-          ...(resolved.blobFallbackReason && { fallbackReason: resolved.blobFallbackReason }),
+          ...(resolved.blobFallback && { fallback: resolved.blobFallback }),
         });
       }
       emitJson();

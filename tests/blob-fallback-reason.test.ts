@@ -70,7 +70,7 @@ describe('tryBlobInstall fallback reason', () => {
     const result = await tryBlobInstall('vercel/skills', { onFallback });
 
     expect(result).toBeNull();
-    expect(onFallback).toHaveBeenCalledExactlyOnceWith('rate-limited');
+    expect(onFallback).toHaveBeenCalledExactlyOnceWith({ reason: 'rate-limited' });
   });
 
   it('reports tree-unavailable, not rate-limited, when the tree cannot be read for another reason', async () => {
@@ -80,7 +80,7 @@ describe('tryBlobInstall fallback reason', () => {
     const result = await tryBlobInstall('vercel/skills', { onFallback });
 
     expect(result).toBeNull();
-    expect(onFallback).toHaveBeenCalledExactlyOnceWith('tree-unavailable');
+    expect(onFallback).toHaveBeenCalledExactlyOnceWith({ reason: 'tree-unavailable' });
   });
 
   it('stays silent for an explicit ref, which skips the fast path by design', async () => {

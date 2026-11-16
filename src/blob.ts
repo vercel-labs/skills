@@ -597,6 +597,11 @@ function hasCurrentSnapshot(
 /** Why the repo tree could not be read, so the caller can tell the user what to fix. */
 export type BlobFallbackReason = 'rate-limited' | 'tree-unavailable';
 
+/** Passed to `onFallback`; an object so later fields do not change the callback signature. */
+export interface BlobFallback {
+  reason: BlobFallbackReason;
+}
+
 /**
  * Attempt to resolve skills from blob storage instead of cloning.
  *
@@ -623,7 +628,7 @@ export async function tryBlobInstall(
     ref?: string;
     getToken?: () => string | null;
     includeInternal?: boolean;
-    onFallback?: (reason: BlobFallbackReason) => void;
+    onFallback?: (fallback: BlobFallback) => void;
   } = {}
 ): Promise<BlobInstallResult | null> {
   // Snapshot downloads are keyed only by owner, repository, and skill slug. They
@@ -635,7 +640,7 @@ export async function tryBlobInstall(
   // 1. Fetch the full repo tree
   const tree = await fetchRepoTree(ownerRepo, options.ref, options.getToken);
   if (!tree) {
-    options.onFallback?.(_rateLimitedThisSession ? 'rate-limited' : 'tree-unavailable');
+    options.onFallback?.({ reason: _rateLimitedThisSession ? 'rate-limited' : 'tree-unavailable' });
     return null;
   }
 

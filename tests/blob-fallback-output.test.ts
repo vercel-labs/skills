@@ -116,7 +116,7 @@ describe('blob clone fallback output', () => {
   describe('when the fast path reports why it failed', () => {
     const report = (reason: 'rate-limited' | 'tree-unavailable') =>
       vi.mocked(tryBlobInstall).mockImplementationOnce(async (_ownerRepo, options) => {
-        options?.onFallback?.(reason);
+        options?.onFallback?.({ reason });
         return null;
       });
 
@@ -130,15 +130,36 @@ describe('blob clone fallback output', () => {
       });
 
     it('tells the user about a GitHub rate limit and still clones', async () => {
+      vi.stubEnv('GITHUB_TOKEN', '');
+      vi.stubEnv('GH_TOKEN', '');
       report('rate-limited');
 
-      await add();
+      try {
+        await add();
+      } finally {
+        vi.unstubAllEnvs();
+      }
 
       expect(spinnerStop).toHaveBeenCalledWith(expect.stringContaining('rate limit'));
       expect(logMessage).toHaveBeenCalledWith(expect.stringContaining('GITHUB_TOKEN'));
       expect(spinnerStart).toHaveBeenCalledWith('Cloning repository…');
       expect(cloneRepo).toHaveBeenCalled();
       expect(spinnerStop).toHaveBeenCalledWith('Repository cloned');
+    });
+
+    it('skips the auth tip when a GitHub token is already set', async () => {
+      vi.stubEnv('GITHUB_TOKEN', 'ghp_test');
+      report('rate-limited');
+
+      try {
+        await add();
+      } finally {
+        vi.unstubAllEnvs();
+      }
+
+      expect(spinnerStop).toHaveBeenCalledWith(expect.stringContaining('rate limit'));
+      expect(logMessage).not.toHaveBeenCalledWith(expect.stringContaining('GITHUB_TOKEN'));
+      expect(cloneRepo).toHaveBeenCalled();
     });
 
     it('stays silent when the tree is unavailable for another reason', async () => {
@@ -170,23 +191,23 @@ describe('blob clone fallback output', () => {
         process.exitCode = undefined;
       });
 
-      it('records fallbackReason on the installed entry', async () => {
+      it('records the fallback on the installed entry', async () => {
         report('rate-limited');
 
         await add({ json: true });
 
         expect(installedEntry()).toMatchObject({
           status: 'installed',
-          fallbackReason: 'rate-limited',
+          fallback: { reason: 'rate-limited' },
         });
       });
 
-      it('leaves fallbackReason out when the fast path gave no reason', async () => {
+      it('leaves fallback out when the fast path gave no reason', async () => {
         await add({ json: true });
 
         const entry = installedEntry();
         expect(entry).toMatchObject({ status: 'installed' });
-        expect(entry).not.toHaveProperty('fallbackReason');
+        expect(entry).not.toHaveProperty('fallback');
       });
     });
   });
