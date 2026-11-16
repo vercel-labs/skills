@@ -594,6 +594,14 @@ function hasCurrentSnapshot(
   });
 }
 
+/** Why the repo tree could not be read, so the caller can tell the user what to fix. */
+export type BlobFallbackReason = 'rate-limited' | 'tree-unavailable';
+
+/** Passed to `onFallback`; an object so later fields do not change the callback signature. */
+export interface BlobFallback {
+  reason: BlobFallbackReason;
+}
+
 /**
  * Attempt to resolve skills from blob storage instead of cloning.
  *
@@ -609,6 +617,8 @@ function hasCurrentSnapshot(
  * @param ownerRepo - e.g., "vercel-labs/agent-skills"
  * @param options - subpath, skillFilter, ref, token. An explicit ref bypasses
  *   this ref-agnostic snapshot path and returns null for the caller's git fallback.
+ *   `onFallback` is told why when the repo tree could not be read; the other null
+ *   returns are expected outcomes (no skills, no match) and report nothing.
  */
 export async function tryBlobInstall(
   ownerRepo: string,
@@ -618,6 +628,7 @@ export async function tryBlobInstall(
     ref?: string;
     getToken?: () => string | null;
     includeInternal?: boolean;
+    onFallback?: (fallback: BlobFallback) => void;
   } = {}
 ): Promise<BlobInstallResult | null> {
   // Snapshot downloads are keyed only by owner, repository, and skill slug. They
@@ -628,7 +639,10 @@ export async function tryBlobInstall(
 
   // 1. Fetch the full repo tree
   const tree = await fetchRepoTree(ownerRepo, options.ref, options.getToken);
-  if (!tree) return null;
+  if (!tree) {
+    options.onFallback?.({ reason: _rateLimitedThisSession ? 'rate-limited' : 'tree-unavailable' });
+    return null;
+  }
 
   // 2. Discover SKILL.md paths in the tree, including container dirs declared
   // in skills.sh.json. The tree tells us whether the file exists, so repos
