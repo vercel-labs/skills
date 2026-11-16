@@ -41,6 +41,8 @@ export interface SkillDownloadResponse {
 export interface BlobSkill extends Skill {
   /** Files from the blob snapshot */
   files: SkillSnapshotFile[];
+  /** Snapshot paths that are executable (Git mode 100755) in the repo tree */
+  executables: ReadonlySet<string>;
   /** skillsComputedHash from the blob snapshot */
   snapshotHash: string;
   /** Path of the SKILL.md within the repo (e.g., "skills/react-best-practices/SKILL.md") */
@@ -693,6 +695,14 @@ export async function tryBlobInstall(
       ? download!.files
       : download!.files.filter((file) => file.path.toLowerCase() === 'skill.md');
 
+    // Snapshots carry no file modes, so take the executable bit from the tree.
+    const folderPrefix = folderPath ? `${folderPath}/` : '';
+    const executables = new Set(
+      tree.tree
+        .filter((entry) => entry.mode === '100755' && entry.path.startsWith(folderPrefix))
+        .map((entry) => entry.path.slice(folderPrefix.length))
+    );
+
     return {
       name: skill.name,
       description: skill.description,
@@ -702,6 +712,7 @@ export async function tryBlobInstall(
       rawContent: skill.content,
       metadata: skill.metadata,
       files,
+      executables,
       // Hash locally rather than trusting download.hash, so the lock records the
       // same computedHash a clone install of this skill would.
       snapshotHash: computeSnapshotHash(files),

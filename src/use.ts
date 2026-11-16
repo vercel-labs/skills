@@ -41,6 +41,7 @@ export type UseSkill =
       directoryName: string;
       rawContent: string;
       files: Array<{ path: string; contents: string }>;
+      executables?: ReadonlySet<string>;
     }
   | {
       kind: 'disk';
@@ -144,7 +145,7 @@ export async function materializeUseSkill(skill: UseSkill): Promise<Materialized
   await mkdir(skillDir, { recursive: true });
 
   if (skill.kind === 'blob') {
-    await writeSnapshotFiles(skillDir, skill.files);
+    await writeSnapshotFiles(skillDir, skill.files, skill.executables);
   } else if (skill.kind === 'well-known') {
     await writeMapFiles(skillDir, skill.files, skill.executables);
   } else {
@@ -284,6 +285,7 @@ export async function runUse(
           directoryName: selected.name,
           rawContent: selected.rawContent ?? getSkillMdFromSnapshot(selected.files),
           files: selected.files,
+          executables: selected.executables,
         };
       } else {
         selectedSkill = {
@@ -499,10 +501,16 @@ function unsupportedAgent(agent: AgentType): Diagnostic {
 
 async function writeSnapshotFiles(
   targetDir: string,
-  files: Array<{ path: string; contents: string }>
+  files: Array<{ path: string; contents: string }>,
+  executables?: ReadonlySet<string>
 ): Promise<void> {
   for (const file of files) {
-    await writeSafeFile(targetDir, file.path, file.contents);
+    await writeSafeFile(
+      targetDir,
+      file.path,
+      file.contents,
+      executables?.has(file.path) ? 0o755 : undefined
+    );
   }
 }
 

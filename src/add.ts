@@ -1775,7 +1775,11 @@ export async function installToTargets(
         // Blob-based install: write files from snapshot
         const blobSkill = skill as BlobSkill;
         result = await installBlobSkillForAgent(
-          { installName: blobSkill.name, files: blobSkill.files },
+          {
+            installName: blobSkill.name,
+            files: blobSkill.files,
+            executables: blobSkill.executables,
+          },
           agent,
           installOptions
         );
