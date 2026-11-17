@@ -871,7 +871,7 @@ export async function installRemoteSkillForAgent(
 export async function installWellKnownSkillForAgent(
   skill: WellKnownSkill,
   agentType: AgentType,
-  options: { global?: boolean; cwd?: string; mode?: InstallMode; eveSubagent?: string } = {}
+  options: InstallOptions = {}
 ): Promise<InstallResult> {
   const agent = agents[agentType];
   const isGlobal = options.global ?? false;
@@ -977,6 +977,27 @@ export async function installWellKnownSkillForAgent(
         path: canonicalDir,
         canonicalPath: canonicalDir,
         mode: 'symlink',
+      };
+    }
+
+    // For project-level installs, skip creating symlinks for non-universal agents
+    // whose config directory doesn't already exist in the project. Explicitly
+    // selected agents and agents with a compatibility policy are exempt.
+    if (
+      shouldSkipProjectAgentSymlink(
+        agentType,
+        isGlobal,
+        cwd,
+        options.createMissingAgentRoot ?? false
+      )
+    ) {
+      return {
+        success: true,
+        path: canonicalDir,
+        canonicalPath: canonicalDir,
+        mode: 'symlink',
+        skipped: true,
+        skipReason: 'missing-agent-project-directory',
       };
     }
 
