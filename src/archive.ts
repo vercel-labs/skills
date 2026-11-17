@@ -267,7 +267,10 @@ function readZip64EntryValues(
   return resolved;
 }
 
-export function readZipArchive(bytes: Uint8Array, limits: ArchiveLimits): Map<string, Uint8Array> {
+export function readZipArchive(
+  bytes: Uint8Array,
+  limits: ArchiveLimits
+): { files: Map<string, Uint8Array>; executables: Set<string> } {
   const buffer = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const endOffset = findEndOfCentralDirectory(buffer);
   if (endOffset < 0) throw diagnostics.SKILLS_ARCHIVE_INVALID({ reason: 'Invalid zip archive' });
@@ -289,6 +292,7 @@ export function readZipArchive(bytes: Uint8Array, limits: ArchiveLimits): Map<st
   }
 
   const files = new Map<string, Uint8Array>();
+  const executables = new Set<string>();
   let extractedBytes = 0;
   let offset = centralDirectory.offset;
 
@@ -401,11 +405,13 @@ export function readZipArchive(bytes: Uint8Array, limits: ArchiveLimits): Map<st
       throw diagnostics.SKILLS_ARCHIVE_INVALID({ reason: 'Zip entry checksum mismatch' });
     }
     files.set(fileName, new Uint8Array(contents));
+    if ((externalAttributes >>> 16) & 0o111) executables.add(fileName);
+    else executables.delete(fileName);
   }
 
   if (offset !== centralDirectory.offset + centralDirectory.size) {
     throw diagnostics.SKILLS_ARCHIVE_INVALID({ reason: 'Invalid zip central directory size' });
   }
 
-  return files;
+  return { files, executables };
 }

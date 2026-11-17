@@ -40,13 +40,29 @@ describe('readZipArchive', () => {
       { path: 'references/README.md', contents: 'reference' },
     ]);
 
-    const files = readZipArchive(archive, {
+    const { files } = readZipArchive(archive, {
       maxExtractedBytes: 1024,
       maxEntries: 10,
     });
 
     expect(Buffer.from(files.get('SKILL.md')!)).toEqual(Buffer.from('# skill'));
     expect(Buffer.from(files.get('references/README.md')!)).toEqual(Buffer.from('reference'));
+  });
+
+  it('reports entries with an executable unix mode', () => {
+    const archive = createZip([
+      { path: 'SKILL.md', contents: '# skill' },
+      { path: 'scripts/run.sh', contents: '#!/bin/sh', unixMode: 0o100755 },
+      { path: 'scripts/owner.sh', contents: '#!/bin/sh', unixMode: 0o100744 },
+      { path: 'scripts/dos.bat', contents: 'echo', unixMode: 0 },
+    ]);
+
+    const { executables } = readZipArchive(archive, {
+      maxExtractedBytes: 1024,
+      maxEntries: 10,
+    });
+
+    expect([...executables]).toEqual(['scripts/run.sh', 'scripts/owner.sh']);
   });
 
   it('inflates deflated entries', () => {
@@ -58,7 +74,7 @@ describe('readZipArchive', () => {
       },
     ]);
 
-    const files = readZipArchive(archive, {
+    const { files } = readZipArchive(archive, {
       maxExtractedBytes: 1024,
       maxEntries: 10,
     });
@@ -156,7 +172,7 @@ describe('readZipArchive', () => {
       },
     ]);
 
-    const files = readZipArchive(archive, {
+    const { files } = readZipArchive(archive, {
       maxExtractedBytes: 1024,
       maxEntries: 10,
     });
@@ -187,7 +203,7 @@ describe('readZipArchive', () => {
       },
     ]);
 
-    const files = readZipArchive(archive, {
+    const { files } = readZipArchive(archive, {
       maxExtractedBytes: 1024,
       maxEntries: 10,
     });
@@ -198,7 +214,7 @@ describe('readZipArchive', () => {
   it('reads zip64 central directory metadata', () => {
     const archive = convertToZip64(createZip([{ path: 'SKILL.md', contents: '# zip64 skill' }]));
 
-    const files = readZipArchive(archive, {
+    const { files } = readZipArchive(archive, {
       maxExtractedBytes: 1024,
       maxEntries: 10,
     });
@@ -215,7 +231,7 @@ describe('readZipArchive', () => {
       },
     ]);
 
-    const files = readZipArchive(archive, {
+    const { files } = readZipArchive(archive, {
       maxExtractedBytes: 1024,
       maxEntries: 10,
     });
@@ -232,7 +248,7 @@ describe('readZipArchive', () => {
       },
     ]);
 
-    const files = readZipArchive(archive, {
+    const { files } = readZipArchive(archive, {
       maxExtractedBytes: 1024,
       maxEntries: 10,
     });

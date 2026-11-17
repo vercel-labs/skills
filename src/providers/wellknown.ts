@@ -81,6 +81,7 @@ export type NormalizedWellKnownEntry =
 export interface WellKnownSkill extends RemoteSkill {
   /** All files in the skill, keyed by relative path */
   files: Map<string, WellKnownFileContent>;
+  executables?: ReadonlySet<string>;
   /** The entry from index.json */
   indexEntry: WellKnownSkillEntry;
 }
@@ -539,7 +540,7 @@ export class WellKnownProvider implements HostProvider {
         });
       }
 
-      const files = this.extractArchive(bytes, entry.artifactUrl, contentType);
+      const { files, executables } = this.extractArchive(bytes, entry.artifactUrl, contentType);
       const skillMdBytes = files.get('SKILL.md');
       if (!skillMdBytes) return null;
 
@@ -558,6 +559,7 @@ export class WellKnownProvider implements HostProvider {
         sourceUrl: entry.artifactUrl,
         metadata: data.metadata,
         files,
+        executables,
         indexEntry: entry.indexEntry,
       });
     } catch (error) {
@@ -574,6 +576,7 @@ export class WellKnownProvider implements HostProvider {
     sourceUrl: string;
     metadata: unknown;
     files: Map<string, WellKnownFileContent>;
+    executables?: ReadonlySet<string>;
     indexEntry: WellKnownSkillEntry;
   }): WellKnownSkill {
     return {
@@ -587,6 +590,7 @@ export class WellKnownProvider implements HostProvider {
           ? (input.metadata as Record<string, unknown>)
           : undefined,
       files: input.files,
+      executables: input.executables,
       indexEntry: input.indexEntry,
     };
   }
@@ -681,14 +685,12 @@ export class WellKnownProvider implements HostProvider {
     bytes: Uint8Array,
     artifactUrl: string,
     contentType: string
-  ): Map<string, WellKnownFileContent> {
+  ): { files: Map<string, WellKnownFileContent>; executables: Set<string> } {
     if (this.isZipArchive(bytes, artifactUrl, contentType)) {
-      return new Map<string, WellKnownFileContent>(
-        readZipArchive(bytes, {
-          maxExtractedBytes: MAX_ARCHIVE_UNPACKED_BYTES,
-          maxEntries: MAX_ARCHIVE_FILES,
-        })
-      );
+      return readZipArchive(bytes, {
+        maxExtractedBytes: MAX_ARCHIVE_UNPACKED_BYTES,
+        maxEntries: MAX_ARCHIVE_FILES,
+      });
     }
 
     if (this.isTarGzArchive(bytes, artifactUrl, contentType)) {
@@ -735,7 +737,7 @@ export class WellKnownProvider implements HostProvider {
     path: string,
     content: Uint8Array,
     runningTotal: { bytes: number }
-  ) {
+  ): string {
     const normalizedPath = this.normalizeArchivePath(path);
     if (!normalizedPath) throw diagnostics.SKILLS_WELLKNOWN_ARCHIVE_UNSAFE_PATH({ path });
 
@@ -748,11 +750,16 @@ export class WellKnownProvider implements HostProvider {
     }
 
     files.set(normalizedPath, content);
+    return normalizedPath;
   }
 
-  private extractTarGz(bytes: Uint8Array): Map<string, WellKnownFileContent> {
+  private extractTarGz(bytes: Uint8Array): {
+    files: Map<string, WellKnownFileContent>;
+    executables: Set<string>;
+  } {
     const tar = gunzipSync(Buffer.from(bytes));
     const files = new Map<string, WellKnownFileContent>();
+    const executables = new Set<string>();
     const runningTotal = { bytes: 0 };
     let offset = 0;
 
@@ -761,6 +768,7 @@ export class WellKnownProvider implements HostProvider {
       if (header.every((byte) => byte === 0)) break;
 
       const name = this.readTarString(header, 0, 100);
+      const mode = Number.parseInt(this.readTarString(header, 100, 8).trim(), 8);
       const sizeText = this.readTarString(header, 124, 12).trim();
       const typeFlag = header[156];
       const prefix = this.readTarString(header, 345, 155);
@@ -779,14 +787,16 @@ export class WellKnownProvider implements HostProvider {
       const isFile = typeFlag === 0 || typeFlag === 0x30;
       if (isFile) {
         const content = tar.subarray(offset, offset + size);
-        this.addArchiveFile(files, path, new Uint8Array(content), runningTotal);
+        const filePath = this.addArchiveFile(files, path, new Uint8Array(content), runningTotal);
+        if (mode & 0o111) executables.add(filePath);
+        else executables.delete(filePath);
       }
 
       offset += Math.ceil(size / 512) * 512;
     }
 
     if (!files.has('SKILL.md')) throw diagnostics.SKILLS_ARCHIVE_MISSING_SKILL_MD();
-    return files;
+    return { files, executables };
   }
 
   private readTarString(buffer: Uint8Array, offset: number, length: number): string {

@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { describe, it, expect, afterEach, vi } from 'vitest';
+import { installWellKnownSkillForAgent } from '../src/installer.ts';
 import { WellKnownProvider, WellKnownScopeNotFoundError } from '../src/providers/wellknown.ts';
 import { createZip } from './fixtures/zip.ts';
 
@@ -17,14 +21,17 @@ function response(body: unknown, init?: ResponseInit): Response {
   return Response.json(body, init);
 }
 
-function createTarGz(files: Record<string, string>): Uint8Array {
+function createTarGz(
+  files: Record<string, string>,
+  modes: Record<string, number> = {}
+): Uint8Array {
   const chunks: Buffer[] = [];
 
   for (const [name, contents] of Object.entries(files)) {
     const body = Buffer.from(contents);
     const header = Buffer.alloc(512);
     header.write(name, 0, 100, 'utf8');
-    header.write('0000644\0', 100, 8, 'ascii');
+    header.write((modes[name] ?? 0o644).toString(8).padStart(7, '0') + '\0', 100, 8, 'ascii');
     header.write('0000000\0', 108, 8, 'ascii');
     header.write('0000000\0', 116, 8, 'ascii');
     header.write(body.length.toString(8).padStart(11, '0') + '\0', 124, 12, 'ascii');
@@ -625,6 +632,63 @@ describe('WellKnownProvider', () => {
       expect(skills[0]!.files.has('SKILL.md')).toBe(true);
       expect(skills[0]!.files.has('references/README.md')).toBe(true);
     });
+
+    it.each(['tar.gz', 'zip'])(
+      'keeps the executable bit of %s archive entries on install',
+      async (format) => {
+        const skillMd = '---\nname: exec-skill\ndescription: Exec skill.\n---\n# Exec';
+        const archive =
+          format === 'zip'
+            ? createZip([
+                { path: 'SKILL.md', contents: skillMd },
+                { path: 'scripts/nested/run.sh', contents: '#!/bin/sh\n', unixMode: 0o104755 },
+                { path: 'scripts/notes.txt', contents: 'notes' },
+              ])
+            : createTarGz(
+                {
+                  'SKILL.md': skillMd,
+                  'scripts/nested/run.sh': '#!/bin/sh\n',
+                  'scripts/notes.txt': 'notes',
+                },
+                { 'scripts/nested/run.sh': 0o4755 }
+              );
+
+        vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+          const href = String(url);
+          if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+            return response({
+              $schema: SCHEMA_V2,
+              skills: [
+                {
+                  name: 'exec-skill',
+                  type: 'archive',
+                  description: 'Exec skill.',
+                  url: `/downloads/exec-skill.${format}`,
+                  digest: digest(archive),
+                },
+              ],
+            });
+          }
+          if (href === `https://example.com/downloads/exec-skill.${format}`) {
+            return response(archive);
+          }
+          return response('not found', { status: 404 });
+        });
+
+        const [skill] = await provider.fetchAllSkills('https://example.com');
+        const cwd = await mkdtemp(join(tmpdir(), 'skills-exec-'));
+        try {
+          const result = await installWellKnownSkillForAgent(skill!, 'amp', { cwd, mode: 'copy' });
+          expect(result.success).toBe(true);
+          const mode = async (path: string) => (await stat(join(result.path, path))).mode & 0o7777;
+          expect(await mode('scripts/nested/run.sh')).toBe(0o755 & ~process.umask());
+          expect((await mode('scripts/notes.txt')) & 0o111).toBe(0);
+          expect((await mode('SKILL.md')) & 0o111).toBe(0);
+        } finally {
+          await rm(cwd, { recursive: true, force: true });
+        }
+      }
+    );
 
     it('does not process unknown schemas', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(

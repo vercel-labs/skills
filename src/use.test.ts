@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { EventEmitter } from 'events';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import * as tar from 'tar';
@@ -169,16 +169,21 @@ describe('use command', () => {
         name: 'Well Known Skill',
         directoryName: 'well-known-skill',
         rawContent: '# Well Known Skill',
-        files: new Map([
+        files: new Map<string, string | Uint8Array>([
           ['SKILL.md', '# Well Known Skill'],
           ['reference.md', 'Reference'],
+          ['scripts/run.sh', new TextEncoder().encode('#!/bin/sh')],
         ]),
+        executables: new Set(['scripts/run.sh']),
       };
 
       const materialized = await materializeUseSkill(skill);
       cleanupDirs.push(materialized.tempRoot);
+      const mode = (path: string) => statSync(join(materialized.skillDir, path)).mode & 0o777;
 
       expect(readFileSync(join(materialized.skillDir, 'reference.md'), 'utf-8')).toBe('Reference');
+      expect(mode('scripts/run.sh')).toBe(0o755 & ~process.umask());
+      expect(mode('reference.md') & 0o111).toBe(0);
       expect(materialized.hasSupportingFiles).toBe(true);
     });
   });

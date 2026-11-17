@@ -138,6 +138,25 @@ describe('snapshot content matches the GitHub tree', () => {
     expect(result?.skills[0]?.files).toHaveLength(3);
   });
 
+  it('marks files with Git mode 100755 as executable', async () => {
+    mockSnapshot(
+      [
+        blob(PREFIX + 'SKILL.md', SKILL_MD),
+        { ...blob(PREFIX + 'scripts/run.sh', '#!/bin/sh\n'), mode: '100755' },
+        { ...blob(PREFIX + 'reference.md', REFERENCE), mode: '100644' },
+        { ...blob('other/run.sh', '#!/bin/sh\n'), mode: '100755' },
+      ],
+      [
+        { path: 'SKILL.md', contents: SKILL_MD },
+        { path: 'scripts/run.sh', contents: '#!/bin/sh\n' },
+        { path: 'reference.md', contents: REFERENCE },
+      ]
+    );
+    const { tryBlobInstall } = await import('../src/blob.ts');
+    const result = await tryBlobInstall(SOURCE);
+    expect([...(result?.skills[0]?.executables ?? [])]).toEqual(['scripts/run.sh']);
+  });
+
   it('rejects a stale root SKILL.md', async () => {
     mockSnapshot(
       [blob('SKILL.md', SKILL_MD), blob('package.json', '{}')],

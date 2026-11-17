@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, statSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import * as tar from 'tar';
@@ -148,6 +148,29 @@ description: A skill served from a zip archive
     expect(downloaded.kind).toBe('archive');
     expect(skills).toHaveLength(1);
     expect(skills[0]!.name).toBe('zip-url-skill');
+
+    rmSync(downloaded.tempDir, { recursive: true, force: true });
+  });
+
+  it('keeps the executable bit of zip archive entries', async () => {
+    const zipPath = join(testDir, 'exec.zip');
+    writeFileSync(
+      zipPath,
+      createZip([
+        {
+          path: 'repo-main/SKILL.md',
+          contents: '---\nname: exec-skill\ndescription: Exec skill\n---\n',
+        },
+        { path: 'repo-main/scripts/run.sh', contents: '#!/bin/sh\n', unixMode: 0o106777 },
+      ])
+    );
+    mockFetchFile(zipPath);
+
+    const downloaded = await downloadSource('https://internal.example.com/download');
+    const mode = (path: string) => statSync(join(downloaded.rootDir, path)).mode & 0o7777;
+
+    expect(mode('scripts/run.sh')).toBe(0o755 & ~process.umask());
+    expect(mode('SKILL.md') & 0o111).toBe(0);
 
     rmSync(downloaded.tempDir, { recursive: true, force: true });
   });
