@@ -575,6 +575,72 @@ describe('skill paths and duplicate names', () => {
     await handle.dispose();
   });
 
+  it.each(['string', 'handle'] as const)(
+    'rejects a renamed duplicate before writing when given a source %s',
+    async (kind) => {
+      writeSkill(join(source, '.claude', 'skills'), 'alpha');
+      const handle = kind === 'handle' ? await api.resolveSource(source, { cwd }) : undefined;
+      try {
+        await expectCode(
+          api.installSkills(handle ?? source, {
+            cwd,
+            skills: ['alpha'],
+            rename: { alpha: 'gamma' },
+            agents: ['claude-code'],
+            duplicates: 'error',
+          }),
+          'SKILLS_DUPLICATE_SKILL_NAME'
+        );
+        expect(existsSync(join(cwd, '.agents'))).toBe(false);
+        expect(existsSync(join(cwd, '.claude', 'skills'))).toBe(false);
+        expect(existsSync(join(cwd, 'skills-lock.json'))).toBe(false);
+      } finally {
+        await handle?.dispose();
+      }
+    }
+  );
+
+  it.each(['string', 'handle'] as const)(
+    'does not check an unselected duplicate matching a renamed target with a source %s',
+    async (kind) => {
+      writeSkill(join(source, '.claude', 'skills'), 'alpha');
+      const handle = kind === 'handle' ? await api.resolveSource(source, { cwd }) : undefined;
+      try {
+        const result = await api.installSkills(handle ?? source, {
+          cwd,
+          skills: ['beta'],
+          rename: { beta: 'alpha' },
+          agents: ['claude-code'],
+          duplicates: 'error',
+        });
+        expect(result.installed.map((target) => target.skill)).toEqual(['alpha']);
+        expect(readFileSync(join(cwd, '.claude/skills/alpha/SKILL.md'), 'utf-8')).toContain(
+          'The beta skill'
+        );
+      } finally {
+        await handle?.dispose();
+      }
+    }
+  );
+
+  it.each(['first', 'error'] as const)(
+    'keeps renaming valid with duplicates: %s',
+    async (duplicates) => {
+      if (duplicates === 'first') writeSkill(join(source, '.claude', 'skills'), 'alpha');
+      const result = await api.installSkills(source, {
+        cwd,
+        skills: ['alpha'],
+        rename: { alpha: 'gamma' },
+        agents: ['claude-code'],
+        duplicates,
+      });
+      expect(result.installed.map((target) => target.skill)).toEqual(['gamma']);
+      expect(readFileSync(join(cwd, '.claude/skills/gamma/SKILL.md'), 'utf-8')).toContain(
+        'The alpha skill'
+      );
+    }
+  );
+
   unixOnly('ignores symlinked skill folders, so they are never duplicates', async () => {
     mkdirSync(join(source, '.claude', 'skills'), { recursive: true });
     symlinkSync(join(source, 'skills', 'alpha'), join(source, '.claude', 'skills', 'alpha'));
