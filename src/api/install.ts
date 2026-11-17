@@ -90,7 +90,10 @@ async function install(
       targets: targets.map((agent) => ({ agent })),
       mode:
         config.mode === 'auto'
-          ? defaultInstallMode(targets.map((agent) => ({ agent })))
+          ? defaultInstallMode(
+              targets.map((agent) => ({ agent })),
+              config.scope === 'global'
+            )
           : config.mode,
       createMissingAgentRoot: (agent) => explicit.has(agent),
     };

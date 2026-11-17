@@ -76,6 +76,20 @@ describe('Antigravity global install', () => {
     }
   });
 
+  it('links ~/.gemini/config/skills when the only other agents read ~/.agents/skills', () => {
+    const { root, home, result } = install(['antigravity', 'codex']);
+    try {
+      expect(result.exitCode).toBe(0);
+      const canonical = join(home, '.agents', 'skills', 'probe-skill');
+      const link = join(home, '.gemini', 'config', 'skills', 'probe-skill');
+      expect(existsSync(join(canonical, 'SKILL.md'))).toBe(true);
+      expect(lstatSync(link).isSymbolicLink()).toBe(true);
+      expect(resolve(dirname(link), readlinkSync(link))).toBe(canonical);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('does not install for Antigravity when it was neither requested nor detected', () => {
     const { root, home } = install([], ['.claude']);
     try {

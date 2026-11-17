@@ -18,6 +18,8 @@ import {
   getLockSource,
   getProjectLockSourceUrl,
   formatEveInstallPromptMessage,
+  defaultInstallMode,
+  type InstallTarget,
 } from './add.ts';
 
 function countPathLinesForSkill(text: string, skillName: string): number {
@@ -1152,6 +1154,22 @@ describe('getProjectLockSourceUrl', () => {
 
   it('keeps GitHub project locks compatible with existing shorthand entries', () => {
     expect(getProjectLockSourceUrl('github', 'https://github.com/owner/repo.git')).toBeUndefined();
+  });
+});
+
+describe('defaultInstallMode', () => {
+  it.each<[InstallTarget[], boolean, 'copy' | 'symlink']>([
+    [[{ agent: 'antigravity' }, { agent: 'codex' }], true, 'symlink'],
+    [[{ agent: 'antigravity' }, { agent: 'codex' }], false, 'copy'],
+    [[{ agent: 'antigravity' }, { agent: 'antigravity-cli' }], true, 'copy'],
+    [[{ agent: 'codex' }, { agent: 'cursor' }], true, 'copy'],
+    [[{ agent: 'codex' }, { agent: 'claude-code' }], true, 'symlink'],
+    [[{ agent: 'codex' }, { agent: 'claude-code' }], false, 'symlink'],
+    [[{ agent: 'antigravity' }], true, 'copy'],
+    [[{ agent: 'eve' }, { agent: 'eve', subagent: 'research' }], false, 'copy'],
+    [[{ agent: 'codex' }, { agent: 'eve', subagent: 'research' }], false, 'symlink'],
+  ])('%j global=%s -> %s', (targets, global, mode) => {
+    expect(defaultInstallMode(targets, global)).toBe(mode);
   });
 });
 
