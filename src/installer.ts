@@ -20,6 +20,7 @@ import type { WellKnownSkill } from './providers/wellknown.ts';
 import {
   agents,
   detectInstalledAgents,
+  isAstrBotProjectInstalled,
   isUniversalAgent,
   readsCanonicalGlobally,
   getEveSubagents,
@@ -63,6 +64,17 @@ interface InstallResult {
   error?: string;
 }
 
+function shouldSkipProjectAgentInstall(agentType: AgentType, cwd: string): boolean {
+  if (agentType === 'claude-code') {
+    return false;
+  }
+  if (agentType === 'astrbot') {
+    return !isAstrBotProjectInstalled(cwd);
+  }
+  const agentRootDir = join(cwd, agents[agentType].skillsDir.split('/')[0]!);
+  return !existsSync(agentRootDir);
+}
+
 /**
  * Validates that a path is within an expected base directory
  * @param basePath - The expected base directory
@@ -93,6 +105,10 @@ function shouldSkipProjectAgentSymlink(
     agents[agentType].createProjectSkillsDirByDefault
   ) {
     return false;
+  }
+
+  if (agentType === 'astrbot') {
+    return !isAstrBotProjectInstalled(cwd);
   }
 
   const agentRoot = agents[agentType].skillsDir.split('/')[0]!;
@@ -373,6 +389,18 @@ export async function installSkillForAgent(
 
     // For copy mode, skip canonical directory and copy directly to agent location
     if (installMode === 'copy') {
+      if (
+        !isGlobal &&
+        !isUniversalAgent(agentType) &&
+        shouldSkipProjectAgentInstall(agentType, cwd)
+      ) {
+        return {
+          success: true,
+          path: agentDir,
+          mode: 'copy',
+          skipped: true,
+        };
+      }
       await cleanAndCreateDirectory(agentDir);
       await copyDirectory(skill.path, agentDir, agentType);
 
@@ -1114,6 +1142,18 @@ export async function installBlobSkillForAgent(
 
   try {
     if (installMode === 'copy') {
+      if (
+        !isGlobal &&
+        !isUniversalAgent(agentType) &&
+        shouldSkipProjectAgentInstall(agentType, cwd)
+      ) {
+        return {
+          success: true,
+          path: agentDir,
+          mode: 'copy',
+          skipped: true,
+        };
+      }
       await cleanAndCreateDirectory(agentDir);
       await writeSkillFiles(agentDir);
       return { success: true, path: agentDir, mode: 'copy' };
