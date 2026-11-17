@@ -14,7 +14,7 @@ import {
 import { stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 import type { Diagnostic } from 'nostics';
-import { diagnostics, formatError, isDiagnostic } from './diagnostics.ts';
+import { diagnostics, formatError, gitCloneDiagnostics } from './diagnostics.ts';
 import { cloneRepo, cleanupTempDir, getHeadCommit } from './git.ts';
 import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
 import {
@@ -981,12 +981,12 @@ async function handleWellKnownSkills(
       ),
     });
   } catch (error) {
-    if (isDiagnostic(error, 'SKILLS_WELLKNOWN_DIGEST_MISMATCH')) {
+    if (diagnostics.SKILLS_WELLKNOWN_DIGEST_MISMATCH.is(error)) {
       spinner.stop(pc.red('Integrity check failed'));
       p.log.error(formatError(error));
       process.exit(1);
     }
-    if (isDiagnostic(error, 'SKILLS_WELLKNOWN_SCOPE_NOT_FOUND')) {
+    if (diagnostics.SKILLS_WELLKNOWN_SCOPE_NOT_FOUND.is(error)) {
       spinner.stop(pc.red('No matching skills'));
       p.log.error(formatError(error));
       process.exit(1);
@@ -1089,7 +1089,7 @@ async function handleWellKnownSkills(
     selectedSkills = await Promise.all(selectedEntries.map((skill) => skill.load()));
     spinner.stop('Downloaded skill files');
   } catch (error) {
-    if (isDiagnostic(error, 'SKILLS_WELLKNOWN_FILE_FETCH_FAILED')) {
+    if (diagnostics.SKILLS_WELLKNOWN_FILE_FETCH_FAILED.is(error)) {
       spinner.stop(pc.red('Failed to download skill files'));
       p.log.error(formatError(error));
       process.exit(1);
@@ -3536,14 +3536,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Prompt for find-skills after successful install
     await promptForFindSkills(options, targetAgents);
   } catch (error) {
-    const isCloneError = isDiagnostic(
-      error,
-      'SKILLS_UNSUPPORTED_GIT_TRANSPORT',
-      'SKILLS_GIT_CLONE_TIMEOUT',
-      'SKILLS_GIT_AUTH_FAILED',
-      'SKILLS_GIT_SAML_SSO_BLOCKED',
-      'SKILLS_GIT_CLONE_FAILED'
-    );
+    const isCloneError = gitCloneDiagnostics.is(error);
     if (isCloneError) {
       p.log.error(pc.red('Failed to clone repository'));
       // Print each line of the error message separately for better formatting

@@ -1,7 +1,7 @@
 import { homedir } from 'os';
 import type { AgentType } from './types.ts';
 import { agents } from './agents.ts';
-import { diagnostics, formatError, isDiagnostic } from './diagnostics.ts';
+import { diagnostics, formatError } from './diagnostics.ts';
 import { parseCliArgs, throwFirstError } from './cli-args.ts';
 import { listInstalledSkills, sanitizeName, type InstalledSkill } from './installer.ts';
 import { sanitizeMetadata } from './sanitize.ts';
@@ -73,7 +73,7 @@ async function readProjectLockOrWarn(cwd: string): Promise<Record<string, ListLo
   try {
     return (await readLocalLock(cwd)).skills;
   } catch (error) {
-    if (!isDiagnostic(error, 'SKILLS_INVALID_LOCAL_LOCK')) throw error;
+    if (!diagnostics.SKILLS_INVALID_LOCAL_LOCK.is(error)) throw error;
     console.error(`${YELLOW}Warning: ${formatError(error)}${RESET}`);
     return {};
   }

@@ -245,7 +245,7 @@ async function resolveTargets(
 
   const targets: AgentType[] = [];
   const failures: InstallFailure[] = [];
-  const fail = (agent: AgentType, diagnostic: Diagnostic<unknown>) => {
+  const fail = (agent: AgentType, diagnostic: Diagnostic<unknown, DiagnosticCode>) => {
     if (!named) return;
     for (const skill of skills) {
       failures.push(failure(getSkillDisplayName(skill), agent, diagnostic));
@@ -271,11 +271,15 @@ async function resolveTargets(
   return { targets, failures };
 }
 
-function failure(skill: string, agent: string, diagnostic: Diagnostic<unknown>): InstallFailure {
+function failure(
+  skill: string,
+  agent: string,
+  diagnostic: Diagnostic<unknown, DiagnosticCode>
+): InstallFailure {
   return Object.freeze({
     skill,
     agent,
-    code: diagnostic.code as DiagnosticCode,
+    code: diagnostic.code,
     message: diagnostic.message,
   });
 }

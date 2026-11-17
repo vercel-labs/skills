@@ -2,7 +2,7 @@ import { readdir, readFile, stat } from 'fs/promises';
 import { join, basename, dirname, resolve, normalize, sep, relative } from 'path';
 import { AGENT_PROJECT_SKILL_DIRS } from './agents.ts';
 import { parseFrontmatter } from './frontmatter.ts';
-import { diagnostics, isDiagnostic } from './diagnostics.ts';
+import { diagnostics } from './diagnostics.ts';
 import { sanitizeMetadata, stripTerminalEscapes } from './sanitize.ts';
 import type { Skill } from './types.ts';
 import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
@@ -181,7 +181,7 @@ async function sourceLockedSkillNames(basePath: string): Promise<string[]> {
   try {
     return Object.keys((await readLocalLock(basePath)).skills);
   } catch (error) {
-    if (isDiagnostic(error, 'SKILLS_INVALID_LOCAL_LOCK')) return [];
+    if (diagnostics.SKILLS_INVALID_LOCAL_LOCK.is(error)) return [];
     throw error;
   }
 }
