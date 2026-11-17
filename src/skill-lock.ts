@@ -1,4 +1,4 @@
-import { readFile, mkdir } from 'fs/promises';
+import { readFile, mkdir, realpath } from 'fs/promises';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
@@ -128,7 +128,8 @@ function isSkillLockShape(value: unknown): value is SkillLockFile {
 export async function writeSkillLock(lock: SkillLockFile): Promise<void> {
   const lockPath = getSkillLockPath();
   await mkdir(dirname(lockPath), { recursive: true });
-  await writeFileAtomic(lockPath, JSON.stringify(lock, null, 2));
+  const target = await realpath(lockPath).catch(() => lockPath);
+  await writeFileAtomic(target, JSON.stringify(lock, null, 2));
 }
 
 /**

@@ -4,7 +4,6 @@ import {
   open,
   readFile,
   readdir,
-  realpath,
   rename,
   stat,
   unlink,
@@ -370,11 +369,10 @@ export async function writeFileAtomic(path: string, content: string): Promise<vo
     }
   }
 
-  const target = await realpath(path).catch(() => path);
-  const tempPath = `${target}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+  const tempPath = `${path}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
   try {
     await writeFile(tempPath, content, 'utf-8');
-    await renameWithWindowsRetry(tempPath, target);
+    await renameWithWindowsRetry(tempPath, path);
   } catch (error) {
     await unlink(tempPath).catch(() => {});
     throw error;
