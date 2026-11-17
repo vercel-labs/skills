@@ -53,6 +53,7 @@ export type AgentType =
   | 'opencode'
   | 'openhands'
   | 'ona'
+  | 'omp'
   | 'pi'
   | 'posit-assistant'
   | 'qoder'

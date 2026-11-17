@@ -54,6 +54,7 @@ Skills can be installed to any of these agents:
 | OpenCode | `opencode` | `.agents/skills/` | `~/.config/opencode/skills/` |
 | OpenHands | `openhands` | `.openhands/skills/` | `~/.openhands/skills/` |
 | Ona | `ona` | `.ona/skills/` | `~/.ona/skills/` |
+| OMP | `omp` | `.omp/skills/` | `~/.omp/agent/skills/` |
 | Posit Assistant | `posit-assistant` | `.posit/assistant/skills/` | `~/.posit/assistant/skills/` |
 | Qoder | `qoder` | `.qoder/skills/` | `~/.qoder/skills/` |
 | Qoder CN | `qoder-cn` | `.qoder/skills/` | `~/.qoder-cn/skills/` |
