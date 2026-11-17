@@ -22,11 +22,14 @@ describe('lock commit pin', () => {
       cwd: repo,
       encoding: 'utf-8',
     }).trim();
-  const publish = (body: string): string => {
-    writeFileSync(
-      join(repo, 'skills', 'alpha', 'SKILL.md'),
-      `---\nname: alpha\ndescription: alpha\n---\n${body}\n`
-    );
+  const publish = (body: string, names = ['alpha']): string => {
+    for (const name of names) {
+      mkdirSync(join(repo, 'skills', name), { recursive: true });
+      writeFileSync(
+        join(repo, 'skills', name, 'SKILL.md'),
+        `---\nname: ${name}\ndescription: ${name}\n---\n${body}\n`
+      );
+    }
     git('add', '.');
     git('commit', '-q', '-m', body);
     return git('rev-parse', 'HEAD');
@@ -34,9 +37,10 @@ describe('lock commit pin', () => {
   const cli = (...args: string[]) => runCli(args, project, env);
   const add = () => cli('add', SOURCE, '--skill', 'alpha', '-a', 'universal', '-y');
   const lockPath = () => join(project, 'skills-lock.json');
-  const lockEntry = () => JSON.parse(readFileSync(lockPath(), 'utf-8')).skills.alpha;
-  const installedBody = () =>
-    readFileSync(join(project, '.agents', 'skills', 'alpha', 'SKILL.md'), 'utf-8');
+  const readLock = () => JSON.parse(readFileSync(lockPath(), 'utf-8'));
+  const lockEntry = () => readLock().skills.alpha;
+  const installedBody = (name = 'alpha') =>
+    readFileSync(join(project, '.agents', 'skills', name, 'SKILL.md'), 'utf-8');
   const clearInstall = () => rmSync(join(project, '.agents'), { recursive: true, force: true });
 
   beforeEach(() => {
@@ -112,5 +116,60 @@ describe('lock commit pin', () => {
     const v2 = publish('v2');
     expect(cli('update', '-g', '-y').exitCode).toBe(0);
     expect(globalEntry().commit).toBe(v2);
+  });
+
+  describe('experimental_sync', () => {
+    const sync = (...flags: string[]) =>
+      cli('experimental_sync', '-y', '-a', 'universal', ...flags);
+    const declare = (skills: unknown[]) =>
+      writeFileSync(join(project, 'package.json'), JSON.stringify({ name: 'project', skills }));
+
+    it('restores the locked commit under --frozen-lockfile after upstream moves on', () => {
+      declare([SOURCE]);
+      const v1 = publish('v1');
+      expect(sync('--no-frozen-lockfile').exitCode).toBe(0);
+      expect(lockEntry().commit).toBe(v1);
+      const before = readFileSync(lockPath(), 'utf-8');
+
+      publish('v2');
+      clearInstall();
+
+      expect(sync('--frozen-lockfile').exitCode).toBe(0);
+      expect(installedBody()).toContain('v1');
+      expect(readFileSync(lockPath(), 'utf-8')).toBe(before);
+    });
+
+    it('restores each skill at its own locked commit', () => {
+      declare([SOURCE]);
+      publish('v1', ['alpha', 'beta']);
+      expect(sync('--no-frozen-lockfile').exitCode).toBe(0);
+      const alpha = readLock().skills.alpha;
+      publish('v2', ['alpha', 'beta']);
+      clearInstall();
+      expect(sync('--no-frozen-lockfile').exitCode).toBe(0);
+      const lock = readLock();
+      lock.skills.alpha = alpha;
+      writeFileSync(lockPath(), JSON.stringify(lock));
+
+      publish('v3', ['alpha', 'beta']);
+      clearInstall();
+
+      expect(sync('--frozen-lockfile').exitCode).toBe(0);
+      expect(installedBody('alpha')).toContain('v1');
+      expect(installedBody('beta')).toContain('v2');
+    });
+
+    it('still fails when a requested skill is missing from the lock', () => {
+      declare([{ source: SOURCE, skills: ['alpha'] }]);
+      publish('v1');
+      expect(sync('--no-frozen-lockfile').exitCode).toBe(0);
+
+      publish('v2', ['beta']);
+      declare([{ source: SOURCE, skills: ['alpha', 'beta'] }]);
+
+      const frozen = sync('--frozen-lockfile');
+      expect(frozen.exitCode).toBe(1);
+      expect(frozen.stdout + frozen.stderr).toContain('beta');
+    });
   });
 });
