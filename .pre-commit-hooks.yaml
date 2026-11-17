@@ -1,0 +1,33 @@
+# Pre-commit hooks for the skills CLI.
+# Usage: add the following to your .pre-commit-config.yaml:
+#
+#   repos:
+#     - repo: https://github.com/vercel-labs/skills
+#       rev: main
+#       hooks:
+#         - id: skills-check
+#
+# See https://pre-commit.com for more information.
+
+- id: skills-check
+  name: Check for skill updates
+  entry: npx -y skills check
+  language: system
+  pass_filenames: false
+  always_run: true
+  stages: [pre-commit]
+  description: >-
+    Check whether installed skills are up to date.
+    Fails with a non-zero exit code when updates are available.
+
+- id: skills-update
+  name: Update skills
+  entry: npx -y skills update -y
+  language: system
+  pass_filenames: false
+  always_run: true
+  stages: [manual]
+  description: >-
+    Update all installed skills to the latest version.
+    Recommended as a manual stage — run with
+    `pre-commit run --hook-stage manual skills-update`.
