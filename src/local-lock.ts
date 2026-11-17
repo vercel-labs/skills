@@ -4,6 +4,7 @@ import {
   open,
   readFile,
   readdir,
+  realpath,
   rename,
   stat,
   unlink,
@@ -264,7 +265,7 @@ function isLocalLockShape(value: unknown): value is LocalSkillLockFile {
 const LOCK_ACQUIRE_TIMEOUT_MS = 10_000;
 const STALE_LOCK_MS = 5_000;
 
-function isNodeErrorCode(error: unknown, ...codes: string[]): boolean {
+export function isNodeErrorCode(error: unknown, ...codes: string[]): boolean {
   return error instanceof Error && 'code' in error && codes.includes(String(error.code));
 }
 
@@ -356,21 +357,24 @@ async function writeLocalLockUnlocked(
   );
 
   const sorted: LocalSkillLockFile = { version: lock.version, skills: sortedSkills };
-  const content = JSON.stringify(sorted, null, 2) + '\n';
+  await writeFileAtomic(lockPath, JSON.stringify(sorted, null, 2) + '\n');
+}
 
+export async function writeFileAtomic(path: string, content: string): Promise<void> {
   // Preserve write-permission errors on read-only lock files across POSIX (where rename mutates the parent dir).
   try {
-    await access(lockPath, constants.W_OK);
+    await access(path, constants.W_OK);
   } catch (error) {
     if (!isNodeErrorCode(error, 'ENOENT')) {
       throw error;
     }
   }
 
-  const tempPath = `${lockPath}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
-  await writeFile(tempPath, content, 'utf-8');
+  const target = await realpath(path).catch(() => path);
+  const tempPath = `${target}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
   try {
-    await renameWithWindowsRetry(tempPath, lockPath);
+    await writeFile(tempPath, content, 'utf-8');
+    await renameWithWindowsRetry(tempPath, target);
   } catch (error) {
     await unlink(tempPath).catch(() => {});
     throw error;

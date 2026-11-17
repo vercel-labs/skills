@@ -234,6 +234,7 @@ Codes most API callers handle:
 | `SKILLS_REMOVE_GLOBALLY_TRACKED`                        | A project remove would delete a skill tracked by the global lock.    |
 | `SKILLS_REMOVE_UNTRACKED_SKIPPED`                       | Warning: `*` skipped skill folders the lock does not track.          |
 | `SKILLS_INVALID_LOCAL_LOCK`                             | `skills-lock.json` is unreadable; nothing was written.               |
+| `SKILLS_INVALID_GLOBAL_LOCK`                            | The global `.skill-lock.json` is unreadable; nothing was written.    |
 | `SKILLS_LOCK_WRITE_FAILED`                              | Skills were installed but the lock file could not be updated.        |
 | `SKILLS_INSTALL_FAILED`, `SKILLS_REMOVE_FAILED`         | Writing or removing one skill failed.                                |
 

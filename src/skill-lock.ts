@@ -1,7 +1,10 @@
-import { readFile, writeFile, mkdir } from 'fs/promises';
+import { readFile, mkdir } from 'fs/promises';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
+import { diagnostics } from './diagnostics.ts';
+import { isNodeErrorCode, writeFileAtomic } from './local-lock.ts';
+import { warn } from './warnings.ts';
 
 const AGENTS_DIR = '.agents';
 const LOCK_FILE = '.skill-lock.json';
@@ -81,49 +84,51 @@ export function getSkillLockPath(): string {
   return join(homedir(), AGENTS_DIR, LOCK_FILE);
 }
 
-/**
- * Read the skill lock file.
- * Returns an empty lock file structure if the file doesn't exist.
- * Wipes the lock file if it's an old format (version < CURRENT_VERSION).
- */
 export async function readSkillLock(): Promise<SkillLockFile> {
   const lockPath = getSkillLockPath();
 
+  let content: string;
   try {
-    const content = await readFile(lockPath, 'utf-8');
-    const parsed = JSON.parse(content) as SkillLockFile;
-
-    // Validate version - wipe if old format
-    if (typeof parsed.version !== 'number' || !parsed.skills) {
-      return createEmptyLockFile();
-    }
-
-    // If old version, wipe and start fresh (backwards incompatible change)
-    // v3 adds skillFolderHash - we want fresh installs to populate it
-    if (parsed.version < CURRENT_VERSION) {
-      return createEmptyLockFile();
-    }
-
-    return parsed;
+    content = await readFile(lockPath, 'utf-8');
   } catch (error) {
-    // File doesn't exist or is invalid - return empty
-    return createEmptyLockFile();
+    if (isNodeErrorCode(error, 'ENOENT')) return createEmptyLockFile();
+    throw error;
   }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : 'not valid JSON';
+    throw diagnostics.SKILLS_INVALID_GLOBAL_LOCK({ path: lockPath, reason, cause: error });
+  }
+
+  if (!isSkillLockShape(parsed)) {
+    throw diagnostics.SKILLS_INVALID_GLOBAL_LOCK({
+      path: lockPath,
+      reason: 'expected an object with "version" and "skills"',
+    });
+  }
+
+  return parsed.version < CURRENT_VERSION ? createEmptyLockFile() : parsed;
 }
 
-/**
- * Write the skill lock file.
- * Creates the directory if it doesn't exist.
- */
+function isSkillLockShape(value: unknown): value is SkillLockFile {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'version' in value &&
+    typeof value.version === 'number' &&
+    'skills' in value &&
+    typeof value.skills === 'object' &&
+    value.skills !== null
+  );
+}
+
 export async function writeSkillLock(lock: SkillLockFile): Promise<void> {
   const lockPath = getSkillLockPath();
-
-  // Ensure directory exists
   await mkdir(dirname(lockPath), { recursive: true });
-
-  // Write with pretty formatting for human readability
-  const content = JSON.stringify(lock, null, 2);
-  await writeFile(lockPath, content, 'utf-8');
+  await writeFileAtomic(lockPath, JSON.stringify(lock, null, 2));
 }
 
 /**
@@ -225,14 +230,6 @@ export async function getSkillFromLock(skillName: string): Promise<SkillLockEntr
 }
 
 /**
- * Get all skills from the lock file.
- */
-export async function getAllLockedSkills(): Promise<Record<string, SkillLockEntry>> {
-  const lock = await readSkillLock();
-  return lock.skills;
-}
-
-/**
  * Get skills grouped by source for batch update operations.
  */
 export async function getSkillsBySource(): Promise<
@@ -276,12 +273,9 @@ export async function isPromptDismissed(promptKey: keyof DismissedPrompts): Prom
  * Mark a prompt as dismissed.
  */
 export async function dismissPrompt(promptKey: keyof DismissedPrompts): Promise<void> {
-  const lock = await readSkillLock();
-  if (!lock.dismissed) {
-    lock.dismissed = {};
-  }
-  lock.dismissed[promptKey] = true;
-  await writeSkillLock(lock);
+  await updatePreferences((lock) => {
+    lock.dismissed = { ...lock.dismissed, [promptKey]: true };
+  });
 }
 
 /**
@@ -296,7 +290,20 @@ export async function getLastSelectedAgents(): Promise<string[] | undefined> {
  * Save the selected agents to the lock file.
  */
 export async function saveSelectedAgents(agents: string[]): Promise<void> {
-  const lock = await readSkillLock();
-  lock.lastSelectedAgents = agents;
+  await updatePreferences((lock) => {
+    lock.lastSelectedAgents = agents;
+  });
+}
+
+async function updatePreferences(change: (lock: SkillLockFile) => void): Promise<void> {
+  let lock: SkillLockFile;
+  try {
+    lock = await readSkillLock();
+  } catch (error) {
+    if (!diagnostics.SKILLS_INVALID_GLOBAL_LOCK.is(error)) throw error;
+    warn(error);
+    return;
+  }
+  change(lock);
   await writeSkillLock(lock);
 }
