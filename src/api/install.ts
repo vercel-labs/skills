@@ -75,8 +75,9 @@ async function install(
   const handle = owned ? await openSource(source, config, requested ?? [], options) : source;
   try {
     const fetched = getFetchedSource(handle);
-    const skills = applyRenames(selectSkills(fetched, requested), options.rename);
-    if (config.duplicates === 'error') rejectDuplicates(handle, skills);
+    const selected = selectSkills(fetched, requested);
+    const skills = applyRenames(selected, options.rename);
+    if (config.duplicates === 'error') rejectDuplicates(handle, selected);
     if (config.symlinks === 'reject') await rejectSymlinks(fetched, skills);
     const { targets, failures } = await resolveTargets(options.agents, config, skills);
     options.signal?.throwIfAborted();
