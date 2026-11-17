@@ -146,6 +146,12 @@ describe('stripTerminalEscapes', () => {
       expect(result).toBe('Fake output');
       expect(result).not.toContain('\x1b');
     });
+
+    it('does not rebuild a sequence when stripping chars after a lone ESC', () => {
+      expect(stripTerminalEscapes('\x1b\x07[2Jevil')).toBe('[2Jevil');
+      expect(stripTerminalEscapes('\x1b\x9b]0;pwned\x07')).toBe(']0;pwned');
+      expect(stripTerminalEscapes('text\x1b')).toBe('text');
+    });
   });
 });
 

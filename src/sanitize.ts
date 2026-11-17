@@ -32,8 +32,8 @@ const SIMPLE_ESC_RE = /\x1b[\x20-\x7e]/g;
 const C1_RE = /[\x80-\x9f]/g;
 
 // Raw control characters except tab (\x09) and newline (\x0a)
-// Includes BEL (\x07), BS (\x08), CR (\x0d), and others
-const CONTROL_RE = /[\x00-\x06\x07\x08\x0b\x0c\x0d-\x1a\x1c-\x1f\x7f]/g;
+// Includes BEL (\x07), BS (\x08), CR (\x0d), leftover ESC (\x1b), and others
+const CONTROL_RE = /[\x00-\x08\x0b-\x1f\x7f]/g;
 
 /**
  * Strip all terminal escape sequences and dangerous control characters
