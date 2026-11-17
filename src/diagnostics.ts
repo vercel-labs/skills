@@ -215,6 +215,10 @@ const baseDiagnostics = defineDiagnostics({
       why: (p: { path: string; reason: string }) =>
         `Invalid ${p.path}: ${p.reason}. Fix or delete the file, then retry.`,
     },
+    SKILLS_INVALID_GLOBAL_LOCK: {
+      why: (p: { path: string; reason: string }) =>
+        `Invalid ${p.path}: ${p.reason}. Fix or delete the file, then retry.`,
+    },
     SKILLS_LOCAL_LOCK_BUSY: {
       why: (p: { path: string }) =>
         `Timed out waiting for ${p.path}: another skills process is updating skills-lock.json. If none is running, delete the file, then retry.`,

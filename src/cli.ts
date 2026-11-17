@@ -449,6 +449,7 @@ main()
   .catch((error: unknown) => {
     if (
       !diagnostics.SKILLS_INVALID_LOCAL_LOCK.is(error) &&
+      !diagnostics.SKILLS_INVALID_GLOBAL_LOCK.is(error) &&
       !diagnostics.SKILLS_OPTION_REQUIRES_VALUE.is(error) &&
       !diagnostics.SKILLS_OPTION_TAKES_NO_VALUE.is(error)
     ) {

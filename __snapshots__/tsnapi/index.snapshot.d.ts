@@ -488,6 +488,12 @@ export declare const diagnostics: Omit<import("nostics").Diagnostics<{
       reason: string;
     }) => string;
   };
+  readonly SKILLS_INVALID_GLOBAL_LOCK: {
+    readonly why: (p: {
+      path: string;
+      reason: string;
+    }) => string;
+  };
   readonly SKILLS_LOCAL_LOCK_BUSY: {
     readonly why: (p: {
       path: string;
@@ -715,7 +721,7 @@ export declare const diagnostics: Omit<import("nostics").Diagnostics<{
     skills: string[];
   }, "SKILLS_CATEGORY_DIR_CONFLICT"> | Diagnostic$1<undefined, "SKILLS_CLEANUP_OUTSIDE_TEMP_DIR"> | Diagnostic$1<{
     path: string;
-  }, "SKILLS_BROKEN_SYMLINK"> | Diagnostic$1<undefined, "SKILLS_LOCK_MISSING_SOURCE_URL"> | Diagnostic$1<undefined, "SKILLS_INVALID_LOCAL_LOCK"> | Diagnostic$1<undefined, "SKILLS_LOCAL_LOCK_BUSY"> | Diagnostic$1<{
+  }, "SKILLS_BROKEN_SYMLINK"> | Diagnostic$1<undefined, "SKILLS_LOCK_MISSING_SOURCE_URL"> | Diagnostic$1<undefined, "SKILLS_INVALID_LOCAL_LOCK"> | Diagnostic$1<undefined, "SKILLS_INVALID_GLOBAL_LOCK"> | Diagnostic$1<undefined, "SKILLS_LOCAL_LOCK_BUSY"> | Diagnostic$1<{
     path: string;
   }, "SKILLS_SYMLINK_OUTSIDE_SKILL"> | Diagnostic$1<{
     path: string;
