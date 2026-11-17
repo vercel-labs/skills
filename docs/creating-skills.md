@@ -63,8 +63,8 @@ discover `SKILL.md` files outside these container directories (e.g. under
 - `skills/.curated/`
 - `skills/.experimental/`
 - `skills/.system/`
-- `.aider-desk/skills/`
 - `.agents/skills/`
+- `.aider-desk/skills/`
 - `data/skills/`
 - `.autohand/skills/`
 - `.augment/skills/`

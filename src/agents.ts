@@ -83,6 +83,15 @@ export function isPositAssistantInstalled(
 }
 
 export const agents: Record<AgentType, AgentConfig> = {
+  abacusai: {
+    name: 'abacusai',
+    displayName: 'Abacus.AI CLI',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents', 'skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.abacusai'));
+    },
+  },
   'aider-desk': {
     name: 'aider-desk',
     displayName: 'AiderDesk',
