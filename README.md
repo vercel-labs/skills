@@ -111,6 +111,10 @@ A skill installed with `--rename` is hashed as it is installed: its `SKILL.md` h
 
 A version 1 lock is upgraded when it is read, without network access. An installed skill whose files still match its version 1 hash gets a new hash computed from those files. Any other entry gets an empty hash, because there is nothing trusted to check it against. `skills install` fetches those skills again and records new hashes, and `--frozen-lockfile` fails until that is done.
 
+## Global registry permissions
+
+On POSIX systems the CLI creates a new global `.skill-lock.json` with owner-only permissions. When updating an existing registry, it writes a private temporary file and preserves the existing owner, group, and POSIX read, write, and execute bits before replacing the registry. For example, a registry set to `0600` stays `0600`, and one set to `0640` retains group read access.
+
 ## Supported Agents
 
 The CLI detects installed agents and lets you choose where skills are installed.

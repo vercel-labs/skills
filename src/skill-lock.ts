@@ -1,7 +1,8 @@
-import { readFile, writeFile, mkdir } from 'fs/promises';
+import { access, mkdir, open, readFile, rename, stat, unlink } from 'fs/promises';
+import { constants } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
-import { createHash } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 
 const AGENTS_DIR = '.agents';
 const LOCK_FILE = '.skill-lock.json';
@@ -83,47 +84,99 @@ export function getSkillLockPath(): string {
 
 /**
  * Read the skill lock file.
- * Returns an empty lock file structure if the file doesn't exist.
- * Wipes the lock file if it's an old format (version < CURRENT_VERSION).
+ * Only a missing file is empty: invalid JSON must not erase installation
+ * metadata on the next add, update, remove, or agent-picker write.
+ * Legacy schema migration is handled separately.
  */
 export async function readSkillLock(): Promise<SkillLockFile> {
   const lockPath = getSkillLockPath();
-
+  let content: string;
   try {
-    const content = await readFile(lockPath, 'utf-8');
-    const parsed = JSON.parse(content) as SkillLockFile;
-
-    // Validate version - wipe if old format
-    if (typeof parsed.version !== 'number' || !parsed.skills) {
-      return createEmptyLockFile();
-    }
-
-    // If old version, wipe and start fresh (backwards incompatible change)
-    // v3 adds skillFolderHash - we want fresh installs to populate it
-    if (parsed.version < CURRENT_VERSION) {
-      return createEmptyLockFile();
-    }
-
-    return parsed;
+    content = await readFile(lockPath, 'utf-8');
   } catch (error) {
-    // File doesn't exist or is invalid - return empty
+    if (isNodeErrorCode(error, 'ENOENT')) return createEmptyLockFile();
+    throw error;
+  }
+
+  let parsed: SkillLockFile;
+  try {
+    parsed = JSON.parse(content) as SkillLockFile;
+  } catch (error) {
+    throw new Error(
+      `Invalid global skill lock at ${lockPath}: malformed JSON. Restore or repair the file before retrying.`,
+      { cause: error }
+    );
+  }
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error(`Invalid global skill lock at ${lockPath}: expected a JSON object.`);
+  }
+
+  // Preserve existing legacy-format semantics; migration is tracked separately.
+  if (typeof parsed.version !== 'number' || !parsed.skills) {
     return createEmptyLockFile();
   }
+  if (parsed.version < CURRENT_VERSION) {
+    return createEmptyLockFile();
+  }
+  return parsed;
+}
+
+function isNodeErrorCode(error: unknown, ...codes: string[]): boolean {
+  return error instanceof Error && 'code' in error && codes.includes(String(error.code));
 }
 
 /**
- * Write the skill lock file.
- * Creates the directory if it doesn't exist.
+ * Write a complete replacement beside the existing lock, then rename it.
+ * A failed or interrupted write must not leave the active JSON truncated.
  */
 export async function writeSkillLock(lock: SkillLockFile): Promise<void> {
   const lockPath = getSkillLockPath();
-
-  // Ensure directory exists
   await mkdir(dirname(lockPath), { recursive: true });
 
-  // Write with pretty formatting for human readability
+  // Do not bypass an existing read-only file via directory rename permissions.
+  let existing;
+  try {
+    await access(lockPath, constants.W_OK);
+    if (process.platform !== 'win32') existing = await stat(lockPath);
+  } catch (error) {
+    if (!isNodeErrorCode(error, 'ENOENT')) throw error;
+  }
+
   const content = JSON.stringify(lock, null, 2);
-  await writeFile(lockPath, content, 'utf-8');
+  const tempPath = `${lockPath}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+  const temp = await open(tempPath, 'wx', 0o600);
+  try {
+    try {
+      await temp.writeFile(content, 'utf-8');
+      if (existing) {
+        // Permission bits must continue to refer to the same owner and group.
+        const created = await temp.stat();
+        if (created.uid !== existing.uid || created.gid !== existing.gid) {
+          await temp.chown(existing.uid, existing.gid);
+        }
+        await temp.chmod(existing.mode & 0o777);
+      }
+    } finally {
+      await temp.close();
+    }
+
+    const maxAttempts = process.platform === 'win32' ? 5 : 1;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await rename(tempPath, lockPath);
+        break;
+      } catch (error) {
+        if (attempt < maxAttempts && isNodeErrorCode(error, 'EPERM', 'EBUSY')) {
+          await new Promise((resolve) => setTimeout(resolve, attempt * 15));
+          continue;
+        }
+        throw error;
+      }
+    }
+  } catch (error) {
+    await unlink(tempPath).catch(() => {});
+    throw error;
+  }
 }
 
 /**
