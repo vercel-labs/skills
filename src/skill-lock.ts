@@ -1,4 +1,4 @@
-import { access, readFile, rename, unlink, writeFile, mkdir } from 'fs/promises';
+import { access, mkdir, open, readFile, rename, stat, unlink } from 'fs/promises';
 import { constants } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
@@ -134,16 +134,32 @@ export async function writeSkillLock(lock: SkillLockFile): Promise<void> {
   await mkdir(dirname(lockPath), { recursive: true });
 
   // Do not bypass an existing read-only file via directory rename permissions.
+  let existing;
   try {
     await access(lockPath, constants.W_OK);
+    if (process.platform !== 'win32') existing = await stat(lockPath);
   } catch (error) {
     if (!isNodeErrorCode(error, 'ENOENT')) throw error;
   }
 
   const content = JSON.stringify(lock, null, 2);
   const tempPath = `${lockPath}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+  const temp = await open(tempPath, 'wx', 0o600);
   try {
-    await writeFile(tempPath, content, 'utf-8');
+    try {
+      await temp.writeFile(content, 'utf-8');
+      if (existing) {
+        // Permission bits must continue to refer to the same owner and group.
+        const created = await temp.stat();
+        if (created.uid !== existing.uid || created.gid !== existing.gid) {
+          await temp.chown(existing.uid, existing.gid);
+        }
+        await temp.chmod(existing.mode & 0o777);
+      }
+    } finally {
+      await temp.close();
+    }
+
     const maxAttempts = process.platform === 'win32' ? 5 : 1;
     for (let attempt = 1; ; attempt++) {
       try {

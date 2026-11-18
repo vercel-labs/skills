@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  statSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
@@ -63,6 +72,22 @@ describe('global lock corruption protection', () => {
     writeFileSync(lockPath, 'null', 'utf8');
     await expect(readSkillLock()).rejects.toThrow(/Invalid global skill lock.*JSON object/);
     expect(readFileSync(lockPath, 'utf8')).toBe('null');
+  });
+
+  it.skipIf(process.platform === 'win32').each([0o600, 0o640])(
+    'preserves existing POSIX permission bits (%i) when replacing the lock',
+    async (mode) => {
+      await addSkillToLock('alpha', sampleEntry);
+      chmodSync(lockPath, mode);
+      await saveSelectedAgents(['codex']);
+      expect(statSync(lockPath).mode & 0o777).toBe(mode);
+      expect((await readSkillLock()).lastSelectedAgents).toEqual(['codex']);
+    }
+  );
+
+  it.skipIf(process.platform === 'win32')('creates a private global lock', async () => {
+    await addSkillToLock('alpha', sampleEntry);
+    expect(statSync(lockPath).mode & 0o077).toBe(0);
   });
 
   it('preserves valid entries and leaves no temporary files after an atomic update', async () => {
