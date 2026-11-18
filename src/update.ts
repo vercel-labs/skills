@@ -20,6 +20,7 @@ import {
   buildUpdateInstallSource,
   buildLocalUpdateSource,
   buildLocalCloneSource,
+  buildGitHubCompareUrl,
   shouldUseFullDepthForUpdate,
 } from './update-source.ts';
 import { cloneRepo, cleanupTempDir, getGitTreeHash, getHeadCommit } from './git.ts';
@@ -145,7 +146,7 @@ export interface UpdateCheckOptions {
   /** Optional skill name(s) to filter on (positional args) */
   skills?: string[];
   /** Check mode: report each skill that has an update instead of installing it. */
-  reportOutdated?: (name: string) => void;
+  reportOutdated?: (name: string, compareUrl?: string) => void;
 }
 
 /**
@@ -1261,11 +1262,9 @@ export async function updateProjectSkills(
         // unchanged skill is not reinstalled.
         const locked = asLocked(current, { name: skill.name, skillName: skill.entry.skillName });
         const computedHash = await sourceSkillHash(locked).catch(() => null);
-        if (
-          skillPath === skill.entry.skillPath &&
-          computedHash === skill.entry.computedHash &&
-          onDisk.has(skill.name)
-        ) {
+        const changed =
+          skillPath !== skill.entry.skillPath || computedHash !== skill.entry.computedHash;
+        if (!changed && onDisk.has(skill.name)) {
           upToDateCount++;
           // Pin a lock written before commits were recorded, so restores stop following the branch
           if (commit && !skill.entry.commit && !options.reportOutdated) {
@@ -1274,7 +1273,10 @@ export async function updateProjectSkills(
           continue;
         }
         if (options.reportOutdated) {
-          options.reportOutdated(skill.name);
+          options.reportOutdated(
+            skill.name,
+            changed ? buildGitHubCompareUrl(cloneSource, skill.entry.commit, commit) : undefined
+          );
           continue;
         }
 
@@ -1381,9 +1383,10 @@ export async function runUpdate(
   if (mode === 'check') {
     // Never prompt: pick the scope automatically and only report upstream deletions.
     options.yes = true;
-    options.reportOutdated = (name) => {
+    options.reportOutdated = (name, compareUrl) => {
       outdatedCount++;
       console.log(`${TEXT}↑ ${sanitizeMetadata(name)} has an update${RESET}`);
+      if (compareUrl) console.log(`  Repository changes: ${compareUrl}`);
     };
   }
   const scope = await resolveUpdateScope(options);
