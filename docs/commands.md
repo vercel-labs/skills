@@ -194,6 +194,9 @@ Check installed skills for available updates without reinstalling them:
 npx skills check
 ```
 
+When a project skill from GitHub.com has changed and both commits are known, the check prints a
+link to the repository diff between the installed and upstream revisions. This applies to HTTPS sources.
+
 It also reports project skills whose installed files differ from the content hash in
 `skills-lock.json` (`has local changes`). It exits with code 1 when any skill has an
 update or local changes, so it can gate CI.

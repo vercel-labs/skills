@@ -1,3 +1,6 @@
+import { isCommitSha } from './git.ts';
+import { GITHUB_FULL_NAME } from './source-parser.ts';
+
 export interface UpdateSourceEntry {
   source: string;
   sourceUrl?: string;
@@ -58,6 +61,27 @@ function supportsAppendedSubpath(source: string): boolean {
     }
   }
   return true;
+}
+
+/** Compare the two checked revisions, even if the upstream branch has since moved. */
+export function buildGitHubCompareUrl(
+  cloneSource: string,
+  installed?: string,
+  upstream?: string
+): string | undefined {
+  if (
+    !installed ||
+    !upstream ||
+    installed === upstream ||
+    !isCommitSha(installed) ||
+    !isCommitSha(upstream)
+  ) {
+    return;
+  }
+  const prefix = 'https://github.com/';
+  if (!cloneSource.startsWith(prefix)) return;
+  const repo = cloneSource.slice(prefix.length).replace(/\.git$/, '');
+  if (GITHUB_FULL_NAME.test(repo)) return `${prefix}${repo}/compare/${installed}..${upstream}`;
 }
 
 function isBareShorthand(source: string): boolean {
