@@ -1446,6 +1446,89 @@ describe('Update Cleanup Unit Tests', () => {
       expect(add.installFetched).toHaveBeenCalledTimes(2);
       expect(result.successCount).toBe(2);
     });
+
+    describe('skills that cannot be checked', () => {
+      const checked = {
+        source: 'owner/repo',
+        skillPath: 'skills/skill-a/SKILL.md',
+        sourceType: 'github',
+        skillFolderHash: 'same',
+        installedAt: '',
+        updatedAt: '',
+      };
+      const unchecked = {
+        source: 'other/repo',
+        sourceUrl: 'https://github.com/other/repo.git',
+        sourceType: 'github',
+        skillFolderHash: '',
+        installedAt: '',
+        updatedAt: '',
+      };
+
+      async function output(skills: Record<string, object>, run: () => Promise<unknown>) {
+        vi.mocked(skillLock.readSkillLock).mockResolvedValue({ version: 3, skills } as never);
+        vi.mocked(blob.fetchRepoTree).mockResolvedValue({
+          sha: 'rootsha',
+          branch: 'main',
+          tree: [{ path: 'skills/skill-a/SKILL.md', type: 'blob', sha: 'sha1' }],
+        });
+        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+        await run();
+        const out = logSpy.mock.calls.flat().join('\n');
+        logSpy.mockRestore();
+        return out;
+      }
+
+      it('reports all skills up to date when none were skipped', async () => {
+        vi.mocked(blob.getSkillFolderHashFromTree).mockReturnValue('same');
+
+        const out = await output({ 'skill-a': checked }, () => updateGlobalSkills({ yes: true }));
+
+        expect(out).toContain('All global skills are up to date');
+        expect(out).not.toContain('cannot be checked');
+      });
+
+      it('lists skipped skills instead of reporting all up to date', async () => {
+        vi.mocked(blob.getSkillFolderHashFromTree).mockReturnValue('same');
+
+        const out = await output({ 'skill-a': checked, 'skill-b': unchecked }, () =>
+          updateGlobalSkills({ yes: true })
+        );
+
+        expect(out).toContain('1 skill(s) cannot be checked automatically');
+        expect(out).toContain('skill-b');
+        expect(out).not.toContain('All global skills are up to date');
+      });
+
+      it('lists skipped skills in check when nothing else is outdated', async () => {
+        vi.mocked(blob.getSkillFolderHashFromTree).mockReturnValue('same');
+
+        const out = await output({ 'skill-a': checked, 'skill-b': unchecked }, () =>
+          runUpdate(['-g'], 'check')
+        );
+
+        expect(out).toContain('1 skill(s) cannot be checked automatically');
+        expect(out).not.toContain('All global skills are up to date');
+      });
+
+      it('lists skipped skills after installing updates', async () => {
+        vi.mocked(blob.getSkillFolderHashFromTree).mockReturnValue('new');
+
+        const out = await output({ 'skill-a': checked, 'skill-b': unchecked }, () =>
+          updateGlobalSkills({ yes: true })
+        );
+
+        expect(add.installFetched).toHaveBeenCalledTimes(1);
+        expect(out).toContain('1 skill(s) cannot be checked automatically');
+      });
+
+      it('lists skipped skills when no skill could be checked', async () => {
+        const out = await output({ 'skill-b': unchecked }, () => updateGlobalSkills({ yes: true }));
+
+        expect(out).toContain('1 skill(s) cannot be checked automatically');
+        expect(out).not.toContain('All global skills are up to date');
+      });
+    });
   });
 
   describe('runUpdate exit status', () => {
