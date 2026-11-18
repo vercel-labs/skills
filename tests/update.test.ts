@@ -1448,15 +1448,16 @@ describe('Update Cleanup Unit Tests', () => {
     });
 
     describe('skills that cannot be checked', () => {
-      const checked = {
+      const checked: skillLock.SkillLockEntry = {
         source: 'owner/repo',
+        sourceUrl: 'https://github.com/owner/repo.git',
         skillPath: 'skills/skill-a/SKILL.md',
         sourceType: 'github',
         skillFolderHash: 'same',
         installedAt: '',
         updatedAt: '',
       };
-      const unchecked = {
+      const unchecked: skillLock.SkillLockEntry = {
         source: 'other/repo',
         sourceUrl: 'https://github.com/other/repo.git',
         sourceType: 'github',
@@ -1465,8 +1466,11 @@ describe('Update Cleanup Unit Tests', () => {
         updatedAt: '',
       };
 
-      async function output(skills: Record<string, object>, run: () => Promise<unknown>) {
-        vi.mocked(skillLock.readSkillLock).mockResolvedValue({ version: 3, skills } as never);
+      async function output(
+        skills: Record<string, skillLock.SkillLockEntry>,
+        run: () => Promise<unknown>
+      ) {
+        vi.mocked(skillLock.readSkillLock).mockResolvedValue({ version: 3, skills });
         vi.mocked(blob.fetchRepoTree).mockResolvedValue({
           sha: 'rootsha',
           branch: 'main',
