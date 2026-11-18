@@ -37,6 +37,7 @@ import type { Diagnostic } from 'nostics';
 import { diagnostics, formatError } from './diagnostics.ts';
 import { parseCliArgs, throwFirstError } from './cli-args.ts';
 import { track } from './telemetry.ts';
+import { warn } from './warnings.ts';
 import { isCI } from './ci.ts';
 import { detectAgent, getAgentType } from './detect-agent.ts';
 import { getLastSelectedAgents, saveSelectedAgents } from './skill-lock.ts';
@@ -420,6 +421,25 @@ async function foreignDestination(
   return `${shortenPath(dest, cwd)} already exists and was not installed by sync`;
 }
 
+/**
+ * Whether prune must keep the real directory `dest` although sync owns the name.
+ * Agent dirs outside a dot-directory (OpenClaw's `skills`, `data/skills`,
+ * `agent/skills`) are ordinary repo folders, so only an unmodified copy of what
+ * sync installed is removed there, as `skills remove` does (#1771).
+ */
+async function isUnmanagedRepoDir(
+  dest: string,
+  cwd: string,
+  lockEntry: LocalSkillLockEntry | undefined
+): Promise<boolean> {
+  const firstSegment = relative(cwd, dest).split(sep)[0] ?? '';
+  if (firstSegment.startsWith('.')) return false;
+  const stats = await lstat(dest).catch(() => null);
+  if (!stats || stats.isSymbolicLink()) return false;
+  const hash = await computeSkillFolderHash(dest).catch(() => undefined);
+  return hash === undefined || hash !== lockEntry?.computedHash;
+}
+
 async function linksIntoNodeModules(path: string): Promise<boolean> {
   try {
     if (!(await lstat(path)).isSymbolicLink()) return false;
@@ -471,9 +491,12 @@ async function pruneStaleSkills(
       ...allAgents.map((agent) => getInstallPath(name, agent, { cwd })),
     ]);
     for (const dest of destinations) {
-      if (!(await foreignDestination(dest, canonicalDir, lockEntry, cwd))) {
-        await rm(dest, { recursive: true, force: true });
+      if (await foreignDestination(dest, canonicalDir, lockEntry, cwd)) continue;
+      if (dest !== canonicalDir && (await isUnmanagedRepoDir(dest, cwd, lockEntry))) {
+        warn(diagnostics.SKILLS_REMOVE_UNMANAGED_DIR_KEPT({ path: shortenPath(dest, cwd) }));
+        continue;
       }
+      await rm(dest, { recursive: true, force: true });
     }
     if (key) {
       delete lock.skills[key];
