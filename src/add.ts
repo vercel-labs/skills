@@ -939,8 +939,14 @@ async function installPackPointerSkills(
         } else {
           await recordProjectLock(source, outcome.installed);
         }
-      } catch {
-        // Don't fail installation if lock file update fails
+      } catch (error) {
+        // The skill may be installed, but update/check cannot track it if the
+        // global lock was corrupt or unwritable. Do not report silent success.
+        if (options.global) {
+          const reason = error instanceof Error ? error.message : String(error);
+          p.log.error(`Could not update global skill lock ${getSkillLockPath()}: ${reason}`);
+          process.exitCode = 1;
+        }
       }
     } finally {
       await releaseSource(source);
