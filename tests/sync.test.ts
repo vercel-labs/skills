@@ -577,6 +577,30 @@ describe('sync command', () => {
       expect(existsSync(join(testDir, '.claude', 'skills', 'gone'))).toBe(false);
     });
 
+    it('keeps a skills/<name> folder sync did not write', () => {
+      syncThenRemoveDependency();
+      // OpenClaw's project skills dir is `skills/`, an ordinary repo folder.
+      const own = join(testDir, 'skills', 'gone');
+      writeSkill(own, 'gone');
+      writeFileSync(join(own, 'notes.md'), 'my work');
+
+      const result = sync();
+
+      expect(readFileSync(join(own, 'notes.md'), 'utf-8')).toBe('my work');
+      expect(result.stderr).toContain('SKILLS_REMOVE_UNMANAGED_DIR_KEPT');
+      expect(existsSync(canonical('gone'))).toBe(false);
+      expect(readLock().skills.gone).toBeUndefined();
+    });
+
+    it('removes an unmodified copy sync made in skills/<name>', () => {
+      syncThenRemoveDependency('-a', 'openclaw', '--copy');
+      expect(lstatSync(join(testDir, 'skills', 'gone')).isDirectory()).toBe(true);
+
+      sync();
+
+      expect(existsSync(join(testDir, 'skills', 'gone'))).toBe(false);
+    });
+
     it('never removes skills installed with skills add or written by hand', () => {
       declareDeps([]);
       writeSkill(canonical('added'), 'added');
