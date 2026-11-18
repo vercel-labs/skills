@@ -1,4 +1,4 @@
-import { isAbsolute, resolve } from 'path';
+import { isAbsolute, resolve, sep } from 'path';
 import type { ParsedSource } from './types.ts';
 import { diagnostics } from './diagnostics.ts';
 import { getGitHubHost, isGitHubHost } from './github-host.ts';
@@ -327,6 +327,7 @@ function isLocalPath(input: string): boolean {
     isAbsolute(input) ||
     input.startsWith('./') ||
     input.startsWith('../') ||
+    (sep === '\\' && (input.startsWith('.\\') || input.startsWith('..\\'))) ||
     input === '.' ||
     input === '..' ||
     // Windows absolute paths like C:\ or D:\

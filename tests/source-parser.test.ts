@@ -8,6 +8,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { platform } from 'os';
+import { resolve } from 'path';
 import { parseSource, getOwnerRepo } from '../src/source-parser.ts';
 
 const isWindows = platform() === 'win32';
@@ -431,6 +432,17 @@ describe('parseSource', () => {
   });
 
   describe('Local path tests', () => {
+    it.runIf(isWindows).each(['.\\my skills', '..\\my skills'])(
+      'resolves Windows relative path %s against the supplied cwd',
+      (input) => {
+        const cwd = 'C:\\work\\project';
+        expect(parseSource(input, { cwd })).toMatchObject({
+          type: 'local',
+          localPath: resolve(cwd, input),
+        });
+      }
+    );
+
     it('Local path - relative with ./', () => {
       const result = parseSource('./my-skills');
       expect(result.type).toBe('local');
