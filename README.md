@@ -111,6 +111,28 @@ A skill installed with `--rename` is hashed as it is installed: its `SKILL.md` h
 
 A version 1 lock is upgraded when it is read, without network access. An installed skill whose files still match its version 1 hash gets a new hash computed from those files. Any other entry gets an empty hash, because there is nothing trusted to check it against. `skills install` fetches those skills again and records new hashes, and `--frozen-lockfile` fails until that is done.
 
+## Request skills.sh Listing Changes
+
+If you publish skills and need a skills.sh listing corrected, hidden, or redirected because a source or skill was
+deprecated, renamed, moved, or deleted, open an issue or pull request against this repository with the requested change.
+
+Keep each pull request focused on one kind of change. Do not combine a concrete listing cleanup with README, schema, or
+format changes.
+
+For a redirect, include:
+
+- the old skills.sh URL or slug
+- the replacement skills.sh URL or slug
+- evidence for the rename or move, such as a source repository commit, pull request, issue, or current file path
+- the date you verified the stale and replacement listings
+
+For a hidden or removed listing, include:
+
+- the skills.sh URL or slug that should be hidden or removed
+- whether the source repository, skill directory, or `SKILL.md` no longer exists
+- evidence for the deletion, deprecation, or invalid listing
+- the date you verified the stale listing
+
 ## Supported Agents
 
 The CLI detects installed agents and lets you choose where skills are installed.
