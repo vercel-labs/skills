@@ -254,16 +254,17 @@ describe('interactive add without a scope flag', () => {
 
   it('lets a global install from a well-known source pick Antigravity', async () => {
     const content = '---\nname: probe-skill\ndescription: Probe\n---\nBody\n';
-    vi.spyOn(wellKnownProvider, 'fetchAllSkills').mockResolvedValue([
-      {
-        name: 'probe-skill',
-        installName: 'probe-skill',
-        description: 'Probe',
-        content,
-        sourceUrl: 'https://skills.example.com/.well-known/agent-skills/probe-skill/SKILL.md',
-        files: new Map([['SKILL.md', content]]),
-        indexEntry: { name: 'probe-skill', description: 'Probe', files: ['SKILL.md'] },
-      },
+    const skill = {
+      name: 'probe-skill',
+      installName: 'probe-skill',
+      description: 'Probe',
+      content,
+      sourceUrl: 'https://skills.example.com/.well-known/agent-skills/probe-skill/SKILL.md',
+      files: new Map([['SKILL.md', content]]),
+      indexEntry: { name: 'probe-skill', description: 'Probe', files: ['SKILL.md'] },
+    };
+    vi.spyOn(wellKnownProvider, 'discoverSkills').mockResolvedValue([
+      { ...skill, filePaths: ['SKILL.md'], load: async () => skill },
     ]);
 
     const { offered, scopeAskedFirst } = await addInteractively(
