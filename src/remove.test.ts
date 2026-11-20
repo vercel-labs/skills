@@ -931,3 +931,106 @@ describe('remove -a with a subset of agents', { timeout: 30000 }, () => {
     expect(updatedLock.skills[skillName]).toBeDefined();
   });
 });
+
+describe(
+  'remove -g when an agent directory is a symlink to the canonical dir',
+  {
+    timeout: 30000,
+  },
+  () => {
+    let testDir: string;
+    let fakeHome: string;
+    const skillName = 'mirrored-skill';
+
+    // Antigravity's global skills dir may be a symlink to ~/.agents/skills. The
+    // per-agent entry then resolves to the canonical skill through the parent
+    // symlink, so removing it recursively would delete the canonical skill.
+    beforeEach(() => {
+      testDir = join(tmpdir(), `skills-remove-mirror-${Date.now()}`);
+      fakeHome = join(testDir, 'home');
+      mkdirSync(join(fakeHome, '.gemini', 'antigravity'), { recursive: true });
+      mkdirSync(join(fakeHome, '.gemini', 'config'), { recursive: true });
+      mkdirSync(join(fakeHome, '.claude'), { recursive: true });
+
+      const canonicalSkillsDir = join(fakeHome, '.agents', 'skills');
+      mkdirSync(canonicalSkillsDir, { recursive: true });
+      symlinkSync(canonicalSkillsDir, join(fakeHome, '.gemini', 'config', 'skills'));
+
+      const canonical = join(canonicalSkillsDir, skillName);
+      mkdirSync(canonical, { recursive: true });
+      writeFileSync(
+        join(canonical, 'SKILL.md'),
+        `---\nname: ${skillName}\ndescription: mirrored through a symlinked agent dir\n---\n`
+      );
+
+      // A second agent keeps the skill installed, so the canonical cleanup at the
+      // end of the removal loop must stay out of the way of this assertion.
+      const claudeCopy = join(fakeHome, '.claude', 'skills', skillName);
+      mkdirSync(claudeCopy, { recursive: true });
+      writeFileSync(
+        join(claudeCopy, 'SKILL.md'),
+        `---\nname: ${skillName}\ndescription: mirrored through a symlinked agent dir\n---\n`
+      );
+
+      mkdirSync(join(fakeHome, '.local', 'state', 'skills'), { recursive: true });
+      writeFileSync(
+        join(fakeHome, '.local', 'state', 'skills', '.skill-lock.json'),
+        JSON.stringify(
+          {
+            version: 3,
+            skills: {
+              [skillName]: {
+                source: 'owner/repo',
+                sourceType: 'github',
+                sourceUrl: 'https://github.com/owner/repo',
+                skillFolderHash: 'somehash',
+                installedAt: '2026-07-01T00:00:00.000Z',
+                updatedAt: '2026-07-01T00:00:00.000Z',
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+    });
+
+    afterEach(() => {
+      if (existsSync(testDir)) {
+        rmSync(testDir, { recursive: true, force: true });
+      }
+    });
+
+    it('does not delete the canonical skill through the symlinked parent directory', () => {
+      const result = runCli(
+        ['remove', skillName, '--global', '-a', 'antigravity', '-y'],
+        fakeHome,
+        { HOME: fakeHome }
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(join(fakeHome, '.agents', 'skills', skillName))).toBe(true);
+      expect(existsSync(join(fakeHome, '.agents', 'skills', skillName, 'SKILL.md'))).toBe(true);
+    });
+
+    it('still removes a per-skill symlink that points at the canonical skill', () => {
+      const claudeSkillsDir = join(fakeHome, '.claude', 'skills');
+      rmSync(join(claudeSkillsDir, skillName), { recursive: true, force: true });
+      symlinkSync(join(fakeHome, '.agents', 'skills', skillName), join(claudeSkillsDir, skillName));
+
+      const result = runCli(
+        ['remove', skillName, '--global', '-a', 'claude-code', '-y'],
+        fakeHome,
+        {
+          HOME: fakeHome,
+        }
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(
+        lstatSync(join(claudeSkillsDir, skillName), { throwIfNoEntry: false })
+      ).toBeUndefined();
+      expect(existsSync(join(fakeHome, '.agents', 'skills', skillName))).toBe(true);
+    });
+  }
+);
