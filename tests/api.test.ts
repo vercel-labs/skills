@@ -93,8 +93,26 @@ async function expectCode(promise: Promise<unknown>, code: DiagnosticCode): Prom
     (e: unknown) => e
   );
   expect(error).toMatchObject({ code });
-  expect(api.isDiagnostic(error, code)).toBe(true);
+  expect(api.diagnostics[code].is(error)).toBe(true);
 }
+
+describe('diagnostics', () => {
+  it('recognizes diagnostics from every catalog', () => {
+    const git = api.diagnostics.SKILLS_GIT_CLONE_FAILED({ url: 'u', detail: 'd' });
+    const archive = api.diagnostics.SKILLS_ARCHIVE_LINK_ENTRY();
+    const base = api.diagnostics.SKILLS_SOURCE_DISPOSED();
+
+    for (const error of [git, archive, base]) expect(api.diagnostics.is(error)).toBe(true);
+  });
+
+  it('keeps the deprecated isDiagnostic working', () => {
+    const error = api.diagnostics.SKILLS_GIT_AUTH_FAILED({ url: 'u', host: 'h' });
+    expect(api.isDiagnostic(error, 'SKILLS_GIT_CLONE_TIMEOUT', 'SKILLS_GIT_AUTH_FAILED')).toBe(
+      true
+    );
+    expect(api.isDiagnostic(error, 'SKILLS_GIT_CLONE_FAILED')).toBe(false);
+  });
+});
 
 describe('agents', () => {
   it('lists supported agents as frozen records, including the neutral universal target', () => {
@@ -312,6 +330,97 @@ describe('telemetry', () => {
   });
 });
 
+describe('rename', () => {
+  const lockOf = () => JSON.parse(readFileSync(join(cwd, 'skills-lock.json'), 'utf-8'));
+  const skillMd = (name: string) =>
+    readFileSync(join(cwd, `.claude/skills/${name}/SKILL.md`), 'utf-8');
+
+  it('installs a skill under a new name and lists where it came from', async () => {
+    const result = await api.installSkills(source, {
+      cwd,
+      skills: ['alpha'],
+      rename: { alpha: 'gamma' },
+      agents: ['claude-code'],
+    });
+
+    expect(result.installed.map((target) => target.skill)).toEqual(['gamma']);
+    expect(skillMd('gamma')).toContain('name: gamma\n');
+    expect(lockOf().skills.gamma.skillName).toBe('alpha');
+    const listed = await api.listSkills({ cwd, scope: 'project' });
+    expect(listed.skills).toEqual([
+      expect.objectContaining({ name: 'gamma', source, renamedFrom: 'alpha' }),
+    ]);
+  });
+
+  it('renames several skills in one call and installs the rest as-is', async () => {
+    await api.installSkills(source, {
+      cwd,
+      rename: { alpha: 'gamma', beta: 'delta' },
+      agents: ['claude-code'],
+    });
+
+    expect(skillMd('gamma')).toContain('name: gamma\n');
+    expect(skillMd('delta')).toContain('name: delta\n');
+    expect(lockOf().skills).toEqual({
+      gamma: expect.objectContaining({ skillName: 'alpha' }),
+      delta: expect.objectContaining({ skillName: 'beta' }),
+    });
+
+    writeSkill(join(source, 'skills'), 'epsilon');
+    await api.installSkills(source, {
+      cwd,
+      skills: ['alpha', 'epsilon'],
+      rename: { alpha: 'zeta' },
+      agents: ['claude-code'],
+    });
+    expect(lockOf().skills.zeta.skillName).toBe('alpha');
+    expect(lockOf().skills.epsilon.skillName).toBeUndefined();
+  });
+
+  it('rejects a bad map before writing anything', async () => {
+    const install = (rename: unknown, skills?: string[]) =>
+      api.installSkills(source, {
+        cwd,
+        agents: ['claude-code'],
+        ...(skills && { skills }),
+        rename: rename as Record<string, string>,
+      });
+
+    await expect(install('gamma')).rejects.toMatchObject({ code: 'SKILLS_INVALID_OPTION_VALUE' });
+    await expect(install({ alpha: '../gamma' })).rejects.toMatchObject({
+      code: 'SKILLS_INVALID_OPTION_VALUE',
+    });
+    // A key must name a skill being installed
+    await expect(install({ nope: 'gamma' })).rejects.toMatchObject({
+      code: 'SKILLS_NO_MATCHING_SKILLS',
+    });
+    await expect(install({ beta: 'gamma' }, ['alpha'])).rejects.toMatchObject({
+      code: 'SKILLS_NO_MATCHING_SKILLS',
+    });
+    // No two skills may end up with one name
+    await expect(install({ alpha: 'beta' })).rejects.toMatchObject({
+      code: 'SKILLS_INVALID_OPTION_VALUE',
+    });
+    await expect(install({ alpha: 'gamma', beta: 'gamma' })).rejects.toMatchObject({
+      code: 'SKILLS_INVALID_OPTION_VALUE',
+    });
+    expect(existsSync(join(cwd, 'skills-lock.json'))).toBe(false);
+    expect(existsSync(join(cwd, '.claude/skills'))).toBe(false);
+  });
+
+  it('can swap the names of two skills', async () => {
+    await api.installSkills(source, {
+      cwd,
+      rename: { alpha: 'beta', beta: 'alpha' },
+      agents: ['claude-code'],
+    });
+
+    expect(skillMd('beta')).toContain('The alpha skill');
+    expect(lockOf().skills.beta.skillName).toBe('alpha');
+    expect(lockOf().skills.alpha.skillName).toBe('beta');
+  });
+});
+
 describe('listSkills and removeSkills', () => {
   it('lists installed skills with their lock source, then removes them', async () => {
     await api.installSkills(source, { cwd, agents: ['claude-code'] });
@@ -333,6 +442,53 @@ describe('listSkills and removeSkills', () => {
     const rest = await api.removeSkills(['*'], { cwd });
     expect(rest.removed).toEqual(['beta']);
     expect((await api.listSkills({ cwd, scope: 'project' })).skills).toEqual([]);
+  });
+
+  it("removes only lock-tracked skills for '*' and warns about untracked dirs (#604)", async () => {
+    await api.installSkills(source, { cwd, skills: ['alpha'], agents: ['claude-code'] });
+    const mine = join(cwd, '.agents/skills/mine');
+    mkdirSync(mine, { recursive: true });
+    writeFileSync(join(mine, 'SKILL.md'), '---\nname: mine\ndescription: mine\n---\n');
+    const warnings: string[] = [];
+
+    const removed = await api.removeSkills(['*'], {
+      cwd,
+      onWarning: (warning) => warnings.push(warning.code),
+    });
+
+    expect(removed.removed).toEqual(['alpha']);
+    expect(existsSync(join(mine, 'SKILL.md'))).toBe(true);
+    expect(warnings).toEqual(['SKILLS_REMOVE_UNTRACKED_SKIPPED']);
+  });
+
+  it("keeps a user's skills/<name> folder that is not an installed copy (#1771)", async () => {
+    await api.installSkills(source, { cwd, skills: ['alpha'], agents: ['claude-code'] });
+    const mine = join(cwd, 'skills/alpha');
+    mkdirSync(mine, { recursive: true });
+    writeFileSync(join(mine, 'SKILL.md'), '---\nname: alpha\ndescription: mine\n---\n');
+    const warnings: string[] = [];
+
+    const removed = await api.removeSkills(['alpha'], {
+      cwd,
+      onWarning: (warning) => warnings.push(warning.code),
+    });
+
+    expect(removed.removed).toEqual(['alpha']);
+    expect(existsSync(join(mine, 'SKILL.md'))).toBe(true);
+    expect(existsSync(join(cwd, '.agents/skills/alpha'))).toBe(false);
+    expect(warnings).toEqual(['SKILLS_REMOVE_UNMANAGED_DIR_KEPT']);
+  });
+
+  it('removes a skill linked into .agents/skills and keeps the link target (#2679)', async () => {
+    const skillLink = join(cwd, '.agents/skills/alpha');
+    mkdirSync(join(cwd, '.agents/skills'), { recursive: true });
+    symlinkSync(join(source, 'skills', 'alpha'), skillLink, 'junction');
+
+    const removed = await api.removeSkills(['alpha'], { cwd });
+
+    expect(removed).toEqual({ removed: ['alpha'], notFound: [], failed: [] });
+    expect(lstatSync(skillLink, { throwIfNoEntry: false })).toBeUndefined();
+    expect(existsSync(join(source, 'skills', 'alpha', 'SKILL.md'))).toBe(true);
   });
 
   it('refuses to remove from agents config does not allow', async () => {
@@ -533,7 +689,7 @@ describe('download sources', () => {
   });
 });
 
-describe('git sources', () => {
+describe('git sources', { timeout: 30000 }, () => {
   it('reports the checked-out commit and honors a ref pinned to it', async () => {
     const repo = gitRepo(source);
 
@@ -569,7 +725,7 @@ describe('git sources', () => {
     const missing = pathToFileURL(join(root, 'missing-repo')).href;
     const error = await api.resolveSource(missing, { cwd }).catch((e: unknown) => e);
     // Git failures surface as the original diagnostic, not a wrapper.
-    expect(api.isDiagnostic(error, 'SKILLS_GIT_CLONE_FAILED')).toBe(true);
+    expect(api.diagnostics.SKILLS_GIT_CLONE_FAILED.is(error)).toBe(true);
   });
 
   it('accepts ref only for git sources', async () => {

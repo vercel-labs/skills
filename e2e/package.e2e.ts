@@ -69,6 +69,22 @@ describe('packed package', () => {
     else expect(result.stdout.trim()).toMatch(/^\d+\.\d+\.\d+/);
   });
 
+  it('resolves and runs the CLI through its legacy package subpath', async () => {
+    const resolved = await exec(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        "import { fileURLToPath } from 'node:url'; console.log(fileURLToPath(import.meta.resolve('skills/bin/cli.mjs', import.meta.url)));",
+      ],
+      { cwd: inject('installDir'), env: cleanEnv() }
+    );
+    const result = await exec(process.execPath, [resolved.stdout.trim(), '--help'], {
+      env: cleanEnv(),
+    });
+    expect(result.output).toContain('Usage: skills <command> [options]');
+  });
+
   it('prints help and the banner', async () => {
     const sandbox = await Sandbox.create('help');
     const help = await sandbox.skills(['--help']);

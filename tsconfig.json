@@ -14,6 +14,7 @@
     "verbatimModuleSyntax": true,
     "noEmit": true,
     "esModuleInterop": true,
+    "types": ["node"],
 
     // Best practices
     "strict": true,

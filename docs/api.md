@@ -39,7 +39,7 @@ The package is ESM only and requires Node.js 22.20 or later.
 | `resolveSource(source, opts?)`  | Fetch a source and list its skills without installing. Returns a `SkillSource`.  |
 | `installSkills(source, opts?)`  | Install skills from a source string or a `SkillSource`.                          |
 | `listSkills(options?)`          | Skills installed in the project, globally, or both, with their lock-file source. |
-| `removeSkills(names, options?)` | Remove skills by name (or lock source; `*` for all) from the allowed agents.     |
+| `removeSkills(names, options?)` | Remove skills by name (or lock source; `*` for all lock-tracked skills).         |
 | `version`                       | The installed package version.                                                   |
 
 Sources take the same forms as `skills add`: GitHub shorthand (`owner/repo`,
@@ -80,6 +80,28 @@ await installSkills(source, {
   symlinks: 'reject', // refuse skills that contain symlinks
 });
 ```
+
+### Installing under another name
+
+`rename` installs skills under new names, keyed by the name the source uses.
+The new name is used for the folder, the lock entry and the SKILL.md `name`.
+The lock remembers the original name, so `skills update` and restores keep the
+new name, and `listSkills` reports it as `renamedFrom`. Skills not in the map
+install as-is:
+
+```ts
+await installSkills('shadcn/ui', { skills: ['shadcn'], rename: { shadcn: 'shadcn-ui' } });
+
+await installSkills(source, {
+  rename: { 'frontend-design': 'acme-frontend', 'skill-creator': 'acme-skill-creator' },
+});
+```
+
+The call throws before writing anything when a key matches no skill being
+installed (`SKILLS_NO_MATCHING_SKILLS`) or several (`SKILLS_AMBIGUOUS_SKILL_SELECTOR`),
+when a new name is not a safe folder name (lowercase letters, digits, `.`, `_`
+and `-`), or when two skills would end up with the same name
+(`SKILLS_INVALID_OPTION_VALUE`).
 
 ## Behavior
 
@@ -160,21 +182,28 @@ off. See [what is collected](troubleshooting.md#telemetry).
 Errors and warnings are [nostics](https://github.com/antfu/nostics)
 diagnostics from the same catalog the CLI uses, exported as `diagnostics`.
 Each has a permanent `code` (`SKILLS_*`), a `message`, and often a `fix`.
-Check them with `isDiagnostic`:
+Check one code with `diagnostics.SKILLS_X.is(error)`, or any code of the
+catalog with `diagnostics.is(error)`:
 
 ```ts
-import { installSkills, isDiagnostic } from 'skills';
+import { diagnostics, installSkills } from 'skills';
 
 try {
   await installSkills(source, options);
 } catch (error) {
-  if (isDiagnostic(error, 'SKILLS_GIT_CLONE_TIMEOUT')) return retry();
-  if (isDiagnostic(error, 'SKILLS_GIT_AUTH_FAILED', 'SKILLS_GIT_SAML_SSO_BLOCKED')) {
+  if (diagnostics.SKILLS_GIT_CLONE_TIMEOUT.is(error)) return retry();
+  if (
+    diagnostics.SKILLS_GIT_AUTH_FAILED.is(error) ||
+    diagnostics.SKILLS_GIT_SAML_SSO_BLOCKED.is(error)
+  ) {
     return askForCredentials();
   }
+  if (diagnostics.is(error)) console.error(error.code, error.message);
   throw error;
 }
 ```
+
+`isDiagnostic(error, ...codes)` still works but is deprecated.
 
 Per-skill failures in `result.failed` carry the same `code` and `message`.
 Fetch failures are the original diagnostic from git, the download, or the
@@ -203,6 +232,7 @@ Codes most API callers handle:
 | `SKILLS_NO_TARGET_AGENTS`                               | No allowed agent is left to install into or remove from.             |
 | `SKILLS_GLOBAL_INSTALL_UNSUPPORTED`                     | The agent has no global skills directory.                            |
 | `SKILLS_REMOVE_GLOBALLY_TRACKED`                        | A project remove would delete a skill tracked by the global lock.    |
+| `SKILLS_REMOVE_UNTRACKED_SKIPPED`                       | Warning: `*` skipped skill folders the lock does not track.          |
 | `SKILLS_INVALID_LOCAL_LOCK`                             | `skills-lock.json` is unreadable; nothing was written.               |
 | `SKILLS_LOCK_WRITE_FAILED`                              | Skills were installed but the lock file could not be updated.        |
 | `SKILLS_INSTALL_FAILED`, `SKILLS_REMOVE_FAILED`         | Writing or removing one skill failed.                                |

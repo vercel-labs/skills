@@ -18,7 +18,9 @@ import { sanitizeMetadata } from './sanitize.ts';
 import { getGitHubHost } from './github-host.ts';
 import type { Skill } from './types.ts';
 import { DEFAULT_SKILL_CONTAINER_DEPTH } from './constants.ts';
+import { hashSkillFiles, isExcludedPath } from './skill-hash.ts';
 import { SKILLS_SH_CONFIG_FILE, parseSkillsShPaths } from './skills-sh-config.ts';
+import { isInternalSkill } from './skills.ts';
 
 // ─── Types ───
 
@@ -105,22 +107,24 @@ export function resetRepoTreeAuthState(): void {
   _rateLimitedThisSession = false;
 }
 
-interface BranchFetchResult {
-  tree: RepoTree | null;
+interface ApiFetchResult<T> {
+  value: T | null;
   rateLimited: boolean;
   authRetryable: boolean;
 }
 
-async function fetchTreeBranch(
-  ownerRepo: string,
-  branch: string,
-  token: string | null
-): Promise<BranchFetchResult> {
+/** Reads one response body into the value a caller wants, or null when it is not one. */
+type ApiParser<T> = (data: unknown) => T | null;
+
+async function fetchGitHubApi<T>(
+  endpoint: string,
+  token: string | null,
+  parse: ApiParser<T>
+): Promise<ApiFetchResult<T>> {
   try {
     const githubHost = getGitHubHost();
     const apiBase =
       githubHost === 'github.com' ? 'https://api.github.com' : `https://${githubHost}/api/v3`;
-    const url = `${apiBase}/repos/${ownerRepo}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
     const headers: Record<string, string> = {
       Accept: 'application/vnd.github.v3+json',
       'User-Agent': 'skills-cli',
@@ -129,21 +133,13 @@ async function fetchTreeBranch(
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await fetch(url, {
+    const response = await fetch(`${apiBase}/${endpoint}`, {
       headers,
       signal: AbortSignal.timeout(FETCH_TIMEOUT),
     });
 
     if (response.ok) {
-      const data = (await response.json()) as {
-        sha: string;
-        tree: TreeEntry[];
-      };
-      return {
-        tree: { sha: data.sha, branch, tree: data.tree },
-        rateLimited: false,
-        authRetryable: false,
-      };
+      return { value: parse(await response.json()), rateLimited: false, authRetryable: false };
     }
 
     // GitHub signals rate-limit with 403 + X-RateLimit-Remaining: 0.
@@ -153,33 +149,32 @@ async function fetchTreeBranch(
     // A private repo answers 401/404 to an anonymous request (GitHub hides its
     // existence); a token may turn that into a 200. See issue #1318.
     const authRetryable = response.status === 401 || response.status === 404;
-    return { tree: null, rateLimited, authRetryable };
+    return { value: null, rateLimited, authRetryable };
   } catch {
-    return { tree: null, rateLimited: false, authRetryable: false };
+    return { value: null, rateLimited: false, authRetryable: false };
   }
 }
 
-async function fetchTreeWithToken(
-  ownerRepo: string,
-  branches: string[],
+async function fetchGitHubApiWithToken<T>(
+  endpoints: string[],
+  parsers: ApiParser<T>[],
   getToken: () => string | null
-): Promise<RepoTree | null> {
+): Promise<T | null> {
   const token = getToken();
   if (!token) return null;
-  for (const branch of branches) {
-    const result = await fetchTreeBranch(ownerRepo, branch, token);
-    if (result.tree) return result.tree;
+  for (const [index, endpoint] of endpoints.entries()) {
+    const result = await fetchGitHubApi(endpoint, token, parsers[index]!);
+    if (result.value) return result.value;
   }
   return null;
 }
 
-async function fetchTreeWithGitHubCli(
-  ownerRepo: string,
-  branches: string[]
-): Promise<RepoTree | null> {
-  for (const branch of branches) {
+async function fetchGitHubApiWithGitHubCli<T>(
+  endpoints: string[],
+  parsers: ApiParser<T>[]
+): Promise<T | null> {
+  for (const [index, endpoint] of endpoints.entries()) {
     try {
-      const endpoint = `repos/${ownerRepo}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
       const stdout = await new Promise<string>((resolve, reject) => {
         execFile(
           'gh',
@@ -197,35 +192,30 @@ async function fetchTreeWithGitHubCli(
           }
         );
       });
-      const data = JSON.parse(stdout) as {
-        sha?: unknown;
-        tree?: unknown;
-      };
-      if (typeof data.sha !== 'string' || !Array.isArray(data.tree)) continue;
-      return { sha: data.sha, branch, tree: data.tree as TreeEntry[] };
+      const value = parsers[index]!(JSON.parse(stdout));
+      if (value) return value;
     } catch {
-      // Try the next candidate branch, then let the caller fall back to clone.
+      // Try the next candidate endpoint, then let the caller fall back to clone.
     }
   }
   return null;
 }
 
-async function fetchTreeWithAvailableAuth(
-  ownerRepo: string,
-  branches: string[],
+async function fetchGitHubApiWithAvailableAuth<T>(
+  endpoints: string[],
+  parsers: ApiParser<T>[],
   getToken?: () => string | null
-): Promise<RepoTree | null> {
+): Promise<T | null> {
   if (getToken) {
-    const tree = await fetchTreeWithToken(ownerRepo, branches, getToken);
-    if (tree) return tree;
+    const value = await fetchGitHubApiWithToken(endpoints, parsers, getToken);
+    if (value) return value;
   }
-  return fetchTreeWithGitHubCli(ownerRepo, branches);
+  return fetchGitHubApiWithGitHubCli(endpoints, parsers);
 }
 
 /**
- * Fetch the full recursive tree for a GitHub repo.
- * Returns the tree data including all entries, or null on failure.
- * Tries branches in order: ref (if specified), then main, then master.
+ * GET the first of `endpoints` (paths under the API root) that answers, read
+ * with the parser at the same index. Returns null when none does.
  *
  * Authentication is lazy: by default the call goes out unauthenticated,
  * which is enough for the vast majority of users (60 req/hr per IP). We only
@@ -236,33 +226,31 @@ async function fetchTreeWithAvailableAuth(
  * credential. A bare permission-denied 403 is not retried. See issues #523
  * and #1318.
  */
-export async function fetchRepoTree(
-  ownerRepo: string,
-  ref?: string,
+async function fetchFirstGitHubApi<T>(
+  endpoints: string[],
+  parsers: ApiParser<T>[],
   getToken?: () => string | null
-): Promise<RepoTree | null> {
-  const branches = ref ? [ref] : ['HEAD', 'main', 'master'];
-
+): Promise<T | null> {
   // Fast path: once we've seen a rate limit in this process, don't bother
   // retrying unauth on subsequent calls. Go straight to auth.
   if (_rateLimitedThisSession) {
-    return fetchTreeWithAvailableAuth(ownerRepo, branches, getToken);
+    return fetchGitHubApiWithAvailableAuth(endpoints, parsers, getToken);
   }
 
   // First pass: unauthenticated.
   let rateLimited = false;
   let authRetryable = false;
-  for (const branch of branches) {
-    const result = await fetchTreeBranch(ownerRepo, branch, null);
-    if (result.tree) return result.tree;
+  for (const [index, endpoint] of endpoints.entries()) {
+    const result = await fetchGitHubApi(endpoint, null, parsers[index]!);
+    if (result.value) return result.value;
     if (result.rateLimited) {
-      // All branches share the same rate-limit bucket on this IP, so it's
-      // pointless to keep trying other branches in this pass.
+      // All endpoints share the same rate-limit bucket on this IP, so it's
+      // pointless to keep trying other endpoints in this pass.
       rateLimited = true;
       break;
     }
     if (result.authRetryable) {
-      // A private repo answers 401/404 to anonymous requests on every branch,
+      // A private repo answers 401/404 to anonymous requests on every endpoint,
       // so stop and retry the whole set once with a token.
       authRetryable = true;
       break;
@@ -275,7 +263,63 @@ export async function fetchRepoTree(
   // A private-repo 404 is per-repo, not per-IP, so it must not set this flag.
   if (rateLimited) _rateLimitedThisSession = true;
 
-  return fetchTreeWithAvailableAuth(ownerRepo, branches, getToken);
+  return fetchGitHubApiWithAvailableAuth(endpoints, parsers, getToken);
+}
+
+/**
+ * Fetch the full recursive tree for a GitHub repo.
+ * Returns the tree data including all entries, or null on failure.
+ * Tries branches in order: ref (if specified), then HEAD, main, and master.
+ * See fetchFirstGitHubApi for how authentication is used.
+ */
+export async function fetchRepoTree(
+  ownerRepo: string,
+  ref?: string,
+  getToken?: () => string | null
+): Promise<RepoTree | null> {
+  const branches = ref ? [ref] : ['HEAD', 'main', 'master'];
+  return fetchFirstGitHubApi(
+    branches.map(
+      (branch) => `repos/${ownerRepo}/git/trees/${encodeURIComponent(branch)}?recursive=1`
+    ),
+    branches.map((branch) => (data: unknown): RepoTree | null => {
+      const { sha, tree } = (data ?? {}) as { sha?: unknown; tree?: unknown };
+      if (typeof sha !== 'string' || !Array.isArray(tree)) return null;
+      return { sha, branch, tree: tree as TreeEntry[] };
+    }),
+    getToken
+  );
+}
+
+/**
+ * The commit at the tip of `tree.branch`, when it is still the commit `tree` was read from.
+ * Null when it cannot be read or the branch has moved since `tree` was fetched,
+ * so a recorded commit always matches the files that were installed.
+ */
+export async function fetchTreeCommit(
+  ownerRepo: string,
+  tree: RepoTree,
+  getToken?: () => string | null
+): Promise<string | null> {
+  // The list endpoint omits per-file stats, unlike `commits/<ref>`.
+  const branch = tree.branch === 'HEAD' ? '' : `&sha=${encodeURIComponent(tree.branch)}`;
+  return fetchFirstGitHubApi(
+    [`repos/${ownerRepo}/commits?per_page=1${branch}`],
+    [
+      (data: unknown): string | null => {
+        const latest = (Array.isArray(data) ? data[0] : null) as {
+          sha?: unknown;
+          commit?: { tree?: { sha?: unknown } };
+        } | null;
+        const sha = latest?.sha;
+        if (typeof sha !== 'string' || !/^[0-9a-f]{40}$/i.test(sha)) return null;
+        // Asked for a branch, the Trees API answers with the commit's SHA, not the root tree's
+        const matches = sha === tree.sha || latest?.commit?.tree?.sha === tree.sha;
+        return matches ? sha.toLowerCase() : null;
+      },
+    ],
+    getToken
+  );
 }
 
 /**
@@ -493,15 +537,17 @@ async function fetchSkillDownload(
 export interface BlobInstallResult {
   skills: BlobSkill[];
   tree: RepoTree;
+  /** Commit whose tree the snapshots were checked against, when it could be read. */
+  commit?: string;
 }
 
+/** The installed copy's computedHash: only the files the installer writes count. */
 function computeSnapshotHash(files: SkillSnapshotFile[]): string {
-  const hash = createHash('sha256');
-  for (const file of [...files].sort((a, b) => a.path.localeCompare(b.path))) {
-    hash.update(file.path);
-    hash.update(file.contents);
-  }
-  return hash.digest('hex');
+  return hashSkillFiles(
+    files
+      .filter((file) => !isExcludedPath(file.path))
+      .map((file) => ({ path: file.path, content: file.contents }))
+  );
 }
 
 function getSkillFolderPath(skillMdPath: string): string {
@@ -511,35 +557,49 @@ function getSkillFolderPath(skillMdPath: string): string {
   return skillMdPath.slice(0, -(1 + 'SKILL.md'.length));
 }
 
-// Keep these exclusions aligned with copyDirectory() in installer.ts. Cached
-// snapshots do not need files that the normal clone installer intentionally
-// omits, but every other repository blob in a nested skill must be present.
-const SNAPSHOT_EXCLUDED_FILES = new Set(['metadata.json']);
-const SNAPSHOT_EXCLUDED_DIRS = new Set(['.git', '__pycache__', '__pypackages__']);
-
+// Cached snapshots do not need files that the clone installer omits, but every
+// other repository blob in a nested skill must be present.
 function isInstallableSnapshotPath(path: string): boolean {
-  const parts = path.split('/');
-  const fileName = parts.at(-1);
-  if (!fileName || SNAPSHOT_EXCLUDED_FILES.has(fileName)) return false;
-  return parts.slice(0, -1).every((part) => !SNAPSHOT_EXCLUDED_DIRS.has(part));
+  return !isExcludedPath(path);
 }
 
-function hasCompleteNestedSnapshot(
+function hasCurrentSnapshot(
   tree: RepoTree,
   skillMdPath: string,
   files: SkillSnapshotFile[]
 ): boolean {
   const folderPath = getSkillFolderPath(skillMdPath);
-  if (!folderPath) return true;
+  const folderPrefix = folderPath ? `${folderPath}/` : '';
+  const blobs = new Map(
+    tree.tree
+      .filter((entry) => entry.type === 'blob' && entry.path.startsWith(folderPrefix))
+      .map((entry) => [entry.path.slice(folderPrefix.length), entry.sha])
+  );
 
-  const folderPrefix = `${folderPath}/`;
+  // Root skills install only SKILL.md; nested skills need every installable blob.
+  const requiredPaths = folderPath
+    ? [...blobs.keys()].filter(isInstallableSnapshotPath)
+    : [skillMdPath];
   const snapshotPaths = new Set(files.map((file) => file.path));
+  if (!requiredPaths.every((path) => snapshotPaths.has(path))) return false;
 
-  return tree.tree.every((entry) => {
-    if (entry.type !== 'blob' || !entry.path.startsWith(folderPrefix)) return true;
-    const relativePath = entry.path.slice(folderPrefix.length);
-    return !isInstallableSnapshotPath(relativePath) || snapshotPaths.has(relativePath);
+  // A complete snapshot can still lag behind the tree used for update tracking.
+  // Compare every installed file's Git blob SHA, including files deleted upstream.
+  return files.every((file) => {
+    const sha = createHash('sha1')
+      .update(`blob ${Buffer.byteLength(file.contents, 'utf8')}\0`)
+      .update(file.contents, 'utf8')
+      .digest('hex');
+    return blobs.get(file.path) === sha;
   });
+}
+
+/** Why the repo tree could not be read, so the caller can tell the user what to fix. */
+export type BlobFallbackReason = 'rate-limited' | 'tree-unavailable';
+
+/** Passed to `onFallback`; an object so later fields do not change the callback signature. */
+export interface BlobFallback {
+  reason: BlobFallbackReason;
 }
 
 /**
@@ -557,6 +617,8 @@ function hasCompleteNestedSnapshot(
  * @param ownerRepo - e.g., "vercel-labs/agent-skills"
  * @param options - subpath, skillFilter, ref, token. An explicit ref bypasses
  *   this ref-agnostic snapshot path and returns null for the caller's git fallback.
+ *   `onFallback` is told why when the repo tree could not be read; the other null
+ *   returns are expected outcomes (no skills, no match) and report nothing.
  */
 export async function tryBlobInstall(
   ownerRepo: string,
@@ -566,6 +628,7 @@ export async function tryBlobInstall(
     ref?: string;
     getToken?: () => string | null;
     includeInternal?: boolean;
+    onFallback?: (fallback: BlobFallback) => void;
   } = {}
 ): Promise<BlobInstallResult | null> {
   // Snapshot downloads are keyed only by owner, repository, and skill slug. They
@@ -576,7 +639,10 @@ export async function tryBlobInstall(
 
   // 1. Fetch the full repo tree
   const tree = await fetchRepoTree(ownerRepo, options.ref, options.getToken);
-  if (!tree) return null;
+  if (!tree) {
+    options.onFallback?.({ reason: _rateLimitedThisSession ? 'rate-limited' : 'tree-unavailable' });
+    return null;
+  }
 
   // 2. Discover SKILL.md paths in the tree, including container dirs declared
   // in skills.sh.json. The tree tells us whether the file exists, so repos
@@ -627,8 +693,7 @@ export async function tryBlobInstall(
     if (typeof data.name !== 'string' || typeof data.description !== 'string') continue;
 
     // Skip internal skills unless explicitly requested
-    const isInternal = (data.metadata as Record<string, unknown>)?.internal === true;
-    if (isInternal && !options.includeInternal) continue;
+    if (isInternalSkill(data.metadata) && !options.includeInternal) continue;
 
     const safeName = sanitizeMetadata(data.name);
     const safeDescription = sanitizeMetadata(data.description);
@@ -671,14 +736,6 @@ export async function tryBlobInstall(
   const allSucceeded = downloads.every((d) => d.download !== null);
   if (!allSucceeded) return null;
 
-  // A successful response can still be incomplete (for example, when the
-  // snapshot service cannot represent a binary supporting file). In that case
-  // use the existing clone path instead of silently installing a partial skill.
-  const allComplete = downloads.every(({ skill, download }) =>
-    hasCompleteNestedSnapshot(tree, skill.mdPath, download!.files)
-  );
-  if (!allComplete) return null;
-
   // 6. Convert to BlobSkill objects
   const blobSkills: BlobSkill[] = downloads.map(({ skill, download }) => {
     // Compute the folder path from the SKILL.md path (e.g., "skills/react-best-practices")
@@ -703,13 +760,20 @@ export async function tryBlobInstall(
       rawContent: skill.content,
       metadata: skill.metadata,
       files,
-      // Hash locally rather than trusting download.hash. The server's hashSkillFiles
-      // (add-skill-telemetry) joins path and contents with \0 separators, so it never
-      // matches computeSkillFolderHash and `check` would flag every fresh add as outdated.
+      // Hash locally rather than trusting download.hash, so the lock records the
+      // same computedHash a clone install of this skill would.
       snapshotHash: computeSnapshotHash(files),
       repoPath: skill.mdPath,
     };
   });
 
-  return { skills: blobSkills, tree };
+  // A successful response can still be incomplete or stale. Only install bytes
+  // that match the tree used for update tracking; otherwise use the clone path.
+  const allCurrent = blobSkills.every((skill) =>
+    hasCurrentSnapshot(tree, skill.repoPath, skill.files)
+  );
+  if (!allCurrent) return null;
+
+  const commit = await fetchTreeCommit(ownerRepo, tree, options.getToken);
+  return { skills: blobSkills, tree, ...(commit && { commit }) };
 }

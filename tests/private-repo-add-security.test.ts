@@ -48,6 +48,7 @@ vi.mock('../src/git.ts', async (importActual) => {
     ...actual,
     cloneRepo: vi.fn(),
     cleanupTempDir: vi.fn().mockResolvedValue(undefined),
+    getHeadCommit: vi.fn().mockResolvedValue(null),
   };
 });
 

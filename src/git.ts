@@ -1,4 +1,4 @@
-import simpleGit from 'simple-git';
+import { simpleGit } from 'simple-git';
 import { join, normalize, resolve, sep } from 'path';
 import { mkdtemp, mkdir, rm } from 'fs/promises';
 import { tmpdir } from 'os';
@@ -149,6 +149,21 @@ function isAuthFailure(message: string): boolean {
 }
 
 function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_ALLOW_PROTOCOL: ALLOWED_GIT_PROTOCOLS,
+    // When git-lfs IS installed, tell it not to download LFS content
+    // during checkout. See #952 for context and empirical impact.
+    GIT_LFS_SKIP_SMUDGE: '1',
+    // isMissingRefError and isAuthFailure match git's English messages. A
+    // translated git (e.g. LANG=de_DE.UTF-8) would skip the commit-SHA and
+    // auth fallbacks, so force untranslated output. LC_ALL=C also overrides
+    // LANGUAGE and LC_MESSAGES. See #2505.
+    LC_ALL: 'C',
+    ...extraEnv,
+  };
+
   const git = simpleGit({
     timeout: { block: CLONE_TIMEOUT_MS },
     // When git-lfs is NOT installed, GIT_LFS_SKIP_SMUDGE has no effect —
@@ -190,43 +205,41 @@ function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
     // allowances apply only to trusted environment variables already controlled
     // by the caller (plus the hard-coded SSH fallback). This client is used only
     // for clone with fixed options; the clone URL and ref cannot configure them.
+    //
+    // simple-git v4 also strips or rejects Git-related variables (GIT_*,
+    // PAGER, SSH_ASKPASS, ...) unless they are listed in allowEnvironment.
+    // Allow every variable we pass so the inherited environment reaches git
+    // unchanged, as it did with v3.
+    allowEnvironment: Object.keys(env),
     unsafe: {
       allowUnsafeAlias: true,
       allowUnsafeAskPass: true,
+      allowUnsafeCommandBinaries: true,
       allowUnsafeConfigEnvCount: true,
       allowUnsafeConfigPaths: true,
       allowUnsafeCredentialHelper: true,
       allowUnsafeDiffExternal: true,
       allowUnsafeDiffTextConv: true,
       allowUnsafeEditor: true,
+      allowUnsafeExec: true,
       allowUnsafeFilter: true,
       allowUnsafeFsMonitor: true,
       allowUnsafeGpgProgram: true,
       allowUnsafeGitProxy: true,
       allowUnsafeHooksPath: true,
+      allowUnsafeInclude: true,
       allowUnsafeMergeDriver: true,
       allowUnsafePack: true,
       allowUnsafePager: true,
       allowUnsafeProtocolOverride: true,
       allowUnsafeSshCommand: true,
+      allowUnsafeSubmodule: true,
       allowUnsafeTemplateDir: true,
+      allowUnsafeUrlRewrite: true,
     },
   });
 
-  git.env({
-    ...process.env,
-    GIT_TERMINAL_PROMPT: '0',
-    GIT_ALLOW_PROTOCOL: ALLOWED_GIT_PROTOCOLS,
-    // When git-lfs IS installed, tell it not to download LFS content
-    // during checkout. See #952 for context and empirical impact.
-    GIT_LFS_SKIP_SMUDGE: '1',
-    // isMissingRefError and isAuthFailure match git's English messages. A
-    // translated git (e.g. LANG=de_DE.UTF-8) would skip the commit-SHA and
-    // auth fallbacks, so force untranslated output. LC_ALL=C also overrides
-    // LANGUAGE and LC_MESSAGES. See #2505.
-    LC_ALL: 'C',
-    ...extraEnv,
-  });
+  git.env(env);
 
   return git;
 }
@@ -234,6 +247,18 @@ function createGitClient(extraEnv?: NodeJS.ProcessEnv) {
 async function resetTempDir(dir: string): Promise<void> {
   await rm(dir, { recursive: true, force: true }).catch(() => {});
   await mkdir(dir, { recursive: true });
+}
+
+async function initializeSubmodules(repoDir: string, extraEnv?: NodeJS.ProcessEnv): Promise<void> {
+  try {
+    const git = createGitClient(extraEnv);
+    await git.cwd(repoDir);
+    await git.submoduleUpdate(['--init', '--recursive', '--depth', '1']);
+  } catch {
+    console.warn(
+      'Warning: failed to initialize Git submodules; installed skills may be incomplete.'
+    );
+  }
 }
 
 async function tryGhClone(repo: GitHubRepoInfo, tempDir: string, ref?: string): Promise<boolean> {
@@ -285,6 +310,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
 
   try {
     await createGitClient().clone(url, tempDir, cloneOptions);
+    await initializeSubmodules(tempDir);
     return tempDir;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -297,6 +323,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
       try {
         await resetTempDir(tempDir);
         await cloneAtSha(url, ref!, tempDir);
+        await initializeSubmodules(tempDir);
         return tempDir;
       } catch {
         // Fall through to the standard error handling below.
@@ -318,6 +345,7 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
       try {
         await resetTempDir(tempDir);
         if (await tryGhClone(repo, tempDir, ref)) {
+          await initializeSubmodules(tempDir);
           return tempDir;
         }
       } catch {
@@ -331,11 +359,13 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
         };
         try {
           await createGitClient(sshEnv).clone(repo.sshUrl, tempDir, cloneOptions);
+          await initializeSubmodules(tempDir, sshEnv);
         } catch (sshError) {
           const sshMessage = sshError instanceof Error ? sshError.message : String(sshError);
           if (refCanBeSha && isMissingRefError(sshMessage)) {
             await resetTempDir(tempDir);
             await cloneAtSha(repo.sshUrl, ref!, tempDir, sshEnv);
+            await initializeSubmodules(tempDir, sshEnv);
           } else {
             throw sshError;
           }

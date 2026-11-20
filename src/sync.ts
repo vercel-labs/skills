@@ -1,5 +1,5 @@
 import * as p from '@clack/prompts';
-import pc from 'picocolors';
+import { pc } from './color.ts';
 import { existsSync } from 'fs';
 import { glob, lstat, readdir, readFile, readlink, realpath, rm } from 'fs/promises';
 import { basename, dirname, join, posix, relative, resolve, sep } from 'path';
@@ -28,19 +28,20 @@ import {
   frozenLockfileError,
   lockChangeReason,
   readLocalLock,
-  writeLocalLock,
+  removeSkillFromLocalLock,
   type LocalSkillLockEntry,
   type LocalSkillLockFile,
 } from './local-lock.ts';
 import type { Skill, AgentType } from './types.ts';
 import type { Diagnostic } from 'nostics';
 import { diagnostics, formatError } from './diagnostics.ts';
+import { parseCliArgs, throwFirstError } from './cli-args.ts';
 import { track } from './telemetry.ts';
 import { isCI } from './ci.ts';
 import { detectAgent, getAgentType } from './detect-agent.ts';
 import { getLastSelectedAgents, saveSelectedAgents } from './skill-lock.ts';
 import { parseSkillsField, type RemoteSkillsRequest } from './skills-field.ts';
-import { fetchSources, getProjectLockSource, installFromSource } from './add.ts';
+import { fetchSources, getProjectLockSource, installFromSource, renameSkill } from './add.ts';
 
 const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
 
@@ -216,12 +217,14 @@ function requestsLockedSkill(
   name: string,
   entry: LocalSkillLockEntry
 ) {
+  // A renamed skill is requested by the name its source uses
+  const sourceName = entry.skillName ?? name;
   return (
     isFromRequest(entry, request) &&
     (request.skills.length === 0 ||
       request.skills.some(
         (selected) =>
-          sanitizeName(selected) === sanitizeName(name) ||
+          sanitizeName(selected) === sanitizeName(sourceName) ||
           selected === posix.basename(posix.dirname(entry.skillPath ?? ''))
       ))
   );
@@ -472,9 +475,13 @@ async function pruneStaleSkills(
         await rm(dest, { recursive: true, force: true });
       }
     }
-    if (key) delete lock.skills[key];
+    if (key) {
+      delete lock.skills[key];
+      // Remove under the file lock: `lock` was read before sync started, so
+      // writing it back would drop entries other processes added since.
+      await removeSkillFromLocalLock(key, cwd);
+    }
   }
-  await writeLocalLock(lock, cwd);
   return stale;
 }
 
@@ -621,7 +628,7 @@ function isRemoteInstalled(
       ([name, entry]) =>
         isFromRequest(entry, request) && existsSync(getCanonicalPath(name, { cwd }))
     )
-    .map(([name]) => sanitizeName(name));
+    .map(([name, entry]) => sanitizeName(entry.skillName ?? name));
   return request.skills.length === 0
     ? installed.length > 0
     : request.skills.every((name) => installed.includes(sanitizeName(name)));
@@ -966,6 +973,14 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
   const claimed = new Set(discoveredSkills.map((skill) => sanitizeName(skill.name)));
   const lockEntryFor = (name: string) =>
     Object.entries(localLock.skills).find(([key]) => sanitizeName(key) === name)?.[1];
+  // A skill this request installed before under another name keeps that name
+  const renamedFor = (request: (typeof remoteRequests)[number], name: string) =>
+    Object.entries(localLock.skills).find(
+      ([, entry]) =>
+        entry.skillName !== undefined &&
+        sanitizeName(entry.skillName) === name &&
+        isFromRequest(entry, request)
+    )?.[0];
   const fetched = await fetchSources(remoteRequests);
   for (const [index, request] of remoteRequests.entries()) {
     const label = getProjectLockSource(request.parsed);
@@ -976,9 +991,11 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
       ...(frozen && { frozenLock: localLock }),
       select: async (skills) => {
         const selected: Skill[] = [];
-        for (const skill of skills) {
+        for (const found of skills) {
+          if (!remoteAllowsSkill(request, sanitizeName(found.name), options)) continue;
+          const renamed = renamedFor(request, sanitizeName(found.name));
+          const skill = renamed ? renameSkill(found, renamed) : found;
           const name = sanitizeName(skill.name);
-          if (!remoteAllowsSkill(request, name, options)) continue;
           const reason = claimed.has(name)
             ? 'another source in this sync provides it'
             : await blockedReason(name, targetAgents, lockEntryFor(name), cwd);
@@ -1059,42 +1076,32 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
 }
 
 export function parseSyncOptions(args: string[]): { options: SyncOptions } {
+  const { values, errors } = parseCliArgs(args, {
+    yes: { type: 'boolean', short: 'y' },
+    copy: { type: 'boolean' },
+    'dry-run': { type: 'boolean' },
+    'no-cleanup': { type: 'boolean' },
+    'no-remote': { type: 'boolean' },
+    'frozen-lockfile': { type: 'boolean' },
+    'no-frozen-lockfile': { type: 'boolean' },
+    recursive: { type: 'boolean', short: 'r' },
+    agent: { type: 'list', short: 'a', value: 'an agent name' },
+    include: { type: 'list', value: 'a pattern' },
+    exclude: { type: 'list', value: 'a pattern' },
+  });
+  throwFirstError(errors);
+
   const options: SyncOptions = {};
-  let i = 0;
-  /** Consume the values after a flag, up to the next flag. */
-  const takeValues = (): string[] => {
-    const values: string[] = [];
-    while (args[i + 1] !== undefined && !args[i + 1]!.startsWith('-')) values.push(args[++i]!);
-    return values;
-  };
-
-  for (; i < args.length; i++) {
-    const arg = args[i];
-
-    if (arg === '-y' || arg === '--yes') {
-      options.yes = true;
-    } else if (arg === '--copy') {
-      options.copy = true;
-    } else if (arg === '--dry-run') {
-      options.dryRun = true;
-    } else if (arg === '--no-cleanup') {
-      options.cleanup = false;
-    } else if (arg === '--no-remote') {
-      options.remote = false;
-    } else if (arg === '--frozen-lockfile') {
-      options.frozenLockfile = true;
-    } else if (arg === '--no-frozen-lockfile') {
-      options.frozenLockfile = false;
-    } else if (arg === '-r' || arg === '--recursive') {
-      options.recursive = true;
-    } else if (arg === '-a' || arg === '--agent') {
-      options.agent = [...(options.agent ?? []), ...takeValues()];
-    } else if (arg === '--include') {
-      options.include = [...(options.include ?? []), ...takeValues()];
-    } else if (arg === '--exclude') {
-      options.exclude = [...(options.exclude ?? []), ...takeValues()];
-    }
-  }
-
+  if (values.yes) options.yes = true;
+  if (values.copy) options.copy = true;
+  if (values['dry-run']) options.dryRun = true;
+  if (values['no-cleanup']) options.cleanup = false;
+  if (values['no-remote']) options.remote = false;
+  if (values['frozen-lockfile']) options.frozenLockfile = true;
+  if (values['no-frozen-lockfile']) options.frozenLockfile = false;
+  if (values.recursive) options.recursive = true;
+  if (values.agent) options.agent = values.agent;
+  if (values.include) options.include = values.include;
+  if (values.exclude) options.exclude = values.exclude;
   return { options };
 }

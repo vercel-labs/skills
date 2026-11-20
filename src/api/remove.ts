@@ -1,8 +1,9 @@
 import { agents as agentConfigs } from '../agents.ts';
-import { diagnostics, type DiagnosticCode } from '../diagnostics.ts';
+import { diagnostics } from '../diagnostics.ts';
 import { readLocalLock } from '../local-lock.ts';
 import {
   findGloballyTrackedSkills,
+  findUntrackedSkills,
   removeInstalledSkills,
   resolveSkillsToRemove,
   scanInstalledSkillNames,
@@ -13,12 +14,13 @@ import { flushTelemetry, setVersion } from '../telemetry.ts';
 import type { AgentType } from '../types.ts';
 import { version } from './version.ts';
 import { assertKnownAgents, isAgentAllowed, resolveConfig } from './config.ts';
-import { withWarnings } from '../warnings.ts';
+import { warn, withWarnings } from '../warnings.ts';
 import type { RemoveFailure, RemoveOptions, RemoveResult } from './types.ts';
 
 /**
  * Remove installed skills by name (or by the source recorded in the lock
- * file; `*` removes every skill in the scope). Without `agents`, skills are
+ * file; `*` removes every skill the scope's lock file tracks, skipping
+ * untracked dirs with a SKILLS_REMOVE_UNTRACKED_SKIPPED warning). Without `agents`, skills are
  * removed from every agent `config.agents` allows. A skill's shared copy and
  * lock entry are kept while another installed agent still uses it.
  */
@@ -61,14 +63,20 @@ async function remove(names: readonly string[], options: RemoveOptions): Promise
 
   const all = names.includes('*');
   const notFound = all ? [] : names.filter((name) => resolve([name]).length === 0);
-  let selected = all ? resolve([...installed, ...lockKeys]) : resolve([...names]);
+  // `*` only removes skills the lock tracks; user-authored dirs are skipped (#604).
+  let selected = all ? resolve(lockKeys) : resolve([...names]);
+  if (all) {
+    const untracked = findUntrackedSkills(installed, lockKeys);
+    if (untracked.length > 0)
+      warn(diagnostics.SKILLS_REMOVE_UNTRACKED_SKIPPED({ skills: untracked }));
+  }
 
   const failed: RemoveFailure[] = [];
   if (!global) {
     const tracked = new Set(await findGloballyTrackedSkills(selected, cwd));
     for (const skill of tracked) {
       const diagnostic = diagnostics.SKILLS_REMOVE_GLOBALLY_TRACKED({ skills: [skill] });
-      failed.push({ skill, code: diagnostic.code as DiagnosticCode, message: diagnostic.message });
+      failed.push({ skill, code: diagnostic.code, message: diagnostic.message });
     }
     selected = selected.filter((skill) => !tracked.has(skill));
   }
@@ -88,7 +96,7 @@ async function remove(names: readonly string[], options: RemoveOptions): Promise
       });
       failed.push({
         skill: r.skill,
-        code: diagnostic.code as DiagnosticCode,
+        code: diagnostic.code,
         message: diagnostic.message,
       });
     }

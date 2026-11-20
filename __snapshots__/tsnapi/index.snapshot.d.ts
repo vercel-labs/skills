@@ -31,6 +31,7 @@ export interface InstalledSkillInfo {
   readonly path: string;
   readonly agents: readonly string[];
   readonly source?: string;
+  readonly renamedFrom?: string;
 }
 export interface InstalledSkillTarget {
   readonly skill: string;
@@ -49,6 +50,7 @@ export interface InstallFailure {
 export interface InstallOptions extends BaseOptions, InstallSettings {
   ref?: string;
   skills?: readonly string[];
+  rename?: Readonly<Record<string, string>>;
   agents?: readonly string[];
   telemetry?: boolean;
   metadata?: Readonly<Record<string, unknown>>;
@@ -129,7 +131,7 @@ export interface SourceInfo {
 // #endregion
 
 // #region Types
-export type DiagnosticCode = keyof typeof diagnostics;
+export type DiagnosticCode = InferDiagnosticCodes<typeof diagnostics>;
 export type InstallMode = 'auto' | 'symlink' | 'copy';
 export type ProgressEvent = {
   readonly type: 'resolve:start';
@@ -157,6 +159,7 @@ export type WarningHandler = (_: Diagnostic<unknown>) => void;
 export declare function detectAgents(_?: BaseOptions): Promise<DetectAgentsResult>;
 export declare function getSupportedAgents(): readonly AgentInfo[];
 export declare function installSkills(_: string | SkillSource, _?: InstallOptions): Promise<InstallResult>;
+/** @deprecated */
 export declare function isDiagnostic(_: unknown, ..._: DiagnosticCode[]): error is Diagnostic$1;
 export declare function listSkills(_?: ListOptions): Promise<ListResult>;
 export declare function removeSkills(_: readonly string[], _?: RemoveOptions): Promise<RemoveResult>;
@@ -164,7 +167,63 @@ export declare function resolveSource(_: string, _?: ResolveOptions): Promise<Sk
 // #endregion
 
 // #region Variables
-export declare const diagnostics: import("nostics").Diagnostics<{
+export declare const diagnostics: Omit<import("nostics").Diagnostics<{
+  readonly SKILLS_UNSUPPORTED_GIT_TRANSPORT: {
+    readonly why: (p: {
+      transport: string;
+    }) => string;
+  };
+  readonly SKILLS_GIT_CLONE_TIMEOUT: {
+    readonly why: (p: {
+      seconds: number;
+    }) => string;
+  };
+  readonly SKILLS_GIT_AUTH_FAILED: {
+    readonly why: (p: {
+      url: string;
+      sshUrl?: string;
+      host: string;
+    }) => string;
+  };
+  readonly SKILLS_GIT_SAML_SSO_BLOCKED: {
+    readonly why: (p: {
+      url: string;
+      sshUrl: string;
+      host: string;
+    }) => string;
+  };
+  readonly SKILLS_GIT_CLONE_FAILED: {
+    readonly why: (p: {
+      url: string;
+      detail: string;
+    }) => string;
+  };
+}, readonly import("nostics").AnyDiagnosticReporter[], import("nostics").InferCodesData>, "is"> & Omit<import("nostics").Diagnostics<{
+  readonly SKILLS_ARCHIVE_UNSAFE_PATH: {
+    readonly why: (p: {
+      path: string;
+    }) => string;
+  };
+  readonly SKILLS_ARCHIVE_ENCRYPTED_ENTRY: {
+    readonly why: "Encrypted zip entries are not supported";
+  };
+  readonly SKILLS_ARCHIVE_LINK_ENTRY: {
+    readonly why: "Archive links are not supported";
+  };
+  readonly SKILLS_ARCHIVE_TOO_MANY_FILES: {
+    readonly why: (p: {
+      count: number;
+      max: number;
+      overrideEnv?: string;
+    }) => string;
+  };
+  readonly SKILLS_ARCHIVE_TOO_LARGE: {
+    readonly why: (p: {
+      maxBytes: number;
+      overrideEnv?: string;
+    }) => string;
+  };
+}, readonly import("nostics").AnyDiagnosticReporter[], import("nostics").InferCodesData>, "is"> & Omit<import("nostics").Diagnostics<{
   readonly SKILLS_INVALID_AGENTS: {
     readonly why: (p: {
       invalid: string[];
@@ -178,6 +237,11 @@ export declare const diagnostics: import("nostics").Diagnostics<{
     readonly why: (p: {
       option: string;
       value: string;
+    }) => string;
+  };
+  readonly SKILLS_OPTION_TAKES_NO_VALUE: {
+    readonly why: (p: {
+      option: string;
     }) => string;
   };
   readonly SKILLS_UNKNOWN_OPTION: {
@@ -229,6 +293,18 @@ export declare const diagnostics: import("nostics").Diagnostics<{
       skills: string[];
     }) => string;
   };
+  readonly SKILLS_REMOVE_UNTRACKED_SKIPPED: {
+    readonly why: (p: {
+      skills: string[];
+    }) => string;
+    readonly fix: "Remove them by name, e.g. skills remove <name>";
+  };
+  readonly SKILLS_REMOVE_UNMANAGED_DIR_KEPT: {
+    readonly why: (p: {
+      path: string;
+    }) => string;
+    readonly fix: "Delete it by hand if you no longer need it";
+  };
   readonly SKILLS_UNSAFE_SUBPATH: {
     readonly why: (p: {
       subpath: string;
@@ -259,6 +335,12 @@ export declare const diagnostics: import("nostics").Diagnostics<{
       names: string[];
     }) => string;
   };
+  readonly SKILLS_RENAME_MULTIPLE_SKILLS: {
+    readonly why: (p: {
+      count: number;
+    }) => string;
+    readonly fix: "Pick one skill with --skill <name> or <source>@<skill>.";
+  };
   readonly SKILLS_AMBIGUOUS_SKILL_SELECTOR: {
     readonly why: (p: {
       selector: string;
@@ -288,6 +370,13 @@ export declare const diagnostics: import("nostics").Diagnostics<{
       actual: string;
     }) => string;
   };
+  readonly SKILLS_WELLKNOWN_FILE_FETCH_FAILED: {
+    readonly why: (p: {
+      skill: string;
+      path: string;
+      status?: number;
+    }) => string;
+  };
   readonly SKILLS_WELLKNOWN_INDEX_NOT_FOUND: {
     readonly why: "No skills found at this URL. Make sure the server has a /.well-known/agent-skills/index.json or /.well-known/skills/index.json file.";
   };
@@ -301,36 +390,6 @@ export declare const diagnostics: import("nostics").Diagnostics<{
     }) => {
       path: string;
     };
-  };
-  readonly SKILLS_UNSUPPORTED_GIT_TRANSPORT: {
-    readonly why: (p: {
-      transport: string;
-    }) => string;
-  };
-  readonly SKILLS_GIT_CLONE_TIMEOUT: {
-    readonly why: (p: {
-      seconds: number;
-    }) => string;
-  };
-  readonly SKILLS_GIT_AUTH_FAILED: {
-    readonly why: (p: {
-      url: string;
-      sshUrl?: string;
-      host: string;
-    }) => string;
-  };
-  readonly SKILLS_GIT_SAML_SSO_BLOCKED: {
-    readonly why: (p: {
-      url: string;
-      sshUrl: string;
-      host: string;
-    }) => string;
-  };
-  readonly SKILLS_GIT_CLONE_FAILED: {
-    readonly why: (p: {
-      url: string;
-      detail: string;
-    }) => string;
   };
   readonly SKILLS_DOWNLOAD_HTTP_ERROR: {
     readonly why: (p: {
@@ -366,30 +425,6 @@ export declare const diagnostics: import("nostics").Diagnostics<{
   readonly SKILLS_ARCHIVE_MULTI_DISK_ZIP: {
     readonly why: "Multi-disk zip archives are not supported";
   };
-  readonly SKILLS_ARCHIVE_UNSAFE_PATH: {
-    readonly why: (p: {
-      path: string;
-    }) => string;
-  };
-  readonly SKILLS_ARCHIVE_ENCRYPTED_ENTRY: {
-    readonly why: "Encrypted zip entries are not supported";
-  };
-  readonly SKILLS_ARCHIVE_LINK_ENTRY: {
-    readonly why: "Archive links are not supported";
-  };
-  readonly SKILLS_ARCHIVE_TOO_MANY_FILES: {
-    readonly why: (p: {
-      count: number;
-      max: number;
-      overrideEnv?: string;
-    }) => string;
-  };
-  readonly SKILLS_ARCHIVE_TOO_LARGE: {
-    readonly why: (p: {
-      maxBytes: number;
-      overrideEnv?: string;
-    }) => string;
-  };
   readonly SKILLS_ARCHIVE_UNSUPPORTED_COMPRESSION: {
     readonly why: (p: {
       method: number;
@@ -415,6 +450,20 @@ export declare const diagnostics: import("nostics").Diagnostics<{
   readonly SKILLS_UNSAFE_SKILL_NAME: {
     readonly why: "Invalid skill name: potential path traversal detected";
   };
+  readonly SKILLS_CATEGORY_DIR_CONFLICT: {
+    readonly why: (p: {
+      path: string;
+      skills: string[];
+    }) => string;
+    readonly fix: "Move or rename the category directory, then install again.";
+    readonly data: (p: {
+      path: string;
+      skills: string[];
+    }) => {
+      path: string;
+      skills: string[];
+    };
+  };
   readonly SKILLS_CLEANUP_OUTSIDE_TEMP_DIR: {
     readonly why: "Attempted to clean up directory outside of temp directory";
   };
@@ -437,6 +486,11 @@ export declare const diagnostics: import("nostics").Diagnostics<{
     readonly why: (p: {
       path: string;
       reason: string;
+    }) => string;
+  };
+  readonly SKILLS_LOCAL_LOCK_BUSY: {
+    readonly why: (p: {
+      path: string;
     }) => string;
   };
   readonly SKILLS_SYMLINK_OUTSIDE_SKILL: {
@@ -653,7 +707,20 @@ export declare const diagnostics: import("nostics").Diagnostics<{
       id: string;
     }) => string;
   };
-}, readonly import("nostics").AnyDiagnosticReporter[], never>;
+}, readonly import("nostics").AnyDiagnosticReporter[], import("nostics").InferCodesData>, "is"> & {
+  is: (error: unknown) => error is Diagnostic$1<undefined, "SKILLS_ARCHIVE_UNSAFE_PATH"> | Diagnostic$1<undefined, "SKILLS_ARCHIVE_ENCRYPTED_ENTRY"> | Diagnostic$1<undefined, "SKILLS_ARCHIVE_LINK_ENTRY"> | Diagnostic$1<undefined, "SKILLS_ARCHIVE_TOO_MANY_FILES"> | Diagnostic$1<undefined, "SKILLS_ARCHIVE_TOO_LARGE"> | Diagnostic$1<undefined, "SKILLS_UNSUPPORTED_GIT_TRANSPORT"> | Diagnostic$1<undefined, "SKILLS_GIT_CLONE_TIMEOUT"> | Diagnostic$1<undefined, "SKILLS_GIT_AUTH_FAILED"> | Diagnostic$1<undefined, "SKILLS_GIT_SAML_SSO_BLOCKED"> | Diagnostic$1<undefined, "SKILLS_GIT_CLONE_FAILED"> | Diagnostic$1<undefined, "SKILLS_INVALID_AGENTS"> | Diagnostic$1<undefined, "SKILLS_OPTION_REQUIRES_VALUE"> | Diagnostic$1<undefined, "SKILLS_OPTION_TAKES_NO_VALUE"> | Diagnostic$1<undefined, "SKILLS_UNKNOWN_OPTION"> | Diagnostic$1<undefined, "SKILLS_INVALID_OPTION_VALUE"> | Diagnostic$1<undefined, "SKILLS_DUPLICATE_OPTION"> | Diagnostic$1<undefined, "SKILLS_REMOVE_ALL_WITH_NAMES"> | Diagnostic$1<undefined, "SKILLS_PROMPT_REQUIRES_TTY"> | Diagnostic$1<undefined, "SKILLS_MISSING_ARGUMENT"> | Diagnostic$1<undefined, "SKILLS_MULTIPLE_SOURCES"> | Diagnostic$1<undefined, "SKILLS_UNKNOWN_COMMAND"> | Diagnostic$1<undefined, "SKILLS_REMOVE_GLOBALLY_TRACKED"> | Diagnostic$1<undefined, "SKILLS_REMOVE_UNTRACKED_SKIPPED"> | Diagnostic$1<undefined, "SKILLS_REMOVE_UNMANAGED_DIR_KEPT"> | Diagnostic$1<undefined, "SKILLS_UNSAFE_SUBPATH"> | Diagnostic$1<undefined, "SKILLS_SUBPATH_OUTSIDE_REPO"> | Diagnostic$1<undefined, "SKILLS_NO_MATCHING_SKILLS"> | Diagnostic$1<undefined, "SKILLS_NO_VALID_SKILLS"> | Diagnostic$1<undefined, "SKILLS_MULTIPLE_SKILLS_IN_SOURCE"> | Diagnostic$1<undefined, "SKILLS_RENAME_MULTIPLE_SKILLS"> | Diagnostic$1<undefined, "SKILLS_AMBIGUOUS_SKILL_SELECTOR"> | Diagnostic$1<undefined, "SKILLS_CONFLICTING_SKILL_SELECTORS"> | Diagnostic$1<undefined, "SKILLS_LOCAL_PATH_NOT_FOUND"> | Diagnostic$1<undefined, "SKILLS_WELLKNOWN_SCOPE_NOT_FOUND"> | Diagnostic$1<undefined, "SKILLS_WELLKNOWN_DIGEST_MISMATCH"> | Diagnostic$1<undefined, "SKILLS_WELLKNOWN_FILE_FETCH_FAILED"> | Diagnostic$1<undefined, "SKILLS_WELLKNOWN_INDEX_NOT_FOUND"> | Diagnostic$1<{
+    path: string;
+  }, "SKILLS_SKILL_SKIPPED"> | Diagnostic$1<undefined, "SKILLS_DOWNLOAD_HTTP_ERROR"> | Diagnostic$1<undefined, "SKILLS_DOWNLOAD_TOO_LARGE"> | Diagnostic$1<undefined, "SKILLS_DOWNLOAD_NO_BODY"> | Diagnostic$1<undefined, "SKILLS_DOWNLOAD_EMPTY"> | Diagnostic$1<undefined, "SKILLS_DOWNLOAD_NOT_A_SKILL"> | Diagnostic$1<undefined, "SKILLS_DOWNLOAD_NOT_LOCKED"> | Diagnostic$1<undefined, "SKILLS_ARCHIVE_INVALID"> | Diagnostic$1<undefined, "SKILLS_ARCHIVE_MULTI_DISK_ZIP"> | Diagnostic$1<undefined, "SKILLS_ARCHIVE_UNSUPPORTED_COMPRESSION"> | Diagnostic$1<undefined, "SKILLS_ARCHIVE_UNSUPPORTED_FORMAT"> | Diagnostic$1<undefined, "SKILLS_ARCHIVE_MISSING_SKILL_MD"> | Diagnostic$1<undefined, "SKILLS_WELLKNOWN_ARCHIVE_UNSAFE_PATH"> | Diagnostic$1<undefined, "SKILLS_WELLKNOWN_ARCHIVE_TOO_LARGE"> | Diagnostic$1<undefined, "SKILLS_WELLKNOWN_ARCHIVE_TOO_MANY_FILES"> | Diagnostic$1<undefined, "SKILLS_UNSAFE_SKILL_NAME"> | Diagnostic$1<{
+    path: string;
+    skills: string[];
+  }, "SKILLS_CATEGORY_DIR_CONFLICT"> | Diagnostic$1<undefined, "SKILLS_CLEANUP_OUTSIDE_TEMP_DIR"> | Diagnostic$1<{
+    path: string;
+  }, "SKILLS_BROKEN_SYMLINK"> | Diagnostic$1<undefined, "SKILLS_LOCK_MISSING_SOURCE_URL"> | Diagnostic$1<undefined, "SKILLS_INVALID_LOCAL_LOCK"> | Diagnostic$1<undefined, "SKILLS_LOCAL_LOCK_BUSY"> | Diagnostic$1<{
+    path: string;
+  }, "SKILLS_SYMLINK_OUTSIDE_SKILL"> | Diagnostic$1<{
+    path: string;
+  }, "SKILLS_SYMLINK_CYCLE"> | Diagnostic$1<undefined, "SKILLS_PACKAGE_SKILLS_NOT_ARRAY"> | Diagnostic$1<undefined, "SKILLS_PACKAGE_SKILLS_INVALID_ENTRY"> | Diagnostic$1<undefined, "SKILLS_PACKAGE_SKILLS_NOT_GIT_SOURCE"> | Diagnostic$1<undefined, "SKILLS_PACKAGE_SKILLS_DUPLICATE_REF"> | Diagnostic$1<undefined, "SKILLS_PACKAGE_SKILLS_REF_NOT_ALLOWED"> | Diagnostic$1<undefined, "SKILLS_PACKAGE_SKILLS_UNRESOLVED_NPM"> | Diagnostic$1<undefined, "SKILLS_NOTION_CLI_MISSING"> | Diagnostic$1<undefined, "SKILLS_NOTION_API_FAILED"> | Diagnostic$1<undefined, "SKILLS_NOTION_API_TIMEOUT"> | Diagnostic$1<undefined, "SKILLS_NOTION_API_OUTPUT_TOO_LARGE"> | Diagnostic$1<undefined, "SKILLS_NOTION_CLI_START_FAILED"> | Diagnostic$1<undefined, "SKILLS_NOTION_RESPONSE_MISSING_FIELD"> | Diagnostic$1<undefined, "SKILLS_NOTION_RESPONSE_INVALID_FIELD"> | Diagnostic$1<undefined, "SKILLS_NOTION_INVALID_PACK"> | Diagnostic$1<undefined, "SKILLS_NOTION_INVALID_LIST_RESPONSE"> | Diagnostic$1<undefined, "SKILLS_NOTION_INVALID_DIRECTORY_RESPONSE"> | Diagnostic$1<undefined, "SKILLS_NOTION_INVALID_JSON"> | Diagnostic$1<undefined, "SKILLS_NOTION_INVALID_CURSOR"> | Diagnostic$1<undefined, "SKILLS_NOTION_NO_PACKS"> | Diagnostic$1<undefined, "SKILLS_NOTION_NO_MATCHING_PACKS"> | Diagnostic$1<undefined, "SKILLS_NOTION_PACK_CHANGED"> | Diagnostic$1<undefined, "SKILLS_NOTION_PACK_PREPARE_FAILED"> | Diagnostic$1<undefined, "SKILLS_NOTION_PACK_NO_SKILLS"> | Diagnostic$1<undefined, "SKILLS_USE_AGENT_UNSUPPORTED"> | Diagnostic$1<undefined, "SKILLS_USE_AGENT_COMMAND_NOT_FOUND"> | Diagnostic$1<undefined, "SKILLS_USE_AGENT_WILDCARD"> | Diagnostic$1<undefined, "SKILLS_USE_MULTIPLE_AGENTS"> | Diagnostic$1<undefined, "SKILLS_USE_NO_MATCHING_SKILL"> | Diagnostic$1<undefined, "SKILLS_SOURCE_FETCH_FAILED"> | Diagnostic$1<undefined, "SKILLS_SOURCE_DISPOSED"> | Diagnostic$1<undefined, "SKILLS_DUPLICATE_SKILL_NAME"> | Diagnostic$1<undefined, "SKILLS_SKILL_CONTAINS_SYMLINKS"> | Diagnostic$1<undefined, "SKILLS_AGENT_NOT_ALLOWED"> | Diagnostic$1<undefined, "SKILLS_NO_TARGET_AGENTS"> | Diagnostic$1<undefined, "SKILLS_GLOBAL_INSTALL_UNSUPPORTED"> | Diagnostic$1<undefined, "SKILLS_INSTALL_FAILED"> | Diagnostic$1<undefined, "SKILLS_REMOVE_FAILED"> | Diagnostic$1<undefined, "SKILLS_LOCK_WRITE_FAILED"> | Diagnostic$1<undefined, "SKILLS_PROVIDER_ALREADY_REGISTERED">;
+};
 export declare const version: string;
 // #endregion
 

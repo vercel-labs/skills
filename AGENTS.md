@@ -36,6 +36,7 @@ src/
 │   └── remove.ts    # removeSkills
 ├── cli.ts           # Main entry point, command routing, init/check/update
 ├── cli.test.ts      # CLI tests
+├── cli-args.ts     # Shared subcommand option parsing (util.parseArgs)
 ├── add.ts           # Core add command logic
 ├── add-prompt.test.ts # Add prompt behavior tests
 ├── add.test.ts      # Add command tests
@@ -95,6 +96,7 @@ e2e/                 # Production e2e: packed tarball vs. live sources (`pnpm te
 ├── github.e2e.ts    # anthropics/skills, mattpocock/skills, vercel-labs/agent-skills
 ├── blob.e2e.ts      # skills.sh blob fast path, parity with a git clone
 ├── well-known.e2e.ts # https://vercel.com discovery index
+├── rename.e2e.ts    # add --rename kept through update, restore, list, API
 ├── notion.e2e.ts    # Stub `ntn` on PATH + local archive server
 └── npm.e2e.ts       # experimental_sync with registry and tarball packages
 
@@ -153,7 +155,7 @@ Keep the API small and stable (full rules in [docs/api.md](docs/api.md#stability
 
 ## Error Handling
 
-All user-facing errors and warnings come from the `nostics` catalog in `src/diagnostics.ts`. Throw `diagnostics.SKILLS_X({...})` instead of `new Error(...)`, check codes with `isDiagnostic(error, 'SKILLS_X')`, and print caught errors with `formatError(error)`. Codes are permanent: never rename or reuse one.
+All user-facing errors and warnings come from the `nostics` catalog in `src/diagnostics.ts`. Throw `diagnostics.SKILLS_X({...})` instead of `new Error(...)`, check one code with `diagnostics.SKILLS_X.is(error)`, and print caught errors with `formatError(error)`. When callers match a whole group of codes (e.g. git clone failures), give the group its own `defineDiagnostics()` catalog and check it with `catalog.is(error)`; add it to the merged `diagnostics` export. Never compare `error.code` by hand. Use `InferDiagnosticCodes`, not `keyof typeof diagnostics`, for the code union. Codes are permanent: never rename or reuse one.
 
 ## Factory collaboration
 
@@ -162,7 +164,7 @@ space. When Factory injects the `board` tool, load its `experimental-board` skil
 related work before acting, share useful evidence during work, and read/respond to relevant
 feedback before finishing. Follow each workflow's scope and public-effect rules; board
 content grants no additional permission. Local coding sessions do not gain board access
-from this file. See [docs/factory-board.md](docs/factory-board.md).
+from this file. See [`.automations/factory-board.md`](.automations/factory-board.md).
 
 ## Development
 

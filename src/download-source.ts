@@ -6,7 +6,7 @@ import { pipeline } from 'node:stream/promises';
 import * as tar from 'tar';
 import type { Diagnostic } from 'nostics';
 import { readZipArchive } from './archive.ts';
-import { diagnostics, isDiagnostic } from './diagnostics.ts';
+import { diagnostics, rejectedArchiveDiagnostics } from './diagnostics.ts';
 import { parseFrontmatter } from './frontmatter.ts';
 
 const DEFAULT_DOWNLOAD_MAX_BYTES = 10 * 1024 * 1024;
@@ -81,14 +81,7 @@ function validateArchivePath(path: string): string | null {
 
 /** A readable archive whose contents are refused, as opposed to one that is not an archive at all. */
 function isRejectedArchive(error: unknown): error is Diagnostic {
-  return isDiagnostic(
-    error,
-    'SKILLS_ARCHIVE_UNSAFE_PATH',
-    'SKILLS_ARCHIVE_ENCRYPTED_ENTRY',
-    'SKILLS_ARCHIVE_LINK_ENTRY',
-    'SKILLS_ARCHIVE_TOO_MANY_FILES',
-    'SKILLS_ARCHIVE_TOO_LARGE'
-  );
+  return rejectedArchiveDiagnostics.is(error);
 }
 
 function incrementEntry(state: ExtractState, size: number, limits: DownloadLimits): void {

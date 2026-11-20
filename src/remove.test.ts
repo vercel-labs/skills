@@ -1,5 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, rmSync, mkdirSync, writeFileSync, readdirSync, readFileSync } from 'fs';
+import {
+  existsSync,
+  lstatSync,
+  rmSync,
+  mkdirSync,
+  writeFileSync,
+  readdirSync,
+  readFileSync,
+  symlinkSync,
+} from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli, runCliWithInput } from './test-utils.js';
@@ -51,6 +60,20 @@ This is a test skill.
     return agentSkillsDir;
   }
 
+  function writeProjectLock(names: string[]) {
+    const skills = Object.fromEntries(
+      names.map((name) => [
+        name,
+        { source: `example/${name}`, sourceType: 'github', computedHash: 'somehash' },
+      ])
+    );
+    writeFileSync(join(testDir, 'skills-lock.json'), JSON.stringify({ version: 2, skills }));
+  }
+
+  function readProjectLockKeys(): string[] {
+    return Object.keys(JSON.parse(readFileSync(join(testDir, 'skills-lock.json'), 'utf-8')).skills);
+  }
+
   function createSymlink(skillName: string, targetDir: string) {
     const skillPath = join(skillsDir, skillName);
     const linkPath = join(targetDir, skillName);
@@ -81,7 +104,7 @@ This is a test skill.
     it('should clean stale lock entry even when no skills are installed on disk', () => {
       const lockPath = join(testDir, 'skills-lock.json');
       const lockContent = {
-        version: 1,
+        version: 2,
         skills: {
           'stale-skill': {
             source: 'some-source',
@@ -108,7 +131,7 @@ This is a test skill.
         lockPath,
         JSON.stringify(
           {
-            version: 1,
+            version: 2,
             skills: {
               'stale-skill': {
                 source: 'some-source',
@@ -174,6 +197,7 @@ This is a test skill.
     });
 
     it('should remove all skills with --all flag', () => {
+      writeProjectLock(['skill-one', 'skill-two', 'skill-three']);
       const result = runCli(['remove', '--all', '-y'], testDir);
 
       expect(result.stdout).toContain('Successfully removed');
@@ -208,6 +232,54 @@ This is a test skill.
       expect(existsSync(join(skillsDir, 'skill-three'))).toBe(true);
     });
 
+    // 'junction' needs no privileges on Windows and is ignored elsewhere; targets are absolute.
+    it('should remove a skill directory that is a symlinked directory (#2679)', () => {
+      const sourceDir = createTestSkill('linked-pet', undefined, join(testDir, 'linked-source'));
+      const skillLink = join(skillsDir, 'linked-pet');
+      symlinkSync(sourceDir, skillLink, 'junction');
+      const claudeLink = join(createAgentSkillsDir('.claude'), 'linked-pet');
+      symlinkSync(skillLink, claudeLink, 'junction');
+
+      expect(runCli(['list', '--json'], testDir).stdout).toContain('linked-pet');
+
+      const result = runCli(['remove', 'linked-pet', '-y'], testDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Successfully removed 1 skill(s)');
+      expect(lstatSync(skillLink, { throwIfNoEntry: false })).toBeUndefined();
+      expect(lstatSync(claudeLink, { throwIfNoEntry: false })).toBeUndefined();
+      // Only the links go; the directory they pointed at is left untouched.
+      expect(readFileSync(join(sourceDir, 'SKILL.md'), 'utf-8')).toContain('name: linked-pet');
+      expect(runCli(['list', '--json'], testDir).stdout).not.toContain('linked-pet');
+    });
+
+    it('should unlink, not delete, a symlinked skill that only exists in an agent dir on --all', () => {
+      const sourceDir = createTestSkill('agent-linked', undefined, join(testDir, 'linked-source'));
+      const claudeLink = join(createAgentSkillsDir('.claude'), 'agent-linked');
+      symlinkSync(sourceDir, claudeLink, 'junction');
+      writeProjectLock(['skill-one', 'skill-two', 'skill-three', 'agent-linked']);
+
+      const result = runCli(['remove', '--all', '-y'], testDir);
+
+      expect(result.exitCode).toBe(0);
+      // skill-one..three from beforeEach plus the linked one.
+      expect(result.stdout).toContain('Successfully removed 4 skill(s)');
+      expect(lstatSync(claudeLink, { throwIfNoEntry: false })).toBeUndefined();
+      expect(existsSync(join(sourceDir, 'SKILL.md'))).toBe(true);
+    });
+
+    it('should ignore a symlink to a directory without SKILL.md', () => {
+      const targetDir = join(testDir, 'not-a-skill');
+      mkdirSync(targetDir, { recursive: true });
+      writeFileSync(join(targetDir, 'README.md'), 'not a skill');
+      symlinkSync(targetDir, join(skillsDir, 'not-a-skill'), 'junction');
+
+      const result = runCli(['remove', 'not-a-skill', '-y'], testDir);
+
+      expect(result.stdout).toContain('No matching skills');
+      expect(lstatSync(join(skillsDir, 'not-a-skill')).isSymbolicLink()).toBe(true);
+    });
+
     it('should show error for non-existent skill name when skills exist', () => {
       const result = runCli(['remove', 'non-existent', '-y'], testDir);
 
@@ -218,7 +290,7 @@ This is a test skill.
     it('should remove skill that is missing from disk but exists in local lock file', () => {
       const lockPath = join(testDir, 'skills-lock.json');
       const lockContent = {
-        version: 1,
+        version: 2,
         skills: {
           'stale-skill': {
             source: 'some-source',
@@ -248,7 +320,7 @@ This is a test skill.
         lockPath,
         JSON.stringify(
           {
-            version: 1,
+            version: 2,
             skills: {
               'ce:review': {
                 source: 'everyinc/compound-engineering-plugin',
@@ -283,7 +355,7 @@ This is a test skill.
       writeFileSync(
         lockPath,
         JSON.stringify({
-          version: 1,
+          version: 2,
           skills: {
             'skill-one': {
               source: 'mattpocock/skills',
@@ -471,7 +543,7 @@ This is a test skill.
       writeFileSync(
         localLockPath,
         JSON.stringify({
-          version: 1,
+          version: 2,
           skills: { grilling: { source: 'mattpocock/skills', sourceType: 'github' } },
         })
       );
@@ -516,7 +588,7 @@ This is a test skill.
         lockPath,
         JSON.stringify(
           {
-            version: 1,
+            version: 2,
             skills: {
               'broken-skill': {
                 source: 'some-source',
@@ -541,6 +613,7 @@ This is a test skill.
 
     it('should ignore directories without a SKILL.md when scanning agent skill dirs', () => {
       createTestSkill('installed-skill');
+      writeProjectLock(['installed-skill']);
 
       // A source repo laid out like `skills/<category>/<skill>/SKILL.md`.
       // `skills/` is also OpenClaw's project install dir, so it gets scanned.
@@ -554,6 +627,129 @@ This is a test skill.
       expect(existsSync(join(testDir, 'skills', 'templates', 'base.md'))).toBe(true);
       expect(existsSync(join(testDir, 'skills', '.experimental', 'wip-skill'))).toBe(true);
       expect(existsSync(join(skillsDir, 'installed-skill'))).toBe(false);
+    });
+  });
+
+  // #604 / #2560 TASK04: `--all` only removes lock-tracked skills, in project scope too.
+  describe('--all lockfile ownership (project scope)', () => {
+    it('removes tracked and lock-only entries, skips untracked dirs', () => {
+      const trackedDir = createTestSkill('tracked-skill');
+      const claudeSkillsDir = createAgentSkillsDir('.claude');
+      const claudeLink = join(claudeSkillsDir, 'tracked-skill');
+      symlinkSync(trackedDir, claudeLink, 'junction');
+      const mineDir = createTestSkill('mine');
+      const otherDir = createTestSkill('other-mine', undefined, claudeSkillsDir);
+      writeProjectLock(['tracked-skill', 'stale-skill']);
+
+      const result = runCli(['remove', '--all', '-y'], testDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Successfully removed 2 skill(s)');
+      expect(result.stdout + result.stderr).toContain(
+        'Skipped 2 untracked skill(s) not recorded in the lock file: mine, other-mine'
+      );
+      expect(existsSync(trackedDir)).toBe(false);
+      expect(lstatSync(claudeLink, { throwIfNoEntry: false })).toBeUndefined();
+      expect(existsSync(join(mineDir, 'SKILL.md'))).toBe(true);
+      expect(existsSync(join(otherDir, 'SKILL.md'))).toBe(true);
+      expect(readProjectLockKeys()).toEqual([]);
+    });
+
+    it('removes nothing and does not error when no skill is tracked', () => {
+      const mineDir = createTestSkill('mine');
+
+      const result = runCli(['remove', '--all', '-y'], testDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout + result.stderr).toContain('Skipped 1 untracked skill(s)');
+      expect(result.stdout).toContain('No lock-tracked skills found to remove');
+      expect(existsSync(join(mineDir, 'SKILL.md'))).toBe(true);
+    });
+
+    it('still removes an untracked skill by name', () => {
+      const mineDir = createTestSkill('mine');
+      writeProjectLock(['tracked-skill']);
+      createTestSkill('tracked-skill');
+
+      const result = runCli(['remove', 'mine', '-y'], testDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Successfully removed 1 skill(s)');
+      expect(existsSync(mineDir)).toBe(false);
+      expect(existsSync(join(skillsDir, 'tracked-skill'))).toBe(true);
+      expect(readProjectLockKeys()).toEqual(['tracked-skill']);
+    });
+  });
+
+  // OpenClaw's project dir is a bare `skills/`, the natural home of a skills
+  // repo's own sources, so a real directory there is only deleted when it is
+  // provably a copy the CLI installed (#1771).
+  describe('plain agent dirs that double as source folders (#1771)', () => {
+    it("remove --all keeps the repo's own skills/<name> source after installing it", () => {
+      const sourceDir = createTestSkill('my-skill', 'repo-owned source', join(testDir, 'skills'));
+      writeFileSync(join(sourceDir, 'notes.md'), 'uncommitted work in progress');
+
+      const add = runCli(['add', '.', '-a', 'claude-code', '-y'], testDir);
+      expect(add.exitCode).toBe(0);
+      expect(readProjectLockKeys()).toEqual(['my-skill']);
+
+      const result = runCli(['remove', '--all', '-y'], testDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Successfully removed 1 skill(s)');
+      expect(result.stdout + result.stderr).toContain(`Kept ${sourceDir}`);
+      expect(readFileSync(join(sourceDir, 'notes.md'), 'utf-8')).toBe(
+        'uncommitted work in progress'
+      );
+      expect(
+        lstatSync(join(testDir, '.claude', 'skills', 'my-skill'), { throwIfNoEntry: false })
+      ).toBeUndefined();
+      expect(existsSync(join(skillsDir, 'my-skill'))).toBe(false);
+      expect(readProjectLockKeys()).toEqual([]);
+    });
+
+    it('keeps a user directory that shares its name with a lock-tracked skill', () => {
+      createTestSkill('shared-name');
+      writeProjectLock(['shared-name']);
+      const userDir = createTestSkill('shared-name', 'my own skill', join(testDir, 'skills'));
+
+      const result = runCli(['remove', 'shared-name', '-y'], testDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout + result.stderr).toContain(`Kept ${userDir}`);
+      expect(existsSync(join(userDir, 'SKILL.md'))).toBe(true);
+      expect(existsSync(join(skillsDir, 'shared-name'))).toBe(false);
+      expect(readProjectLockKeys()).toEqual([]);
+    });
+
+    it('removes an unmodified OpenClaw copy install', () => {
+      const sourceRoot = join(testDir, 'vendor');
+      createTestSkill('copied-skill', 'from elsewhere', sourceRoot);
+      const add = runCli(['add', sourceRoot, '-a', 'openclaw', '--copy', '-y'], testDir);
+      expect(add.exitCode).toBe(0);
+      const copyDir = join(testDir, 'skills', 'copied-skill');
+      expect(lstatSync(copyDir).isDirectory()).toBe(true);
+
+      const result = runCli(['remove', 'copied-skill', '-y'], testDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout + result.stderr).not.toContain('Kept');
+      expect(existsSync(copyDir)).toBe(false);
+      expect(existsSync(join(sourceRoot, 'copied-skill', 'SKILL.md'))).toBe(true);
+    });
+
+    it('keeps an OpenClaw copy install that was edited after install', () => {
+      const sourceRoot = join(testDir, 'vendor');
+      createTestSkill('copied-skill', 'from elsewhere', sourceRoot);
+      runCli(['add', sourceRoot, '-a', 'openclaw', '--copy', '-y'], testDir);
+      const copyDir = join(testDir, 'skills', 'copied-skill');
+      writeFileSync(join(copyDir, 'local-edit.md'), 'edited in place');
+
+      const result = runCli(['remove', 'copied-skill', '-y'], testDir);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout + result.stderr).toContain(`Kept ${copyDir}`);
+      expect(existsSync(join(copyDir, 'local-edit.md'))).toBe(true);
     });
   });
 
@@ -707,7 +903,7 @@ describe('remove -a with a subset of agents', { timeout: 30000 }, () => {
       lockPath,
       JSON.stringify(
         {
-          version: 1,
+          version: 2,
           skills: {
             [skillName]: {
               source: 'owner/repo',

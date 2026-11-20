@@ -23,31 +23,10 @@ vi.mock('@clack/prompts', () => {
   };
 });
 
-vi.mock('picocolors', () => {
-  const identity = (value: string) => value;
-  const colors = [
-    'red',
-    'green',
-    'blue',
-    'yellow',
-    'cyan',
-    'white',
-    'black',
-    'dim',
-    'bold',
-    'bgRed',
-    'bgCyan',
-    'bgBlack',
-    'bgWhite',
-    'underline',
-    'inverse',
-    'magenta',
-    'gray',
-    'reset',
-  ];
-  const colorMap: any = identity;
-  for (const color of colors) colorMap[color] = identity;
-  return { default: colorMap };
+vi.mock('picocolors', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('picocolors')>();
+  const plain = actual.createColors(false);
+  return { ...actual, default: plain, createColors: () => plain };
 });
 
 vi.mock('../src/telemetry.ts', () => ({
@@ -88,7 +67,7 @@ describe('remove telemetry source masking (#2278)', () => {
       join(project, 'skills-lock.json'),
       JSON.stringify(
         {
-          version: 1,
+          version: 2,
           skills: {
             'local-skill': {
               source: absoluteLocalPath,
@@ -137,7 +116,7 @@ describe('remove telemetry source masking (#2278)', () => {
     await writeFile(
       join(project, 'skills-lock.json'),
       JSON.stringify({
-        version: 1,
+        version: 2,
         skills: {
           alpha: { source: url, sourceUrl: url, sourceType: 'download', computedHash: 'h' },
         },

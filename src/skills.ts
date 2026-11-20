@@ -2,7 +2,7 @@ import { readdir, readFile, stat } from 'fs/promises';
 import { join, basename, dirname, resolve, normalize, sep, relative } from 'path';
 import { AGENT_PROJECT_SKILL_DIRS } from './agents.ts';
 import { parseFrontmatter } from './frontmatter.ts';
-import { diagnostics, isDiagnostic } from './diagnostics.ts';
+import { diagnostics } from './diagnostics.ts';
 import { sanitizeMetadata, stripTerminalEscapes } from './sanitize.ts';
 import type { Skill } from './types.ts';
 import { getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
@@ -32,6 +32,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function shouldInstallInternalSkills(): boolean {
   const envValue = process.env.INSTALL_INTERNAL_SKILLS;
   return envValue === '1' || envValue === 'true';
+}
+
+/**
+ * Accepts `"true"` and `"1"` besides boolean `true`: the Agent Skills spec types
+ * metadata values as strings, so spec-compliant skills spell the flag as a string.
+ */
+export function isInternalSkill(metadata: unknown): boolean {
+  if (!isRecord(metadata)) return false;
+  const internal = metadata.internal;
+  return internal === true || internal === 'true' || internal === '1';
 }
 
 export async function hasSkillMd(dir: string): Promise<boolean> {
@@ -104,7 +114,7 @@ export async function parseSkillMd(
   // 1. INSTALL_INTERNAL_SKILLS=1 is set, OR
   // 2. includeInternal option is true (e.g., when user explicitly requests a skill)
   const metadata = isRecord(data.metadata) ? data.metadata : undefined;
-  const isInternal = metadata?.internal === true;
+  const isInternal = isInternalSkill(metadata);
   if (isInternal && !shouldInstallInternalSkills() && !options?.includeInternal) {
     return null;
   }
@@ -171,7 +181,7 @@ async function sourceLockedSkillNames(basePath: string): Promise<string[]> {
   try {
     return Object.keys((await readLocalLock(basePath)).skills);
   } catch (error) {
-    if (isDiagnostic(error, 'SKILLS_INVALID_LOCAL_LOCK')) return [];
+    if (diagnostics.SKILLS_INVALID_LOCAL_LOCK.is(error)) return [];
     throw error;
   }
 }

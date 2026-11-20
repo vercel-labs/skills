@@ -1,21 +1,32 @@
 import * as p from '@clack/prompts';
-import pc from 'picocolors';
+import { pc } from './color.ts';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
-import { sep, join, dirname, relative, isAbsolute } from 'path';
-import { parseSource, getOwnerRepo, parseOwnerRepo, isRepoPrivate } from './source-parser.ts';
+import { sep, join, dirname, relative, isAbsolute, basename } from 'path';
+import {
+  parseSource,
+  getOwnerRepo,
+  parseOwnerRepo,
+  isRepoPrivate,
+  lookupGitHubRepo,
+  withCanonicalGitHubRepo,
+} from './source-parser.ts';
 import { stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 import type { Diagnostic } from 'nostics';
-import { diagnostics, formatError, isDiagnostic } from './diagnostics.ts';
-import { cloneRepo, cleanupTempDir } from './git.ts';
+import { diagnostics, formatError, gitCloneDiagnostics } from './diagnostics.ts';
+import { cloneRepo, cleanupTempDir, getHeadCommit } from './git.ts';
 import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
 import {
   installSkillForAgent,
   installBlobSkillForAgent,
   isSkillInstalled,
   getCanonicalPath,
+  getInstallPath,
+  findCategoryDirSkills,
   installWellKnownSkillForAgent,
+  sanitizeName,
+  setInstalledSkillName,
   type InstallMode,
 } from './installer.ts';
 import {
@@ -39,6 +50,7 @@ import {
   wellKnownProvider,
   computeWellKnownSkillDigest,
   type WellKnownSkill,
+  type DiscoveredWellKnownSkill,
 } from './providers/index.ts';
 import { downloadSource } from './download-source.ts';
 import { warn } from './warnings.ts';
@@ -62,9 +74,17 @@ import {
   type LocalSkillLockEntry,
   type LocalSkillLockFile,
 } from './local-lock.ts';
+import {
+  collectSkillFolderFiles,
+  hashSkillFiles,
+  isExcludedPath,
+  type HashedFile,
+} from './skill-hash.ts';
+import { setFrontmatterName } from './frontmatter.ts';
 import type { Skill, AgentType, ParsedSource } from './types.ts';
 import {
   tryBlobInstall,
+  type BlobFallback,
   BLOB_ALLOWED_REPOS,
   getSkillFolderHashFromTree,
   fetchRepoTree,
@@ -73,6 +93,7 @@ import {
 } from './blob.ts';
 import { collectSkillsShFiles, computeSkillsShTreeHash } from './skills-sh-hash.ts';
 import packageJson from '../package.json' with { type: 'json' };
+import { parseCliArgs } from './cli-args.ts';
 import {
   downloadNotionUrl,
   isNotionPackUrl,
@@ -326,6 +347,47 @@ function targetKey(target: InstallTarget): string {
   return target.subagent ? `${target.agent}:${target.subagent}` : target.agent;
 }
 
+/** An agent category directory (#1723) at a planned install path, with its nested skills. */
+interface CategoryConflict {
+  path: string;
+  skills: string[];
+}
+
+/**
+ * The category directory at `skillName`'s install path for `target`, if any.
+ * Installing there would delete its nested skills, so the plan skips that target.
+ */
+async function findCategoryConflict(
+  skillName: string,
+  target: InstallTarget,
+  global: boolean
+): Promise<CategoryConflict | undefined> {
+  let path: string;
+  try {
+    path = getInstallPath(skillName, target.agent, { global, eveSubagent: target.subagent });
+  } catch {
+    return undefined;
+  }
+  const skills = await findCategoryDirSkills(path);
+  return skills.length > 0 ? { path, skills } : undefined;
+}
+
+function categoryConflictLine(name: string, conflict: CategoryConflict): string {
+  const shown = conflict.skills.slice(0, 3).join(', ') + (conflict.skills.length > 3 ? ', …' : '');
+  const detail = `(${basename(conflict.path)}/ contains ${shown})`;
+  return `  ${pc.red('conflicts with category:')} ${name} ${pc.dim(detail)}`;
+}
+
+/** After install: one warning (with the fix) per category directory that was skipped. */
+function warnCategoryConflicts(bySkill: Map<string, Map<string, CategoryConflict>>): void {
+  const conflicts = [...bySkill.values()].flatMap((m) => [...m.values()]);
+  if (conflicts.length === 0) return;
+  console.log();
+  for (const conflict of new Map(conflicts.map((c) => [c.path, c])).values()) {
+    warn(diagnostics.SKILLS_CATEGORY_DIR_CONFLICT(conflict));
+  }
+}
+
 /**
  * Expand the selected agents into concrete install targets, fanning Eve out
  * across the chosen subagents (root and/or named subagents).
@@ -553,12 +615,14 @@ export async function promptForAgents(
  * global skills directory are skipped with one notice on a global install,
  * instead of failing once per skill. Agents named with --agent keep that error,
  * and so does a selection where no agent supports global installs.
+ * `--agent '*'` selects every agent like --yes does, so it is not named.
  */
 export function skipAgentsWithoutGlobalDir(
   targetAgents: AgentType[],
-  options: { global: boolean; explicit: boolean }
+  options: { global: boolean; agent?: string[] }
 ): AgentType[] {
-  if (!options.global || options.explicit) return targetAgents;
+  const named = options.agent !== undefined && !options.agent.includes('*');
+  if (!options.global || named) return targetAgents;
   const skipped = targetAgents.filter((a) => agents[a].globalSkillsDir === undefined);
   if (skipped.length === 0 || skipped.length === targetAgents.length) return targetAgents;
   p.log.info(
@@ -686,6 +750,8 @@ export interface AddOptions {
   subagent?: string[];
   /** Output results as a JSON array (machine-readable, no ANSI codes). */
   json?: boolean;
+  /** Install the one selected skill under this name instead of its own. */
+  rename?: string;
 }
 
 /** One entry per skill in `add --json` output. */
@@ -707,6 +773,8 @@ interface AddJsonResult {
   } | null;
   reason?: string;
   error?: string;
+  /** Present when the blob fast path failed and the install fell back to a git clone. */
+  fallback?: BlobFallback;
 }
 
 /** Build the `security` field for a JSON entry from partner audit data. */
@@ -892,6 +960,7 @@ async function installPackPointerSkills(
               sourceType: source.parsed.type,
               sourceUrl: source.parsed.url,
               ref: source.parsed.ref,
+              ...(resolved.commit && { commit: resolved.commit }),
               skillPath,
               skillFolderHash:
                 (tree && skillPath && getSkillFolderHashFromTree(tree, skillPath)) || '',
@@ -934,21 +1003,21 @@ async function handleWellKnownSkills(
 ): Promise<boolean> {
   spinner.start('Discovering skills from well-known endpoint...');
 
-  // Fetch all skills from the well-known endpoint
-  let skills: WellKnownSkill[] = [];
+  // Discover metadata before downloading the selected skills' supporting files.
+  let skills: DiscoveredWellKnownSkill[] = [];
   try {
-    skills = await wellKnownProvider.fetchAllSkills(url, {
+    skills = await wellKnownProvider.discoverSkills(url, {
       includeInternal: Boolean(
         options.skill && options.skill.length > 0 && !options.skill.includes('*')
       ),
     });
   } catch (error) {
-    if (isDiagnostic(error, 'SKILLS_WELLKNOWN_DIGEST_MISMATCH')) {
+    if (diagnostics.SKILLS_WELLKNOWN_DIGEST_MISMATCH.is(error)) {
       spinner.stop(pc.red('Integrity check failed'));
       p.log.error(formatError(error));
       process.exit(1);
     }
-    if (isDiagnostic(error, 'SKILLS_WELLKNOWN_SCOPE_NOT_FOUND')) {
+    if (diagnostics.SKILLS_WELLKNOWN_SCOPE_NOT_FOUND.is(error)) {
       spinner.stop(pc.red('No matching skills'));
       p.log.error(formatError(error));
       process.exit(1);
@@ -966,8 +1035,8 @@ async function handleWellKnownSkills(
   for (const skill of skills) {
     p.log.info(`Skill: ${pc.cyan(skill.installName)}`);
     p.log.message(pc.dim(skill.description));
-    if (skill.files.size > 1) {
-      p.log.message(pc.dim(`  Files: ${Array.from(skill.files.keys()).join(', ')}`));
+    if (skill.filePaths.length > 1) {
+      p.log.message(pc.dim(`  Files: ${skill.filePaths.join(', ')}`));
     }
   }
 
@@ -977,8 +1046,8 @@ async function handleWellKnownSkills(
     for (const skill of skills) {
       p.log.message(`  ${pc.cyan(skill.installName)}`);
       p.log.message(`    ${pc.dim(skill.description)}`);
-      if (skill.files.size > 1) {
-        p.log.message(`    ${pc.dim(`Files: ${skill.files.size}`)}`);
+      if (skill.filePaths.length > 1) {
+        p.log.message(`    ${pc.dim(`Files: ${skill.filePaths.length}`)}`);
       }
     }
     console.log();
@@ -987,18 +1056,18 @@ async function handleWellKnownSkills(
   }
 
   // Filter skills if --skill option is provided
-  let selectedSkills: WellKnownSkill[];
-  const logWellKnown = (chosen: WellKnownSkill[]): void =>
+  let selectedEntries: DiscoveredWellKnownSkill[];
+  const logWellKnown = (chosen: DiscoveredWellKnownSkill[]): void =>
     logAutoSelectedSkills(
       chosen.map((s) => ({ label: s.installName, description: s.description }))
     );
 
   if (options.skill?.includes('*')) {
     // --skill '*' selects all skills
-    selectedSkills = skills;
-    logWellKnown(selectedSkills);
+    selectedEntries = skills;
+    logWellKnown(selectedEntries);
   } else if (options.skill && options.skill.length > 0) {
-    selectedSkills = skills.filter((s) =>
+    selectedEntries = skills.filter((s) =>
       options.skill!.some(
         (name) =>
           s.installName.toLowerCase() === name.toLowerCase() ||
@@ -1006,7 +1075,7 @@ async function handleWellKnownSkills(
       )
     );
 
-    if (selectedSkills.length === 0) {
+    if (selectedEntries.length === 0) {
       p.log.error(
         formatError(
           diagnostics.SKILLS_NO_MATCHING_SKILLS({
@@ -1018,8 +1087,8 @@ async function handleWellKnownSkills(
       process.exit(1);
     }
   } else if (skills.length === 1 || options.yes) {
-    selectedSkills = skills;
-    logWellKnown(selectedSkills);
+    selectedEntries = skills;
+    logWellKnown(selectedEntries);
   } else {
     // Prompt user to select skills
     const skillChoices = skills.map((s) => ({
@@ -1041,8 +1110,41 @@ async function handleWellKnownSkills(
       exitInstallationCancelled();
     }
 
-    selectedSkills = selected as WellKnownSkill[];
+    selectedEntries = selected as DiscoveredWellKnownSkill[];
   }
+
+  // Finish all selected downloads before any installation or lock-file writes.
+  let selectedSkills: WellKnownSkill[];
+  spinner.start('Downloading skill files...');
+  try {
+    selectedSkills = await Promise.all(selectedEntries.map((skill) => skill.load()));
+    spinner.stop('Downloaded skill files');
+  } catch (error) {
+    if (diagnostics.SKILLS_WELLKNOWN_FILE_FETCH_FAILED.is(error)) {
+      spinner.stop(pc.red('Failed to download skill files'));
+      p.log.error(formatError(error));
+      process.exit(1);
+    }
+    throw error;
+  }
+
+  // --rename: install the one selected skill under the new name; `renamedFrom`
+  // keeps the name the endpoint publishes it under.
+  let renamedFrom: string | undefined;
+  if (options.rename !== undefined) {
+    if (selectedSkills.length !== 1) {
+      p.log.error(
+        formatError(diagnostics.SKILLS_RENAME_MULTIPLE_SKILLS({ count: selectedSkills.length }))
+      );
+      process.exit(1);
+    }
+    const [only] = selectedSkills as [WellKnownSkill];
+    if (only.installName !== options.rename) {
+      renamedFrom = only.installName;
+      selectedSkills = [{ ...only, installName: options.rename }];
+    }
+  }
+  const sourceName = (skill: WellKnownSkill) => renamedFrom ?? skill.installName;
 
   // Detect agents
   let targetAgents: AgentType[];
@@ -1120,7 +1222,7 @@ async function handleWellKnownSkills(
 
   targetAgents = skipAgentsWithoutGlobalDir(targetAgents, {
     global: installGlobally,
-    explicit: options.agent !== undefined,
+    agent: options.agent,
   });
 
   // Surface an unusable lock before touching disk rather than after installing.
@@ -1169,15 +1271,19 @@ async function handleWellKnownSkills(
         skillName: skill.installName,
         agent,
         installed: await isSkillInstalled(skill.installName, agent, { global: installGlobally }),
+        conflict: await findCategoryConflict(skill.installName, { agent }, installGlobally),
       }))
     )
   );
   const overwriteStatus = new Map<string, Map<string, boolean>>();
-  for (const { skillName, agent, installed } of overwriteChecks) {
+  const categoryConflicts = new Map<string, Map<string, CategoryConflict>>();
+  for (const { skillName, agent, installed, conflict } of overwriteChecks) {
     if (!overwriteStatus.has(skillName)) {
       overwriteStatus.set(skillName, new Map());
+      categoryConflicts.set(skillName, new Map());
     }
     overwriteStatus.get(skillName)!.set(agent, installed);
+    if (conflict) categoryConflicts.get(skillName)!.set(agent, conflict);
   }
 
   for (const skill of selectedSkills) {
@@ -1186,7 +1292,11 @@ async function handleWellKnownSkills(
     const canonicalPath = getCanonicalPath(skill.installName, { global: installGlobally });
     const shortCanonical = shortenPath(canonicalPath, cwd);
     summaryLines.push(`${pc.cyan(shortCanonical)}`);
-    summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode, installGlobally));
+    const skillConflicts = categoryConflicts.get(skill.installName);
+    const plannedAgents = targetAgents.filter((a) => !skillConflicts?.has(a));
+    if (plannedAgents.length > 0) {
+      summaryLines.push(...buildAgentSummaryLines(plannedAgents, installMode, installGlobally));
+    }
     const pointer = isSkillsShPackUrl(url) ? getPackSkillPointer(skill) : null;
     if (pointer) summaryLines.push(`  ${pc.dim('source:')} ${pointer.repo}`);
     if (skill.files.size > 1) {
@@ -1194,12 +1304,15 @@ async function handleWellKnownSkills(
     }
 
     const skillOverwrites = overwriteStatus.get(skill.installName);
-    const overwriteAgents = targetAgents
+    const overwriteAgents = plannedAgents
       .filter((a) => skillOverwrites?.get(a))
       .map((a) => agents[a].displayName);
 
     if (overwriteAgents.length > 0) {
       summaryLines.push(`  ${pc.yellow('overwrites:')} ${formatList(overwriteAgents)}`);
+    }
+    for (const [agent, conflict] of skillConflicts ?? []) {
+      summaryLines.push(categoryConflictLine(agents[agent as AgentType].displayName, conflict));
     }
   }
 
@@ -1216,8 +1329,9 @@ async function handleWellKnownSkills(
 
   // Public skills in skills.sh packs install from their original repo, so
   // updates, lock entries, and install counts follow the real skill. Anything
-  // that fails there still installs from the pack's own copy below.
-  if (isSkillsShPackUrl(url)) {
+  // that fails there still installs from the pack's own copy below. A renamed
+  // skill always installs from the pack's copy.
+  if (isSkillsShPackUrl(url) && renamedFrom === undefined) {
     const fromSource = await installPackPointerSkills(selectedSkills, {
       targetAgents,
       global: installGlobally,
@@ -1255,10 +1369,16 @@ async function handleWellKnownSkills(
 
   for (const skill of selectedSkills) {
     for (const agent of targetAgents) {
+      if (categoryConflicts.get(skill.installName)?.has(agent)) continue;
       const result = await installWellKnownSkillForAgent(skill, agent, {
         global: installGlobally,
         mode: installMode,
       });
+      if (renamedFrom !== undefined && result.success) {
+        for (const path of new Set([result.canonicalPath, result.path])) {
+          if (path) await setInstalledSkillName(path, skill.installName);
+        }
+      }
       results.push({
         skill: skill.installName,
         agent: agents[agent].displayName,
@@ -1277,7 +1397,7 @@ async function handleWellKnownSkills(
   // Build skillFiles map: { skillName: sourceUrl }
   const skillFiles: Record<string, string> = {};
   for (const skill of selectedSkills) {
-    skillFiles[skill.installName] = skill.sourceUrl;
+    skillFiles[sourceName(skill)] = skill.sourceUrl;
   }
 
   // Privacy promise was started before installation — should be resolved by now
@@ -1286,7 +1406,7 @@ async function handleWellKnownSkills(
     track({
       event: 'install',
       source: sourceIdentifier,
-      skills: selectedSkills.map((s) => s.installName).join(','),
+      skills: selectedSkills.map(sourceName).join(','),
       agents: targetAgents.join(','),
       ...(installGlobally && { global: '1' }),
       skillFiles: JSON.stringify(skillFiles),
@@ -1301,7 +1421,10 @@ async function handleWellKnownSkills(
     for (const skill of selectedSkills) {
       if (successfulSkillNames.has(skill.installName)) {
         try {
-          await addSkillToLock(skill.installName, globalWellKnownLockEntry(url, skill));
+          await addSkillToLock(skill.installName, {
+            ...globalWellKnownLockEntry(url, skill),
+            ...(renamedFrom !== undefined && { skillName: renamedFrom }),
+          });
         } catch (error) {
           reportLockWriteFailure(skill.installName, getSkillLockPath(), error);
         }
@@ -1324,6 +1447,7 @@ async function handleWellKnownSkills(
                 source: sourceIdentifier,
                 sourceUrl: url,
                 sourceType: 'well-known',
+                ...(renamedFrom !== undefined && { skillName: renamedFrom }),
                 computedHash,
                 wellKnownDigest: computeWellKnownSkillDigest(skill),
               },
@@ -1398,6 +1522,8 @@ async function handleWellKnownSkills(
     }
   }
 
+  warnCategoryConflicts(categoryConflicts);
+
   console.log();
   p.outro(
     pc.green('Done!') + pc.dim('  Review skills before use; they run with full agent permissions.')
@@ -1423,8 +1549,12 @@ export interface ResolvedSkills {
   /** Clone or download root; the caller removes it with cleanup(). */
   tempDir: string | null;
   blobResult: BlobInstallResult | null;
+  /** Set when the blob fast path was tried and the repo tree could not be read. */
+  blobFallback?: BlobFallback;
   /** Directory skills were discovered in (the source root); unset for blob and well-known. */
   rootDir?: string;
+  /** Git commit the skills were read from, for Git sources when it is known. */
+  commit?: string;
   /**
    * Set for direct downloads (raw SKILL.md, archive, Notion): each directory a
    * download was unpacked into and the URL that fetches it again. The lock
@@ -1534,9 +1664,11 @@ async function resolveSkills(
   const { includeInternal } = options;
   let skills: Skill[];
   let blobResult: BlobInstallResult | null = null;
+  let blobFallback: BlobFallback | undefined;
   let tempDir: string | null = null;
   let discoveredRoot: string | undefined;
   let downloads: DownloadRoot[] | undefined;
+  let commit: string | undefined;
 
   const missingRequestedSkill = (found: Skill[]): boolean =>
     !!options.requestedSkills?.some(
@@ -1586,6 +1718,9 @@ async function resolveSkills(
           ref: parsed.ref,
           getToken: getGitHubToken,
           includeInternal,
+          onFallback: (fallback) => {
+            blobFallback = fallback;
+          },
         });
       }
 
@@ -1594,15 +1729,28 @@ async function resolveSkills(
       }
       if (blobResult) {
         skills = blobResult.skills;
+        commit = blobResult.commit;
         spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
       } else {
         // Blob failed — fall back to git clone
-        if (attemptedBlobInstall) {
+        if (blobFallback?.reason === 'rate-limited') {
+          spinner.stop(
+            pc.yellow('GitHub API rate limit reached, falling back to git clone (slower)')
+          );
+          // With a token already set, the authenticated retry failed too; the tip would not help.
+          if (!getGitHubToken()) {
+            p.log.message(
+              pc.dim('Tip: run `gh auth login` or set GITHUB_TOKEN to use the fast path.')
+            );
+          }
+          spinner.start('Cloning repository…');
+        } else if (attemptedBlobInstall) {
           spinner.message('Cloning repository…');
         } else {
           spinner.start('Cloning repository…');
         }
         tempDir = await cloneRepo(parsed.url, parsed.ref);
+        commit = (await getHeadCommit(tempDir)) ?? undefined;
         spinner.stop('Repository cloned');
 
         spinner.start('Discovering skills…');
@@ -1612,6 +1760,7 @@ async function resolveSkills(
       // GitLab, git URL, or --full-depth: always clone
       spinner.start('Cloning repository…');
       tempDir = await cloneRepo(parsed.url, parsed.ref);
+      commit = (await getHeadCommit(tempDir)) ?? undefined;
       spinner.stop('Repository cloned');
 
       spinner.start('Discovering skills…');
@@ -1626,8 +1775,10 @@ async function resolveSkills(
     skills,
     tempDir,
     blobResult,
+    ...(blobFallback && { blobFallback }),
     ...(discoveredRoot && { rootDir: discoveredRoot }),
     ...(downloads && { downloads }),
+    ...(commit && { commit }),
   };
 }
 
@@ -1638,6 +1789,53 @@ interface WellKnownSourceSkill extends Skill {
 
 function isWellKnownSourceSkill(skill: Skill): skill is WellKnownSourceSkill {
   return 'wellKnown' in skill;
+}
+
+/**
+ * `skill` installed as `name`: its folder, lock key and SKILL.md `name`
+ * become `name`, and `renamedFrom` keeps the name the source uses, so update
+ * and restore can find it again. Renaming back to the source name undoes it.
+ */
+export function renameSkill<T extends Skill>(skill: T, name: string): T {
+  const sourceName = skill.renamedFrom ?? skill.name;
+  if (name === skill.name) return skill;
+  const renamed: T = { ...skill, name };
+  if (name === sourceName) delete renamed.renamedFrom;
+  else renamed.renamedFrom = sourceName;
+  if (isWellKnownSourceSkill(renamed)) {
+    renamed.wellKnown = { ...renamed.wellKnown, installName: name };
+  }
+  return renamed;
+}
+
+/** The name a skill has in its source (before any `--rename`). */
+export function sourceSkillName(skill: Skill): string {
+  return skill.renamedFrom ?? getSkillDisplayName(skill);
+}
+
+/** The lock's `skillName` for a renamed skill; empty for one installed as-is. */
+function lockedSourceName(skill: Skill): { skillName?: string } {
+  return skill.renamedFrom ? { skillName: skill.renamedFrom } : {};
+}
+
+/**
+ * A valid `--rename` value is already a safe folder name, so the lock key,
+ * the folder and SKILL.md all carry exactly the name the user typed.
+ */
+export function validateRename(name: string, option = '--rename'): Diagnostic | null {
+  if (name !== '' && sanitizeName(name) === name) return null;
+  return diagnostics.SKILLS_INVALID_OPTION_VALUE({
+    option,
+    expected: `a skill name of lowercase letters, digits, ".", "_" and "-" (e.g. ${sanitizeName(name)})`,
+  });
+}
+
+/** `skills` renamed to `name` per `--rename`; throws unless exactly one skill was selected. */
+export function applyRename<T extends Skill>(skills: T[], name: string | undefined): T[] {
+  if (name === undefined) return skills;
+  if (skills.length !== 1)
+    throw diagnostics.SKILLS_RENAME_MULTIPLE_SKILLS({ count: skills.length });
+  return [renameSkill(skills[0]!, name)];
 }
 
 /** Skills published at `url`'s well-known endpoint; null when it publishes none. */
@@ -1676,6 +1874,8 @@ export interface InstallPlacement {
   createMissingAgentRoot?: (agent: AgentType) => boolean;
   /** Project directory; defaults to process.cwd(). */
   cwd?: string;
+  /** Leave out a skill × target pair, e.g. one that would replace a category dir. */
+  skip?: (skill: Skill, target: InstallTarget) => boolean;
 }
 
 /** Install every skill into every target. Failures are returned per skill × target. */
@@ -1687,6 +1887,7 @@ export async function installToTargets(
   const results: TargetInstallResult[] = [];
   for (const skill of skills) {
     for (const target of placement.targets) {
+      if (placement.skip?.(skill, target)) continue;
       const { agent, subagent } = target;
       const installOptions = {
         global: placement.global,
@@ -1713,6 +1914,13 @@ export async function installToTargets(
         // copyDirectory, which excludes .git), so their scripts/, references/,
         // assets/, etc. are installed too. See issue #1603.
         result = await installSkillForAgent(skill, agent, installOptions);
+      }
+      // A skipped result without a reason means the source is the destination;
+      // never rewrite the user's own copy.
+      if (skill.renamedFrom && result.success && !(result.skipped && !result.skipReason)) {
+        for (const path of new Set([result.canonicalPath, result.path])) {
+          if (path) await setInstalledSkillName(path, skill.name);
+        }
       }
       results.push({
         skill: getSkillDisplayName(skill),
@@ -1750,6 +1958,19 @@ function getSkillRepoPaths(resolved: ResolvedSkills, skills: Skill[]): Record<st
   return skillFiles;
 }
 
+/** `skillFiles` keyed by the names the source uses, which is what install counts track. */
+function telemetrySkillFiles(
+  skills: Skill[],
+  skillFiles: Record<string, string>
+): Record<string, string> {
+  return Object.fromEntries(
+    skills.flatMap((skill) => {
+      const file = skillFiles[skill.name];
+      return file ? [[sourceSkillName(skill), file]] : [];
+    })
+  );
+}
+
 /** The `source` a project lock entry records for `parsed`. */
 export function getProjectLockSource(parsed: ParsedSource): string {
   return getLockSource(parsed.url, getOwnerRepo(parsed)) || parsed.url;
@@ -1758,13 +1979,15 @@ export function getProjectLockSource(parsed: ParsedSource): string {
 function projectLockEntry(
   parsed: ParsedSource,
   skillPath: string | undefined,
-  computedHash: string
+  computedHash: string,
+  commit: string | undefined
 ): LocalSkillLockEntry {
   const sourceUrl = getProjectLockSourceUrl(parsed.type, parsed.url);
   return {
     source: getProjectLockSource(parsed),
     ...(sourceUrl && { sourceUrl }),
     ref: parsed.ref,
+    ...(commit && { commit }),
     sourceType: parsed.type,
     ...(skillPath && { skillPath }),
     computedHash,
@@ -2045,11 +2268,16 @@ export async function recordProjectLock(
     } else if (isWellKnownSourceSkill(skill)) {
       entry = wellKnownLockEntry(parsed.url, skill.wellKnown, hash);
     } else {
-      entry = projectLockEntry(parsed, repoPaths[skill.name], hash);
+      entry = projectLockEntry(parsed, repoPaths[skill.name], hash, resolved.commit);
     }
     await addSkillToLocalLock(
       skill.name,
-      { ...entry, ...(via && { via }), ...(installMode && { installMode }) },
+      {
+        ...entry,
+        ...lockedSourceName(skill),
+        ...(via && { via }),
+        ...(installMode && { installMode }),
+      },
       cwd
     );
   }
@@ -2062,7 +2290,10 @@ export async function recordGlobalWellKnownLock(
 ): Promise<void> {
   for (const { skill } of installed) {
     if (!isWellKnownSourceSkill(skill)) continue;
-    await addSkillToLock(skill.name, globalWellKnownLockEntry(baseUrl, skill.wellKnown));
+    await addSkillToLock(skill.name, {
+      ...globalWellKnownLockEntry(baseUrl, skill.wellKnown),
+      ...lockedSourceName(skill),
+    });
   }
 }
 
@@ -2090,7 +2321,8 @@ export async function recordGlobalLock(
       try {
         await addSkillToLock(skill.name, {
           ...fields,
-          skillFolderHash: await computeSkillFolderHash(skill.path),
+          ...lockedSourceName(skill),
+          skillFolderHash: await sourceSkillHash(skill),
           pluginName: skill.pluginName,
           ...installMode,
         });
@@ -2141,7 +2373,9 @@ export async function recordGlobalLock(
         sourceType: parsed.type,
         sourceUrl: parsed.url,
         ref: parsed.ref,
+        ...(resolved.commit && { commit: resolved.commit }),
         skillPath: skillPathValue,
+        ...lockedSourceName(skill),
         skillFolderHash,
         pluginName: skill.pluginName,
         ...installMode,
@@ -2177,9 +2411,9 @@ export async function trackSourceInstall(
     track({
       ...common,
       source: sourceIdentifier,
-      skills: wellKnown.map((s) => s.name).join(','),
+      skills: wellKnown.map(sourceSkillName).join(','),
       skillFiles: JSON.stringify(
-        Object.fromEntries(wellKnown.map((s) => [s.name, s.wellKnown.sourceUrl]))
+        Object.fromEntries(wellKnown.map((s) => [sourceSkillName(s), s.wellKnown.sourceUrl]))
       ),
       installUrl: parsed.url,
       sourceType: 'well-known',
@@ -2196,17 +2430,35 @@ export async function trackSourceInstall(
   track({
     ...common,
     source: normalizedSource,
-    skills: skills.map((s) => s.name).join(','),
-    skillFiles: JSON.stringify(getSkillRepoPaths(resolved, skills)),
+    skills: skills.map(sourceSkillName).join(','),
+    skillFiles: JSON.stringify(telemetrySkillFiles(skills, getSkillRepoPaths(resolved, skills))),
   });
 }
 
-/** Content hash of a skill at its source: the blob snapshot, or the folder on disk. */
-function sourceSkillHash(skill: Skill): Promise<string> {
-  // snapshotHash is only present on BlobSkill
-  return 'snapshotHash' in skill
-    ? Promise.resolve((skill as BlobSkill).snapshotHash)
-    : computeSkillFolderHash(skill.path);
+/**
+ * The project lock's computedHash for `skill`: the hash of the files it is
+ * installed as (the blob snapshot, or the folder on disk). A renamed skill is
+ * hashed with the new name in its SKILL.md, as the installer writes it, so the
+ * installed copy verifies against the lock.
+ */
+export async function sourceSkillHash(skill: Skill): Promise<string> {
+  // snapshotHash and files are only present on BlobSkill
+  const blob = 'snapshotHash' in skill ? (skill as BlobSkill) : null;
+  if (!skill.renamedFrom) {
+    return blob ? blob.snapshotHash : computeSkillFolderHash(skill.path);
+  }
+  const files: HashedFile[] = blob
+    ? blob.files
+        .filter((file) => !isExcludedPath(file.path))
+        .map((file) => ({ path: file.path, content: file.contents }))
+    : await collectSkillFolderFiles(skill.path);
+  return hashSkillFiles(
+    files.map((file) =>
+      file.path === 'SKILL.md'
+        ? { ...file, content: setFrontmatterName(file.content.toString(), skill.name) }
+        : file
+    )
+  );
 }
 
 /** Well-known skills have no source folder, so hash the installed copy like runAdd does. */
@@ -2391,7 +2643,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     const spinner = jsonMode ? silentSpinner : p.spinner();
 
     spinner.start('Parsing source…');
-    const parsed = parseSource(effectiveSource);
+    let parsed = parseSource(effectiveSource);
     let directDownload = parsed.type === 'download' || notionSourceLabel !== null;
     spinner.stop(
       notionSourceLabel !== null
@@ -2399,20 +2651,13 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         : `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}${parsed.subpath ? ` (${parsed.subpath})` : ''}${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
     );
 
-    // Kick off the repo privacy check early so it runs in parallel with
-    // cloning/discovering/installing. The result is only needed later for
-    // telemetry gating — it should never block user-visible output.
-    const ownerRepoRaw =
-      parsed.type === 'well-known' || parsed.type === 'download' ? null : getOwnerRepo(parsed);
-    const repoPrivacyPromise: Promise<boolean | null> = (() => {
-      // The privacy endpoint below is GitHub.com-specific. In particular, do
-      // not send GitHub Enterprise repository names to the public API.
-      if (parsed.type !== 'github') return Promise.resolve(null);
-      if (!ownerRepoRaw) return Promise.resolve(null);
-      const ownerRepo = parseOwnerRepo(ownerRepoRaw);
-      if (!ownerRepo) return Promise.resolve(null);
-      return isRepoPrivate(ownerRepo.owner, ownerRepo.repo).catch(() => null);
-    })();
+    // Kick off the GitHub repo lookup early so it runs in parallel with
+    // cloning/discovering/installing. It gives privacy (telemetry and audit
+    // gating) and the canonical name after a rename.
+    const repoInfoPromise = lookupGitHubRepo(parsed);
+    const repoPrivacyPromise: Promise<boolean | null> = repoInfoPromise.then((info) =>
+      info ? info.private : null
+    );
 
     // Handle arbitrary URLs by trying well-known discovery first, then
     // falling back to a direct SKILL.md/archive download.
@@ -2478,6 +2723,19 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     if (!blobResult) {
       spinner.stop(`Found ${pc.green(skills.length)} skill${skills.length > 1 ? 's' : ''}`);
+    }
+
+    // A renamed repo still clones under its old name; record the current one
+    // so lock and telemetry do not keep the old name alive.
+    const canonical = withCanonicalGitHubRepo(parsed, (await repoInfoPromise)?.fullName);
+    if (canonical !== parsed) {
+      const from = getOwnerRepo(parsed)!;
+      const to = getOwnerRepo(canonical)!;
+      // A case-only difference is the same repo, not worth a message.
+      if (from.toLowerCase() !== to.toLowerCase()) {
+        p.log.info(`${pc.cyan(from)} has moved to ${pc.cyan(to)}`);
+      }
+      parsed = canonical;
     }
 
     if (options.list) {
@@ -2624,17 +2882,23 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Kick off the security audit only after GitHub has positively confirmed
     // that this is a public repository. Private and unknown repositories must
     // not send their names or skill names to the audit service.
+    // Capture the upstream names now: `selectedSkills` is renamed below, before
+    // this callback runs, and a local --rename alias must not leave the machine.
     const ownerRepoForAudit = getOwnerRepo(parsed);
+    const auditSlugs = selectedSkills.map(sourceSkillName);
     const auditPromise = ownerRepoForAudit
       ? repoPrivacyPromise.then((isPrivate) =>
-          isPrivate === false
-            ? fetchAuditData(
-                ownerRepoForAudit,
-                selectedSkills.map((s) => getSkillDisplayName(s))
-              )
-            : null
+          isPrivate === false ? fetchAuditData(ownerRepoForAudit, auditSlugs) : null
         )
       : Promise.resolve(null);
+
+    try {
+      selectedSkills = applyRename(selectedSkills, options.rename);
+    } catch (error) {
+      p.log.error(formatError(error));
+      await cleanup(tempDir);
+      emitJsonAndExit(1, error instanceof Error ? error.message : String(error));
+    }
 
     let targetAgents: AgentType[];
     let scope = options.global;
@@ -2790,7 +3054,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
     targetAgents = skipAgentsWithoutGlobalDir(targetAgents, {
       global: installGlobally,
-      explicit: options.agent !== undefined,
+      agent: options.agent,
     });
     const installTargets = buildInstallTargets(targetAgents, eveSubagentTargets);
 
@@ -2841,16 +3105,20 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             global: installGlobally,
             eveSubagent: target.subagent,
           }),
+          conflict: await findCategoryConflict(skill.name, target, installGlobally),
         }))
       )
     );
-    // Keyed by skill name → target key → installed?
+    // Keyed by skill name → target key → installed? / category conflict
     const overwriteStatus = new Map<string, Map<string, boolean>>();
-    for (const { skillName, target, installed } of overwriteChecks) {
+    const categoryConflicts = new Map<string, Map<string, CategoryConflict>>();
+    for (const { skillName, target, installed, conflict } of overwriteChecks) {
       if (!overwriteStatus.has(skillName)) {
         overwriteStatus.set(skillName, new Map());
+        categoryConflicts.set(skillName, new Map());
       }
       overwriteStatus.get(skillName)!.set(targetKey(target), installed);
+      if (conflict) categoryConflicts.get(skillName)!.set(targetKey(target), conflict);
     }
 
     // Group selected skills for summary
@@ -2882,15 +3150,22 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
             : getCanonicalPath(skill.name, { global: installGlobally });
         const shortCanonical = shortenPath(canonicalPath, cwd);
         summaryLines.push(`${pc.cyan(shortCanonical)}`);
-        summaryLines.push(...buildTargetSummaryLines(installTargets, installMode, installGlobally));
+        const skillConflicts = categoryConflicts.get(skill.name);
+        const plannedTargets = installTargets.filter((t) => !skillConflicts?.has(targetKey(t)));
+        summaryLines.push(...buildTargetSummaryLines(plannedTargets, installMode, installGlobally));
 
         const skillOverwrites = overwriteStatus.get(skill.name);
-        const overwriteAgents = installTargets
+        const overwriteAgents = plannedTargets
           .filter((t) => skillOverwrites?.get(targetKey(t)))
           .map(targetDisplayName);
 
         if (overwriteAgents.length > 0) {
           summaryLines.push(`  ${pc.yellow('overwrites:')} ${formatList(overwriteAgents)}`);
+        }
+        for (const target of installTargets) {
+          const conflict = skillConflicts?.get(targetKey(target));
+          if (!conflict) continue;
+          summaryLines.push(categoryConflictLine(targetDisplayName(target), conflict));
         }
       }
     };
@@ -2930,7 +3205,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         const securityLines = buildSecurityLines(
           auditData,
           selectedSkills.map((s) => ({
-            slug: getSkillDisplayName(s),
+            slug: sourceSkillName(s),
             displayName: getSkillDisplayName(s),
           })),
           ownerRepoForAudit
@@ -2959,6 +3234,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       targets: installTargets,
       mode: installMode,
       createMissingAgentRoot: (agent) => explicitlySelectedAgents.has(agent),
+      skip: (skill, target) => !!categoryConflicts.get(skill.name)?.has(targetKey(target)),
     });
 
     spinner.stop('Installation complete');
@@ -2987,10 +3263,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           track({
             event: 'install',
             source: normalizedSource,
-            skills: selectedSkills.map((s) => s.name).join(','),
+            skills: selectedSkills.map(sourceSkillName).join(','),
             agents: targetAgents.join(','),
             ...(installGlobally && { global: '1' }),
-            skillFiles: JSON.stringify(skillFiles),
+            skillFiles: JSON.stringify(telemetrySkillFiles(selectedSkills, skillFiles)),
             metadata: options.metadata,
           });
         }
@@ -2999,10 +3275,10 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
         track({
           event: 'install',
           source: normalizedSource,
-          skills: selectedSkills.map((s) => s.name).join(','),
+          skills: selectedSkills.map(sourceSkillName).join(','),
           agents: targetAgents.join(','),
           ...(installGlobally && { global: '1' }),
-          skillFiles: JSON.stringify(skillFiles),
+          skillFiles: JSON.stringify(telemetrySkillFiles(selectedSkills, skillFiles)),
           metadata: options.metadata,
         });
       }
@@ -3071,12 +3347,18 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
               if (!fields) continue;
               entry = { ...fields, computedHash };
             } else {
-              entry = projectLockEntry(parsed, skillFiles[skill.name], computedHash);
+              entry = projectLockEntry(
+                parsed,
+                skillFiles[skill.name],
+                computedHash,
+                resolved.commit
+              );
             }
             await addSkillToLocalLock(
               skill.name,
               {
                 ...entry,
+                ...lockedSourceName(skill),
                 ...(recordSubagents && { subagents: eveSubagents }),
                 ...lockedInstallMode,
               },
@@ -3097,6 +3379,14 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       for (const skill of selectedSkills) {
         const name = getSkillDisplayName(skill);
         const skillResults = results.filter((r) => r.skill === name);
+        if (skillResults.length === 0) {
+          jsonResults.push({
+            name,
+            status: 'skipped',
+            reason: 'Conflicts with a category directory',
+          });
+          continue;
+        }
         const failures = skillResults.filter((r) => !r.success);
         if (failures.length > 0) {
           jsonResults.push({
@@ -3117,6 +3407,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           agents: skillResults.filter((r) => !r.skipped).map((r) => r.agent),
           mode: skillResults[0]?.mode ?? installMode,
           security: buildJsonSecurity(auditDataForJson, name, ownerRepoForAudit),
+          ...(resolved.blobFallback && { fallback: resolved.blobFallback }),
         });
       }
       emitJson();
@@ -3229,6 +3520,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       }
     }
 
+    warnCategoryConflicts(categoryConflicts);
+
     console.log();
     p.outro(
       pc.green('Done!') +
@@ -3238,14 +3531,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Prompt for find-skills after successful install
     await promptForFindSkills(options, targetAgents);
   } catch (error) {
-    const isCloneError = isDiagnostic(
-      error,
-      'SKILLS_UNSUPPORTED_GIT_TRANSPORT',
-      'SKILLS_GIT_CLONE_TIMEOUT',
-      'SKILLS_GIT_AUTH_FAILED',
-      'SKILLS_GIT_SAML_SSO_BLOCKED',
-      'SKILLS_GIT_CLONE_FAILED'
-    );
+    const isCloneError = gitCloneDiagnostics.is(error);
     if (isCloneError) {
       p.log.error(pc.red('Failed to clone repository'));
       // Print each line of the error message separately for better formatting
@@ -3356,86 +3642,60 @@ async function promptForFindSkills(
   }
 }
 
-// Parse command line options from args array
+const ADD_OPTIONS = {
+  global: { type: 'boolean', short: 'g' },
+  yes: { type: 'boolean', short: 'y' },
+  list: { type: 'boolean', short: 'l' },
+  all: { type: 'boolean' },
+  agent: { type: 'list', short: 'a', value: 'an agent name' },
+  skill: { type: 'list', short: 's', value: 'a skill name' },
+  metadata: { type: 'string', value: 'a JSON value' },
+  'full-depth': { type: 'boolean' },
+  json: { type: 'boolean' },
+  copy: { type: 'boolean' },
+  subagent: { type: 'list', value: 'a subagent name' },
+  rename: { type: 'string', value: 'a skill name' },
+} as const;
+
+// Parse command line options from args array. Unknown options are ignored:
+// `skills install` passes restore flags (`--force`, `--frozen-lockfile`) through here.
 export function parseAddOptions(args: string[]): {
   source: string[];
   options: AddOptions;
   errors: Diagnostic[];
 } {
-  const options: AddOptions = {};
-  const source: string[] = [];
-  const errors: Diagnostic[] = [];
+  const { values, positionals, errors } = parseCliArgs(args, ADD_OPTIONS);
+  const options: AddOptions = {
+    global: values.global,
+    yes: values.yes,
+    list: values.list,
+    all: values.all,
+    agent: values.agent,
+    skill: values.skill,
+    fullDepth: values['full-depth'],
+    json: values.json,
+    copy: values.copy,
+    subagent: values.subagent,
+  };
 
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
+  const rename = values.rename?.at(-1);
+  if (rename !== undefined) {
+    const error = validateRename(rename);
+    if (error) errors.push(error);
+    else options.rename = rename;
+  }
 
-    if (arg === '-g' || arg === '--global') {
-      options.global = true;
-    } else if (arg === '-y' || arg === '--yes') {
-      options.yes = true;
-    } else if (arg === '-l' || arg === '--list') {
-      options.list = true;
-    } else if (arg === '--all') {
-      options.all = true;
-    } else if (arg === '-a' || arg === '--agent') {
-      options.agent = options.agent || [];
-      i++;
-      let nextArg = args[i];
-      while (i < args.length && nextArg && !nextArg.startsWith('-')) {
-        options.agent.push(nextArg);
-        i++;
-        nextArg = args[i];
-      }
-      i--; // Back up one since the loop will increment
-    } else if (arg === '-s' || arg === '--skill') {
-      options.skill = options.skill || [];
-      i++;
-      let nextArg = args[i];
-      while (i < args.length && nextArg && !nextArg.startsWith('-')) {
-        options.skill.push(nextArg);
-        i++;
-        nextArg = args[i];
-      }
-      i--; // Back up one since the loop will increment
-    } else if (arg === '--metadata') {
-      const metadata = args[++i];
-      if (metadata === undefined) {
-        errors.push(
-          diagnostics.SKILLS_OPTION_REQUIRES_VALUE({ option: '--metadata', value: 'a JSON value' })
-        );
-      } else {
-        try {
-          JSON.parse(metadata);
-          options.metadata = metadata;
-        } catch {
-          errors.push(
-            diagnostics.SKILLS_INVALID_OPTION_VALUE({
-              option: '--metadata',
-              expected: 'valid JSON',
-            })
-          );
-        }
-      }
-    } else if (arg === '--full-depth') {
-      options.fullDepth = true;
-    } else if (arg === '--json') {
-      options.json = true;
-    } else if (arg === '--copy') {
-      options.copy = true;
-    } else if (arg === '--subagent') {
-      options.subagent = options.subagent || [];
-      i++;
-      let nextArg = args[i];
-      while (i < args.length && nextArg && !nextArg.startsWith('-')) {
-        options.subagent.push(nextArg);
-        i++;
-        nextArg = args[i];
-      }
-      i--; // Back up one since the loop will increment
-    } else if (arg && !arg.startsWith('-')) {
-      source.push(arg);
+  const metadata = values.metadata?.at(-1);
+  if (metadata !== undefined) {
+    try {
+      JSON.parse(metadata);
+      options.metadata = metadata;
+    } catch {
+      errors.push(
+        diagnostics.SKILLS_INVALID_OPTION_VALUE({ option: '--metadata', expected: 'valid JSON' })
+      );
     }
   }
 
-  return { source, options, errors };
+  return { source: positionals, options, errors };
 }

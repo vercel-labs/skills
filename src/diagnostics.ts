@@ -1,19 +1,19 @@
-import { defineDiagnostics, Diagnostic } from 'nostics';
+import { defineDiagnostics, Diagnostic, type InferDiagnosticCodes } from 'nostics';
 import { ansiFormatter } from 'nostics/formatters/ansi';
-import pc from 'picocolors';
+import { pc } from './color.ts';
 
 // An empty fix is omitted from the output.
 const availableSkills = (names: string[]) =>
   names.length > 0 ? ['Available skills:', ...names.map((name) => `  - ${name}`)].join('\n') : '';
 
 /**
- * Every user-facing error and warning the CLI raises. Codes are
- * `SKILLS_<WHAT_WENT_WRONG>` and permanent: never rename or reuse one. Entries
- * are grouped by area: command line, sources and skill selection, git,
+ * Codes are `SKILLS_<WHAT_WENT_WRONG>` and permanent: never rename or reuse
+ * one. Entries are grouped by area: command line, sources and skill selection,
  * download, archive, install, package.json "skills" field, Notion,
- * `skills use`, internal.
+ * `skills use`, internal. Groups that callers match as a whole get their own
+ * catalog below, so `catalog.is(error)` checks the group.
  */
-export const diagnostics = defineDiagnostics({
+const baseDiagnostics = defineDiagnostics({
   // `why` is the full user-facing message; `fix` only carries guidance that is
   // printed as its own line.
   codes: {
@@ -23,6 +23,9 @@ export const diagnostics = defineDiagnostics({
     },
     SKILLS_OPTION_REQUIRES_VALUE: {
       why: (p: { option: string; value: string }) => `${p.option} requires ${p.value}`,
+    },
+    SKILLS_OPTION_TAKES_NO_VALUE: {
+      why: (p: { option: string }) => `${p.option} does not take a value`,
     },
     SKILLS_UNKNOWN_OPTION: {
       why: (p: { option: string }) => `Unknown option: ${p.option}`,
@@ -60,6 +63,16 @@ export const diagnostics = defineDiagnostics({
       fix: (p: { skills: string[] }) =>
         `Remove globally with: skills remove ${p.skills.join(' ')} -g`,
     },
+    SKILLS_REMOVE_UNTRACKED_SKIPPED: {
+      why: (p: { skills: string[] }) =>
+        `Skipped ${p.skills.length} untracked skill(s) not recorded in the lock file: ${p.skills.join(', ')}`,
+      fix: 'Remove them by name, e.g. skills remove <name>',
+    },
+    SKILLS_REMOVE_UNMANAGED_DIR_KEPT: {
+      why: (p: { path: string }) =>
+        `Kept ${p.path}: it is not an unmodified copy installed by skills`,
+      fix: 'Delete it by hand if you no longer need it',
+    },
 
     SKILLS_UNSAFE_SUBPATH: {
       why: (p: { subpath: string }) =>
@@ -89,6 +102,11 @@ export const diagnostics = defineDiagnostics({
         return `Examples:\n  skills use ${p.source}@${example}\n  skills use ${p.source} --skill ${example}`;
       },
     },
+    SKILLS_RENAME_MULTIPLE_SKILLS: {
+      why: (p: { count: number }) =>
+        `--rename installs one skill under a new name, but ${p.count} skills were selected.`,
+      fix: 'Pick one skill with --skill <name> or <source>@<skill>.',
+    },
     SKILLS_AMBIGUOUS_SKILL_SELECTOR: {
       why: (p: { selector: string }) => `Skill selector "${p.selector}" matched multiple skills.`,
     },
@@ -109,48 +127,18 @@ export const diagnostics = defineDiagnostics({
       why: (p: { skill: string; expected: string; actual: string }) =>
         `Digest mismatch for skill '${p.skill}': expected ${p.expected}, received ${p.actual}.`,
     },
+    SKILLS_WELLKNOWN_FILE_FETCH_FAILED: {
+      why: (p: { skill: string; path: string; status?: number }) =>
+        `Failed to download "${p.path}" for skill "${p.skill}"` +
+        (p.status === undefined ? '.' : ` (HTTP ${p.status}).`) +
+        ' The skill cannot be installed without all listed files.',
+    },
     SKILLS_WELLKNOWN_INDEX_NOT_FOUND: {
       why: 'No skills found at this URL. Make sure the server has a /.well-known/agent-skills/index.json or /.well-known/skills/index.json file.',
     },
     SKILLS_SKILL_SKIPPED: {
       why: (p: { path: string; reason: string }) => `⚠ Skipped ${p.path} — ${p.reason}`,
       data: (p: { path: string }) => ({ path: p.path }),
-    },
-
-    SKILLS_UNSUPPORTED_GIT_TRANSPORT: {
-      why: (p: { transport: string }) => `Unsupported Git transport: ${p.transport}`,
-    },
-    SKILLS_GIT_CLONE_TIMEOUT: {
-      why: (p: { seconds: number }) =>
-        `Clone timed out after ${p.seconds}s. Common causes:\n` +
-        `  - Large repository: raise the timeout with SKILLS_CLONE_TIMEOUT_MS=600000 (10m)\n` +
-        `  - Slow network: retry, or clone manually and pass the local path to 'skills add'\n` +
-        `  - Private repo without credentials: ensure auth is configured\n` +
-        `      - For SSH: ssh-add -l (to check loaded keys)\n` +
-        `      - For HTTPS: gh auth status (if using GitHub CLI)`,
-    },
-    SKILLS_GIT_AUTH_FAILED: {
-      why: (p: { url: string; sshUrl?: string; host: string }) =>
-        p.sshUrl
-          ? `Authentication failed for ${p.url}.\n` +
-            `  - For private repos, ensure you have access\n` +
-            `  - Retry with SSH: npx skills add ${p.sshUrl}\n` +
-            `  - Check access with: gh auth status -h ${p.host} or ssh -T git@${p.host}`
-          : `Authentication failed for ${p.url}.\n` +
-            `  - For private repos, ensure you have access\n` +
-            `  - For SSH: Check your keys with 'ssh -T git@github.com'\n` +
-            `  - For HTTPS: Run 'gh auth login' or configure git credentials`,
-    },
-    SKILLS_GIT_SAML_SSO_BLOCKED: {
-      why: (p: { url: string; sshUrl: string; host: string }) =>
-        `GitHub blocked HTTPS access to ${p.url} because the organization enforces SAML SSO.\n` +
-        `  skills tried your existing git credentials and available fallbacks, but none succeeded.\n` +
-        `  - Re-authorize your GitHub credentials/app for that org's SSO policy\n` +
-        `  - Or rerun with SSH: npx skills add ${p.sshUrl}\n` +
-        `  - Verify access with: gh auth status -h ${p.host} or ssh -T git@${p.host}`,
-    },
-    SKILLS_GIT_CLONE_FAILED: {
-      why: (p: { url: string; detail: string }) => `Failed to clone ${p.url}: ${p.detail}`,
     },
 
     SKILLS_DOWNLOAD_HTTP_ERROR: {
@@ -182,25 +170,6 @@ export const diagnostics = defineDiagnostics({
     SKILLS_ARCHIVE_MULTI_DISK_ZIP: {
       why: 'Multi-disk zip archives are not supported',
     },
-    SKILLS_ARCHIVE_UNSAFE_PATH: {
-      why: (p: { path: string }) => `Archive contains unsafe path: ${p.path}`,
-    },
-    SKILLS_ARCHIVE_ENCRYPTED_ENTRY: {
-      why: 'Encrypted zip entries are not supported',
-    },
-    SKILLS_ARCHIVE_LINK_ENTRY: {
-      why: 'Archive links are not supported',
-    },
-    SKILLS_ARCHIVE_TOO_MANY_FILES: {
-      why: (p: { count: number; max: number; overrideEnv?: string }) =>
-        `Archive contains too many files (${p.count}). Maximum is ${p.max}.` +
-        (p.overrideEnv ? ` Set ${p.overrideEnv} to override.` : ''),
-    },
-    SKILLS_ARCHIVE_TOO_LARGE: {
-      why: (p: { maxBytes: number; overrideEnv?: string }) =>
-        `Archive extracts to more than ${p.maxBytes} bytes.` +
-        (p.overrideEnv ? ` Set ${p.overrideEnv} to override.` : ''),
-    },
     SKILLS_ARCHIVE_UNSUPPORTED_COMPRESSION: {
       why: (p: { method: number }) => `Unsupported zip compression method: ${p.method}`,
     },
@@ -223,6 +192,14 @@ export const diagnostics = defineDiagnostics({
     SKILLS_UNSAFE_SKILL_NAME: {
       why: 'Invalid skill name: potential path traversal detected',
     },
+    SKILLS_CATEGORY_DIR_CONFLICT: {
+      why: (p: { path: string; skills: string[] }) =>
+        `Refusing to replace ${p.path}: it is a category directory with nested skills ` +
+        `(${p.skills.slice(0, 8).join(', ')}${p.skills.length > 8 ? ', ...' : ''}). ` +
+        'Installing would delete them.',
+      fix: 'Move or rename the category directory, then install again.',
+      data: (p: { path: string; skills: string[] }) => ({ path: p.path, skills: p.skills }),
+    },
     SKILLS_CLEANUP_OUTSIDE_TEMP_DIR: {
       why: 'Attempted to clean up directory outside of temp directory',
     },
@@ -237,6 +214,10 @@ export const diagnostics = defineDiagnostics({
     SKILLS_INVALID_LOCAL_LOCK: {
       why: (p: { path: string; reason: string }) =>
         `Invalid ${p.path}: ${p.reason}. Fix or delete the file, then retry.`,
+    },
+    SKILLS_LOCAL_LOCK_BUSY: {
+      why: (p: { path: string }) =>
+        `Timed out waiting for ${p.path}: another skills process is updating skills-lock.json. If none is running, delete the file, then retry.`,
     },
     SKILLS_SYMLINK_OUTSIDE_SKILL: {
       why: (p: { path: string }) =>
@@ -398,7 +379,107 @@ export const diagnostics = defineDiagnostics({
   },
 });
 
-export type DiagnosticCode = keyof typeof diagnostics;
+/** Git clone failures. Raised by `git.ts`, matched as a group with `.is()`. */
+export const gitCloneDiagnostics = defineDiagnostics({
+  codes: {
+    SKILLS_UNSUPPORTED_GIT_TRANSPORT: {
+      why: (p: { transport: string }) => `Unsupported Git transport: ${p.transport}`,
+    },
+    SKILLS_GIT_CLONE_TIMEOUT: {
+      why: (p: { seconds: number }) =>
+        `Clone timed out after ${p.seconds}s. Common causes:\n` +
+        `  - Large repository: raise the timeout with SKILLS_CLONE_TIMEOUT_MS=600000 (10m)\n` +
+        `  - Slow network: retry, or clone manually and pass the local path to 'skills add'\n` +
+        `  - Private repo without credentials: ensure auth is configured\n` +
+        `      - For SSH: ssh-add -l (to check loaded keys)\n` +
+        `      - For HTTPS: gh auth status (if using GitHub CLI)`,
+    },
+    SKILLS_GIT_AUTH_FAILED: {
+      why: (p: { url: string; sshUrl?: string; host: string }) =>
+        p.sshUrl
+          ? `Authentication failed for ${p.url}.\n` +
+            `  - For private repos, ensure you have access\n` +
+            `  - Retry with SSH: npx skills add ${p.sshUrl}\n` +
+            `  - Check access with: gh auth status -h ${p.host} or ssh -T git@${p.host}`
+          : `Authentication failed for ${p.url}.\n` +
+            `  - For private repos, ensure you have access\n` +
+            `  - For SSH: Check your keys with 'ssh -T git@github.com'\n` +
+            `  - For HTTPS: Run 'gh auth login' or configure git credentials`,
+    },
+    SKILLS_GIT_SAML_SSO_BLOCKED: {
+      why: (p: { url: string; sshUrl: string; host: string }) =>
+        `GitHub blocked HTTPS access to ${p.url} because the organization enforces SAML SSO.\n` +
+        `  skills tried your existing git credentials and available fallbacks, but none succeeded.\n` +
+        `  - Re-authorize your GitHub credentials/app for that org's SSO policy\n` +
+        `  - Or rerun with SSH: npx skills add ${p.sshUrl}\n` +
+        `  - Verify access with: gh auth status -h ${p.host} or ssh -T git@${p.host}`,
+    },
+    SKILLS_GIT_CLONE_FAILED: {
+      why: (p: { url: string; detail: string }) => `Failed to clone ${p.url}: ${p.detail}`,
+    },
+  },
+});
+
+/**
+ * A readable archive whose contents are refused, as opposed to one that is not
+ * an archive at all.
+ */
+export const rejectedArchiveDiagnostics = defineDiagnostics({
+  codes: {
+    SKILLS_ARCHIVE_UNSAFE_PATH: {
+      why: (p: { path: string }) => `Archive contains unsafe path: ${p.path}`,
+    },
+    SKILLS_ARCHIVE_ENCRYPTED_ENTRY: {
+      why: 'Encrypted zip entries are not supported',
+    },
+    SKILLS_ARCHIVE_LINK_ENTRY: {
+      why: 'Archive links are not supported',
+    },
+    SKILLS_ARCHIVE_TOO_MANY_FILES: {
+      why: (p: { count: number; max: number; overrideEnv?: string }) =>
+        `Archive contains too many files (${p.count}). Maximum is ${p.max}.` +
+        (p.overrideEnv ? ` Set ${p.overrideEnv} to override.` : ''),
+    },
+    SKILLS_ARCHIVE_TOO_LARGE: {
+      why: (p: { maxBytes: number; overrideEnv?: string }) =>
+        `Archive extracts to more than ${p.maxBytes} bytes.` +
+        (p.overrideEnv ? ` Set ${p.overrideEnv} to override.` : ''),
+    },
+  },
+});
+
+type Catalog = { is: (error: unknown) => boolean };
+type GuardOf<R> = R extends { is: (error: unknown) => error is infer D } ? D : never;
+type CodesOf<R> = R extends unknown ? Omit<R, 'is'> : never;
+type UnionToIntersection<U> = (U extends unknown ? (u: U) => void : never) extends (
+  i: infer I
+) => void
+  ? I
+  : never;
+
+/** One catalog with the codes of all `catalogs`; its `is()` matches any of them. */
+function mergeCatalogs<const R extends readonly Catalog[]>(
+  ...catalogs: R
+): UnionToIntersection<CodesOf<R[number]>> & {
+  is: (error: unknown) => error is GuardOf<R[number]>;
+} {
+  // non-enumerable, like nostics: `Object.keys(diagnostics)` lists only codes
+  return Object.defineProperty(Object.assign({}, ...catalogs), 'is', {
+    value: (error: unknown) => catalogs.some((catalog) => catalog.is(error)),
+  });
+}
+
+/**
+ * Every user-facing error and warning the CLI raises, from all catalogs.
+ * `diagnostics.is(error)` matches a diagnostic of any of them.
+ */
+export const diagnostics = mergeCatalogs(
+  baseDiagnostics,
+  gitCloneDiagnostics,
+  rejectedArchiveDiagnostics
+);
+
+export type DiagnosticCode = InferDiagnosticCodes<typeof diagnostics>;
 
 const formatDiagnostic = ansiFormatter(pc);
 
@@ -408,6 +489,10 @@ export function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * @deprecated Use `diagnostics.SKILLS_X.is(error)` for one code, or
+ * `diagnostics.is(error)` for any code of the catalog.
+ */
 export function isDiagnostic(error: unknown, ...codes: DiagnosticCode[]): error is Diagnostic {
-  return error instanceof Diagnostic && codes.some((code) => code === error.code);
+  return diagnostics.is(error) && codes.includes(error.code);
 }
