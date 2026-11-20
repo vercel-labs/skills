@@ -422,6 +422,117 @@ describe('rename', () => {
 });
 
 describe('listSkills and removeSkills', () => {
+  it.each([
+    ['universal', undefined],
+    ['eve', undefined],
+    ['universal', ['claude-code']],
+    ['eve', ['claude-code']],
+  ] as const)(
+    'keeps the project %s skill when removing globally with targets %j',
+    async (projectAgent, removeAgents) => {
+      const project = await api.installSkills(source, {
+        cwd,
+        skills: ['alpha'],
+        agents: [projectAgent],
+        mode: 'copy',
+      });
+      const projectPath = project.installed[0]!.path;
+      const projectContent = readFileSync(join(projectPath, 'SKILL.md'), 'utf-8');
+      const projectLock = readFileSync(join(cwd, 'skills-lock.json'), 'utf-8');
+      const evePaths = [
+        join(cwd, 'agent/subagents/helper/skills'),
+        join(root, 'home/agent/skills'),
+      ];
+      for (const path of evePaths) writeSkill(path, 'alpha');
+      const eveContents = evePaths.map((path) =>
+        readFileSync(join(path, 'alpha/SKILL.md'), 'utf-8')
+      );
+      const global = await api.installSkills(source, {
+        cwd,
+        scope: 'global',
+        skills: ['alpha'],
+        agents: ['universal', 'claude-code'],
+        mode: 'copy',
+      });
+
+      const removed = await api.removeSkills(['alpha'], {
+        cwd,
+        scope: 'global',
+        agents: removeAgents,
+      });
+
+      expect(removed).toEqual({ removed: ['alpha'], notFound: [], failed: [] });
+      for (const installed of global.installed) expect(existsSync(installed.path)).toBe(false);
+      expect(existsSync(join(projectPath, 'SKILL.md'))).toBe(true);
+      expect(readFileSync(join(projectPath, 'SKILL.md'), 'utf-8')).toBe(projectContent);
+      expect(readFileSync(join(cwd, 'skills-lock.json'), 'utf-8')).toBe(projectLock);
+      expect(evePaths.map((path) => readFileSync(join(path, 'alpha/SKILL.md'), 'utf-8'))).toEqual(
+        eveContents
+      );
+      const lock = JSON.parse(
+        readFileSync(join(process.env.XDG_STATE_HOME!, 'skills/.skill-lock.json'), 'utf-8')
+      );
+      expect(lock.skills.alpha).toBeUndefined();
+    }
+  );
+
+  it.each(['eve', 'promptscript'])(
+    'rejects global removal for project-only agent %s without changing either scope',
+    async (agent) => {
+      const project = await api.installSkills(source, {
+        cwd,
+        skills: ['alpha'],
+        agents: [agent],
+        mode: 'copy',
+      });
+      const global = await api.installSkills(source, {
+        cwd,
+        scope: 'global',
+        skills: ['alpha'],
+        agents: ['universal'],
+        mode: 'copy',
+      });
+      const paths = [
+        join(project.installed[0]!.path, 'SKILL.md'),
+        join(global.installed[0]!.path, 'SKILL.md'),
+        join(cwd, 'skills-lock.json'),
+        join(process.env.XDG_STATE_HOME!, 'skills/.skill-lock.json'),
+      ];
+      const before = paths.map((path) => readFileSync(path, 'utf-8'));
+
+      await expectCode(
+        api.removeSkills(['alpha'], { cwd, scope: 'global', agents: [agent] }),
+        'SKILLS_NO_TARGET_AGENTS'
+      );
+
+      expect(paths.map((path) => readFileSync(path, 'utf-8'))).toEqual(before);
+    }
+  );
+
+  it('does not retain a global skill for a detected project-only agent', async () => {
+    mkdirSync(join(cwd, '.promptscript'));
+    const installed = await api.installSkills(source, {
+      cwd,
+      scope: 'global',
+      skills: ['alpha'],
+      agents: ['universal'],
+      mode: 'copy',
+    });
+
+    const removed = await api.removeSkills(['alpha'], {
+      cwd,
+      scope: 'global',
+      agents: ['universal'],
+    });
+
+    expect(removed).toEqual({ removed: ['alpha'], notFound: [], failed: [] });
+    expect(existsSync(installed.installed[0]!.path)).toBe(false);
+    const lock = JSON.parse(
+      readFileSync(join(process.env.XDG_STATE_HOME!, 'skills/.skill-lock.json'), 'utf-8')
+    );
+    expect(lock.skills.alpha).toBeUndefined();
+  });
+
   it('lists installed skills with their lock source, then removes them', async () => {
     await api.installSkills(source, { cwd, agents: ['claude-code'] });
 
