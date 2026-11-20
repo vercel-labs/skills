@@ -1,7 +1,7 @@
 import * as p from '@clack/prompts';
 import { pc } from './color.ts';
 import { realpathSync } from 'fs';
-import { readdir, rm, lstat } from 'fs/promises';
+import { readdir, rm, lstat, realpath } from 'fs/promises';
 import { join, relative, sep } from 'path';
 import { agents, detectInstalledAgents, getEveSubagents } from './agents.ts';
 import { diagnostics, formatError } from './diagnostics.ts';
@@ -454,6 +454,21 @@ export async function removeInstalledSkills(
           try {
             const stats = await lstat(pathToCleanup).catch(() => null);
             if (!stats) continue;
+
+            // An agent's skills directory may itself be a symlink to the canonical
+            // directory (e.g. ~/.gemini/config/skills -> ~/.agents/skills). In that
+            // case the entry is a real directory, not a symlink, and removing it
+            // recursively would delete the canonical skill through the parent link.
+            if (!stats.isSymbolicLink()) {
+              const [realCleanupPath, realCanonicalPath] = await Promise.all([
+                realpath(pathToCleanup).catch(() => null),
+                realpath(canonicalPath).catch(() => null),
+              ]);
+              if (realCleanupPath && realCleanupPath === realCanonicalPath) {
+                continue;
+              }
+            }
+
             if (
               projectLock &&
               !stats.isSymbolicLink() &&
