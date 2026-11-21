@@ -82,14 +82,14 @@ When you find relevant skills, present them to the user with:
 Example response:
 
 ```
-I found a skill that might help! The "react-best-practices" skill provides
+I found a skill that might help! The "vercel-react-best-practices" skill provides
 React and Next.js performance optimization guidelines from Vercel Engineering.
 (185K installs)
 
 To install it:
-npx skills add vercel-labs/agent-skills@react-best-practices
+npx skills add vercel-labs/agent-skills@vercel-react-best-practices
 
-Learn more: https://skills.sh/vercel-labs/agent-skills/react-best-practices
+Learn more: https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practices
 ```
 
 ### Step 6: Offer to Install
