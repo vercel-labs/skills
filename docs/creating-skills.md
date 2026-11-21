@@ -35,7 +35,7 @@ Describe the scenarios where this skill should be used.
 
 - `metadata.internal`: Set to `true` to hide the skill from normal discovery. Internal skills are only visible and
   installable when `INSTALL_INTERNAL_SKILLS=1` is set. Useful for work-in-progress skills or skills meant only for
-  internal tooling.
+  internal tooling. The strings `"true"` and `"1"` also work, for metadata that must stay string-valued.
 
 ```markdown
 ---

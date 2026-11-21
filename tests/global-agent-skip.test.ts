@@ -5,6 +5,7 @@ vi.mock('@clack/prompts', () => ({ log: { info } }));
 
 import { agents } from '../src/agents.ts';
 import { skipAgentsWithoutGlobalDir } from '../src/add.ts';
+import { withGlobalSkillsDir } from '../src/update.ts';
 import type { AgentType } from '../src/types.ts';
 
 // promptscript has no global skills directory; claude-code has one (#2533).
@@ -19,9 +20,7 @@ describe('skipAgentsWithoutGlobalDir', () => {
   });
 
   it('skips detected agents without a global skills dir on a global install, with one notice', () => {
-    expect(skipAgentsWithoutGlobalDir(detected, { global: true, explicit: false })).toEqual([
-      'claude-code',
-    ]);
+    expect(skipAgentsWithoutGlobalDir(detected, { global: true })).toEqual(['claude-code']);
     expect(info).toHaveBeenCalledTimes(1);
     expect(info).toHaveBeenCalledWith(
       `Skipping ${agents.promptscript.displayName}: no global skills directory`
@@ -29,23 +28,38 @@ describe('skipAgentsWithoutGlobalDir', () => {
   });
 
   it('leaves project installs alone', () => {
-    expect(skipAgentsWithoutGlobalDir(detected, { global: false, explicit: false })).toEqual(
-      detected
-    );
+    expect(skipAgentsWithoutGlobalDir(detected, { global: false })).toEqual(detected);
     expect(info).not.toHaveBeenCalled();
   });
 
   it('keeps agents named with --agent, so their error stays visible', () => {
-    expect(skipAgentsWithoutGlobalDir(detected, { global: true, explicit: true })).toEqual(
+    expect(skipAgentsWithoutGlobalDir(detected, { global: true, agent: detected })).toEqual(
       detected
     );
     expect(info).not.toHaveBeenCalled();
   });
 
+  it("skips them with --agent '*', which names no agent", () => {
+    expect(skipAgentsWithoutGlobalDir(detected, { global: true, agent: ['*'] })).toEqual([
+      'claude-code',
+    ]);
+    expect(info).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps the selection when no agent supports a global install', () => {
-    expect(skipAgentsWithoutGlobalDir(['promptscript'], { global: true, explicit: false })).toEqual(
-      ['promptscript']
-    );
+    expect(skipAgentsWithoutGlobalDir(['promptscript'], { global: true })).toEqual([
+      'promptscript',
+    ]);
     expect(info).not.toHaveBeenCalled();
+  });
+});
+
+describe('withGlobalSkillsDir (update -g placement)', () => {
+  it('drops agents without a global skills dir', () => {
+    expect(withGlobalSkillsDir(detected)).toEqual(['claude-code']);
+  });
+
+  it('keeps the selection when no agent supports a global install', () => {
+    expect(withGlobalSkillsDir(['promptscript'])).toEqual(['promptscript']);
   });
 });
