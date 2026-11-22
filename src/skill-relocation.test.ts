@@ -111,6 +111,30 @@ describe('resolveSkillLocations', () => {
     expect(result.resolvedPaths.size).toBe(0);
   });
 
+  it('uses an exact locked path when the installer can target it directly', () => {
+    const result = resolveSkillLocations(
+      ['swiftui-expert-skill'],
+      lock('skills/swiftui-expert-skill/SKILL.md'),
+      [
+        {
+          name: 'swiftui-expert-skill',
+          skillPath: 'skills/swiftui-expert-skill/SKILL.md',
+        },
+        {
+          name: 'swiftui-expert-skill',
+          skillPath: 'plugins/swiftui-expert-skill/SKILL.md',
+        },
+      ],
+      { exactPathDisambiguates: true }
+    );
+
+    expect(result.resolvedPaths.get('swiftui-expert-skill')).toBe(
+      'skills/swiftui-expert-skill/SKILL.md'
+    );
+    expect(result.deletedSkills).toEqual([]);
+    expect(result.ambiguousSkills).toEqual([]);
+  });
+
   it('normalizes path separators before exact matching', () => {
     const result = resolveSkillLocations(
       ['swiftui-expert-skill'],
@@ -126,6 +150,17 @@ describe('resolveSkillLocations', () => {
     expect(result.resolvedPaths.get('swiftui-expert-skill')).toBe(
       'skills/swiftui-expert-skill/SKILL.md'
     );
+    expect(result.deletedSkills).toEqual([]);
+  });
+
+  it('finds a renamed skill by the name its source uses', () => {
+    const result = resolveSkillLocations(
+      ['beta'],
+      { beta: { skillPath: 'skills/alpha/SKILL.md', skillName: 'alpha' } },
+      [{ name: 'alpha', skillPath: 'skills/moved/alpha/SKILL.md' }]
+    );
+
+    expect(result.resolvedPaths.get('beta')).toBe('skills/moved/alpha/SKILL.md');
     expect(result.deletedSkills).toEqual([]);
   });
 });

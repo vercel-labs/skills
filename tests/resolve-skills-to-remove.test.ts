@@ -72,4 +72,13 @@ describe('resolveSkillsToRemove', () => {
     const result = resolveSkillsToRemove([...installed, ...lockKeys], installed, lockKeys);
     expect(new Set(result)).toEqual(new Set(['ce:review', 'my-skill']));
   });
+
+  it('expands an exact lock source to every skill from it, preferring skill names', () => {
+    const lockKeys = ['a', 'b', 'c'];
+    const sources = { a: 'owner/repo', b: 'owner/repo', c: 'other' };
+    expect(new Set(resolveSkillsToRemove(['owner/repo'], [], lockKeys, sources))).toEqual(
+      new Set(['a', 'b'])
+    );
+    expect(resolveSkillsToRemove(['c'], ['c'], lockKeys, { ...sources, c: 'c' })).toEqual(['c']);
+  });
 });

@@ -9,18 +9,31 @@ vi.mock('../src/sync.ts', () => ({
   runSync: vi.fn(),
   parseSyncOptions: vi.fn().mockReturnValue({ options: {} }),
 }));
-vi.mock('../src/agents.ts', () => ({
+vi.mock('../src/agents.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/agents.ts')>()),
+  agents: { cursor: { displayName: 'Cursor', skillsDir: '.agents/skills' } },
+  detectInstalledAgents: vi.fn().mockResolvedValue([]),
   getUniversalAgents: vi.fn().mockReturnValue(['cursor']),
+  isUniversalAgent: vi.fn().mockReturnValue(true),
 }));
+vi.mock('../src/skill-lock.ts', () => ({
+  getLastSelectedAgents: vi.fn().mockResolvedValue(undefined),
+}));
+// The suite itself runs in CI, where --frozen-lockfile would otherwise default on
+vi.mock('../src/ci.ts', () => ({ isCI: () => false }));
 
 describe('runInstallFromLock', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(add.fetchSources).mockImplementation(async (requests) =>
+      requests.map(({ parsed }) => ({ parsed, resolved: null, error: 'not fetched' }))
+    );
+    vi.mocked(add.installFromSource).mockResolvedValue({ installed: ['skill-a'], failed: [] });
   });
 
   it('restores self-hosted GitLab project locks from sourceUrl', async () => {
     vi.mocked(localLock.readLocalLock).mockResolvedValue({
-      version: 1,
+      version: 2,
       skills: {
         'skill-a': {
           source: 'acme/skills',
@@ -34,19 +47,17 @@ describe('runInstallFromLock', () => {
 
     await runInstallFromLock([]);
 
-    expect(add.runAdd).toHaveBeenCalledWith(
-      ['https://gitlab.example.com/acme/skills.git'],
+    expect(add.installFromSource).toHaveBeenCalledWith(
       expect.objectContaining({
-        skill: ['skill-a'],
-        agent: ['cursor'],
-        yes: true,
-      })
+        parsed: expect.objectContaining({ url: 'https://gitlab.example.com/acme/skills.git' }),
+      }),
+      { skills: ['skill-a'], agents: ['cursor'] }
     );
   });
 
   it('does not restore generic git shorthands as GitHub without sourceUrl', async () => {
     vi.mocked(localLock.readLocalLock).mockResolvedValue({
-      version: 1,
+      version: 2,
       skills: {
         'skill-a': {
           source: 'acme/skills',
@@ -59,6 +70,6 @@ describe('runInstallFromLock', () => {
 
     await runInstallFromLock([]);
 
-    expect(add.runAdd).not.toHaveBeenCalled();
+    expect(add.installFromSource).not.toHaveBeenCalled();
   });
 });

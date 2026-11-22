@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtemp, mkdir, rm, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, rm, utimes, writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { spawn } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
+import { installSkills } from '../src/index.ts';
 import {
   readLocalLock,
   writeLocalLock,
@@ -29,7 +32,7 @@ describe('local-lock', () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
         const lock = await readLocalLock(dir);
-        expect(lock).toEqual({ version: 1, skills: {} });
+        expect(lock).toEqual({ version: 2, skills: {} });
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
@@ -39,7 +42,7 @@ describe('local-lock', () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
         const content = {
-          version: 1,
+          version: 2,
           skills: {
             'my-skill': {
               source: 'vercel-labs/skills',
@@ -51,7 +54,7 @@ describe('local-lock', () => {
         await writeFile(join(dir, 'skills-lock.json'), JSON.stringify(content), 'utf-8');
 
         const lock = await readLocalLock(dir);
-        expect(lock.version).toBe(1);
+        expect(lock.version).toBe(2);
         expect(lock.skills['my-skill']).toEqual({
           source: 'vercel-labs/skills',
           sourceType: 'github',
@@ -66,7 +69,7 @@ describe('local-lock', () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
         const content = {
-          version: 1,
+          version: 2,
           skills: {
             'my-skill': {
               source: './skills',
@@ -85,11 +88,11 @@ describe('local-lock', () => {
       }
     });
 
-    it('returns empty lock for corrupted JSON (merge conflict markers)', async () => {
+    it('rejects corrupted JSON (merge conflict markers)', async () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
         const conflicted = `{
-  "version": 1,
+  "version": 2,
   "skills": {
 <<<<<<< HEAD
     "skill-a": { "source": "org/repo-a", "sourceType": "github", "computedHash": "aaa" }
@@ -100,19 +103,32 @@ describe('local-lock', () => {
 }`;
         await writeFile(join(dir, 'skills-lock.json'), conflicted, 'utf-8');
 
-        const lock = await readLocalLock(dir);
-        expect(lock).toEqual({ version: 1, skills: {} });
+        await expect(readLocalLock(dir)).rejects.toMatchObject({
+          code: 'SKILLS_INVALID_LOCAL_LOCK',
+        });
+        await expect(readLocalLock(dir)).rejects.toThrow(join(dir, 'skills-lock.json'));
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
     });
 
-    it('returns empty lock for invalid structure (missing skills key)', async () => {
+    it('rejects an invalid structure (missing skills key)', async () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
-        await writeFile(join(dir, 'skills-lock.json'), '{"version": 1}', 'utf-8');
-        const lock = await readLocalLock(dir);
-        expect(lock).toEqual({ version: 1, skills: {} });
+        await writeFile(join(dir, 'skills-lock.json'), '{"version": 2}', 'utf-8');
+        await expect(readLocalLock(dir)).rejects.toMatchObject({
+          code: 'SKILLS_INVALID_LOCAL_LOCK',
+        });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('rejects an unknown lock version', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        await writeFile(join(dir, 'skills-lock.json'), '{"version": 99, "skills": {}}', 'utf-8');
+        await expect(readLocalLock(dir)).rejects.toThrow('unsupported lock version 99');
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
@@ -125,7 +141,7 @@ describe('local-lock', () => {
       try {
         await writeLocalLock(
           {
-            version: 1,
+            version: 2,
             skills: {
               'zebra-skill': {
                 source: 'org/z',
@@ -264,6 +280,124 @@ describe('local-lock', () => {
       }
     });
 
+    it('retains all entries when addSkillToLocalLock runs concurrently', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        const names = ['alpha', 'bravo', 'charlie', 'delta'];
+        await Promise.all(
+          names.map((name) =>
+            addSkillToLocalLock(
+              name,
+              { source: `org/${name}`, sourceType: 'github', computedHash: `hash-${name}` },
+              dir
+            )
+          )
+        );
+
+        const lock = JSON.parse(await readFile(join(dir, 'skills-lock.json'), 'utf-8'));
+        expect(Object.keys(lock.skills)).toEqual(names);
+        expect(await readdir(dir)).toEqual(['skills-lock.json']);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('breaks a lock file left behind by a crashed process', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-stale-test-'));
+      try {
+        const mutexPath = join(dir, 'skills-lock.json.lock');
+        await writeFile(mutexPath, '');
+        const old = new Date(Date.now() - 60_000);
+        await utimes(mutexPath, old, old);
+
+        const started = Date.now();
+        await addSkillToLocalLock(
+          'alpha',
+          { source: 'org/alpha', sourceType: 'github', computedHash: 'hash-alpha' },
+          dir
+        );
+
+        expect(Date.now() - started).toBeLessThan(2_000);
+        expect((await readLocalLock(dir)).skills.alpha?.source).toBe('org/alpha');
+        expect(await readdir(dir)).toEqual(['skills-lock.json']);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('retains all entries across concurrent installSkills calls', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-install-test-'));
+      try {
+        const cwd = join(dir, 'project');
+        await mkdir(cwd);
+        const names = ['alpha', 'bravo', 'charlie', 'delta'];
+        await Promise.all(
+          names.map(async (name) => {
+            const source = join(dir, name);
+            await mkdir(source);
+            await writeFile(
+              join(source, 'SKILL.md'),
+              `---\nname: ${name}\ndescription: Local test skill\n---\nBody\n`
+            );
+          })
+        );
+
+        const results = await Promise.all(
+          names.map((name) =>
+            installSkills(join(dir, name), {
+              cwd,
+              agents: ['codex'],
+              mode: 'copy',
+              config: { telemetry: false },
+            })
+          )
+        );
+        for (const result of results) {
+          expect(result.failed).toEqual([]);
+        }
+        const lock = JSON.parse(await readFile(join(cwd, 'skills-lock.json'), 'utf-8'));
+        expect(Object.keys(lock.skills)).toEqual(names);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('retains all entries across concurrent OS processes', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-multiproc-test-'));
+      try {
+        const names = ['alpha', 'bravo', 'charlie', 'delta'];
+        const moduleUrl = pathToFileURL(
+          join(import.meta.dirname, '..', 'src', 'local-lock.ts')
+        ).href;
+        await Promise.all(
+          names.map(
+            (name) =>
+              new Promise<void>((resolve, reject) => {
+                const script = `import { addSkillToLocalLock } from ${JSON.stringify(moduleUrl)}; await addSkillToLocalLock(${JSON.stringify(name)}, { source: ${JSON.stringify(`org/${name}`)}, sourceType: 'github', computedHash: ${JSON.stringify(`hash-${name}`)} }, ${JSON.stringify(dir)});`;
+                const child = spawn(process.execPath, ['--input-type=module', '-e', script], {
+                  stdio: 'pipe',
+                });
+                let stderr = '';
+                child.stderr.on('data', (chunk) => {
+                  stderr += String(chunk);
+                });
+                child.on('exit', (code) => {
+                  if (code === 0) resolve();
+                  else reject(new Error(`child ${name} exited ${code}: ${stderr}`));
+                });
+                child.on('error', reject);
+              })
+          )
+        );
+
+        const lock = JSON.parse(await readFile(join(dir, 'skills-lock.json'), 'utf-8'));
+        expect(Object.keys(lock.skills)).toEqual(names);
+        expect(await readdir(dir)).toEqual(['skills-lock.json']);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
     it('stores optional ref when present', async () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
@@ -311,6 +445,37 @@ describe('local-lock', () => {
           sourceType: 'git',
           computedHash: 'hash123',
         });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('prototype-named skills', () => {
+    it('preserves __proto__ when adding and rewriting the lock', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      const entry = { source: 'org/repo', sourceType: 'github', computedHash: 'hash123' };
+      try {
+        await addSkillToLocalLock('__proto__', entry, dir);
+        await addSkillToLocalLock('ordinary-skill', entry, dir);
+
+        const lock = await readLocalLock(dir);
+        expect(Object.keys(lock.skills)).toEqual(['__proto__', 'ordinary-skill']);
+        expect(Object.hasOwn(lock.skills, '__proto__')).toBe(true);
+        expect(lock.skills['__proto__']).toEqual(entry);
+        expect(await removeSkillFromLocalLock('__proto__', dir)).toBe(true);
+        expect(Object.keys((await readLocalLock(dir)).skills)).toEqual(['ordinary-skill']);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('does not remove inherited names from an empty lock', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        expect(await removeSkillFromLocalLock('constructor', dir)).toBe(false);
+        expect(await removeSkillFromLocalLock('__proto__', dir)).toBe(false);
+        expect(await readLocalLock(dir)).toEqual({ version: 2, skills: {} });
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
@@ -424,6 +589,24 @@ describe('local-lock', () => {
       }
     });
 
+    it('distinguishes a filename change from an offsetting content change', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
+      try {
+        const first = join(dir, 'first');
+        const second = join(dir, 'second');
+        await mkdir(first);
+        await mkdir(second);
+        await writeFile(join(first, 'SKILL.md'), 'same skill');
+        await writeFile(join(second, 'SKILL.md'), 'same skill');
+        await writeFile(join(first, 'a'), 'bc');
+        await writeFile(join(second, 'ab'), 'c');
+
+        expect(await computeSkillFolderHash(first)).not.toBe(await computeSkillFolderHash(second));
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
     it('includes nested files in subdirectories', async () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
@@ -444,7 +627,7 @@ describe('local-lock', () => {
       }
     });
 
-    it('ignores .git and node_modules directories', async () => {
+    it('ignores the files the installer leaves out', async () => {
       const dir = await mkdtemp(join(tmpdir(), 'lock-test-'));
       try {
         const skillDir = join(dir, 'my-skill');
@@ -453,11 +636,12 @@ describe('local-lock', () => {
 
         const hash1 = await computeSkillFolderHash(skillDir);
 
-        // Adding files in .git and node_modules should NOT change hash
+        // The installer skips these, so they must not change the hash
         await mkdir(join(skillDir, '.git'), { recursive: true });
         await writeFile(join(skillDir, '.git', 'HEAD'), 'ref: refs/heads/main', 'utf-8');
-        await mkdir(join(skillDir, 'node_modules', 'foo'), { recursive: true });
-        await writeFile(join(skillDir, 'node_modules', 'foo', 'index.js'), 'noop', 'utf-8');
+        await mkdir(join(skillDir, '__pycache__'), { recursive: true });
+        await writeFile(join(skillDir, '__pycache__', 'x.pyc'), 'noop', 'utf-8');
+        await writeFile(join(skillDir, 'metadata.json'), '{}', 'utf-8');
 
         const hash2 = await computeSkillFolderHash(skillDir);
         expect(hash1).toBe(hash2);
@@ -480,7 +664,7 @@ describe('local-lock', () => {
         const branchA = await readFile(join(dir, 'skills-lock.json'), 'utf-8');
 
         // Reset to empty
-        await writeFile(join(dir, 'skills-lock.json'), '{"version":1,"skills":{}}', 'utf-8');
+        await writeFile(join(dir, 'skills-lock.json'), '{"version":2,"skills":{}}', 'utf-8');
 
         // Simulate branch B adding skill-b
         await addSkillToLocalLock(

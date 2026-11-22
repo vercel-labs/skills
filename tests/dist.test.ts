@@ -17,5 +17,22 @@ describe('dist build', () => {
     });
 
     expect(result).toContain('skills');
+
+    // The library entry imports without output or exiting, and exports exactly the public API
+    const api = execSync(
+      `node --input-type=module -e "const m = await import('./dist/index.mjs'); await new Promise((r) => setTimeout(r, 50)); console.log(JSON.stringify(Object.keys(m).sort()))"`,
+      { cwd: rootDir, stdio: 'pipe', encoding: 'utf-8' }
+    );
+    expect(JSON.parse(api)).toEqual([
+      'detectAgents',
+      'diagnostics',
+      'getSupportedAgents',
+      'installSkills',
+      'isDiagnostic',
+      'listSkills',
+      'removeSkills',
+      'resolveSource',
+      'version',
+    ]);
   });
 });
