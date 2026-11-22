@@ -11,6 +11,8 @@ const DISCOVERY_SCHEMA_V2 = 'https://schemas.agentskills.io/discovery/0.2.0/sche
 const MAX_ARCHIVE_UNPACKED_BYTES = 50 * 1024 * 1024;
 const MAX_ARCHIVE_FILES = 1000;
 const DISCOVERY_TIMEOUT_MS = 10_000;
+/** Bounds each skill file download, matching download-source.ts. */
+const FILE_FETCH_TIMEOUT_MS = 30_000;
 
 /**
  * Legacy index.json structure for well-known skills.
@@ -451,7 +453,9 @@ export class WellKnownProvider implements HostProvider {
     try {
       const skillBaseUrl = `${entry.baseUrl.replace(/\/$/, '')}/${entry.wellKnownPath}/${entry.name}`;
       const skillMdUrl = `${skillBaseUrl}/SKILL.md`;
-      const response = await fetch(skillMdUrl);
+      const response = await fetch(skillMdUrl, {
+        signal: AbortSignal.timeout(FILE_FETCH_TIMEOUT_MS),
+      });
       if (!response.ok) return null;
 
       const content = await response.text();
@@ -478,7 +482,9 @@ export class WellKnownProvider implements HostProvider {
             otherFiles.map(async (filePath) => {
               let status: number | undefined;
               try {
-                const fileResponse = await fetch(`${skillBaseUrl}/${filePath}`);
+                const fileResponse = await fetch(`${skillBaseUrl}/${filePath}`, {
+                  signal: AbortSignal.timeout(FILE_FETCH_TIMEOUT_MS),
+                });
                 if (fileResponse.ok) {
                   return [filePath, new Uint8Array(await fileResponse.arrayBuffer())] as const;
                 }
@@ -505,7 +511,9 @@ export class WellKnownProvider implements HostProvider {
     entry: Extract<NormalizedWellKnownEntry, { version: '0.2.0' }>
   ) {
     try {
-      const response = await fetch(entry.artifactUrl);
+      const response = await fetch(entry.artifactUrl, {
+        signal: AbortSignal.timeout(FILE_FETCH_TIMEOUT_MS),
+      });
       if (!response.ok) return null;
 
       const contentType = response.headers.get('content-type') ?? '';
