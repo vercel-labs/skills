@@ -94,7 +94,11 @@ describe('global update agent selection', () => {
       expect(update.exitCode, output).toBe(0);
       expect(output).toContain('Updated scope-skill');
       expect(output).not.toContain('does not support global skill installation');
-      expect(output.match(/Skipping /g)).toHaveLength(1);
+      const notices = output.match(/Skipping [^\r\n]+: no global skills directory/g);
+      expect(notices).toHaveLength(1);
+      if (detected === 'eve and codex') {
+        expect(notices?.[0]).toMatch(/\bEve\b/);
+      }
       expect(readFileSync(installed, 'utf-8')).toContain('# v2');
       expect(lstatSync(externalGrokSkill).isSymbolicLink()).toBe(false);
       expect(readFileSync(join(externalGrokSkill, 'SKILL.md'), 'utf-8')).toBe(

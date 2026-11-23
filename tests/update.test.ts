@@ -623,7 +623,6 @@ describe('Update Cleanup Unit Tests', () => {
 
       await updateProjectSkills({ yes: true });
 
-      expect(add.nonInteractiveTargetAgents).toHaveBeenCalledWith(undefined, { preferEve: true });
       expect(add.installToTargets).toHaveBeenCalledWith(
         expect.anything(),
         expect.anything(),
@@ -811,7 +810,6 @@ describe('Update Cleanup Unit Tests', () => {
 
       await updateGlobalSkills({ yes: true });
 
-      expect(add.nonInteractiveTargetAgents).toHaveBeenCalledWith(undefined, { preferEve: false });
       expect(git.getGitTreeHash).toHaveBeenCalledWith('/tmp/repo', 'skills/skill-a/SKILL.md');
       expect(fetchedParsed()).toEqual([
         expect.objectContaining({
