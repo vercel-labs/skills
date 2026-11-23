@@ -6,7 +6,6 @@ import {
   symlink,
   lstat,
   rm,
-  readlink,
   readFile,
   writeFile,
   stat,
@@ -22,13 +21,20 @@ import {
   agents,
   detectInstalledAgents,
   isUniversalAgent,
+  readsCanonicalGlobally,
   getEveSubagents,
   EVE_SUBAGENTS_DIR,
 } from './agents.ts';
 import { AGENTS_DIR, SKILLS_SUBDIR } from './constants.ts';
-import { parseFrontmatter } from './frontmatter.ts';
+import { diagnostics } from './diagnostics.ts';
+import { parseFrontmatter, setFrontmatterName } from './frontmatter.ts';
 import { stringify } from 'yaml';
 import { parseSkillMd } from './skills.ts';
+import { warn } from './warnings.ts';
+import { isExcluded, isExcludedPath } from './skill-hash.ts';
+import { sanitizeName } from './sanitize.ts';
+
+export { sanitizeName };
 
 /**
  * - `symlink`: copy into the canonical dir, symlink agent dirs to it
@@ -58,29 +64,6 @@ interface InstallResult {
 }
 
 /**
- * Sanitizes a filename/directory name to prevent path traversal attacks
- * and ensures it follows kebab-case convention
- * @param name - The name to sanitize
- * @returns Sanitized name safe for use in file paths
- */
-export function sanitizeName(name: string): string {
-  const sanitized = name
-    .toLowerCase()
-    // Replace any sequence of characters that are NOT lowercase letters (a-z),
-    // digits (0-9), dots (.), or underscores (_) with a single hyphen.
-    // This converts spaces, special chars, and path traversal attempts (../) into hyphens.
-    .replace(/[^a-z0-9._]+/g, '-')
-    // Remove leading/trailing dots and hyphens to prevent hidden files (.) and
-    // ensure clean directory names. The pattern matches:
-    // - ^[.\-]+ : one or more dots or hyphens at the start
-    // - [.\-]+$ : one or more dots or hyphens at the end
-    .replace(/^[.\-]+|[.\-]+$/g, '');
-
-  // Limit to 255 chars (common filesystem limit), fallback to 'unnamed-skill' if empty
-  return sanitized.substring(0, 255) || 'unnamed-skill';
-}
-
-/**
  * Validates that a path is within an expected base directory
  * @param basePath - The expected base directory
  * @param targetPath - The path to validate
@@ -93,7 +76,7 @@ function isPathSafe(basePath: string, targetPath: string): boolean {
   return normalizedTarget.startsWith(normalizedBase + sep) || normalizedTarget === normalizedBase;
 }
 
-function pathsOverlap(pathA: string, pathB: string): boolean {
+export function pathsOverlap(pathA: string, pathB: string): boolean {
   return isPathSafe(pathA, pathB) || isPathSafe(pathB, pathA);
 }
 
@@ -117,7 +100,7 @@ function shouldSkipProjectAgentSymlink(
 }
 
 // Dirent.isDirectory() is false for symlinks; follow and verify the target is a directory.
-async function isDirEntryOrSymlinkToDir(
+export async function isDirEntryOrSymlinkToDir(
   entry: { isDirectory(): boolean; isSymbolicLink(): boolean },
   entryPath: string
 ): Promise<boolean> {
@@ -159,7 +142,7 @@ export function getAgentBaseDir(
   cwd?: string,
   eveSubagent?: string
 ): string {
-  if (isUniversalAgent(agentType)) {
+  if (global ? readsCanonicalGlobally(agentType) : isUniversalAgent(agentType)) {
     return getCanonicalSkillsDir(global, cwd);
   }
 
@@ -183,8 +166,24 @@ export function getAgentBaseDir(
   return join(baseDir, agent.skillsDir);
 }
 
-function resolveSymlinkTarget(linkPath: string, linkTarget: string): string {
-  return resolve(dirname(linkPath), linkTarget);
+/**
+ * Names of the nested skills if `path` is an agent category directory, e.g. Hermes
+ * `~/.hermes/skills/<category>/<skill>/SKILL.md` (#1723): a real directory with
+ * no root SKILL.md and at least one child directory with a SKILL.md. Otherwise
+ * `[]`. A skill that bundles child skills has a root SKILL.md, so it is not a
+ * category. Symlinks are not categories: removing a link leaves its target alone.
+ */
+export async function findCategoryDirSkills(path: string): Promise<string[]> {
+  const stats = await lstat(path).catch(() => undefined);
+  if (!stats?.isDirectory() || existsSync(join(path, 'SKILL.md'))) return [];
+  const entries = await readdir(path).catch(() => []);
+  return entries.filter((name) => existsSync(join(path, name, 'SKILL.md')));
+}
+
+/** Throws if `path` is an agent category directory: deleting it would wipe unrelated skills. */
+async function assertNotCategoryDir(path: string): Promise<void> {
+  const skills = await findCategoryDirSkills(path);
+  if (skills.length > 0) throw diagnostics.SKILLS_CATEGORY_DIR_CONFLICT({ path, skills });
 }
 
 /**
@@ -196,6 +195,7 @@ function resolveSymlinkTarget(linkPath: string, linkTarget: string): string {
  *    when canonical and agent paths resolve to the same location
  */
 async function cleanAndCreateDirectory(path: string): Promise<void> {
+  await assertNotCategoryDir(path);
   try {
     await rm(path, { recursive: true, force: true });
   } catch {
@@ -256,13 +256,14 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
       return true;
     }
 
+    // Throws past the catch below: falling back to copy would hit the same guard.
+    await assertNotCategoryDir(linkPath);
+
     try {
       const stats = await lstat(linkPath);
       if (stats.isSymbolicLink()) {
-        const existingTarget = await readlink(linkPath);
-        if (resolveSymlinkTarget(linkPath, existingTarget) === resolvedTarget) {
-          return true;
-        }
+        // A link that already resolves to target returned above, so this one points
+        // elsewhere or nowhere.
         await rm(linkPath);
       } else {
         await rm(linkPath, { recursive: true });
@@ -283,16 +284,18 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
     const linkDir = dirname(linkPath);
     await mkdir(linkDir, { recursive: true });
 
-    // Use the real (symlink-resolved) parent directory for computing the relative path.
-    // This ensures the symlink target is correct even when the link's parent dir is a symlink.
-    const realLinkDir = await resolveParentSymlinks(linkDir);
+    // A relative link is resolved from the directory it physically lives in, so compute it
+    // from the fully resolved linkDir. linkDir can itself be a symlink, e.g. ~/.claude/skills
+    // pointing into a dotfiles repo.
+    const realLinkDir = await realpath(linkDir).catch(() => linkDir);
     const relativePath = relative(realLinkDir, target);
     const symlinkType = platform() === 'win32' ? 'junction' : undefined;
     const symlinkTarget = symlinkType === 'junction' ? resolvedTarget : relativePath;
 
     await symlink(symlinkTarget, linkPath, symlinkType);
     return true;
-  } catch {
+  } catch (error) {
+    if (diagnostics.SKILLS_CATEGORY_DIR_CONFLICT.is(error)) throw error;
     return false;
   }
 }
@@ -391,6 +394,18 @@ export async function installSkillForAgent(
       };
     }
 
+    const linksAgentDir =
+      !(isGlobal && readsCanonicalGlobally(agentType)) &&
+      !shouldSkipProjectAgentSymlink(
+        agentType,
+        isGlobal,
+        cwd,
+        options.createMissingAgentRoot ?? false
+      );
+    // Check every target before writing, so a refusal leaves nothing behind (#1723).
+    if (!sourceIsCanonical) await assertNotCategoryDir(canonicalDir);
+    if (linksAgentDir) await assertNotCategoryDir(agentDir);
+
     // Reuse an existing canonical copy when only adding another agent's link.
     if (!sourceIsCanonical) {
       if (installMode === 'link') {
@@ -409,7 +424,7 @@ export async function installSkillForAgent(
     // For universal agents with global install, the skill is already in the canonical
     // ~/.agents/skills directory. Skip creating a symlink to the agent-specific global dir
     // (e.g. ~/.copilot/skills) to avoid duplicates.
-    if (isGlobal && isUniversalAgent(agentType)) {
+    if (isGlobal && readsCanonicalGlobally(agentType)) {
       return {
         success: true,
         path: canonicalDir,
@@ -472,14 +487,22 @@ export async function installSkillForAgent(
   }
 }
 
-const EXCLUDE_FILES = new Set(['metadata.json']);
-const EXCLUDE_DIRS = new Set(['.git', '__pycache__', '__pypackages__']);
-
-const isExcluded = (name: string, isDirectory: boolean = false): boolean => {
-  if (EXCLUDE_FILES.has(name)) return true;
-  if (isDirectory && EXCLUDE_DIRS.has(name)) return true;
-  return false;
-};
+/**
+ * Set the frontmatter `name` of an installed skill, so a renamed skill is
+ * invoked by its new name. `path` is a skill directory or Eve's flat
+ * `<name>.md`. Symlinks are left alone: they point at a copy that is
+ * rewritten on its own, or at the user's source (sync's link mode).
+ */
+export async function setInstalledSkillName(path: string, name: string): Promise<void> {
+  const stats = await lstat(path).catch(() => null);
+  if (!stats || stats.isSymbolicLink()) return;
+  const file = stats.isDirectory() ? join(path, 'SKILL.md') : path;
+  const fileStats = await lstat(file).catch(() => null);
+  if (!fileStats?.isFile()) return;
+  const raw = await readFile(file, 'utf-8');
+  const renamed = setFrontmatterName(raw, name);
+  if (renamed !== raw) await writeFile(file, renamed, 'utf-8');
+}
 
 function stripIgnoredEveFrontmatter(raw: string): string {
   const { data, content } = parseFrontmatter(raw);
@@ -523,17 +546,37 @@ function isWithinRoot(root: string, target: string): boolean {
   return target === root || target.startsWith(root + sep);
 }
 
-async function copyDirectory(
+/**
+ * Recursively copy a skill directory, dereferencing symlinks so the installed
+ * skill is self-contained after the temporary clone is cleaned up.
+ *
+ * A symlink can point anywhere, so a malicious skill could use one to copy
+ * arbitrary host files (e.g. `../../../.env`, `/etc/passwd`, `~/.ssh`) into the
+ * install tree, where a later deploy/push/publish would expose them. Every
+ * entry is therefore checked individually: links whose real target escapes the
+ * skill root are skipped, and directory links are walked here (never handed to
+ * a recursive dereferencing `cp`) so links nested inside them get the same
+ * check. Directories already on the current path are skipped to break cycles.
+ * The archive/tar installer already rejects symlinks outright.
+ */
+export async function copyDirectory(
   src: string,
   dest: string,
   agentType?: AgentType,
-  // Realpath of the skill's source root, threaded through recursion. Used to
-  // confine symlink dereferencing to the skill directory (see below).
-  skillRoot?: string
+  // Threaded through recursion: realpath of the skill root, and realpaths of
+  // the directories on the current branch (for cycle detection).
+  ctx?: { root: string; ancestors: ReadonlySet<string> }
 ): Promise<void> {
-  await mkdir(dest, { recursive: true });
+  const realSrc = await realpath(src);
+  const root = ctx?.root ?? realSrc;
+  if (ctx?.ancestors.has(realSrc)) {
+    warn(diagnostics.SKILLS_SYMLINK_CYCLE({ path: src }));
+    return;
+  }
+  const ancestors = new Set(ctx?.ancestors);
+  ancestors.add(realSrc);
 
-  const confineRoot = skillRoot ?? (await realpath(src));
+  await mkdir(dest, { recursive: true });
   const entries = await readdir(src, { withFileTypes: true });
 
   // Copy files and directories in parallel
@@ -543,72 +586,40 @@ async function copyDirectory(
       .map(async (entry) => {
         const srcPath = join(src, entry.name);
         const destPath = join(dest, entry.name);
+        let isDirectory = entry.isDirectory();
 
-        if (entry.isDirectory()) {
-          await copyDirectory(srcPath, destPath, agentType, confineRoot);
-        } else {
+        if (entry.isSymbolicLink()) {
+          let realTarget: string;
           try {
-            // We dereference symlinks below so the installed skill is
-            // self-contained after the temporary clone is cleaned up. A symlink
-            // can point anywhere, though, so a malicious skill could use one to
-            // copy arbitrary host files (e.g. `../../../.env`, `/etc/passwd`,
-            // `~/.ssh`) into the install tree, where a later deploy/push/publish
-            // would expose them. Only dereference links that stay inside the
-            // skill; skip (do not materialize) any that escape it. Note that
-            // `isDirectory()` is false for a symlink-to-directory, so those are
-            // handled here too, closing the directory-symlink vector as well.
-            // The archive/tar installer already rejects symlinks outright.
-            if (entry.isSymbolicLink()) {
-              let realTarget: string;
-              try {
-                realTarget = await realpath(srcPath);
-              } catch {
-                // Broken/dangling symlink (target does not exist).
-                console.warn(`Skipping broken symlink: ${srcPath}`);
-                return;
-              }
-              if (!isWithinRoot(confineRoot, realTarget)) {
-                console.warn(
-                  `Skipping symlink that points outside the skill directory: ${srcPath}`
-                );
-                return;
-              }
-            }
-
-            if (agentType === 'eve' && entry.name.toLowerCase() === 'skill.md') {
-              await writeFile(
-                destPath,
-                stripIgnoredEveFrontmatter(await readFile(srcPath, 'utf-8'))
-              );
-              return;
-            }
-
-            await cp(srcPath, destPath, {
-              // If the file is a symlink to elsewhere in the skill, it may not
-              // resolve correctly once it has been copied to the local location.
-              // `dereference: true` tells Node to copy the file instead of copying
-              // the symlink. `recursive: true` handles symlinks pointing to directories.
-              // Links escaping the skill are already filtered out above.
-              dereference: true,
-              recursive: true,
-            });
-            const sourceStats = await stat(srcPath);
-            await chmod(destPath, sourceStats.mode & 0o777);
-          } catch (err: unknown) {
-            // Skip broken symlinks (e.g., pointing to absolute paths on another machine)
-            // instead of aborting the entire install.
-            if (
-              err instanceof Error &&
-              'code' in err &&
-              (err as NodeJS.ErrnoException).code === 'ENOENT' &&
-              entry.isSymbolicLink()
-            ) {
-              console.warn(`Skipping broken symlink: ${srcPath}`);
-            } else {
-              throw err;
-            }
+            realTarget = await realpath(srcPath);
+          } catch {
+            // Broken/dangling symlink (target does not exist, or a link loop).
+            warn(diagnostics.SKILLS_BROKEN_SYMLINK({ path: srcPath }));
+            return;
           }
+          if (!isWithinRoot(root, realTarget)) {
+            warn(diagnostics.SKILLS_SYMLINK_OUTSIDE_SKILL({ path: srcPath }));
+            return;
+          }
+          isDirectory = (await stat(realTarget)).isDirectory();
+          if (isDirectory && isExcluded(entry.name, true)) return;
         }
+
+        if (isDirectory) {
+          await copyDirectory(srcPath, destPath, agentType, { root, ancestors });
+          return;
+        }
+
+        if (agentType === 'eve' && entry.name.toLowerCase() === 'skill.md') {
+          await writeFile(destPath, stripIgnoredEveFrontmatter(await readFile(srcPath, 'utf-8')));
+          return;
+        }
+
+        // Regular file, or a symlink to a file inside the skill (checked above):
+        // copy its contents rather than the link itself.
+        await cp(srcPath, destPath, { dereference: true });
+        const sourceStats = await stat(srcPath);
+        await chmod(destPath, sourceStats.mode & 0o777);
       })
   );
 }
@@ -680,7 +691,7 @@ export function getInstallPath(
   const installPath = join(targetBase, sanitized);
 
   if (!isPathSafe(targetBase, installPath)) {
-    throw new Error('Invalid skill name: potential path traversal detected');
+    throw diagnostics.SKILLS_UNSAFE_SKILL_NAME();
   }
 
   return installPath;
@@ -701,7 +712,7 @@ export function getCanonicalPath(
   const canonicalPath = join(canonicalBase, sanitized);
 
   if (!isPathSafe(canonicalBase, canonicalPath)) {
-    throw new Error('Invalid skill name: potential path traversal detected');
+    throw diagnostics.SKILLS_UNSAFE_SKILL_NAME();
   }
 
   return canonicalPath;
@@ -788,6 +799,9 @@ export async function installRemoteSkillForAgent(
     }
 
     // Symlink mode: write to canonical location and symlink to agent location
+    // Check every target before writing, so a refusal leaves nothing behind (#1723).
+    await assertNotCategoryDir(canonicalDir);
+    if (!(isGlobal && readsCanonicalGlobally(agentType))) await assertNotCategoryDir(agentDir);
     await cleanAndCreateDirectory(canonicalDir);
     const skillFileName =
       agentType === 'eve' ? toEveFlatSkillFileName(skill.installName) : 'SKILL.md';
@@ -799,7 +813,7 @@ export async function installRemoteSkillForAgent(
     );
 
     // For universal agents with global install, skip creating agent-specific symlink
-    if (isGlobal && isUniversalAgent(agentType)) {
+    if (isGlobal && readsCanonicalGlobally(agentType)) {
       return {
         success: true,
         path: canonicalDir,
@@ -950,11 +964,14 @@ export async function installWellKnownSkillForAgent(
     }
 
     // Symlink mode: write to canonical location and symlink to agent location
+    // Check every target before writing, so a refusal leaves nothing behind (#1723).
+    await assertNotCategoryDir(canonicalDir);
+    if (!(isGlobal && readsCanonicalGlobally(agentType))) await assertNotCategoryDir(agentDir);
     await cleanAndCreateDirectory(canonicalDir);
     await writeSkillFiles(canonicalDir);
 
     // For universal agents with global install, skip creating agent-specific symlink
-    if (isGlobal && isUniversalAgent(agentType)) {
+    if (isGlobal && readsCanonicalGlobally(agentType)) {
       return {
         success: true,
         path: canonicalDir,
@@ -1076,6 +1093,7 @@ export async function installBlobSkillForAgent(
 
   async function writeSkillFiles(targetDir: string): Promise<void> {
     for (const file of skill.files) {
+      if (isExcludedPath(file.path)) continue;
       const fullPath = join(targetDir, file.path);
       if (!isPathSafe(targetDir, fullPath)) continue;
 
@@ -1102,10 +1120,21 @@ export async function installBlobSkillForAgent(
     }
 
     // Symlink mode
+    const linksAgentDir =
+      !(isGlobal && readsCanonicalGlobally(agentType)) &&
+      !shouldSkipProjectAgentSymlink(
+        agentType,
+        isGlobal,
+        cwd,
+        options.createMissingAgentRoot ?? false
+      );
+    // Check every target before writing, so a refusal leaves nothing behind (#1723).
+    await assertNotCategoryDir(canonicalDir);
+    if (linksAgentDir) await assertNotCategoryDir(agentDir);
     await cleanAndCreateDirectory(canonicalDir);
     await writeSkillFiles(canonicalDir);
 
-    if (isGlobal && isUniversalAgent(agentType)) {
+    if (isGlobal && readsCanonicalGlobally(agentType)) {
       return {
         success: true,
         path: canonicalDir,
@@ -1192,7 +1221,7 @@ export async function listInstalledSkills(
   const scopes: Array<{ global: boolean; path: string; agentType?: AgentType }> = [];
 
   // Detect which agents are actually installed
-  const detectedAgents = await detectInstalledAgents();
+  const detectedAgents = await detectInstalledAgents(cwd);
   const agentFilter = options.agentFilter;
   const agentsToCheck = agentFilter
     ? detectedAgents.filter((a) => agentFilter.includes(a))
@@ -1259,6 +1288,7 @@ export async function listInstalledSkills(
     // exist on disk to avoid unnecessary readdir errors.
     const allAgentTypes = Object.keys(agents) as AgentType[];
     for (const agentType of allAgentTypes) {
+      if (agentFilter && !agentFilter.includes(agentType)) continue;
       if (agentsToCheck.includes(agentType)) continue;
       const agent = agents[agentType];
       if (isGlobal && agent.globalSkillsDir === undefined) continue;

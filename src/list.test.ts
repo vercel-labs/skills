@@ -4,6 +4,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from './test-utils.ts';
 import { parseListOptions } from './list.ts';
+import { computeSkillFolderHash } from './skill-hash.ts';
 
 describe('list command', () => {
   let testDir: string;
@@ -131,7 +132,7 @@ description: ${description}
       writeFileSync(
         join(testDir, 'skills-lock.json'),
         JSON.stringify({
-          version: 1,
+          version: 2,
           skills: {
             'project-skill': {
               source: 'owner/project-skills',
@@ -190,7 +191,7 @@ description: ${description}
       writeFileSync(
         join(testDir, 'skills-lock.json'),
         JSON.stringify({
-          version: 1,
+          version: 2,
           skills: {
             'tracked-skill': {
               source: 'owner/project-skills',
@@ -209,17 +210,28 @@ description: ${description}
     });
 
     describe('lock status', () => {
-      beforeEach(() => {
+      beforeEach(async () => {
         createTestSkill(testDir, 'tracked-skill', 'Installed and locked');
         createTestSkill(testDir, 'handmade-skill', 'Installed, not locked');
+        createTestSkill(testDir, 'edited-skill', 'Installed, changed since locked');
         const entry = { source: 'owner/repo', sourceType: 'github', computedHash: 'h' };
+        const trackedHash = await computeSkillFolderHash(
+          join(testDir, '.agents', 'skills', 'tracked-skill')
+        );
         writeFileSync(
           join(testDir, 'skills-lock.json'),
-          JSON.stringify({ version: 1, skills: { 'tracked-skill': entry, 'gone-skill': entry } })
+          JSON.stringify({
+            version: 2,
+            skills: {
+              'tracked-skill': { ...entry, computedHash: trackedHash },
+              'edited-skill': entry,
+              'gone-skill': entry,
+            },
+          })
         );
       });
 
-      it('reports each skill as tracked, untracked or missing in JSON', () => {
+      it('reports each skill as tracked, untracked, modified or missing in JSON', () => {
         const skills: Array<{ name: string; status: string }> = JSON.parse(
           runCli(['list', '--json'], testDir).stdout.trim()
         );
@@ -227,6 +239,7 @@ description: ${description}
         expect(Object.fromEntries(skills.map((s) => [s.name, s.status]))).toEqual({
           'tracked-skill': 'tracked',
           'handmade-skill': 'untracked',
+          'edited-skill': 'modified',
           'gone-skill': 'missing',
         });
       });
@@ -235,6 +248,7 @@ description: ${description}
         const { stdout } = runCli(['list'], testDir);
 
         expect(stdout).toContain('Source: untracked');
+        expect(stdout).toMatch(/edited-skill[\s\S]*modified/);
         expect(stdout).toContain('Missing');
         expect(stdout).toContain('gone-skill');
       });
@@ -251,7 +265,7 @@ description: ${description}
       writeFileSync(
         join(testDir, 'skills-lock.json'),
         JSON.stringify({
-          version: 1,
+          version: 2,
           skills: {
             'tracked-skill': {
               source: 'owner/\nFORGED',

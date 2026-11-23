@@ -4,9 +4,10 @@
  * Run during build to ensure license compliance.
  */
 
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { writeFileSync, readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { fileURLToPath } from 'url';
 
 // Dependencies that get bundled into the CLI
 const BUNDLED_PACKAGES = [
@@ -50,8 +51,9 @@ function main() {
     return;
   }
 
-  // Get license info from license-checker
-  const output = execSync('npx license-checker --json', { encoding: 'utf-8' });
+  // Run the installed, lockfile-pinned CLI without downloading packages at build time.
+  const licenseChecker = fileURLToPath(import.meta.resolve('license-checker/bin/license-checker'));
+  const output = execFileSync(process.execPath, [licenseChecker, '--json'], { encoding: 'utf-8' });
   const allLicenses: Record<string, LicenseInfo> = JSON.parse(output);
 
   const lines: string[] = [
