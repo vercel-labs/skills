@@ -23,6 +23,7 @@ export type AgentType =
   | 'deepagents'
   | 'devin'
   | 'dexto'
+  | 'doubao'
   | 'droid'
   | 'eve'
   | 'firebender'

@@ -315,6 +315,16 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.dexto'));
     },
   },
+  doubao: {
+    name: 'doubao',
+    displayName: 'Doubao',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, 'Doubao/skills'),
+    showInUniversalPrompt: false,
+    detectInstalled: async () => {
+      return existsSync(join(home, 'Doubao'));
+    },
+  },
   droid: {
     name: 'droid',
     displayName: 'Droid',
