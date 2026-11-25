@@ -80,7 +80,7 @@ export function pathsOverlap(pathA: string, pathB: string): boolean {
   return isPathSafe(pathA, pathB) || isPathSafe(pathB, pathA);
 }
 
-function shouldSkipProjectAgentSymlink(
+export function shouldSkipProjectAgentDir(
   agentType: AgentType,
   isGlobal: boolean,
   cwd: string,
@@ -376,12 +376,7 @@ export async function installSkillForAgent(
       // Same rule as symlink mode below: don't create a project directory for an
       // agent the project doesn't use (#2058).
       if (
-        shouldSkipProjectAgentSymlink(
-          agentType,
-          isGlobal,
-          cwd,
-          options.createMissingAgentRoot ?? false
-        )
+        shouldSkipProjectAgentDir(agentType, isGlobal, cwd, options.createMissingAgentRoot ?? false)
       ) {
         return {
           success: true,
@@ -414,12 +409,7 @@ export async function installSkillForAgent(
 
     const linksAgentDir =
       !(isGlobal && readsCanonicalGlobally(agentType)) &&
-      !shouldSkipProjectAgentSymlink(
-        agentType,
-        isGlobal,
-        cwd,
-        options.createMissingAgentRoot ?? false
-      );
+      !shouldSkipProjectAgentDir(agentType, isGlobal, cwd, options.createMissingAgentRoot ?? false);
     // Check every target before writing, so a refusal leaves nothing behind (#1723).
     if (!sourceIsCanonical) await assertNotCategoryDir(canonicalDir);
     if (linksAgentDir) await assertNotCategoryDir(agentDir);
@@ -456,12 +446,7 @@ export async function installSkillForAgent(
     // creating directories like .windsurf/, .kiro/, etc. when those agents aren't
     // actually used in this project. The skill is already available in .agents/skills/.
     if (
-      shouldSkipProjectAgentSymlink(
-        agentType,
-        isGlobal,
-        cwd,
-        options.createMissingAgentRoot ?? false
-      )
+      shouldSkipProjectAgentDir(agentType, isGlobal, cwd, options.createMissingAgentRoot ?? false)
     ) {
       return {
         success: true,
@@ -1134,12 +1119,7 @@ export async function installBlobSkillForAgent(
     if (installMode === 'copy') {
       // Same rule as symlink mode below (#2058).
       if (
-        shouldSkipProjectAgentSymlink(
-          agentType,
-          isGlobal,
-          cwd,
-          options.createMissingAgentRoot ?? false
-        )
+        shouldSkipProjectAgentDir(agentType, isGlobal, cwd, options.createMissingAgentRoot ?? false)
       ) {
         return {
           success: true,
@@ -1157,12 +1137,7 @@ export async function installBlobSkillForAgent(
     // Symlink mode
     const linksAgentDir =
       !(isGlobal && readsCanonicalGlobally(agentType)) &&
-      !shouldSkipProjectAgentSymlink(
-        agentType,
-        isGlobal,
-        cwd,
-        options.createMissingAgentRoot ?? false
-      );
+      !shouldSkipProjectAgentDir(agentType, isGlobal, cwd, options.createMissingAgentRoot ?? false);
     // Check every target before writing, so a refusal leaves nothing behind (#1723).
     await assertNotCategoryDir(canonicalDir);
     if (linksAgentDir) await assertNotCategoryDir(agentDir);
@@ -1182,12 +1157,7 @@ export async function installBlobSkillForAgent(
     // whose config directory doesn't already exist in the project. Explicitly
     // selected agents and agents with a compatibility policy are exempt.
     if (
-      shouldSkipProjectAgentSymlink(
-        agentType,
-        isGlobal,
-        cwd,
-        options.createMissingAgentRoot ?? false
-      )
+      shouldSkipProjectAgentDir(agentType, isGlobal, cwd, options.createMissingAgentRoot ?? false)
     ) {
       return {
         success: true,

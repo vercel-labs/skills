@@ -27,6 +27,7 @@ import {
   installWellKnownSkillForAgent,
   sanitizeName,
   setInstalledSkillName,
+  shouldSkipProjectAgentDir,
   type InstallMode,
 } from './installer.ts';
 import {
@@ -1895,6 +1896,20 @@ export async function installToTargets(
   placement: InstallPlacement
 ): Promise<TargetInstallResult[]> {
   const results: TargetInstallResult[] = [];
+  const createsRoot = (agent: AgentType) => placement.createMissingAgentRoot?.(agent) ?? false;
+  // Copy mode has no shared .agents/skills copy to fall back on, so when every
+  // target would be skipped for a missing project directory, create them
+  // instead of installing nowhere (#2058).
+  const createAllRoots =
+    placement.mode === 'copy' &&
+    placement.targets.every(({ agent }) =>
+      shouldSkipProjectAgentDir(
+        agent,
+        placement.global,
+        placement.cwd || process.cwd(),
+        createsRoot(agent)
+      )
+    );
   for (const skill of skills) {
     for (const target of placement.targets) {
       if (placement.skip?.(skill, target)) continue;
@@ -1904,7 +1919,7 @@ export async function installToTargets(
         cwd: placement.cwd,
         mode: placement.mode,
         eveSubagent: subagent,
-        createMissingAgentRoot: placement.createMissingAgentRoot?.(agent) ?? false,
+        createMissingAgentRoot: createAllRoots || createsRoot(agent),
       };
       let result;
       if (isWellKnownSourceSkill(skill)) {
@@ -3424,16 +3439,20 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           });
           continue;
         }
+        // A skipped copy target has no files at its path; report one that was written.
+        const writtenResult =
+          skillResults.find((r) => r.skipReason !== 'missing-agent-project-directory') ??
+          skillResults[0];
         jsonResults.push({
           name,
           status: 'installed',
           source: jsonSource,
           ref: parsed.ref ?? null,
           hash: installedSkillHashes.get(name) ?? null,
-          path: skillResults[0]?.canonicalPath ?? skillResults[0]?.path,
+          path: writtenResult?.canonicalPath ?? writtenResult?.path,
           scope: installGlobally ? 'global' : 'project',
           agents: skillResults.filter((r) => !r.skipped).map((r) => r.agent),
-          mode: skillResults[0]?.mode ?? installMode,
+          mode: writtenResult?.mode ?? installMode,
           security: buildJsonSecurity(auditDataForJson, name, ownerRepoForAudit),
           ...(resolved.blobFallback && { fallback: resolved.blobFallback }),
         });
