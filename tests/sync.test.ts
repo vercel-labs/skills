@@ -425,6 +425,17 @@ describe('sync command', () => {
       expect(existsSync(join(agentDir, 'SKILL.md'))).toBe(true);
     });
 
+    it('creates a named agent directory with --copy', () => {
+      declareDeps(['my-lib']);
+      writeSkill(join(createPackage('my-lib'), 'skills', 'windsurf-copy'), 'windsurf-copy');
+
+      runCli(['sync', '-y', '-a', 'windsurf', '--copy'], testDir);
+
+      expect(existsSync(join(testDir, '.windsurf', 'skills', 'windsurf-copy', 'SKILL.md'))).toBe(
+        true
+      );
+    });
+
     it('replaces a copy made by an earlier sync with a link', () => {
       declareDeps(['my-lib']);
       const skillDir = join(createPackage('my-lib'), 'skills', 'migrated');
