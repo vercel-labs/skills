@@ -111,7 +111,12 @@ export const agents: Record<AgentType, AgentConfig> = {
     globalReadsCanonical: false,
     showInUniversalPrompt: false,
     detectInstalled: async () => {
-      return existsSync(join(home, '.gemini/antigravity'));
+      return (
+        existsSync(join(home, '.gemini/antigravity')) ||
+        existsSync(join(home, '.gemini/antigravity-ide')) ||
+        existsSync(join(home, '.gemini/config/skills')) ||
+        existsSync(join(home, '.gemini/config/config.json'))
+      );
     },
   },
   'antigravity-cli': {
