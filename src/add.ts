@@ -490,6 +490,37 @@ export function defaultInstallMode(targets: InstallTarget[]): InstallMode {
 }
 
 /**
+ * Builds result lines for a copied skill: one line per distinct path, then the
+ * agents skipped because their project directory doesn't exist.
+ */
+function buildCopyResultLines(
+  skillName: string,
+  results: Array<{ agent: string; path: string; skipReason?: string }>,
+  cwd: string
+): string[] {
+  const lines = [`${pc.green('✓')} ${skillName} ${pc.dim('(copied)')}`];
+  const shortPaths = new Set<string>();
+  const skipped: string[] = [];
+  for (const r of results) {
+    if (r.skipReason === 'missing-agent-project-directory') {
+      skipped.push(r.agent);
+      continue;
+    }
+    const shortPath = shortenPath(r.path, cwd);
+    if (!shortPaths.has(shortPath)) {
+      shortPaths.add(shortPath);
+      lines.push(`  ${pc.dim('→')} ${shortPath}`);
+    }
+  }
+  if (skipped.length > 0) {
+    lines.push(
+      `  ${pc.yellow('skipped:')} ${formatList(skipped)} ${pc.dim('(project directory not found)')}`
+    );
+  }
+  return lines;
+}
+
+/**
  * Builds result lines from installation results, splitting by universal vs symlinked
  */
 function buildResultLines(
@@ -1466,15 +1497,7 @@ async function handleWellKnownSkills(
 
       if (firstResult.mode === 'copy') {
         // Copy mode: show skill name and list all agent paths
-        resultLines.push(`${pc.green('✓')} ${skillName} ${pc.dim('(copied)')}`);
-        const shortPathsSet = new Set<string>();
-        for (const r of skillResults) {
-          const shortPath = shortenPath(r.path, cwd);
-          if (!shortPathsSet.has(shortPath)) {
-            shortPathsSet.add(shortPath);
-            resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
-          }
-        }
+        resultLines.push(...buildCopyResultLines(skillName, skillResults, cwd));
       } else {
         // Symlink mode: show canonical path and universal/symlinked agents
         if (firstResult.canonicalPath) {
@@ -3459,15 +3482,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
           if (firstResult.mode === 'copy') {
             // Copy mode: show skill name and list all agent paths
-            resultLines.push(`${pc.green('✓')} ${entry.skill} ${pc.dim('(copied)')}`);
-            const shortPathsSet = new Set<string>();
-            for (const r of skillResults) {
-              const shortPath = shortenPath(r.path, cwd);
-              if (!shortPathsSet.has(shortPath)) {
-                shortPathsSet.add(shortPath);
-                resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
-              }
-            }
+            resultLines.push(...buildCopyResultLines(entry.skill, skillResults, cwd));
           } else {
             // Symlink mode: show canonical path and universal/symlinked agents
             if (firstResult.canonicalPath) {

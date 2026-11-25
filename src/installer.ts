@@ -373,6 +373,24 @@ export async function installSkillForAgent(
 
     // For copy mode, skip canonical directory and copy directly to agent location
     if (installMode === 'copy') {
+      // Same rule as symlink mode below: don't create a project directory for an
+      // agent the project doesn't use (#2058).
+      if (
+        shouldSkipProjectAgentSymlink(
+          agentType,
+          isGlobal,
+          cwd,
+          options.createMissingAgentRoot ?? false
+        )
+      ) {
+        return {
+          success: true,
+          path: agentDir,
+          mode: 'copy',
+          skipped: true,
+          skipReason: 'missing-agent-project-directory',
+        };
+      }
       await cleanAndCreateDirectory(agentDir);
       await copyDirectory(skill.path, agentDir, agentType);
 
@@ -1114,6 +1132,23 @@ export async function installBlobSkillForAgent(
 
   try {
     if (installMode === 'copy') {
+      // Same rule as symlink mode below (#2058).
+      if (
+        shouldSkipProjectAgentSymlink(
+          agentType,
+          isGlobal,
+          cwd,
+          options.createMissingAgentRoot ?? false
+        )
+      ) {
+        return {
+          success: true,
+          path: agentDir,
+          mode: 'copy',
+          skipped: true,
+          skipReason: 'missing-agent-project-directory',
+        };
+      }
       await cleanAndCreateDirectory(agentDir);
       await writeSkillFiles(agentDir);
       return { success: true, path: agentDir, mode: 'copy' };

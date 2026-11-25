@@ -394,6 +394,39 @@ description: A versioned AI_AGENT test skill
     expect(result.stdout).not.toContain('Augment');
   });
 
+  it('reports a skipped project copy for an automatically selected agent (#2058)', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'skills', 'augment-copy-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: augment-copy-skill
+description: An Augment copy test skill
+---
+
+# Augment Copy Skill
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    const isolatedHome = join(testDir, 'home');
+    mkdirSync(projectDir, { recursive: true });
+    mkdirSync(join(isolatedHome, '.augment'), { recursive: true });
+
+    const result = runCli(['add', sourceDir, '-y', '--copy'], projectDir, {
+      ...noDetectedAgentEnv,
+      HOME: isolatedHome,
+      USERPROFILE: isolatedHome,
+      AUGMENT_AGENT: '1',
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(join(projectDir, '.augment'))).toBe(false);
+    expect(existsSync(join(projectDir, '.agents/skills/augment-copy-skill/SKILL.md'))).toBe(true);
+    expect(result.stdout).toContain('skipped: Augment (project directory not found)');
+  });
+
   it('omits an automatically skipped agent from JSON install results', () => {
     const sourceDir = join(testDir, 'source');
     const skillDir = join(sourceDir, 'skills', 'augment-json-skill');
