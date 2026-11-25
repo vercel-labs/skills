@@ -361,6 +361,39 @@ description: An Augment test skill
     expect(result.stdout).toContain('skipped: Augment (project directory not found)');
   });
 
+  it('targets only Claude Code when AI_AGENT carries a Claude Code version (#2845)', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'skills', 'claude-version-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: claude-version-skill
+description: A versioned AI_AGENT test skill
+---
+
+# Claude Version Skill
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    const isolatedHome = join(testDir, 'home');
+    mkdirSync(join(projectDir, '.claude'), { recursive: true });
+    mkdirSync(join(isolatedHome, '.claude'), { recursive: true });
+    mkdirSync(join(isolatedHome, '.augment'), { recursive: true });
+
+    const result = runCli(['add', sourceDir, '-y'], projectDir, {
+      ...noDetectedAgentEnv,
+      HOME: isolatedHome,
+      USERPROFILE: isolatedHome,
+      AI_AGENT: 'claude-code_2-1-326_agent',
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(join(projectDir, '.claude/skills/claude-version-skill/SKILL.md'))).toBe(true);
+    expect(result.stdout).not.toContain('Augment');
+  });
+
   it('omits an automatically skipped agent from JSON install results', () => {
     const sourceDir = join(testDir, 'source');
     const skillDir = join(sourceDir, 'skills', 'augment-json-skill');
