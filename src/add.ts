@@ -1897,22 +1897,18 @@ export async function installToTargets(
 ): Promise<TargetInstallResult[]> {
   const results: TargetInstallResult[] = [];
   const createsRoot = (agent: AgentType) => placement.createMissingAgentRoot?.(agent) ?? false;
-  // Copy mode has no shared .agents/skills copy to fall back on, so when every
-  // target would be skipped for a missing project directory, create them
-  // instead of installing nowhere (#2058).
-  const createAllRoots =
-    placement.mode === 'copy' &&
-    placement.targets.every(({ agent }) =>
-      shouldSkipProjectAgentDir(
-        agent,
-        placement.global,
-        placement.cwd || process.cwd(),
-        createsRoot(agent)
-      )
-    );
+  const cwd = placement.cwd || process.cwd();
   for (const skill of skills) {
-    for (const target of placement.targets) {
-      if (placement.skip?.(skill, target)) continue;
+    const targets = placement.targets.filter((target) => !placement.skip?.(skill, target));
+    // Copy mode has no shared .agents/skills copy to fall back on, so when every
+    // target would be skipped for a missing project directory, create them
+    // instead of installing nowhere (#2058).
+    const createAllRoots =
+      placement.mode === 'copy' &&
+      targets.every(({ agent }) =>
+        shouldSkipProjectAgentDir(agent, placement.global, cwd, createsRoot(agent))
+      );
+    for (const target of targets) {
       const { agent, subagent } = target;
       const installOptions = {
         global: placement.global,
