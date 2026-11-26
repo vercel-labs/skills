@@ -70,6 +70,7 @@ export type AgentType =
   | 'trae-cn'
   | 'warp'
   | 'windsurf'
+  | 'wordpress-studio'
   | 'zed'
   | 'zcode'
   | 'zencoder'
