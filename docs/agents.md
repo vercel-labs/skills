@@ -67,7 +67,7 @@ Skills can be installed to any of these agents:
 | Trae | `trae` | `.trae/skills/` | `~/.trae/skills/` |
 | Trae CN | `trae-cn` | `.trae/skills/` | `~/.trae-cn/skills/` |
 | Windsurf | `windsurf` | `.windsurf/skills/` | `~/.codeium/windsurf/skills/` |
-| WordPress Studio | `wordpress-studio` | `.agents/skills/` | `~/.studio/skills/` |
+| WordPress Studio | `wp-studio` | `.agents/skills/` | `~/.studio/skills/` |
 | ZCode | `zcode` | `.zcode/skills/` | `~/.zcode/skills/` |
 | Zencoder, Zenflow | `zencoder`, `zenflow` | `.zencoder/skills/` | `~/.zencoder/skills/` |
 | Neovate | `neovate` | `.neovate/skills/` | `~/.neovate/skills/` |
