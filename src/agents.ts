@@ -745,6 +745,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.codeium/windsurf'));
     },
   },
+  'wp-studio': {
+    name: 'wp-studio',
+    displayName: 'WordPress Studio',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.studio/skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.studio'));
+    },
+  },
   zed: {
     name: 'zed',
     displayName: 'Zed',
