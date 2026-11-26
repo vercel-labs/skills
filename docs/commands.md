@@ -393,7 +393,9 @@ the `commit`, run `skills update -p` once with skills 1.9.0 or later. Older vers
 update the hash but leave the `commit` out. Review the lock diff: each remote entry
 should now have a `commit`, and `computedHash` may change too if the source moved on
 since the lock was written. Then check the new lock with a frozen sync in a clean
-checkout. Sync without `--frozen-lockfile` does not add the `commit` for a skill that
+checkout, using a release newer than 1.9.0. In 1.9.0, frozen sync ignores the recorded
+`commit` and fetches the latest commit on the ref, so it can fail when the source moves on.
+Sync without `--frozen-lockfile` does not add the `commit` for a skill that
 is already installed, because it leaves installed remote skills as they are.
 
 ### Restore skills from the project lock file
