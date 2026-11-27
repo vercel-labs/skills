@@ -1,4 +1,5 @@
 import { homedir } from 'os';
+import { sep } from 'path';
 import type { AgentType } from './types.ts';
 import { agents } from './agents.ts';
 import { diagnostics, formatError } from './diagnostics.ts';
@@ -34,13 +35,14 @@ function renamedLabel(entry: ListLockEntry | undefined): string {
 
 /**
  * Shortens a path for display: replaces homedir with ~ and cwd with .
+ * Only whole path segments match, so /Users/alex is not shortened under HOME=/Users/al.
  */
 function shortenPath(fullPath: string, cwd: string): string {
   const home = homedir();
-  if (fullPath.startsWith(home)) {
-    return fullPath.replace(home, '~');
+  if (fullPath === home || fullPath.startsWith(home + sep)) {
+    return '~' + fullPath.slice(home.length);
   }
-  if (fullPath.startsWith(cwd)) {
+  if (fullPath === cwd || fullPath.startsWith(cwd + sep)) {
     return '.' + fullPath.slice(cwd.length);
   }
   return fullPath;
