@@ -230,6 +230,7 @@ export declare const diagnostics: Omit<import("nostics").Diagnostics<{
       valid: string[];
     }) => string;
     readonly fix: (p: {
+      invalid: string[];
       valid: string[];
     }) => string;
   };

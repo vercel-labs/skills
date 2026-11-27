@@ -767,6 +767,25 @@ description: Test
     expect(result.exitCode).toBe(1);
   });
 
+  // #2111: a near miss gets a suggestion, a vague or unrelated name does not.
+  it.each([
+    ['claude', 'claude-code'],
+    ['claude_code', 'claude-code'],
+    ['cursor-cli', 'cursor'],
+    ['copilot', 'github-copilot'],
+  ])('should suggest the closest agent for --agent %s', (name, closest) => {
+    const result = runCli(['add', join(testDir, 'does-not-exist'), '--agent', name], testDir);
+    expect(result.stdout).toContain(`Invalid agents: ${name}`);
+    expect(result.stdout).toContain(`Did you mean ${closest}?`);
+    expect(result.exitCode).toBe(1);
+  });
+
+  it.each(['not-an-agent', 'code'])('should not suggest an agent for --agent %s', (name) => {
+    const result = runCli(['add', join(testDir, 'does-not-exist'), '--agent', name], testDir);
+    expect(result.stdout).toContain(`Invalid agents: ${name}`);
+    expect(result.stdout).not.toContain('Did you mean');
+  });
+
   it('should support add command alias a', () => {
     const resultA = runCli(['a'], testDir);
     expect(resultA.stdout).toContain('Missing required argument: source');
