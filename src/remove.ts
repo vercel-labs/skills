@@ -416,7 +416,13 @@ export async function removeInstalledSkills(
     onWarn?: (message: string) => void;
   }
 ): Promise<RemoveSkillResult[]> {
-  const { global: isGlobal, cwd, targetAgents } = options;
+  const { global: isGlobal, cwd } = options;
+  const supportsScope = (agent: AgentType) =>
+    !isGlobal || agents[agent].globalSkillsDir !== undefined;
+  const targetAgents = options.targetAgents.filter(supportsScope);
+  if (targetAgents.length === 0) {
+    throw diagnostics.SKILLS_NO_TARGET_AGENTS();
+  }
   const results: RemoveSkillResult[] = [];
   const projectLock = isGlobal ? undefined : (await readLocalLock(cwd)).skills;
 
@@ -476,7 +482,9 @@ export async function removeInstalledSkills(
       // Only remove the canonical path if no other installed agents are using it.
       // This prevents breaking other agents when uninstalling from a specific agent (#287).
       const installedAgents = await detectInstalledAgents(cwd);
-      const remainingAgents = installedAgents.filter((a) => !targetAgents.includes(a));
+      const remainingAgents = installedAgents.filter(
+        (a) => supportsScope(a) && !targetAgents.includes(a)
+      );
 
       let isStillUsed = false;
       for (const agentKey of remainingAgents) {
