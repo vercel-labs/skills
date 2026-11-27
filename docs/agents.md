@@ -16,7 +16,7 @@ Skills can be installed to any of these agents:
 | IBM Bob | `bob` | `.bob/skills/` | `~/.bob/skills/` |
 | Claude Code | `claude-code` | `.claude/skills/` | `~/.claude/skills/` |
 | OpenClaw | `openclaw` | `skills/` | `~/.openclaw/skills/` |
-| Cline, Codex, Dexto, fx, Kimi Code CLI, Loaf, Pi, Sarvam Code, Warp, Zed | `cline`, `codex`, `dexto`, `fx`, `kimi-code-cli`, `loaf`, `pi`, `sarvam-code`, `warp`, `zed` | `.agents/skills/` | `~/.agents/skills/` |
+| AppJet, Cline, Codex, Dexto, fx, Kimi Code CLI, Loaf, Pi, Sarvam Code, Warp, Zed | `appjet`, `cline`, `codex`, `dexto`, `fx`, `kimi-code-cli`, `loaf`, `pi`, `sarvam-code`, `warp`, `zed` | `.agents/skills/` | `~/.agents/skills/` |
 | CodeArts Agent | `codearts-agent` | `.codeartsdoer/skills/` | `~/.codeartsdoer/skills/` |
 | CodeBuddy | `codebuddy` | `.codebuddy/skills/` | `~/.codebuddy/skills/` |
 | Codemaker | `codemaker` | `.codemaker/skills/` | `~/.codemaker/skills/` |
@@ -106,6 +106,7 @@ shared [Agent Skills specification](https://agentskills.io). However, some featu
 - [Skills Directory](https://skills.sh)
 - [Amp Skills Documentation](https://ampcode.com/manual#agent-skills)
 - [Antigravity Skills Documentation](https://antigravity.google/docs/skills)
+- [AppJet Skills Documentation](https://appjet.ai/docs/skills)
 - [Factory AI / Droid Skills Documentation](https://docs.factory.ai/cli/configuration/skills)
 - [Claude Code Skills Documentation](https://code.claude.com/docs/en/skills)
 - [OpenClaw Skills Documentation](https://docs.openclaw.ai/tools/skills)
