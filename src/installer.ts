@@ -653,11 +653,14 @@ export async function isSkillInstalled(
     return false;
   }
 
-  const targetBase = options.global
-    ? agent.globalSkillsDir!
-    : agentType === 'eve' && options.eveSubagent
-      ? getEveSubagentSkillsDir(options.eveSubagent, options.cwd)
-      : join(options.cwd || process.cwd(), agent.skillsDir);
+  // The directory the install writes to: agents that read the canonical dir
+  // globally get `~/.agents/skills`, not their own globalSkillsDir.
+  const targetBase = getAgentBaseDir(
+    agentType,
+    options.global ?? false,
+    options.cwd,
+    options.eveSubagent
+  );
 
   const skillDir = join(targetBase, sanitized);
 
