@@ -1374,34 +1374,40 @@ describe('Update Cleanup Unit Tests', () => {
       expect(vi.mocked(add.installFetched).mock.calls[0]![1].placement.mode).toBe('copy');
     });
 
-    it('skips detected agents without a global skills dir', async () => {
-      // PromptScript is always added as a universal agent but has no global dir.
-      vi.mocked(add.nonInteractiveTargetAgents).mockResolvedValue(['claude-code', 'promptscript']);
-      vi.mocked(skillLock.readSkillLock).mockResolvedValue({
-        version: 3,
-        skills: {
-          'skill-a': {
-            source: 'owner/repo',
-            skillPath: 'skills/skill-a/SKILL.md',
-            sourceType: 'github',
-            skillFolderHash: 'old',
-            installedAt: '',
-            updatedAt: '',
+    it.each([
+      { detected: ['claude-code', 'promptscript'], expected: ['claude-code'], notices: 1 },
+      { detected: ['promptscript'], expected: ['promptscript'], notices: 0 },
+    ] as const)(
+      'selects $expected for a global update with $detected',
+      async ({ detected, expected, notices }) => {
+        vi.mocked(add.nonInteractiveTargetAgents).mockResolvedValue([...detected]);
+        vi.mocked(skillLock.readSkillLock).mockResolvedValue({
+          version: 3,
+          skills: {
+            'skill-a': {
+              source: 'owner/repo',
+              skillPath: 'skills/skill-a/SKILL.md',
+              sourceType: 'github',
+              skillFolderHash: 'old',
+              installedAt: '',
+              updatedAt: '',
+            },
           },
-        },
-      });
-      vi.mocked(blob.fetchRepoTree).mockResolvedValue({
-        sha: 'rootsha',
-        branch: 'main',
-        tree: [{ path: 'skills/skill-a/SKILL.md', type: 'blob', sha: 'sha1' }],
-      });
-      vi.mocked(blob.getSkillFolderHashFromTree).mockReturnValue('new');
+        });
+        vi.mocked(blob.fetchRepoTree).mockResolvedValue({
+          sha: 'rootsha',
+          branch: 'main',
+          tree: [{ path: 'skills/skill-a/SKILL.md', type: 'blob', sha: 'sha1' }],
+        });
+        vi.mocked(blob.getSkillFolderHashFromTree).mockReturnValue('new');
 
-      await updateGlobalSkills({ yes: true });
+        await updateGlobalSkills({ yes: true });
 
-      const { targets } = vi.mocked(add.installFetched).mock.calls[0]![1].placement;
-      expect(targets.map((t) => t.agent)).toEqual(['claude-code']);
-    });
+        const { targets } = vi.mocked(add.installFetched).mock.calls[0]![1].placement;
+        expect(targets.map((t) => t.agent)).toEqual(expected);
+        expect(p.log.info).toHaveBeenCalledTimes(notices);
+      }
+    );
 
     it('fetches every global update before installing any', async () => {
       vi.mocked(skillLock.readSkillLock).mockResolvedValue({

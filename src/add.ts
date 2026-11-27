@@ -460,18 +460,19 @@ function ensureUniversalAgents(targetAgents: AgentType[]): AgentType[] {
 }
 
 /**
- * The agents `add -y` installs to when none are named: the agent we run
- * inside (plus universal), else Eve alone when present, else every agent when
- * none is detected, else the detected ones plus universal.
+ * Automatic candidates: the host agent plus universal agents, otherwise Eve
+ * alone when preferred, every agent when none is detected, or detected agents
+ * plus universal. Callers handle scope-specific filtering and notices.
  */
 export async function nonInteractiveTargetAgents(
-  cwd: string = process.cwd()
+  cwd: string = process.cwd(),
+  { preferEve = true }: { preferEve?: boolean } = {}
 ): Promise<AgentType[]> {
   const detected = await detectAgent();
   const hostAgent = detected.isAgent ? getAgentType(detected.agent.name) : null;
   if (hostAgent) return ensureUniversalAgents([hostAgent]);
   const installed = await detectInstalledAgents(cwd);
-  if (installed.includes('eve')) return ['eve'];
+  if (preferEve && installed.includes('eve')) return ['eve'];
   if (installed.length === 0) return Object.keys(agents) as AgentType[];
   return ensureUniversalAgents(installed);
 }

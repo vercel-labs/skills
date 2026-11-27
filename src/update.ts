@@ -40,6 +40,7 @@ import {
   recordGlobalWellKnownLock,
   recordProjectLock,
   releaseSource,
+  skipAgentsWithoutGlobalDir,
   type InstallPlacement,
   type ResolvedSkills,
   type TargetInstallResult,
@@ -67,29 +68,22 @@ function printFetching(sourceCount: number): void {
 }
 
 /**
- * Detected agents without a global skills dir (e.g. PromptScript, pulled in as a
- * universal agent) can't take a global reinstall; drop them like `add -g -y` does.
- */
-export function withGlobalSkillsDir(targetAgents: AgentType[]): AgentType[] {
-  const supported = targetAgents.filter((a) => agents[a].globalSkillsDir !== undefined);
-  return supported.length > 0 ? supported : targetAgents;
-}
-
-/**
  * Where a reinstalled skill goes: what `add -y` would pick, with Eve fanned
  * out over the subagents recorded at install time (`''` is the root agent)
- * and the install mode the user chose. Agent detection runs once per resolver.
+ * and the install mode the user chose. A global update does not prioritize Eve
+ * and skips agents without a global directory when another target can take it.
  */
 function placementResolver(
   global: boolean
 ): (subagents?: string[], installMode?: 'copy') => Promise<InstallPlacement> {
   let agentsPromise: Promise<AgentType[]> | undefined;
   return async (subagents, installMode) => {
-    agentsPromise ??= nonInteractiveTargetAgents();
+    agentsPromise ??= nonInteractiveTargetAgents(undefined, { preferEve: !global }).then(
+      (detected) => skipAgentsWithoutGlobalDir(detected, { global })
+    );
     let targetAgents = await agentsPromise;
-    const hasSubagents = !!subagents?.length;
+    const hasSubagents = !global && !!subagents?.length;
     if (hasSubagents && !targetAgents.includes('eve')) targetAgents = [...targetAgents, 'eve'];
-    if (global) targetAgents = withGlobalSkillsDir(targetAgents);
     const targets = buildInstallTargets(
       targetAgents,
       hasSubagents ? subagents.map((s) => (s === '' ? undefined : s)) : [undefined]
