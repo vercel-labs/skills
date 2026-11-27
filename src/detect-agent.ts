@@ -42,6 +42,7 @@ const agentNameToType: Record<string, AgentType> = {
   cursor: 'cursor',
   'cursor-cli': 'cursor',
   claude: 'claude-code',
+  'claude-code': 'claude-code',
   cowork: 'claude-code',
   devin: 'universal', // Devin not in skills-cli agent list, use universal
   replit: 'replit',
@@ -86,7 +87,11 @@ export async function getAgentName(): Promise<string | null> {
 /**
  * Maps a detected agent name to the corresponding skills-cli AgentType.
  * Returns null if the agent can't be mapped to a specific skills-cli agent.
+ *
+ * @vercel/detect-agent passes AI_AGENT through as-is, and some agents add a
+ * version to it (Claude Code sets `claude-code_2-1-326_agent`), so the part
+ * before the first `_` is tried when the full name has no match.
  */
 export function getAgentType(agentName: string): AgentType | null {
-  return agentNameToType[agentName] ?? null;
+  return agentNameToType[agentName] ?? agentNameToType[agentName.split('_')[0]!] ?? null;
 }
