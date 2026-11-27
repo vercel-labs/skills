@@ -158,7 +158,7 @@ async function extractZip(
   extractDir: string,
   limits: DownloadLimits
 ): Promise<void> {
-  const files = readZipArchive(await readFile(filePath), {
+  const { files, executables } = readZipArchive(await readFile(filePath), {
     maxExtractedBytes: limits.extractMaxBytes,
     maxEntries: limits.extractMaxFiles,
   });
@@ -170,7 +170,7 @@ async function extractZip(
     }
 
     await mkdir(dirname(targetPath), { recursive: true });
-    await writeFile(targetPath, contents);
+    await writeFile(targetPath, contents, { mode: executables.has(path) ? 0o755 : undefined });
   }
 }
 

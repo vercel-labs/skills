@@ -945,7 +945,8 @@ export async function installWellKnownSkillForAgent(
           basename(filePath).toLowerCase() === 'skill.md' &&
           typeof content === 'string'
           ? stripIgnoredEveFrontmatter(content)
-          : content
+          : content,
+        { mode: skill.executables?.has(filePath) ? 0o755 : undefined }
       );
     }
   }
@@ -1018,7 +1019,11 @@ export async function installWellKnownSkillForAgent(
  * (array of { path, contents }) instead of a Map.
  */
 export async function installBlobSkillForAgent(
-  skill: { installName: string; files: Array<{ path: string; contents: string }> },
+  skill: {
+    installName: string;
+    files: Array<{ path: string; contents: string }>;
+    executables?: ReadonlySet<string>;
+  },
   agentType: AgentType,
   options: InstallOptions = {}
 ): Promise<InstallResult> {
@@ -1107,7 +1112,7 @@ export async function installBlobSkillForAgent(
         agentType === 'eve' && basename(file.path).toLowerCase() === 'skill.md'
           ? stripIgnoredEveFrontmatter(file.contents)
           : file.contents,
-        'utf-8'
+        { encoding: 'utf-8', mode: skill.executables?.has(file.path) ? 0o755 : undefined }
       );
     }
   }
