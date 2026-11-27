@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, rmSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, rmSync, mkdirSync, writeFileSync, realpathSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runCli } from './test-utils.ts';
@@ -389,6 +389,22 @@ description: ${description}
       const result = runCli(['list'], testDir);
       // Path is shown inline with skill name (handles both Unix / and Windows \)
       expect(result.stdout).toMatch(/\.agents[/\\]skills[/\\]test-skill/);
+    });
+
+    it('should not shorten a project path that only shares a prefix with HOME', () => {
+      // HOME is <root>/hb and the project is <root>/hbx: the project path starts with
+      // the HOME string but is not inside HOME, so it must not render as `~x/...`.
+      const root = realpathSync(testDir);
+      const testHome = join(root, 'hb');
+      const projectDir = join(root, 'hbx');
+      mkdirSync(testHome, { recursive: true });
+      createTestSkill(projectDir, 'demo', 'A demo skill');
+
+      const result = runCli(['list'], projectDir, { HOME: testHome });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).not.toContain('~x');
+      expect(result.stdout).toMatch(/\.[/\\]\.agents[/\\]skills[/\\]demo/);
     });
   });
 

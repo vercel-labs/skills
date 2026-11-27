@@ -43,3 +43,20 @@ describe('detectAgent', () => {
     expect(result.agent?.name).toBe('cursor-cli');
   });
 });
+
+describe('getAgentType', () => {
+  it('maps a versioned Claude Code AI_AGENT value to claude-code', async () => {
+    const { getAgentType } = await import('./detect-agent.ts');
+
+    expect(getAgentType('claude-code_2-1-326_agent')).toBe('claude-code');
+    expect(getAgentType('claude-code')).toBe('claude-code');
+    expect(getAgentType('claude')).toBe('claude-code');
+  });
+
+  it('returns null for an unknown agent, with or without a version', async () => {
+    const { getAgentType } = await import('./detect-agent.ts');
+
+    expect(getAgentType('unknown-agent')).toBeNull();
+    expect(getAgentType('unknown-agent_1-0-0_agent')).toBeNull();
+  });
+});

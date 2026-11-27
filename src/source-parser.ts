@@ -79,7 +79,7 @@ export function parseOwnerRepo(ownerRepo: string): { owner: string; repo: string
 }
 
 /** A GitHub `owner/repo`: the characters GitHub allows, never a `.` or `..` repo. */
-const GITHUB_FULL_NAME = /^[A-Za-z0-9-]+\/(?!\.\.?$)[A-Za-z0-9._-]+$/;
+export const GITHUB_FULL_NAME = /^[A-Za-z0-9-]+\/(?!\.\.?$)[A-Za-z0-9._-]+$/;
 
 /**
  * Look up a GitHub.com repository. `fullName` is its canonical `owner/repo`:

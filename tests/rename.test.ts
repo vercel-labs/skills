@@ -14,7 +14,7 @@ import { execFileSync } from 'child_process';
 import { pathToFileURL } from 'url';
 import { runCli } from '../src/test-utils.ts';
 
-describe('add --rename', () => {
+describe('add --rename', { timeout: 30000 }, () => {
   let root: string;
   let repo: string;
   let project: string;

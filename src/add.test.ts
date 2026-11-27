@@ -361,6 +361,138 @@ description: An Augment test skill
     expect(result.stdout).toContain('skipped: Augment (project directory not found)');
   });
 
+  it('targets only Claude Code when AI_AGENT carries a Claude Code version (#2845)', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'skills', 'claude-version-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: claude-version-skill
+description: A versioned AI_AGENT test skill
+---
+
+# Claude Version Skill
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    const isolatedHome = join(testDir, 'home');
+    mkdirSync(join(projectDir, '.claude'), { recursive: true });
+    mkdirSync(join(isolatedHome, '.claude'), { recursive: true });
+    mkdirSync(join(isolatedHome, '.augment'), { recursive: true });
+
+    const result = runCli(['add', sourceDir, '-y'], projectDir, {
+      ...noDetectedAgentEnv,
+      HOME: isolatedHome,
+      USERPROFILE: isolatedHome,
+      AI_AGENT: 'claude-code_2-1-326_agent',
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(join(projectDir, '.claude/skills/claude-version-skill/SKILL.md'))).toBe(true);
+    expect(result.stdout).not.toContain('Augment');
+  });
+
+  it('reports a skipped project copy for an automatically selected agent (#2058)', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'skills', 'augment-copy-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: augment-copy-skill
+description: An Augment copy test skill
+---
+
+# Augment Copy Skill
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    const isolatedHome = join(testDir, 'home');
+    mkdirSync(projectDir, { recursive: true });
+    mkdirSync(join(isolatedHome, '.augment'), { recursive: true });
+
+    const result = runCli(['add', sourceDir, '-y', '--copy'], projectDir, {
+      ...noDetectedAgentEnv,
+      HOME: isolatedHome,
+      USERPROFILE: isolatedHome,
+      AUGMENT_AGENT: '1',
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(join(projectDir, '.augment'))).toBe(false);
+    expect(existsSync(join(projectDir, '.agents/skills/augment-copy-skill/SKILL.md'))).toBe(true);
+    expect(result.stdout).toContain('skipped: Augment (project directory not found)');
+  });
+
+  it('reports the written path for a copy install with a skipped agent in JSON', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'skills', 'augment-copy-json-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: augment-copy-json-skill
+description: An Augment copy JSON test skill
+---
+
+# Augment Copy JSON Skill
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    const isolatedHome = join(testDir, 'home');
+    mkdirSync(projectDir, { recursive: true });
+    mkdirSync(join(isolatedHome, '.augment'), { recursive: true });
+
+    const result = runCli(['add', sourceDir, '-y', '--copy', '--json'], projectDir, {
+      ...noDetectedAgentEnv,
+      HOME: isolatedHome,
+      USERPROFILE: isolatedHome,
+      AUGMENT_AGENT: '1',
+    });
+
+    expect(result.exitCode).toBe(0);
+    const [entry] = JSON.parse(result.stdout);
+    expect(entry.path).not.toContain('.augment');
+    expect(existsSync(entry.path)).toBe(true);
+  });
+
+  it('copies into a missing agent directory when the only other target is a category dir', () => {
+    const sourceDir = join(testDir, 'source');
+    const skillDir = join(sourceDir, 'skills', 'category-copy-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
+name: category-copy-skill
+description: A category conflict copy test skill
+---
+
+# Category Copy Skill
+`
+    );
+
+    const projectDir = join(testDir, 'project');
+    const isolatedHome = join(testDir, 'home');
+    const categoryDir = join(projectDir, '.agents/skills/category-copy-skill/inner');
+    mkdirSync(categoryDir, { recursive: true });
+    writeFileSync(join(categoryDir, 'SKILL.md'), '---\nname: inner\ndescription: Inner\n---\n');
+    mkdirSync(join(isolatedHome, '.augment'), { recursive: true });
+
+    const result = runCli(['add', sourceDir, '-y', '--copy'], projectDir, {
+      ...noDetectedAgentEnv,
+      HOME: isolatedHome,
+      USERPROFILE: isolatedHome,
+      AUGMENT_AGENT: '1',
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(join(projectDir, '.augment/skills/category-copy-skill/SKILL.md'))).toBe(true);
+  });
+
   it('omits an automatically skipped agent from JSON install results', () => {
     const sourceDir = join(testDir, 'source');
     const skillDir = join(sourceDir, 'skills', 'augment-json-skill');
