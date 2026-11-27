@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "redirects": [
+    {
+      "from": "itsbaohua/inku-agent/inku-japanese",
+      "to": "inkujapanese/inku-skills/inku-japanese",
+      "reason": "The Inku Japanese skill moved to the official Inku Japanese organization. The retired source is private and its public install command can no longer fetch the skill.",
+      "evidence": [
+        "https://github.com/inkujapanese/Inku-skills/blob/main/skills/inku-japanese/SKILL.md",
+        "https://www.skills.sh/inkujapanese/inku-skills/inku-japanese"
+      ],
+      "verifiedAt": "2026-11-24"
+    }
+  ]
+}
