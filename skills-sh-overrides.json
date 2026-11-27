@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "redirects": [
+    {
+      "from": "wiroai/n8n-nodes-wiroai/wiro-n8n",
+      "to": "wiroai/n8n-nodes-wiro/wiro-n8n",
+      "reason": "The wiro-n8n skill moved to wiroai/n8n-nodes-wiro together with the Wiro AI node for n8n. The old repository wiroai/n8n-nodes-wiroai was deleted, so the old listing's install command no longer finds a skill.",
+      "evidence": [
+        "https://github.com/wiroai/n8n-nodes-wiro/blob/main/skills/wiro-n8n/SKILL.md",
+        "https://www.skills.sh/wiroai/n8n-nodes-wiro/wiro-n8n",
+        "https://www.npmjs.com/package/@wiro-ai/n8n-nodes-wiroai"
+      ],
+      "verifiedAt": "2026-11-12"
+    }
+  ]
+}
