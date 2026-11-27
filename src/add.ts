@@ -22,6 +22,7 @@ import {
   installBlobSkillForAgent,
   isSkillInstalled,
   getCanonicalPath,
+  getSkillInstallUnit,
   getInstallPath,
   findCategoryDirSkills,
   installWellKnownSkillForAgent,
@@ -1896,6 +1897,9 @@ export async function installToTargets(
   placement: InstallPlacement
 ): Promise<TargetInstallResult[]> {
   const results: TargetInstallResult[] = [];
+  // A skills-dir plugin is one unit: install it once per target even when
+  // several of its skills are selected.
+  const installedPluginUnits = new Map<string, TargetInstallResult>();
   const createsRoot = (agent: AgentType) => placement.createMissingAgentRoot?.(agent) ?? false;
   const cwd = placement.cwd || process.cwd();
   for (const skill of skills) {
@@ -1910,6 +1914,18 @@ export async function installToTargets(
       );
     for (const target of targets) {
       const { agent, subagent } = target;
+      const unit = getSkillInstallUnit(skill, agent);
+      const unitKey = unit.plugin ? `${agent}:${subagent ?? ''}:${unit.sourceDir}` : null;
+      const installedUnit = unitKey ? installedPluginUnits.get(unitKey) : undefined;
+      if (installedUnit) {
+        results.push({
+          ...installedUnit,
+          skill: getSkillDisplayName(skill),
+          pluginName: skill.pluginName,
+        });
+        continue;
+      }
+
       const installOptions = {
         global: placement.global,
         cwd: placement.cwd,
@@ -1943,13 +1959,15 @@ export async function installToTargets(
           if (path) await setInstalledSkillName(path, skill.name);
         }
       }
-      results.push({
+      const targetResult: TargetInstallResult = {
         skill: getSkillDisplayName(skill),
         agent: targetDisplayName(target),
         agentType: agent,
         pluginName: skill.pluginName,
         ...result,
-      });
+      };
+      results.push(targetResult);
+      if (unitKey) installedPluginUnits.set(unitKey, targetResult);
     }
   }
   return results;
@@ -3137,15 +3155,18 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Check if any skill will be overwritten (parallel)
     const overwriteChecks = await Promise.all(
       selectedSkills.flatMap((skill) =>
-        installTargets.map(async (target) => ({
-          skillName: skill.name,
-          target,
-          installed: await isSkillInstalled(skill.name, target.agent, {
-            global: installGlobally,
-            eveSubagent: target.subagent,
-          }),
-          conflict: await findCategoryConflict(skill.name, target, installGlobally),
-        }))
+        installTargets.map(async (target) => {
+          const installName = getSkillInstallUnit(skill, target.agent).name;
+          return {
+            skillName: skill.name,
+            target,
+            installed: await isSkillInstalled(installName, target.agent, {
+              global: installGlobally,
+              eveSubagent: target.subagent,
+            }),
+            conflict: await findCategoryConflict(installName, target, installGlobally),
+          };
+        })
       )
     );
     // Keyed by skill name → target key → installed? / category conflict
@@ -3179,14 +3200,14 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
       for (const skill of skills) {
         if (summaryLines.length > 0) summaryLines.push('');
 
-        const canonicalPath =
-          installTargets.length === 1
-            ? getCanonicalPath(skill.name, {
-                global: installGlobally,
-                agent: installTargets[0]!.agent,
-                eveSubagent: installTargets[0]!.subagent,
-              })
-            : getCanonicalPath(skill.name, { global: installGlobally });
+        const singleTarget = installTargets.length === 1 ? installTargets[0]! : undefined;
+        const canonicalPath = singleTarget
+          ? getCanonicalPath(getSkillInstallUnit(skill, singleTarget.agent).name, {
+              global: installGlobally,
+              agent: singleTarget.agent,
+              eveSubagent: singleTarget.subagent,
+            })
+          : getCanonicalPath(skill.name, { global: installGlobally });
         const shortCanonical = shortenPath(canonicalPath, cwd);
         summaryLines.push(`${pc.cyan(shortCanonical)}`);
         const skillConflicts = categoryConflicts.get(skill.name);
