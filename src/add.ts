@@ -24,6 +24,7 @@ import {
   getCanonicalPath,
   getInstallPath,
   findCategoryDirSkills,
+  getAgentBaseDir,
   installWellKnownSkillForAgent,
   sanitizeName,
   setInstalledSkillName,
@@ -481,10 +482,10 @@ export async function nonInteractiveTargetAgents(
  * directories; a single directory, or Eve (which owns each (sub)agent dir),
  * gets a plain copy.
  */
-export function defaultInstallMode(targets: InstallTarget[]): InstallMode {
+export function defaultInstallMode(targets: InstallTarget[], global: boolean): InstallMode {
   const allEve = targets.every((t) => t.agent === 'eve');
   const uniqueDirs = new Set(
-    targets.map((t) => (t.subagent ? `eve:subagent:${t.subagent}` : agents[t.agent].skillsDir))
+    targets.map((t) => getAgentBaseDir(t.agent, global, undefined, t.subagent))
   );
   return uniqueDirs.size <= 1 || allEve ? 'copy' : 'symlink';
 }
@@ -1215,14 +1216,14 @@ async function handleWellKnownSkills(
   // Surface an unusable lock before touching disk rather than after installing.
   if (!installGlobally) await readLocalLock();
 
-  // Determine install mode (symlink vs copy)
-  let installMode: InstallMode = options.copy ? 'copy' : 'symlink';
+  let installMode: InstallMode = options.copy
+    ? 'copy'
+    : defaultInstallMode(
+        targetAgents.map((agent) => ({ agent })),
+        installGlobally
+      );
 
-  // Only prompt for install mode when there are multiple unique target directories.
-  // When all selected agents share the same skillsDir, symlink vs copy is meaningless.
-  const uniqueDirs = new Set(targetAgents.map((a) => agents[a].skillsDir));
-
-  if (!options.copy && !options.yes && uniqueDirs.size > 1) {
+  if (!options.copy && !options.yes && installMode === 'symlink') {
     const modeChoice = await p.select({
       message: 'Installation method',
       options: [
@@ -1240,9 +1241,6 @@ async function handleWellKnownSkills(
     }
 
     installMode = modeChoice as InstallMode;
-  } else if (uniqueDirs.size <= 1) {
-    // Single target directory — default to copy (no symlink needed)
-    installMode = 'copy';
   }
 
   const cwd = process.cwd();
@@ -3067,7 +3065,9 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     if (!installGlobally) await readLocalLock();
 
     // Only prompt for install mode when a symlink would actually mean something.
-    let installMode: InstallMode = options.copy ? 'copy' : defaultInstallMode(installTargets);
+    let installMode: InstallMode = options.copy
+      ? 'copy'
+      : defaultInstallMode(installTargets, installGlobally);
 
     if (!options.copy && !options.yes && installMode === 'symlink') {
       const modeChoice = await p.select({
@@ -3091,7 +3091,8 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     }
     // Recorded only when chosen: otherwise `update` derives the same mode from its targets.
     const lockedInstallMode =
-      installMode === 'copy' && (options.copy || defaultInstallMode(installTargets) === 'symlink')
+      installMode === 'copy' &&
+      (options.copy || defaultInstallMode(installTargets, installGlobally) === 'symlink')
         ? { installMode: 'copy' as const }
         : {};
 

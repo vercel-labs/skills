@@ -97,7 +97,7 @@ function placementResolver(
     return {
       global,
       targets,
-      mode: installMode ?? defaultInstallMode(targets),
+      mode: installMode ?? defaultInstallMode(targets, global),
       createMissingAgentRoot: (agent) => hasSubagents && agent === 'eve',
     };
   };
