@@ -155,7 +155,7 @@ Keep the API small and stable (full rules in [docs/api.md](docs/api.md#stability
 
 ## Error Handling
 
-All user-facing errors and warnings come from the `nostics` catalog in `src/diagnostics.ts`. Throw `diagnostics.SKILLS_X({...})` instead of `new Error(...)`, check codes with `isDiagnostic(error, 'SKILLS_X')`, and print caught errors with `formatError(error)`. Codes are permanent: never rename or reuse one.
+All user-facing errors and warnings come from the `nostics` catalog in `src/diagnostics.ts`. Throw `diagnostics.SKILLS_X({...})` instead of `new Error(...)`, check one code with `diagnostics.SKILLS_X.is(error)`, and print caught errors with `formatError(error)`. When callers match a whole group of codes (e.g. git clone failures), give the group its own `defineDiagnostics()` catalog and check it with `catalog.is(error)`; add it to the merged `diagnostics` export. Never compare `error.code` by hand. Use `InferDiagnosticCodes`, not `keyof typeof diagnostics`, for the code union. Codes are permanent: never rename or reuse one.
 
 ## Factory collaboration
 

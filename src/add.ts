@@ -14,7 +14,7 @@ import {
 import { stripTerminalEscapes } from './sanitize.ts';
 import { searchMultiselect } from './prompts/search-multiselect.ts';
 import type { Diagnostic } from 'nostics';
-import { diagnostics, formatError, isDiagnostic } from './diagnostics.ts';
+import { diagnostics, formatError, gitCloneDiagnostics } from './diagnostics.ts';
 import { cloneRepo, cleanupTempDir, getHeadCommit } from './git.ts';
 import { discoverSkills, getSkillDisplayName, filterSkills } from './skills.ts';
 import {
@@ -28,6 +28,7 @@ import {
   installWellKnownSkillForAgent,
   sanitizeName,
   setInstalledSkillName,
+  shouldSkipProjectAgentDir,
   type InstallMode,
 } from './installer.ts';
 import {
@@ -488,6 +489,37 @@ export function defaultInstallMode(targets: InstallTarget[]): InstallMode {
     targets.map((t) => (t.subagent ? `eve:subagent:${t.subagent}` : agents[t.agent].skillsDir))
   );
   return uniqueDirs.size <= 1 || allEve ? 'copy' : 'symlink';
+}
+
+/**
+ * Builds result lines for a copied skill: one line per distinct path, then the
+ * agents skipped because their project directory doesn't exist.
+ */
+function buildCopyResultLines(
+  skillName: string,
+  results: Array<{ agent: string; path: string; skipReason?: string }>,
+  cwd: string
+): string[] {
+  const lines = [`${pc.green('✓')} ${skillName} ${pc.dim('(copied)')}`];
+  const shortPaths = new Set<string>();
+  const skipped: string[] = [];
+  for (const r of results) {
+    if (r.skipReason === 'missing-agent-project-directory') {
+      skipped.push(r.agent);
+      continue;
+    }
+    const shortPath = shortenPath(r.path, cwd);
+    if (!shortPaths.has(shortPath)) {
+      shortPaths.add(shortPath);
+      lines.push(`  ${pc.dim('→')} ${shortPath}`);
+    }
+  }
+  if (skipped.length > 0) {
+    lines.push(
+      `  ${pc.yellow('skipped:')} ${formatList(skipped)} ${pc.dim('(project directory not found)')}`
+    );
+  }
+  return lines;
 }
 
 /**
@@ -982,12 +1014,12 @@ async function handleWellKnownSkills(
       ),
     });
   } catch (error) {
-    if (isDiagnostic(error, 'SKILLS_WELLKNOWN_DIGEST_MISMATCH')) {
+    if (diagnostics.SKILLS_WELLKNOWN_DIGEST_MISMATCH.is(error)) {
       spinner.stop(pc.red('Integrity check failed'));
       p.log.error(formatError(error));
       process.exit(1);
     }
-    if (isDiagnostic(error, 'SKILLS_WELLKNOWN_SCOPE_NOT_FOUND')) {
+    if (diagnostics.SKILLS_WELLKNOWN_SCOPE_NOT_FOUND.is(error)) {
       spinner.stop(pc.red('No matching skills'));
       p.log.error(formatError(error));
       process.exit(1);
@@ -1090,7 +1122,7 @@ async function handleWellKnownSkills(
     selectedSkills = await Promise.all(selectedEntries.map((skill) => skill.load()));
     spinner.stop('Downloaded skill files');
   } catch (error) {
-    if (isDiagnostic(error, 'SKILLS_WELLKNOWN_FILE_FETCH_FAILED')) {
+    if (diagnostics.SKILLS_WELLKNOWN_FILE_FETCH_FAILED.is(error)) {
       spinner.stop(pc.red('Failed to download skill files'));
       p.log.error(formatError(error));
       process.exit(1);
@@ -1467,15 +1499,7 @@ async function handleWellKnownSkills(
 
       if (firstResult.mode === 'copy') {
         // Copy mode: show skill name and list all agent paths
-        resultLines.push(`${pc.green('✓')} ${skillName} ${pc.dim('(copied)')}`);
-        const shortPathsSet = new Set<string>();
-        for (const r of skillResults) {
-          const shortPath = shortenPath(r.path, cwd);
-          if (!shortPathsSet.has(shortPath)) {
-            shortPathsSet.add(shortPath);
-            resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
-          }
-        }
+        resultLines.push(...buildCopyResultLines(skillName, skillResults, cwd));
       } else {
         // Symlink mode: show canonical path and universal/symlinked agents
         if (firstResult.canonicalPath) {
@@ -1876,9 +1900,19 @@ export async function installToTargets(
   // A skills-dir plugin is one unit: install it once per target even when
   // several of its skills are selected.
   const installedPluginUnits = new Map<string, TargetInstallResult>();
+  const createsRoot = (agent: AgentType) => placement.createMissingAgentRoot?.(agent) ?? false;
+  const cwd = placement.cwd || process.cwd();
   for (const skill of skills) {
-    for (const target of placement.targets) {
-      if (placement.skip?.(skill, target)) continue;
+    const targets = placement.targets.filter((target) => !placement.skip?.(skill, target));
+    // Copy mode has no shared .agents/skills copy to fall back on, so when every
+    // target would be skipped for a missing project directory, create them
+    // instead of installing nowhere (#2058).
+    const createAllRoots =
+      placement.mode === 'copy' &&
+      targets.every(({ agent }) =>
+        shouldSkipProjectAgentDir(agent, placement.global, cwd, createsRoot(agent))
+      );
+    for (const target of targets) {
       const { agent, subagent } = target;
       const unit = getSkillInstallUnit(skill, agent);
       const unitKey = unit.plugin ? `${agent}:${subagent ?? ''}:${unit.sourceDir}` : null;
@@ -1897,7 +1931,7 @@ export async function installToTargets(
         cwd: placement.cwd,
         mode: placement.mode,
         eveSubagent: subagent,
-        createMissingAgentRoot: placement.createMissingAgentRoot?.(agent) ?? false,
+        createMissingAgentRoot: createAllRoots || createsRoot(agent),
       };
       let result;
       if (isWellKnownSourceSkill(skill)) {
@@ -3422,16 +3456,20 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           });
           continue;
         }
+        // A skipped copy target has no files at its path; report one that was written.
+        const writtenResult =
+          skillResults.find((r) => r.skipReason !== 'missing-agent-project-directory') ??
+          skillResults[0];
         jsonResults.push({
           name,
           status: 'installed',
           source: jsonSource,
           ref: parsed.ref ?? null,
           hash: installedSkillHashes.get(name) ?? null,
-          path: skillResults[0]?.canonicalPath ?? skillResults[0]?.path,
+          path: writtenResult?.canonicalPath ?? writtenResult?.path,
           scope: installGlobally ? 'global' : 'project',
           agents: skillResults.filter((r) => !r.skipped).map((r) => r.agent),
-          mode: skillResults[0]?.mode ?? installMode,
+          mode: writtenResult?.mode ?? installMode,
           security: buildJsonSecurity(auditDataForJson, name, ownerRepoForAudit),
           ...(resolved.blobFallback && { fallback: resolved.blobFallback }),
         });
@@ -3480,15 +3518,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
           if (firstResult.mode === 'copy') {
             // Copy mode: show skill name and list all agent paths
-            resultLines.push(`${pc.green('✓')} ${entry.skill} ${pc.dim('(copied)')}`);
-            const shortPathsSet = new Set<string>();
-            for (const r of skillResults) {
-              const shortPath = shortenPath(r.path, cwd);
-              if (!shortPathsSet.has(shortPath)) {
-                shortPathsSet.add(shortPath);
-                resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
-              }
-            }
+            resultLines.push(...buildCopyResultLines(entry.skill, skillResults, cwd));
           } else {
             // Symlink mode: show canonical path and universal/symlinked agents
             if (firstResult.canonicalPath) {
@@ -3557,14 +3587,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
     // Prompt for find-skills after successful install
     await promptForFindSkills(options, targetAgents);
   } catch (error) {
-    const isCloneError = isDiagnostic(
-      error,
-      'SKILLS_UNSUPPORTED_GIT_TRANSPORT',
-      'SKILLS_GIT_CLONE_TIMEOUT',
-      'SKILLS_GIT_AUTH_FAILED',
-      'SKILLS_GIT_SAML_SSO_BLOCKED',
-      'SKILLS_GIT_CLONE_FAILED'
-    );
+    const isCloneError = gitCloneDiagnostics.is(error);
     if (isCloneError) {
       p.log.error(pc.red('Failed to clone repository'));
       // Print each line of the error message separately for better formatting

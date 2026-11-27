@@ -75,8 +75,9 @@ async function install(
   const handle = owned ? await openSource(source, config, requested ?? [], options) : source;
   try {
     const fetched = getFetchedSource(handle);
-    const skills = applyRenames(selectSkills(fetched, requested), options.rename);
-    if (config.duplicates === 'error') rejectDuplicates(handle, skills);
+    const selected = selectSkills(fetched, requested);
+    const skills = applyRenames(selected, options.rename);
+    if (config.duplicates === 'error') rejectDuplicates(handle, selected);
     if (config.symlinks === 'reject') await rejectSymlinks(fetched, skills);
     const { targets, failures } = await resolveTargets(options.agents, config, skills);
     options.signal?.throwIfAborted();
@@ -245,7 +246,7 @@ async function resolveTargets(
 
   const targets: AgentType[] = [];
   const failures: InstallFailure[] = [];
-  const fail = (agent: AgentType, diagnostic: Diagnostic<unknown>) => {
+  const fail = (agent: AgentType, diagnostic: Diagnostic<unknown, DiagnosticCode>) => {
     if (!named) return;
     for (const skill of skills) {
       failures.push(failure(getSkillDisplayName(skill), agent, diagnostic));
@@ -271,11 +272,15 @@ async function resolveTargets(
   return { targets, failures };
 }
 
-function failure(skill: string, agent: string, diagnostic: Diagnostic<unknown>): InstallFailure {
+function failure(
+  skill: string,
+  agent: string,
+  diagnostic: Diagnostic<unknown, DiagnosticCode>
+): InstallFailure {
   return Object.freeze({
     skill,
     agent,
-    code: diagnostic.code as DiagnosticCode,
+    code: diagnostic.code,
     message: diagnostic.message,
   });
 }

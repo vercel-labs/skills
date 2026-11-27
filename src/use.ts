@@ -6,7 +6,7 @@ import { tmpdir } from 'os';
 import { agents } from './agents.ts';
 import { tryBlobInstall, type BlobInstallResult, type BlobSkill } from './blob.ts';
 import type { Diagnostic } from 'nostics';
-import { diagnostics, formatError, isDiagnostic } from './diagnostics.ts';
+import { diagnostics, formatError } from './diagnostics.ts';
 import { parseCliArgs } from './cli-args.ts';
 import { cloneRepo, cleanupTempDir } from './git.ts';
 import { copyDirectory, sanitizeName } from './installer.ts';
@@ -201,8 +201,8 @@ export async function runUse(
         })
         .catch((error) => {
           if (
-            isDiagnostic(error, 'SKILLS_WELLKNOWN_SCOPE_NOT_FOUND') ||
-            isDiagnostic(error, 'SKILLS_WELLKNOWN_DIGEST_MISMATCH')
+            diagnostics.SKILLS_WELLKNOWN_SCOPE_NOT_FOUND.is(error) ||
+            diagnostics.SKILLS_WELLKNOWN_DIGEST_MISMATCH.is(error)
           ) {
             fail(error);
           }

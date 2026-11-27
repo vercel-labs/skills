@@ -1,8 +1,8 @@
-import { readdir, readFile, stat } from 'fs/promises';
+import { readdir, readFile, realpath, stat } from 'fs/promises';
 import { join, basename, dirname, resolve, normalize, sep, relative } from 'path';
 import { AGENT_PROJECT_SKILL_DIRS } from './agents.ts';
 import { parseFrontmatter } from './frontmatter.ts';
-import { diagnostics, isDiagnostic } from './diagnostics.ts';
+import { diagnostics } from './diagnostics.ts';
 import { sanitizeMetadata, stripTerminalEscapes } from './sanitize.ts';
 import type { Skill } from './types.ts';
 import { findSkillsDirPlugin, getPluginSkillPaths, getPluginGroupings } from './plugin-manifest.ts';
@@ -181,8 +181,25 @@ async function sourceLockedSkillNames(basePath: string): Promise<string[]> {
   try {
     return Object.keys((await readLocalLock(basePath)).skills);
   } catch (error) {
-    if (isDiagnostic(error, 'SKILLS_INVALID_LOCAL_LOCK')) return [];
+    if (diagnostics.SKILLS_INVALID_LOCAL_LOCK.is(error)) return [];
     throw error;
+  }
+}
+
+/**
+ * Canonical key for a SKILL.md path.
+ *
+ * A repo can expose one skill tree at several paths (for example
+ * `.agents/skills` with `.claude` symlinked to `.agents`). Those are the same
+ * skill, so they must collapse to one discovery entry: reporting both makes the
+ * relocated/ambiguous check in `resolveSkillLocations` skip the skill, which
+ * silently blocks updates and deletions for it.
+ */
+async function canonicalSkillMdPath(skillMdPath: string): Promise<string> {
+  try {
+    return await realpath(skillMdPath);
+  } catch {
+    return skillMdPath;
   }
 }
 
@@ -240,8 +257,9 @@ export async function discoverSkills(
 
   const parseSkillAt = async (skillDir: string): Promise<Skill | null> => {
     const skillMdPath = resolve(skillDir, 'SKILL.md');
-    if (parsedSkillPaths.has(skillMdPath)) return null;
-    parsedSkillPaths.add(skillMdPath);
+    const dedupeKey = await canonicalSkillMdPath(skillMdPath);
+    if (parsedSkillPaths.has(dedupeKey)) return null;
+    parsedSkillPaths.add(dedupeKey);
     return parseSkillMd(skillMdPath, options);
   };
 

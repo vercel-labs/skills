@@ -1,11 +1,12 @@
 import { homedir } from 'os';
+import { sep } from 'path';
 import type { AgentType } from './types.ts';
 import { agents } from './agents.ts';
-import { diagnostics, formatError, isDiagnostic } from './diagnostics.ts';
+import { diagnostics, formatError } from './diagnostics.ts';
 import { parseCliArgs, throwFirstError } from './cli-args.ts';
 import { listInstalledSkills, sanitizeName, type InstalledSkill } from './installer.ts';
 import { sanitizeMetadata } from './sanitize.ts';
-import { getAllLockedSkills } from './skill-lock.ts';
+import { readSkillLock } from './skill-lock.ts';
 import { getLockedSkillState, readLocalLock } from './local-lock.ts';
 import { BOLD, CYAN, DIM, RESET, YELLOW } from './color.ts';
 
@@ -34,13 +35,14 @@ function renamedLabel(entry: ListLockEntry | undefined): string {
 
 /**
  * Shortens a path for display: replaces homedir with ~ and cwd with .
+ * Only whole path segments match, so /Users/alex is not shortened under HOME=/Users/al.
  */
 function shortenPath(fullPath: string, cwd: string): string {
   const home = homedir();
-  if (fullPath.startsWith(home)) {
-    return fullPath.replace(home, '~');
+  if (fullPath === home || fullPath.startsWith(home + sep)) {
+    return '~' + fullPath.slice(home.length);
   }
-  if (fullPath.startsWith(cwd)) {
+  if (fullPath === cwd || fullPath.startsWith(cwd + sep)) {
     return '.' + fullPath.slice(cwd.length);
   }
   return fullPath;
@@ -69,11 +71,18 @@ export function parseListOptions(args: string[]): ListOptions {
 }
 
 /** Listing is read-only, so an unusable lock only costs source info. */
-async function readProjectLockOrWarn(cwd: string): Promise<Record<string, ListLockEntry>> {
+async function readLockOrWarn(
+  read: () => Promise<{ skills: Record<string, ListLockEntry> }>
+): Promise<Record<string, ListLockEntry>> {
   try {
-    return (await readLocalLock(cwd)).skills;
+    return (await read()).skills;
   } catch (error) {
-    if (!isDiagnostic(error, 'SKILLS_INVALID_LOCAL_LOCK')) throw error;
+    if (
+      !diagnostics.SKILLS_INVALID_LOCAL_LOCK.is(error) &&
+      !diagnostics.SKILLS_INVALID_GLOBAL_LOCK.is(error)
+    ) {
+      throw error;
+    }
     console.error(`${YELLOW}Warning: ${formatError(error)}${RESET}`);
     return {};
   }
@@ -110,9 +119,7 @@ export async function runList(args: string[]): Promise<void> {
 
   const cwd = process.cwd();
   // Fetch lock entries to get source and plugin grouping info for the selected scope.
-  const lockedSkills: Record<string, ListLockEntry> = scope
-    ? await getAllLockedSkills()
-    : await readProjectLockOrWarn(cwd);
+  const lockedSkills = await readLockOrWarn(scope ? readSkillLock : () => readLocalLock(cwd));
   const lockEntriesBySanitizedName = new Map(
     Object.entries(lockedSkills).map(([name, entry]) => [sanitizeName(name), entry])
   );

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildLocalCloneSource,
+  buildGitHubCompareUrl,
   buildLocalUpdateSource,
   buildUpdateInstallSource,
   formatSourceInput,
@@ -265,5 +266,26 @@ describe('update-source', () => {
         })
       ).toBe(false);
     });
+  });
+});
+
+describe('buildGitHubCompareUrl', () => {
+  const oldCommit = 'a'.repeat(40);
+  const newCommit = 'b'.repeat(40);
+  const repo = 'https://github.com/example/skills.git';
+
+  it('links the installed and upstream commits', () => {
+    expect(buildGitHubCompareUrl(repo, oldCommit, newCommit)).toBe(
+      `https://github.com/example/skills/compare/${oldCommit}..${newCommit}`
+    );
+  });
+
+  it('omits links without distinct commits or a GitHub repository URL', () => {
+    expect(buildGitHubCompareUrl(repo, undefined, newCommit)).toBeUndefined();
+    expect(buildGitHubCompareUrl(repo, oldCommit, 'main')).toBeUndefined();
+    expect(buildGitHubCompareUrl(repo, newCommit, newCommit)).toBeUndefined();
+    expect(
+      buildGitHubCompareUrl('https://gitlab.com/org/repo', oldCommit, newCommit)
+    ).toBeUndefined();
   });
 });

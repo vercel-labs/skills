@@ -1,5 +1,5 @@
 import { agents as agentConfigs } from '../agents.ts';
-import { diagnostics, type DiagnosticCode } from '../diagnostics.ts';
+import { diagnostics } from '../diagnostics.ts';
 import { readLocalLock } from '../local-lock.ts';
 import {
   findGloballyTrackedSkills,
@@ -76,7 +76,7 @@ async function remove(names: readonly string[], options: RemoveOptions): Promise
     const tracked = new Set(await findGloballyTrackedSkills(selected, cwd));
     for (const skill of tracked) {
       const diagnostic = diagnostics.SKILLS_REMOVE_GLOBALLY_TRACKED({ skills: [skill] });
-      failed.push({ skill, code: diagnostic.code as DiagnosticCode, message: diagnostic.message });
+      failed.push({ skill, code: diagnostic.code, message: diagnostic.message });
     }
     selected = selected.filter((skill) => !tracked.has(skill));
   }
@@ -96,7 +96,7 @@ async function remove(names: readonly string[], options: RemoveOptions): Promise
       });
       failed.push({
         skill: r.skill,
-        code: diagnostic.code as DiagnosticCode,
+        code: diagnostic.code,
         message: diagnostic.message,
       });
     }
