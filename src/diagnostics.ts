@@ -6,6 +6,19 @@ import { pc } from './color.ts';
 const availableSkills = (names: string[]) =>
   names.length > 0 ? ['Available skills:', ...names.map((name) => `  - ${name}`)].join('\n') : '';
 
+// Agent ids an unknown name most likely stands for: one contains the other once
+// case and separators are ignored (claude -> claude-code, cursor-cli -> cursor).
+// A name that matches more than three ids is too vague to suggest from.
+const closestAgents = (name: string, valid: string[]) => {
+  const key = (id: string) => id.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const wanted = key(name);
+  const matches = valid.filter((id) => {
+    const known = key(id);
+    return known.includes(wanted) || (known.length > 2 && wanted.includes(known));
+  });
+  return wanted.length > 2 && matches.length <= 3 ? matches : [];
+};
+
 /**
  * Codes are `SKILLS_<WHAT_WENT_WRONG>` and permanent: never rename or reuse
  * one. Entries are grouped by area: command line, sources and skill selection,
@@ -19,7 +32,11 @@ const baseDiagnostics = defineDiagnostics({
   codes: {
     SKILLS_INVALID_AGENTS: {
       why: (p: { invalid: string[]; valid: string[] }) => `Invalid agents: ${p.invalid.join(', ')}`,
-      fix: (p: { valid: string[] }) => `Valid agents: ${p.valid.join(', ')}`,
+      fix: (p: { invalid: string[]; valid: string[] }) => {
+        const closest = [...new Set(p.invalid.flatMap((name) => closestAgents(name, p.valid)))];
+        const hint = closest.length > 0 ? `Did you mean ${closest.join(', ')}?\n` : '';
+        return `${hint}Valid agents: ${p.valid.join(', ')}`;
+      },
     },
     SKILLS_OPTION_REQUIRES_VALUE: {
       why: (p: { option: string; value: string }) => `${p.option} requires ${p.value}`,
