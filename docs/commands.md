@@ -389,6 +389,19 @@ by any dependency, or a remote `skills` entry resolves to different content. Thi
 the default when a CI environment variable such as `CI` or `GITHUB_ACTIONS` is set;
 pass `--no-frozen-lockfile` to update the lock from CI.
 
+A remote skill is fetched at the `commit` its lock entry records, so a frozen sync
+still passes after the source repository changes. An entry with no `commit`, such as
+one from a version 1 lock, is fetched at the latest commit on its ref instead. To add
+the `commit`, run `skills update -p` once with skills 1.9.0 or later. Older versions
+update the hash but leave the `commit` out. Review the lock diff: each remote entry
+should now have a `commit`, and `computedHash` may change too if the source moved on
+since the lock was written. Then check the new lock with a frozen sync in a clean
+checkout, using a release that includes the frozen sync fix. Releases without it, such as
+1.9.0, ignore the recorded `commit` in frozen sync and fetch the latest commit on the ref,
+so the check can fail when the source moves on.
+Sync without `--frozen-lockfile` does not add the `commit` for a skill that
+is already installed, because it leaves installed remote skills as they are.
+
 ### Restore skills from the project lock file
 
 ```bash

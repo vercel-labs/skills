@@ -217,16 +217,18 @@ function requestsLockedSkill(
   name: string,
   entry: LocalSkillLockEntry
 ) {
-  // A renamed skill is requested by the name its source uses
-  const sourceName = entry.skillName ?? name;
   return (
     isFromRequest(entry, request) &&
     (request.skills.length === 0 ||
-      request.skills.some(
-        (selected) =>
-          sanitizeName(selected) === sanitizeName(sourceName) ||
-          selected === posix.basename(posix.dirname(entry.skillPath ?? ''))
-      ))
+      request.skills.some((selected) => selectsLockedSkill(selected, name, entry)))
+  );
+}
+
+function selectsLockedSkill(selected: string, name: string, entry: LocalSkillLockEntry): boolean {
+  // A renamed skill is requested by the name its source uses
+  return (
+    sanitizeName(selected) === sanitizeName(entry.skillName ?? name) ||
+    selected === posix.basename(posix.dirname(entry.skillPath ?? ''))
   );
 }
 
@@ -617,6 +619,22 @@ function isFromRequest(entry: LocalSkillLockEntry, request: FieldRemoteRequest):
   );
 }
 
+function atLockedCommits(
+  request: FieldRemoteRequest,
+  lock: LocalSkillLockFile
+): FieldRemoteRequest[] {
+  const entries = Object.entries(lock.skills).filter(([, entry]) => isFromRequest(entry, request));
+  const allLocked = request.skills.every((selected) =>
+    entries.some(([name, entry]) => selectsLockedSkill(selected, name, entry))
+  );
+  if (entries.length === 0 || !allLocked) return [request];
+  return [...Map.groupBy(entries, ([, entry]) => entry.commit)].map(([commit, group]) => ({
+    ...request,
+    parsed: { ...request.parsed, ref: commit ?? request.parsed.ref },
+    skills: group.map(([name, entry]) => entry.skillName ?? name),
+  }));
+}
+
 /** Every skill `request` asks for is in the lock and on disk; `skills update` refreshes them. */
 function isRemoteInstalled(
   request: FieldRemoteRequest,
@@ -981,11 +999,17 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
         sanitizeName(entry.skillName) === name &&
         isFromRequest(entry, request)
     )?.[0];
-  const fetched = await fetchSources(remoteRequests);
-  for (const [index, request] of remoteRequests.entries()) {
+  const fetches = remoteRequests.flatMap((request) =>
+    (frozen ? atLockedCommits(request, localLock) : [request]).map((toFetch) => ({
+      request,
+      toFetch,
+    }))
+  );
+  const fetched = await fetchSources(fetches.map(({ toFetch }) => toFetch));
+  for (const [index, { request, toFetch }] of fetches.entries()) {
     const label = getProjectLockSource(request.parsed);
     const result = await installFromSource(fetched[index]!, {
-      skills: request.skills,
+      skills: toFetch.skills,
       agents: targetAgents,
       via: request.via,
       ...(frozen && { frozenLock: localLock }),
