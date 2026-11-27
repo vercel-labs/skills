@@ -954,22 +954,11 @@ export async function updateGlobalSkills(
     return { successCount, failCount, checkedCount: 0 };
   }
 
-  if (checkable.length === 0 && skipped.length === 0) {
-    if (!otherChanged) {
-      console.log(`${TEXT}✓ All global skills are up to date${RESET}`);
-    }
-    return { successCount, failCount, checkedCount };
-  }
-
-  if (checkable.length === 0 && skipped.length > 0) {
-    printSkippedSkills(skipped);
-    return { successCount, failCount, checkedCount };
-  }
-
   if (updates.length === 0) {
-    if (!otherChanged) {
+    if (!otherChanged && skipped.length === 0) {
       console.log(`${TEXT}✓ All global skills are up to date${RESET}`);
     }
+    printSkippedSkills(skipped);
     return { successCount, failCount, checkedCount };
   }
 
