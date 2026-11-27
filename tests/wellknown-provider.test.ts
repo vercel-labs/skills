@@ -260,6 +260,106 @@ describe('WellKnownProvider', () => {
       expect(fetchSpy).toHaveBeenCalled();
     });
 
+    describe('stalled skill file downloads', () => {
+      const LEGACY_INDEX = {
+        skills: [
+          {
+            name: 'legacy-skill',
+            description: 'Legacy skill.',
+            files: ['SKILL.md', 'references/README.md'],
+          },
+        ],
+      };
+      const LEGACY_SKILL_MD = '---\nname: legacy-skill\ndescription: Legacy skill.\n---\n# Legacy';
+
+      /**
+       * A server that accepts the request and never answers: the returned promise only
+       * settles if the caller passed an AbortSignal and that signal fires.
+       */
+      function stalled(init?: RequestInit): Promise<Response> {
+        return new Promise((_resolve, reject) => {
+          const signal = init?.signal;
+          if (!signal) return;
+          if (signal.aborted) reject(signal.reason);
+          signal.addEventListener('abort', () => reject(signal.reason));
+        });
+      }
+
+      /** Every timeout fires at once, so a bounded request fails fast. */
+      function expireTimeouts(): void {
+        vi.spyOn(AbortSignal, 'timeout').mockImplementation(() =>
+          AbortSignal.abort(new DOMException('timed out', 'TimeoutError'))
+        );
+      }
+
+      /** Fails with a clear message instead of hanging the test when a request is unbounded. */
+      function settlesQuickly<T>(promise: Promise<T>): Promise<T> {
+        return Promise.race([
+          promise,
+          new Promise<never>((_resolve, reject) =>
+            setTimeout(() => reject(new Error('well-known request has no timeout')), 1000)
+          ),
+        ]);
+      }
+
+      it('times out a SKILL.md download that never answers', async () => {
+        expireTimeouts();
+        vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+          const href = String(url);
+          if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+            return response(LEGACY_INDEX);
+          }
+          if (href.endsWith('/legacy-skill/SKILL.md')) return stalled(init);
+          return response('not found', { status: 404 });
+        });
+
+        await expect(
+          settlesQuickly(provider.fetchAllSkills('https://example.com'))
+        ).resolves.toEqual([]);
+      });
+
+      it('times out a supporting file download that never answers', async () => {
+        expireTimeouts();
+        vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+          const href = String(url);
+          if (href.endsWith('/legacy-skill/SKILL.md')) return response(LEGACY_SKILL_MD);
+          if (href.endsWith('/references/README.md')) return stalled(init);
+          return response('not found', { status: 404 });
+        });
+
+        await expect(
+          settlesQuickly(provider.fetchSkillByEntry('https://example.com', LEGACY_INDEX.skills[0]!))
+        ).rejects.toThrow('Failed to download "references/README.md" for skill "legacy-skill".');
+      });
+
+      it('times out a v0.2.0 artifact download that never answers', async () => {
+        expireTimeouts();
+        vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+          const href = String(url);
+          if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+            return response({
+              $schema: SCHEMA_V2,
+              skills: [
+                {
+                  name: 'code-review',
+                  type: 'skill-md',
+                  description: 'Review code.',
+                  url: 'code-review/SKILL.md',
+                  digest: digest('unused'),
+                },
+              ],
+            });
+          }
+          if (href.endsWith('/code-review/SKILL.md')) return stalled(init);
+          return response('not found', { status: 404 });
+        });
+
+        await expect(
+          settlesQuickly(provider.fetchAllSkills('https://example.com'))
+        ).resolves.toEqual([]);
+      });
+    });
+
     it('keeps supporting legacy files[] indexes', async () => {
       vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
         const href = String(url);
