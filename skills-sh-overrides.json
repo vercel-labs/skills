@@ -1,0 +1,228 @@
+{
+  "version": 1,
+  "redirects": [
+    {
+      "from": "expo/skills/add-app-clip",
+      "to": "expo/skills/expo-app-clip",
+      "reason": "Renamed to expo-app-clip.",
+      "evidence": [
+        "https://github.com/expo/skills/pull/98",
+        "https://github.com/expo/skills/blob/main/plugins/expo/skills/expo-app-clip/SKILL.md"
+      ],
+      "verifiedAt": "2026-11-27"
+    },
+    {
+      "from": "expo/skills/api-routes",
+      "to": "expo/skills/eas-hosting",
+      "reason": "Renamed to expo-api-routes, then to eas-hosting.",
+      "evidence": [
+        "https://github.com/expo/skills/pull/6",
+        "https://github.com/expo/skills/pull/98",
+        "https://github.com/expo/skills/blob/main/plugins/expo/skills/eas-hosting/SKILL.md"
+      ],
+      "verifiedAt": "2026-11-27"
+    },
+    {
+      "from": "expo/skills/building-native-ui",
+      "to": "expo/skills/expo-native-ui",
+      "reason": "Renamed to expo-native-ui.",
+      "evidence": [
+        "https://github.com/expo/skills/pull/98",
+        "https://github.com/expo/skills/blob/main/plugins/expo/skills/expo-native-ui/SKILL.md"
+      ],
+      "verifiedAt": "2026-11-27"
+    },
+    {
+      "from": "expo/skills/building-ui",
+      "to": "expo/skills/expo-native-ui",
+      "reason": "Renamed to building-native-ui, then to expo-native-ui.",
+      "evidence": [
+        "https://github.com/expo/skills/pull/6",
+        "https://github.com/expo/skills/pull/98",
+        "https://github.com/expo/skills/blob/main/plugins/expo/skills/expo-native-ui/SKILL.md"
+      ],
+      "verifiedAt": "2026-11-27"
+    },
+    {
+      "from": "expo/skills/cicd-workflows",
+      "to": "expo/skills/eas-workflows",
+      "reason": "Renamed to expo-cicd-workflows, then to eas-workflows.",
+      "evidence": [
+        "https://github.com/expo/skills/pull/6",
+        "https://github.com/expo/skills/pull/98",
+        "https://github.com/expo/skills/blob/main/plugins/expo/skills/eas-workflows/SKILL.md"
+      ],
+      "verifiedAt": "2026-11-27"
+    },
+    {
+      "from": "expo/skills/data-fetching",
+      "to": "expo/skills/expo-data-fetching",
+      "reason": "Renamed to native-data-fetching, then to expo-data-fetching.",
+      "evidence": [
+        "https://github.com/expo/skills/pull/6",
+        "https://github.com/expo/skills/pull/98",
+        "https://github.com/expo/skills/blob/main/plugins/expo/skills/expo-data-fetching/SKILL.md"
+      ],
+      "verifiedAt": "2026-11-27"
+    },
+    {
+      "from": "expo/skills/deployment",
+      "to": "expo/skills/eas-app-stores",
+      "reason": "Renamed to expo-deployment, then to eas-app-stores.",
+      "evidence": [
+        "https://github.com/expo/skills/pull/6",
+        "https://github.com/expo/skills/pull/98",
+        "https://github.com/expo/skills/blob/main/plugins/expo/skills/eas-app-stores/SKILL.md"
+      ],
+      "verifiedAt": "2026-11-27"
+    },
+    {
+      "from": "expo/skills/dev-client",
+      "to": "expo/skills/expo-dev-client",
+      "reason": "Renamed to expo-dev-client.",
+      "evidence": [
+        "https://github.com/expo/skills/pull/6",
+        "https://github.com/expo/skills/blob/main/plugins/expo/skills/expo-dev-client/SKILL.md"
+      ],
+      "verifiedAt": "2026-11-27"
+    },
+    {
+      "from": "expo/skills/expo-api-routes",
+      "to": "expo/skills/eas-hosting",
+      "reason": "Renamed to eas-hosting.",
+      "evidence": [
+        "https://github.com/expo/skills/pull/98",
+        "https://github.com/expo/skills/blob/main/plugins/expo/skills/eas-hosting/SKILL.md"
+      ],
+      "verifiedAt": "2026-11-27"
+    },
+    {
+      "from": "expo/skills/expo-cicd-workflows",
+      "to": "expo/skills/eas-workflows",
+      "reason": "Renamed to eas-workflows.",
+      "evidence": [
+        "https://github.com/expo/skills/pull/98",
+        "https://github.com/expo/skills/blob/main/plugins/expo/skills/eas-workflows/SKILL.md"
+      ],
+      "verifiedAt": "2026-11-27"
+    },
+    {
+      "from": "expo/skills/expo-deployment",
+      "to": "expo/skills/eas-app-stores",
+      "reason": "Renamed to eas-app-stores.",
+      "evidence": [
+        "https://github.com/expo/skills/pull/98",
+        "https://github.com/expo/skills/blob/main/plugins/expo/skills/eas-app-stores/SKILL.md"
+      ],
+      "verifiedAt": "2026-11-27"
+    },
+    {
+      "from": "expo/skills/expo-observe",
+      "to": "expo/skills/eas-observe",
+      "reason": "Renamed to eas-observe.",
+      "evidence": [
+        "https://github.com/expo/skills/pull/98",
+        "https://github.com/expo/skills/blob/main/plugins/expo/skills/eas-observe/SKILL.md"
+      ],
+      "verifiedAt": "2026-11-27"
+    },
+    {
+      "from": "expo/skills/expo-ui-jetpack-compose",
+      "to": "expo/skills/expo-ui",
+      "reason": "Merged into expo-ui as a reference file.",
+      "evidence": [
+        "https://github.com/expo/skills/pull/80",
+        "https://github.com/expo/skills/blob/main/plugins/expo/skills/expo-ui/SKILL.md"
+      ],
+      "verifiedAt": "2026-11-27"
+    },
+    {
+      "from": "expo/skills/expo-ui-swift-ui",
+      "to": "expo/skills/expo-ui",
+      "reason": "Merged into expo-ui.",
+      "evidence": [
+        "https://github.com/expo/skills/pull/80",
+        "https://github.com/expo/skills/blob/main/plugins/expo/skills/expo-ui/SKILL.md"
+      ],
+      "verifiedAt": "2026-11-27"
+    },
+    {
+      "from": "expo/skills/expo-ui-swiftui",
+      "to": "expo/skills/expo-ui",
+      "reason": "Same skill as expo-ui-swift-ui, indexed from its earlier name \"Expo UI SwiftUI\". Merged into expo-ui.",
+      "evidence": [
+        "https://github.com/expo/skills/pull/24",
+        "https://github.com/expo/skills/pull/80",
+        "https://github.com/expo/skills/blob/main/plugins/expo/skills/expo-ui/SKILL.md"
+      ],
+      "verifiedAt": "2026-11-27"
+    },
+    {
+      "from": "expo/skills/native-data-fetching",
+      "to": "expo/skills/expo-data-fetching",
+      "reason": "Renamed to expo-data-fetching.",
+      "evidence": [
+        "https://github.com/expo/skills/pull/98",
+        "https://github.com/expo/skills/blob/main/plugins/expo/skills/expo-data-fetching/SKILL.md"
+      ],
+      "verifiedAt": "2026-11-27"
+    },
+    {
+      "from": "expo/skills/upgrading-expo",
+      "to": "expo/skills/expo-upgrade",
+      "reason": "Renamed to expo-upgrade.",
+      "evidence": [
+        "https://github.com/expo/skills/pull/98",
+        "https://github.com/expo/skills/blob/main/plugins/expo/skills/expo-upgrade/SKILL.md"
+      ],
+      "verifiedAt": "2026-11-27"
+    },
+    {
+      "from": "expo/skills/use-dom",
+      "to": "expo/skills/expo-dom",
+      "reason": "Renamed to expo-dom.",
+      "evidence": [
+        "https://github.com/expo/skills/pull/98",
+        "https://github.com/expo/skills/blob/main/plugins/expo/skills/expo-dom/SKILL.md"
+      ],
+      "verifiedAt": "2026-11-27"
+    },
+    {
+      "from": "expo/skills/web-to-native",
+      "to": "expo/skills/expo-web-to-native",
+      "reason": "Renamed to expo-web-to-native.",
+      "evidence": [
+        "https://github.com/expo/skills/pull/98",
+        "https://github.com/expo/skills/blob/main/plugins/expo/skills/expo-web-to-native/SKILL.md"
+      ],
+      "verifiedAt": "2026-11-27"
+    }
+  ],
+  "hidden": [
+    {
+      "skill": "expo/skills/expo-skill-feedback",
+      "reason": "Removed. Each skill now sends feedback through the Expo agent CLI, so this skill has no replacement.",
+      "evidence": [
+        "https://github.com/expo/skills/pull/250"
+      ],
+      "verifiedAt": "2026-11-27"
+    },
+    {
+      "skill": "expo/skills/expo-tailwind-setup",
+      "reason": "Removed. Expo no longer ships a Tailwind / NativeWind skill.",
+      "evidence": [
+        "https://github.com/expo/skills/pull/151"
+      ],
+      "verifiedAt": "2026-11-27"
+    },
+    {
+      "skill": "expo/skills/tailwind-setup",
+      "reason": "Renamed to expo-tailwind-setup, which was later removed.",
+      "evidence": [
+        "https://github.com/expo/skills/pull/6",
+        "https://github.com/expo/skills/pull/151"
+      ],
+      "verifiedAt": "2026-11-27"
+    }
+  ]
+}
