@@ -940,11 +940,15 @@ export async function runSync(args: string[], options: SyncOptions = {}): Promis
 
   for (const skill of toInstall) {
     for (const agent of targetAgents) {
+      // Eve rewrites SKILL.md frontmatter on install, which a link cannot do
+      const agentMode = agent === 'eve' ? 'copy' : mode;
       const result = await installSkillForAgent(skill, agent, {
         global: false,
         cwd,
-        // Eve rewrites SKILL.md frontmatter on install, which a link cannot do
-        mode: agent === 'eve' ? 'copy' : mode,
+        mode: agentMode,
+        // A copy has no shared .agents/skills copy to fall back on, so sync
+        // keeps creating the agent's directory for it.
+        createMissingAgentRoot: agentMode === 'copy',
       });
       results.push({
         skill: skill.name,

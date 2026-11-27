@@ -27,6 +27,7 @@ import {
   installWellKnownSkillForAgent,
   sanitizeName,
   setInstalledSkillName,
+  shouldSkipProjectAgentDir,
   type InstallMode,
 } from './installer.ts';
 import {
@@ -487,6 +488,37 @@ export function defaultInstallMode(targets: InstallTarget[]): InstallMode {
     targets.map((t) => (t.subagent ? `eve:subagent:${t.subagent}` : agents[t.agent].skillsDir))
   );
   return uniqueDirs.size <= 1 || allEve ? 'copy' : 'symlink';
+}
+
+/**
+ * Builds result lines for a copied skill: one line per distinct path, then the
+ * agents skipped because their project directory doesn't exist.
+ */
+function buildCopyResultLines(
+  skillName: string,
+  results: Array<{ agent: string; path: string; skipReason?: string }>,
+  cwd: string
+): string[] {
+  const lines = [`${pc.green('✓')} ${skillName} ${pc.dim('(copied)')}`];
+  const shortPaths = new Set<string>();
+  const skipped: string[] = [];
+  for (const r of results) {
+    if (r.skipReason === 'missing-agent-project-directory') {
+      skipped.push(r.agent);
+      continue;
+    }
+    const shortPath = shortenPath(r.path, cwd);
+    if (!shortPaths.has(shortPath)) {
+      shortPaths.add(shortPath);
+      lines.push(`  ${pc.dim('→')} ${shortPath}`);
+    }
+  }
+  if (skipped.length > 0) {
+    lines.push(
+      `  ${pc.yellow('skipped:')} ${formatList(skipped)} ${pc.dim('(project directory not found)')}`
+    );
+  }
+  return lines;
 }
 
 /**
@@ -1466,15 +1498,7 @@ async function handleWellKnownSkills(
 
       if (firstResult.mode === 'copy') {
         // Copy mode: show skill name and list all agent paths
-        resultLines.push(`${pc.green('✓')} ${skillName} ${pc.dim('(copied)')}`);
-        const shortPathsSet = new Set<string>();
-        for (const r of skillResults) {
-          const shortPath = shortenPath(r.path, cwd);
-          if (!shortPathsSet.has(shortPath)) {
-            shortPathsSet.add(shortPath);
-            resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
-          }
-        }
+        resultLines.push(...buildCopyResultLines(skillName, skillResults, cwd));
       } else {
         // Symlink mode: show canonical path and universal/symlinked agents
         if (firstResult.canonicalPath) {
@@ -1872,16 +1896,26 @@ export async function installToTargets(
   placement: InstallPlacement
 ): Promise<TargetInstallResult[]> {
   const results: TargetInstallResult[] = [];
+  const createsRoot = (agent: AgentType) => placement.createMissingAgentRoot?.(agent) ?? false;
+  const cwd = placement.cwd || process.cwd();
   for (const skill of skills) {
-    for (const target of placement.targets) {
-      if (placement.skip?.(skill, target)) continue;
+    const targets = placement.targets.filter((target) => !placement.skip?.(skill, target));
+    // Copy mode has no shared .agents/skills copy to fall back on, so when every
+    // target would be skipped for a missing project directory, create them
+    // instead of installing nowhere (#2058).
+    const createAllRoots =
+      placement.mode === 'copy' &&
+      targets.every(({ agent }) =>
+        shouldSkipProjectAgentDir(agent, placement.global, cwd, createsRoot(agent))
+      );
+    for (const target of targets) {
       const { agent, subagent } = target;
       const installOptions = {
         global: placement.global,
         cwd: placement.cwd,
         mode: placement.mode,
         eveSubagent: subagent,
-        createMissingAgentRoot: placement.createMissingAgentRoot?.(agent) ?? false,
+        createMissingAgentRoot: createAllRoots || createsRoot(agent),
       };
       let result;
       if (isWellKnownSourceSkill(skill)) {
@@ -3401,16 +3435,20 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
           });
           continue;
         }
+        // A skipped copy target has no files at its path; report one that was written.
+        const writtenResult =
+          skillResults.find((r) => r.skipReason !== 'missing-agent-project-directory') ??
+          skillResults[0];
         jsonResults.push({
           name,
           status: 'installed',
           source: jsonSource,
           ref: parsed.ref ?? null,
           hash: installedSkillHashes.get(name) ?? null,
-          path: skillResults[0]?.canonicalPath ?? skillResults[0]?.path,
+          path: writtenResult?.canonicalPath ?? writtenResult?.path,
           scope: installGlobally ? 'global' : 'project',
           agents: skillResults.filter((r) => !r.skipped).map((r) => r.agent),
-          mode: skillResults[0]?.mode ?? installMode,
+          mode: writtenResult?.mode ?? installMode,
           security: buildJsonSecurity(auditDataForJson, name, ownerRepoForAudit),
           ...(resolved.blobFallback && { fallback: resolved.blobFallback }),
         });
@@ -3459,15 +3497,7 @@ export async function runAdd(args: string[], options: AddOptions = {}): Promise<
 
           if (firstResult.mode === 'copy') {
             // Copy mode: show skill name and list all agent paths
-            resultLines.push(`${pc.green('✓')} ${entry.skill} ${pc.dim('(copied)')}`);
-            const shortPathsSet = new Set<string>();
-            for (const r of skillResults) {
-              const shortPath = shortenPath(r.path, cwd);
-              if (!shortPathsSet.has(shortPath)) {
-                shortPathsSet.add(shortPath);
-                resultLines.push(`  ${pc.dim('→')} ${shortPath}`);
-              }
-            }
+            resultLines.push(...buildCopyResultLines(entry.skill, skillResults, cwd));
           } else {
             // Symlink mode: show canonical path and universal/symlinked agents
             if (firstResult.canonicalPath) {

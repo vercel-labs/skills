@@ -243,6 +243,19 @@ describe('installSkills', () => {
     expect(lstatSync(join(cwd, '.claude/skills/beta')).isSymbolicLink()).toBe(true);
   });
 
+  it('copies into a missing agent directory when it is the only target (#2058)', async () => {
+    mkdirSync(join(process.env.HOME!, '.augment'), { recursive: true });
+    const result = await api.installSkills(source, {
+      cwd,
+      skills: ['alpha'],
+      config: { agents: { include: ['augment'] } },
+    });
+
+    expect(result.skipped).toEqual([]);
+    expect(result.installed.map((t) => [t.agent, t.mode])).toEqual([['augment', 'copy']]);
+    expect(existsSync(join(cwd, '.augment/skills/alpha/SKILL.md'))).toBe(true);
+  });
+
   it('reports agents config does not allow and installs into the rest', async () => {
     const result = await api.installSkills(source, {
       cwd,
