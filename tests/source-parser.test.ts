@@ -143,6 +143,34 @@ describe('parseSource', () => {
       expect(result.type).toBe('gitlab');
       expect(result.url).toBe('https://gitlab.com/group/subgroup/repo.git');
     });
+
+    // #2122: the GitLab UI adds ?ref_type=heads to every tree URL.
+    it.each([
+      [
+        'https://gitlab.com/owner/repo/-/tree/develop?ref_type=heads',
+        { type: 'gitlab', url: 'https://gitlab.com/owner/repo.git', ref: 'develop' },
+      ],
+      [
+        'https://gitlab.com/owner/repo/-/tree/main/src/skills?ref_type=heads',
+        {
+          type: 'gitlab',
+          url: 'https://gitlab.com/owner/repo.git',
+          ref: 'main',
+          subpath: 'src/skills',
+        },
+      ],
+      [
+        'https://gitlab.example.com/group/subgroup/repo/-/tree/v1.2.0/path/to/skill?ref_type=tags',
+        {
+          type: 'gitlab',
+          url: 'https://gitlab.example.com/group/subgroup/repo.git',
+          ref: 'v1.2.0',
+          subpath: 'path/to/skill',
+        },
+      ],
+    ])('GitLab URL - tree URL with a query: %s', (url, expected) => {
+      expect(parseSource(url)).toEqual(expected);
+    });
   });
 
   describe('Azure Repos URL tests', () => {

@@ -622,7 +622,9 @@ export function parseSource(
   // GitLab URL with path (any GitLab instance): https://gitlab.com/owner/repo/-/tree/branch/path
   // Key identifier is the "/-/tree/" path pattern unique to GitLab.
   // Supports subgroups by using a non-greedy match for the repository path.
-  const gitlabTreeWithPathMatch = input.match(
+  // The GitLab UI adds ?ref_type=heads, which is not part of the ref or path (#2122).
+  const gitlabTreeUrl = input.replace(/\?.*$/, '');
+  const gitlabTreeWithPathMatch = gitlabTreeUrl.match(
     /^(https?):\/\/([^/]+)\/(.+?)\/-\/tree\/([^/]+)\/(.+)/
   );
   if (gitlabTreeWithPathMatch) {
@@ -638,7 +640,7 @@ export function parseSource(
   }
 
   // GitLab URL with branch only (any GitLab instance): https://gitlab.com/owner/repo/-/tree/branch
-  const gitlabTreeMatch = input.match(/^(https?):\/\/([^/]+)\/(.+?)\/-\/tree\/([^/]+)$/);
+  const gitlabTreeMatch = gitlabTreeUrl.match(/^(https?):\/\/([^/]+)\/(.+?)\/-\/tree\/([^/]+)$/);
   if (gitlabTreeMatch) {
     const [, protocol, hostname, repoPath, ref] = gitlabTreeMatch;
     if (hostname !== 'github.com' && repoPath) {
