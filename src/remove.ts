@@ -25,6 +25,7 @@ import {
   getEveSubagentSkillsDir,
   isDirEntryOrSymlinkToDir,
   pathsOverlap,
+  resolveParentSymlinks,
   sanitizeName,
 } from './installer.ts';
 
@@ -473,6 +474,13 @@ export async function removeInstalledSkills(
               if (realCleanupPath && realCleanupPath === realCanonicalPath) {
                 continue;
               }
+            } else if (
+              (await resolveParentSymlinks(pathToCleanup)) ===
+              (await resolveParentSymlinks(canonicalPath))
+            ) {
+              // The canonical skill is itself a symlink, and through the parent
+              // link this entry is that same symlink, not a per-agent one.
+              continue;
             }
 
             if (

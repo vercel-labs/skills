@@ -7,6 +7,7 @@ import {
   writeFileSync,
   readdirSync,
   readFileSync,
+  renameSync,
   symlinkSync,
 } from 'fs';
 import { join } from 'path';
@@ -1011,6 +1012,23 @@ describe(
       expect(result.exitCode).toBe(0);
       expect(existsSync(join(fakeHome, '.agents', 'skills', skillName))).toBe(true);
       expect(existsSync(join(fakeHome, '.agents', 'skills', skillName, 'SKILL.md'))).toBe(true);
+    });
+
+    it('does not unlink a canonical skill that is itself a symlink', () => {
+      const canonical = join(fakeHome, '.agents', 'skills', skillName);
+      const source = join(testDir, 'dotfiles', skillName);
+      mkdirSync(join(testDir, 'dotfiles'));
+      renameSync(canonical, source);
+      symlinkSync(source, canonical);
+
+      const result = runCli(
+        ['remove', skillName, '--global', '-a', 'antigravity', '-y'],
+        fakeHome,
+        { HOME: fakeHome }
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(lstatSync(canonical, { throwIfNoEntry: false })?.isSymbolicLink()).toBe(true);
     });
 
     it('still removes a per-skill symlink that points at the canonical skill', () => {
