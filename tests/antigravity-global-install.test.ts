@@ -30,11 +30,20 @@ function makeSkill(root: string): string {
  * Runs a global `add -y`. With agentArgs it passes `-a`; without, the CLI picks
  * the agents it detects from the folders in homeDirs.
  */
-function install(agentArgs: string[], homeDirs: string[] = []) {
+function install(
+  agentArgs: string[],
+  homeDirs: string[] = [],
+  homeFiles: Record<string, string> = {}
+) {
   const root = mkdtempSync(join(tmpdir(), 'skills-antigravity-'));
   const home = join(root, 'home');
   mkdirSync(home, { recursive: true });
   for (const dir of homeDirs) mkdirSync(join(home, dir), { recursive: true });
+  for (const [relPath, content] of Object.entries(homeFiles)) {
+    const fullPath = join(home, relPath);
+    mkdirSync(dirname(fullPath), { recursive: true });
+    writeFileSync(fullPath, content);
+  }
   const agentFlag = agentArgs.length > 0 ? ['-a', ...agentArgs] : [];
   const result = runCli(['add', makeSkill(root), '-g', '-y', ...agentFlag], root, {
     HOME: home,
@@ -92,6 +101,52 @@ describe('Antigravity global install', () => {
     try {
       const link = join(home, '.gemini', 'config', 'skills', 'probe-skill');
       expect(existsSync(join(link, 'SKILL.md'))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('installs for Antigravity when ~/.gemini/antigravity-ide exists', () => {
+    const { root, home, result } = install([], ['.claude', '.gemini/antigravity-ide']);
+    try {
+      expect(result.exitCode).toBe(0);
+      const link = join(home, '.gemini', 'config', 'skills', 'probe-skill');
+      expect(existsSync(join(link, 'SKILL.md'))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('installs for Antigravity when ~/.gemini/config/skills exists', () => {
+    const { root, home, result } = install([], ['.claude', '.gemini/config/skills']);
+    try {
+      expect(result.exitCode).toBe(0);
+      const link = join(home, '.gemini', 'config', 'skills', 'probe-skill');
+      expect(existsSync(join(link, 'SKILL.md'))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('installs for Antigravity when ~/.gemini/config/config.json exists', () => {
+    const { root, home, result } = install([], ['.claude'], {
+      '.gemini/config/config.json': '{}',
+    });
+    try {
+      expect(result.exitCode).toBe(0);
+      const link = join(home, '.gemini', 'config', 'skills', 'probe-skill');
+      expect(existsSync(join(link, 'SKILL.md'))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not detect Antigravity when only Gemini CLI ~/.gemini/skills exists', () => {
+    const { root, home, result } = install([], ['.claude', '.gemini/skills']);
+    try {
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(join(home, '.agents', 'skills', 'probe-skill', 'SKILL.md'))).toBe(true);
+      expect(existsSync(join(home, '.gemini', 'config', 'skills'))).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
