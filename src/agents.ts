@@ -12,6 +12,7 @@ const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude'
 const vibeHome = process.env.VIBE_HOME?.trim() || join(home, '.vibe');
 const hermesHome = process.env.HERMES_HOME?.trim() || join(home, '.hermes');
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, '.autohand');
+const dshHome = process.env.DSH_HOME?.trim() || join(home, '.dsh');
 const grokHome = process.env.GROK_HOME?.trim() || join(home, '.grok');
 const sarvamHome = process.env.SARVAM_HOME?.trim() || join(home, '.sarvam');
 const reasonixHome =
@@ -294,6 +295,16 @@ export const agents: Record<AgentType, AgentConfig> = {
     showInUniversalPrompt: false,
     detectInstalled: async () => {
       return existsSync(join(home, '.deepagents'));
+    },
+  },
+  'deepseek-harness': {
+    name: 'deepseek-harness',
+    displayName: 'DeepSeek Harness',
+    // dsh reads the shared roots natively, so no dsh-specific copy is needed.
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents', 'skills'),
+    detectInstalled: async () => {
+      return existsSync(dshHome);
     },
   },
   devin: {
