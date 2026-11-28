@@ -6,7 +6,7 @@ Agent skills are reusable instructions that teach coding agents how to perform t
 from reviewing code to working with a library. Discover skills at [skills.sh](https://skills.sh).
 
 <!-- agent-list:start -->
-Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [75 more](docs/agents.md).
+Supports **OpenCode**, **Claude Code**, **Codex**, **Cursor**, and [76 more](docs/agents.md).
 <!-- agent-list:end -->
 
 <p>
