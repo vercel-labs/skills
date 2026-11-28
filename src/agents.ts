@@ -786,6 +786,15 @@ export const agents: Record<AgentType, AgentConfig> = {
       return existsSync(join(home, '.zencoder'));
     },
   },
+  nexus: {
+    name: 'nexus',
+    displayName: 'Nexus Code',
+    skillsDir: '.agents/skills',
+    globalSkillsDir: join(home, '.agents', 'skills'),
+    detectInstalled: async () => {
+      return existsSync(join(home, '.nexus')) || existsSync(join(configHome, 'nexus'));
+    },
+  },
   neovate: {
     name: 'neovate',
     displayName: 'Neovate',
