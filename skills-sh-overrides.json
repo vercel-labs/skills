@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "redirects": [
+    {
+      "from": "flowershow/flowershow/flowershow",
+      "to": "flowershow/skills/flowershow",
+      "reason": "The flowershow skill moved from the flowershow/flowershow app repository to the dedicated flowershow/skills repository. The old listing's install command (--skill flowershow) no longer finds a skill.",
+      "evidence": [
+        "https://github.com/flowershow/flowershow/pull/1282",
+        "https://github.com/flowershow/flowershow/commit/3d4786d07b942955141f89d1257ca0676809206c",
+        "https://github.com/flowershow/skills/blob/main/SKILL.md"
+      ],
+      "verifiedAt": "2026-10-25"
+    },
+    {
+      "from": "flowershow/agent-skills/site-setup",
+      "to": "flowershow/skills/flowershow",
+      "reason": "flowershow/agent-skills is archived. Site configuration (config.json) is now covered by the flowershow skill in flowershow/skills.",
+      "evidence": [
+        "https://github.com/flowershow/agent-skills",
+        "https://github.com/flowershow/skills/blob/main/SKILL.md"
+      ],
+      "verifiedAt": "2026-10-25"
+    }
+  ]
+}
